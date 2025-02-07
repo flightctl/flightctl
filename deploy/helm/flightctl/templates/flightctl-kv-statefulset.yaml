@@ -39,6 +39,7 @@ spec:
   selector:
     matchLabels:
       flightctl.service: flightctl-kv
+  podManagementPolicy: OrderedReady
   template:
     metadata:
       labels:

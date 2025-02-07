@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
+	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -108,11 +109,22 @@ func TestInitialize(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockPolicyManager := policy.NewMockManager(ctrl)
 	log := log.NewPrefixLogger("test")
+
+	queue := newPriorityQueue(
+		defaultSpecQueueMaxSize,
+		defaultSpecRequeueMaxRetries,
+		defaultSpecRequeueThreshold,
+		defaultSpecRequeueDelay,
+		mockPolicyManager,
+		log,
+	)
 
 	s := &manager{
 		deviceReadWriter: mockReadWriter,
 		cache:            newCache(log),
+		queue:            queue,
 	}
 
 	writeErr := errors.New("write failure")
@@ -120,8 +132,7 @@ func TestInitialize(t *testing.T) {
 	t.Run("error writing current file", func(t *testing.T) {
 		// current
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
-		err := s.Initialize()
-
+		err := s.Initialize(context.Background())
 		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
@@ -131,7 +142,7 @@ func TestInitialize(t *testing.T) {
 		// desired
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
-		err := s.Initialize()
+		err := s.Initialize(context.Background())
 		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
@@ -143,13 +154,14 @@ func TestInitialize(t *testing.T) {
 		// rollback
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(writeErr)
 
-		err := s.Initialize()
+		err := s.Initialize(context.Background())
 		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("successful initialization", func(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(3).Return(nil)
-		err := s.Initialize()
+		mockPolicyManager.EXPECT().IsReady(context.Background(), gomock.Any()).Return(true).Times(2)
+		err := s.Initialize(context.Background())
 		require.NoError(err)
 	})
 }
@@ -690,7 +702,7 @@ func TestRollback(t *testing.T) {
 		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(copyErr)
 		mockPriorityQueue.EXPECT().SetFailed(gomock.Any())
 
-		err := s.Rollback()
+		err := s.Rollback(context.Background(), WithSetFailed())
 		require.ErrorIs(err, errors.ErrCopySpec)
 	})
 
@@ -700,7 +712,8 @@ func TestRollback(t *testing.T) {
 		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(nil)
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(currentSpec, nil)
 		mockPriorityQueue.EXPECT().SetFailed(gomock.Any())
-		err = s.Rollback()
+		mockPriorityQueue.EXPECT().Add(gomock.Any(), gomock.Any())
+		err = s.Rollback(context.Background(), WithSetFailed())
 		require.NoError(err)
 	})
 }
@@ -1072,7 +1085,8 @@ func Test_getRenderedVersion(t *testing.T) {
 				isFailed = true
 			}
 			mockPriorityQueue.EXPECT().IsFailed(gomock.Any()).Return(isFailed)
-			renderedVersion := s.getRenderedVersion()
+			renderedVersion, err := s.getRenderedVersion()
+			require.NoError(err)
 			require.Equal(tt.expectedRenderedVersion, renderedVersion)
 		})
 	}

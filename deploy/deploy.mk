@@ -49,9 +49,9 @@ deploy-quadlets:
 	deploy/scripts/deploy_quadlets.sh
 
 kill-db:
-	sudo systemctl stop flightctl-db-standalone.service
+	systemctl --user stop flightctl-db-standalone.service
 
 kill-kv:
-	sudo systemctl stop flightctl-kv-standalone.service
+	systemctl --user stop flightctl-kv-standalone.service
 
 .PHONY: deploy-db deploy cluster

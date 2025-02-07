@@ -108,7 +108,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// orchestrates periodic fetching of device specs and pushing status updates
 	engine := NewEngine(
 		a.fetchSpecInterval,
-		func(ctx context.Context) { a.syncSpec(ctx, a.syncSpecFn) },
+		a.syncDeviceSpec,
 		a.statusUpdateInterval,
 		a.statusUpdate,
 	)
@@ -187,7 +187,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 	return nil
 }
 
-func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error) {
+func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	startTime := time.Now()
 	a.log.Debug("Starting sync of device spec")
 	defer func() {
@@ -205,35 +205,62 @@ func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, d
 		return
 	}
 
-	if err := syncFn(ctx, desired); err != nil {
+	current, err := a.specManager.Read(spec.Current)
+	if err != nil {
+		a.log.Errorf("Failed to get current spec: %v", err)
+		return
+	}
+
+	if err := a.sync(ctx, current, desired); err != nil {
 		// if context is canceled return to exit the sync loop
 		if errors.Is(err, context.Canceled) {
 			return
 		}
+
+		if err := a.rollbackSpec(ctx, current, desired); err != nil {
+			a.log.Errorf("Failed to rollback: %v", err)
+			return
+		}
+
 		a.handleSyncError(ctx, desired, err)
 		return
-	}
-}
-
-func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	current, err := a.specManager.Read(spec.Current)
-	if err != nil {
-		return err
-	}
-
-	if err := a.sync(ctx, current, desired); err != nil {
-		return err
 	}
 
 	// reconciliation is a success, upgrade the current spec
 	if err := a.specManager.Upgrade(ctx); err != nil {
-		return err
+		a.log.Errorf("Failed to upgrade spec: %v", err)
+		return
 	}
 
 	if err := a.updatedStatus(ctx, desired); err != nil {
 		a.log.Warnf("Failed updating status: %v", err)
 	}
+}
 
+func (a *Agent) rollbackSpec(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+	a.log.Warnf("Attempting to roll back to previous renderedVersion: %s", current.RenderedVersion)
+	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceUpdating,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.UpdateStateRollingBack),
+		Message: "The device is rolling back to the previous renderedVersion: " + current.RenderedVersion,
+	})
+	if updateErr != nil {
+		a.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
+	if err := a.specManager.Rollback(ctx); err != nil {
+		return err
+	}
+
+	// note: we are explicitly reversing the order of the current and desired to
+	// ensure a clean rollback state.
+	if err := a.sync(ctx, desired, current); err != nil {
+		// log error and continue to ensure the device is in a consistent state
+		a.log.Errorf("Failed to sync roll back spec: %v", err)
+	}
+
+	a.log.Warnf("Rolled back to previous renderedVersion: %s", current.RenderedVersion)
 	return nil
 }
 
@@ -479,11 +506,13 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
 
-		a.specManager.SetUpgradeFailed()
+		if err := a.specManager.SetUpgradeFailed(desired.RenderedVersion); err != nil {
+			a.log.Errorf("Failed to set upgrade failed: %v", err)
+		}
 		a.log.Error(lo.FromPtr(statusUpdate.Info))
 	} else {
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
-		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
+		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Failed to sync device: Retrying: %v", syncErr))
 
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateApplyingUpdate)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)

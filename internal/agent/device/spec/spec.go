@@ -20,8 +20,10 @@ const (
 
 	// defaultMaxRetries is the default number of retries for a spec item set to 0 for infinite retries.
 	defaultSpecRequeueMaxRetries = 0
-	defaultSpecQueueMaxSize      = 1
-	defaultSpecRequeueThreshold  = 1
+	// defaultSpecQueueMaxSize is the default maximum number of items in the queue.
+	defaultSpecQueueMaxSize = 1
+	// defaultSpecRequeueThreshold is the default number of retries before enforcing a requeue delay.
+	defaultSpecRequeueThreshold = 5
 	// defaultSpecRequeueDelay is the default delay between requeue attempts.
 	defaultSpecRequeueDelay = 5 * time.Minute
 )
@@ -29,7 +31,7 @@ const (
 type Manager interface {
 	// Initialize initializes the current, desired and rollback spec files on
 	// disk. If the files already exist, they are overwritten.
-	Initialize() error
+	Initialize(ctx context.Context) error
 	// Ensure ensures that spec files exist on disk and re initializes them if they do not.
 	Ensure() error
 	// RenderedVersion returns the rendered version of the specified spec type.
@@ -42,7 +44,7 @@ type Manager interface {
 	// and resets the rollback spec.
 	Upgrade(ctx context.Context) error
 	// SetUpgradeFailed marks the desired rendered spec as failed.
-	SetUpgradeFailed()
+	SetUpgradeFailed(version string) error
 	// IsUpdating returns true if the device is in the process of reconciling the desired spec.
 	IsUpgrading() bool
 	// IsOSUpdate returns true if an OS update is in progress by checking the current rendered spec.
@@ -56,7 +58,7 @@ type Manager interface {
 	// ClearRollback clears the rollback rendered spec.
 	ClearRollback() error
 	// Rollback reverts the device to the state of the rollback rendered spec.
-	Rollback() error
+	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// SetClient sets the management API client.
 	SetClient(client.Management)
 	// GetDesired returns the desired rendered device spec from the management API.
@@ -72,11 +74,11 @@ type PriorityQueue interface {
 	// Next returns the next spec to process
 	Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool)
 	// Remove removes a spec from the scheduler
-	Remove(version string)
+	Remove(version int64)
 	// SetFailed marks a rendered spec version as failed
-	SetFailed(version string)
+	SetFailed(version int64)
 	// IsFailed returns true if a version is marked as failed
-	IsFailed(version string) bool
+	IsFailed(version int64) bool
 	// CheckPolicy validates the update policy is ready to process.
 	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
 }
