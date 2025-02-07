@@ -1,0 +1,6 @@
+FROM quay.io/centos-bootc/centos-bootc:stream9
+
+# Copy quadlet files
+COPY ./podman/flightctl-db/flightctl-db.container /etc/containers/systemd/users/
+COPY ./podman/flightctl.slice /etc/containers/systemd/users/
+COPY ./podman/flightctl.network /etc/containers/systemd/users/

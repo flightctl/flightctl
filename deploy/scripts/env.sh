@@ -2,6 +2,7 @@
 
 export SYSTEMD_DIR="$HOME/.config/containers/systemd"
 export CONFIG_DIR="$HOME/.config/flightctl"
+export TEMPLATE_DIR="deploy/podman"
 
 # Reloads systemd config and start the service
 start_service() {

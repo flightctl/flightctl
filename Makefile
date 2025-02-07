@@ -227,5 +227,6 @@ fix-spelling:
 # include the deployment targets
 include deploy/deploy.mk
 include deploy/agent-vm.mk
+include deploy/bootc.mk
 include test/test.mk
 include test/scripts/agent-images/agent-images.mk

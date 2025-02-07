@@ -8,3 +8,4 @@
 /packaging/rpm/flightctl-*-vendor.tar.bz2
 flightctl-*.rpm
 *.tar
+deploy/bootc/output
