@@ -75,7 +75,7 @@ func (o *DeleteOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *DeleteOptions) Run(ctx context.Context, args []string) error { //nolint:gocyclo
+func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
@@ -91,8 +91,6 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error { //nolint
 	switch {
 	case kind == DeviceKind && len(name) > 0:
 		response, err = c.DeleteDeviceWithResponse(ctx, name)
-	case kind == DeviceKind && len(name) == 0:
-		response, err = c.DeleteDevicesWithResponse(ctx)
 	case kind == EnrollmentRequestKind && len(name) > 0:
 		response, err = c.DeleteEnrollmentRequestWithResponse(ctx, name)
 	case kind == EnrollmentRequestKind && len(name) == 0:

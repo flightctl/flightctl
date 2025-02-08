@@ -48,9 +48,6 @@ type ServerInterface interface {
 	// (PUT /api/v1/certificatesigningrequests/{name}/approval)
 	UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string)
 
-	// (DELETE /api/v1/devices)
-	DeleteDevices(w http.ResponseWriter, r *http.Request)
-
 	// (GET /api/v1/devices)
 	ListDevices(w http.ResponseWriter, r *http.Request, params ListDevicesParams)
 
@@ -262,11 +259,6 @@ func (_ Unimplemented) ReplaceCertificateSigningRequest(w http.ResponseWriter, r
 
 // (PUT /api/v1/certificatesigningrequests/{name}/approval)
 func (_ Unimplemented) UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (DELETE /api/v1/devices)
-func (_ Unimplemented) DeleteDevices(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -803,21 +795,6 @@ func (siw *ServerInterfaceWrapper) UpdateCertificateSigningRequestApproval(w htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCertificateSigningRequestApproval(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// DeleteDevices operation middleware
-func (siw *ServerInterfaceWrapper) DeleteDevices(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteDevices(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2462,9 +2439,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/api/v1/certificatesigningrequests/{name}/approval", wrapper.UpdateCertificateSigningRequestApproval)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/devices", wrapper.DeleteDevices)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices", wrapper.ListDevices)
 	})
 	r.Group(func(r chi.Router) {
@@ -3175,49 +3149,6 @@ func (response UpdateCertificateSigningRequestApproval409JSONResponse) VisitUpda
 type UpdateCertificateSigningRequestApproval503JSONResponse Error
 
 func (response UpdateCertificateSigningRequestApproval503JSONResponse) VisitUpdateCertificateSigningRequestApprovalResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteDevicesRequestObject struct {
-}
-
-type DeleteDevicesResponseObject interface {
-	VisitDeleteDevicesResponse(w http.ResponseWriter) error
-}
-
-type DeleteDevices200JSONResponse Status
-
-func (response DeleteDevices200JSONResponse) VisitDeleteDevicesResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteDevices401JSONResponse Error
-
-func (response DeleteDevices401JSONResponse) VisitDeleteDevicesResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteDevices403JSONResponse Error
-
-func (response DeleteDevices403JSONResponse) VisitDeleteDevicesResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteDevices503JSONResponse Error
-
-func (response DeleteDevices503JSONResponse) VisitDeleteDevicesResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
 
@@ -6389,9 +6320,6 @@ type StrictServerInterface interface {
 	// (PUT /api/v1/certificatesigningrequests/{name}/approval)
 	UpdateCertificateSigningRequestApproval(ctx context.Context, request UpdateCertificateSigningRequestApprovalRequestObject) (UpdateCertificateSigningRequestApprovalResponseObject, error)
 
-	// (DELETE /api/v1/devices)
-	DeleteDevices(ctx context.Context, request DeleteDevicesRequestObject) (DeleteDevicesResponseObject, error)
-
 	// (GET /api/v1/devices)
 	ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error)
 
@@ -6856,30 +6784,6 @@ func (sh *strictHandler) UpdateCertificateSigningRequestApproval(w http.Response
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateCertificateSigningRequestApprovalResponseObject); ok {
 		if err := validResponse.VisitUpdateCertificateSigningRequestApprovalResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteDevices operation middleware
-func (sh *strictHandler) DeleteDevices(w http.ResponseWriter, r *http.Request) {
-	var request DeleteDevicesRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteDevices(ctx, request.(DeleteDevicesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteDevices")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteDevicesResponseObject); ok {
-		if err := validResponse.VisitDeleteDevicesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
