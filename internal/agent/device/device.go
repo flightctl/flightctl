@@ -217,6 +217,11 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
+		if !a.specManager.IsUpgrading() {
+			a.log.Errorf("Steady state is no longer in sync: %v", syncErr)
+			return
+		}
+
 		if !errors.IsRetryable(syncErr) {
 			a.log.Errorf("Marking template version %v as failed: %v", desired.RenderedVersion, syncErr)
 			if err := a.specManager.SetUpgradeFailed(desired.RenderedVersion); err != nil {
