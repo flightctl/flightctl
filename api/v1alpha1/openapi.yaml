@@ -3,7 +3,7 @@ info:
   title: Flight Control API
   version: v1alpha1
   description: |
-    [Flight Control](https://github.com/flightctl/flightctl) is a service for declarative management of fleets of edge devices and their workloads.
+    [Flight Control](https://flightctl.io) is a service for declarative management of fleets of edge devices and their workloads.
   contact:
     name: The Flight Control Team
     url: https://flightctl.io

@@ -1,5 +1,5 @@
 [Unit]
-Description=FlightCtl Periodic service
+Description=Flight Control Periodic service
 After=flightctl-db.service
 Requires=flightctl-db.service
 
