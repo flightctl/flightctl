@@ -559,6 +559,9 @@ type DeviceSummaryStatusType string
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 type DeviceSystemInfo struct {
+	// AgentVersion The Agent version.
+	AgentVersion string `json:"agentVersion"`
+
 	// Architecture The Architecture reported by the device.
 	Architecture string `json:"architecture"`
 
