@@ -72,9 +72,27 @@ type AuthInfo struct {
 	// ClientKeyData contains PEM-encoded data from a client key file for TLS. Overrides ClientKey.
 	// +optional
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
+	// The authentication type (i.e. k8s, OIDC)
+	// +optional
+	AuthType string `json:"auth-type"`
 	// Bearer token for authentication
 	// +optional
-	Token string `json:"token,omitempty"`
+	AccessToken string `json:"access-token,omitempty"`
+	// Use for refreshing the access token
+	// +optional
+	RefreshToken string `json:"refresh-token,omitempty"`
+	// The time the access token will expire
+	// +optional
+	AccessTokenExpiry string `json:"access-token-expiry"`
+	// CA file used for authentication
+	// +optional
+	AuthCAFile string `json:"auth-ca-file"`
+	// Client ID used for authentication
+	// +optional
+	ClientId string `json:"client-id"`
+	// Authorization URL for authentication
+	// +optional
+	AuthURL string `json:"auth-url"`
 }
 
 func (c *Config) Equal(c2 *Config) bool {
@@ -178,8 +196,9 @@ func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
 	}
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.GetReqID())
-		if config.AuthInfo.Token != "" {
-			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", config.AuthInfo.Token))
+		accessToken := GetAccessToken(config)
+		if accessToken != "" {
+			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
 		}
 		return nil
 	})

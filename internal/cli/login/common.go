@@ -37,6 +37,13 @@ func getAuthClientTransport(authCAFile string, insecureSkipVerify bool) (*http.T
 	return authTransport, nil
 }
 
+type AuthInfo struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    *int32
+}
+
 type AuthProvider interface {
-	Auth(web bool, username, password string) (string, error)
+	Auth(web bool, username, password string) (AuthInfo, error)
+	Renew(refreshToken string) (AuthInfo, error)
 }
