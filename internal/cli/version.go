@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -115,6 +116,10 @@ func (o *VersionOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		serviceVersion = o.processResponse(nil, err)
 	} else {
+		// Call a function with a context timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
 		response, err := c.GetVersionWithResponse(ctx)
 		serviceVersion = o.processResponse(response, err)
 	}

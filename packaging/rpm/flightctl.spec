@@ -23,7 +23,7 @@ URL:            %{gourl}
 
 Source0:        1%{?dist}
 
-BuildRequires:  golang
+BuildRequires:  go
 BuildRequires:  make
 BuildRequires:  git
 BuildRequires:  openssl-devel
@@ -65,7 +65,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs}
+%setup -q %{forgesetupargs} -n flightctl-0.4.0~27~gdabba65d
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -75,9 +75,9 @@ The flightctl-selinux package provides the SELinux policy modules required by th
         export GOPROXY='https://proxy.golang.org,direct'
     fi
 
-    SOURCE_GIT_TAG=%{version} \
+    SOURCE_GIT_TAG=$(echo %{version} | tr '~' '-')\
     SOURCE_GIT_TREE_STATE=clean \
-    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'~g' '{print $2}') \
+    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'-g' '{print $2}') \
     SOURCE_GIT_TAG_NO_V=%{version} \
     make build-cli build-agent
 
@@ -166,10 +166,8 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
 %changelog
-
 * Fri Feb 7 2025 Miguel Angel Ajo <majopela@redhat.com> - 0.4.0-1
 - Add selinux support for console pty access
-
 * Mon Nov 4 2024 Miguel Angel Ajo <majopela@redhat.com> - 0.3.0-1
 - Move the Release field to -1 so we avoid auto generating packages
   with -5 all the time.
