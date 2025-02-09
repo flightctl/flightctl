@@ -16,7 +16,7 @@ URL:            %{gourl}
 
 Source0:        %{name}-%{version}.tar.gz
 
-BuildRequires:  golang
+BuildRequires:  go1.22.5
 BuildRequires:  make
 BuildRequires:  git
 BuildRequires:  openssl-devel
