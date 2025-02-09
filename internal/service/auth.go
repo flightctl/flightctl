@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 )
@@ -37,7 +38,7 @@ func (h *ServiceHandler) AuthValidate(ctx context.Context, request server.AuthVa
 	}
 	valid, err := authn.ValidateToken(ctx, token)
 	if err != nil {
-		return server.AuthValidate500JSONResponse{Message: err.Error()}, nil
+		return server.AuthValidate500JSONResponse(api.StatusInternalServerError(err.Error())), nil
 	}
 	if !valid {
 		return server.AuthValidate401Response{}, nil
