@@ -233,7 +233,7 @@ type CertificateSigningRequest struct {
 	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec.
 	Spec CertificateSigningRequestSpec `json:"spec"`
 
-	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 	Status *CertificateSigningRequestStatus `json:"status,omitempty"`
 }
 
@@ -276,7 +276,7 @@ type CertificateSigningRequestSpec struct {
 	Username *string `json:"username,omitempty"`
 }
 
-// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 type CertificateSigningRequestStatus struct {
 	// Certificate The issued signed certificate, immutable once populated.
 	Certificate *[]byte `json:"certificate,omitempty"`

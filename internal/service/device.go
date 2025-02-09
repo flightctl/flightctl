@@ -8,7 +8,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -20,15 +19,6 @@ import (
 
 // (POST /api/v1/devices)
 func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "create")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.CreateDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.CreateDevice403JSONResponse{Message: Forbidden}, nil
-	}
-
 	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
 		return server.CreateDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
@@ -61,18 +51,12 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 
 // (GET /api/v1/devices)
 func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListDevices503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ListDevices403JSONResponse{Message: Forbidden}, nil
-	}
-
 	orgId := store.NullOrgId
 
-	var fieldSelector *selector.FieldSelector
+	var (
+		fieldSelector *selector.FieldSelector
+		err           error
+	)
 	if request.Params.FieldSelector != nil {
 		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
 			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
@@ -149,17 +133,9 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 
 // (DELETE /api/v1/devices)
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteDevices503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteDevices403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
-	err = h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
+	err := h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevices200JSONResponse{}, nil
@@ -170,14 +146,6 @@ func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.Delet
 
 // (GET /api/v1/devices/{name})
 func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDeviceRequestObject) (server.ReadDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadDevice403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -201,15 +169,6 @@ func DeviceVerificationCallback(before, after *api.Device) error {
 
 // (PUT /api/v1/devices/{name})
 func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceDevice403JSONResponse{Message: Forbidden}, nil
-	}
-
 	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
 		return server.ReplaceDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
@@ -253,17 +212,9 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 
 // (DELETE /api/v1/devices/{name})
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteDevice403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
-	err = h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
+	err := h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
 	switch {
 	case err == nil:
 		return server.DeleteDevice200JSONResponse{}, nil
@@ -276,14 +227,6 @@ func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.Delete
 
 // (GET /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.ReadDeviceStatusRequestObject) (server.ReadDeviceStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/status", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadDeviceStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadDeviceStatus403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -299,41 +242,17 @@ func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.Re
 
 // (PUT /api/v1/devices/{name}/status)
 func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/status", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceDeviceStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceDeviceStatus403JSONResponse{Message: Forbidden}, nil
-	}
 	return common.ReplaceDeviceStatus(ctx, h.store, h.log, request)
 }
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/rendered", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.GetRenderedDeviceSpec503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.GetRenderedDeviceSpec403JSONResponse{Message: Forbidden}, nil
-	}
 	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.agentEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDeviceRequestObject) (server.PatchDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "patch")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.PatchDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.PatchDevice403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.Device().Get(ctx, orgId, request.Name)
@@ -408,15 +327,6 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, request server.P
 
 // (PUT /api/v1/devices/{name}/decommission)
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decommission", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DecommissionDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DecommissionDevice403JSONResponse{Message: Forbidden}, nil
-	}
-
 	orgId := store.NullOrgId
 	deviceObj, err := h.store.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
