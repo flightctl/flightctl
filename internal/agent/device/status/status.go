@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/version"
 )
 
 var _ Manager = (*StatusManager)(nil)
@@ -196,9 +197,11 @@ func SetOSImage(osStatus v1alpha1.DeviceOsStatus) UpdateStatusFn {
 }
 
 func systemInfoStatus(bootID string, status *v1alpha1.DeviceStatus) {
+	agentVersion := version.Get()
 	status.SystemInfo = v1alpha1.DeviceSystemInfo{
 		Architecture:    runtime.GOARCH,
 		OperatingSystem: runtime.GOOS,
 		BootID:          bootID,
+		AgentVersion:    agentVersion.GitVersion,
 	}
 }
