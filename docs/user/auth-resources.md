@@ -53,7 +53,7 @@ The table below contains the routes, names, resource names, and verbs for flight
 |`GET /api/v1/resourcesyncs/{name}`|`ReadResourceSync`|`resourcesyncs`|`get`|
 |`PUT /api/v1/resourcesyncs/{name}`|`ReplaceResourceSync`|`resourcesyncs`|`update`|
 |`DELETE /api/v1/resourcesyncs/{name}`|`DeleteResourceSync`|`resourcesyncs`|`delete`|
-|`GET /api/v1/api/v1/fleets/{fleet}/templateVersions`|`ListTemplateVersions`|`fleets/templateversions`|`list`|
-|`DELETE /api/v1/api/v1/fleets/{fleet}/templateVersions`|`DeleteTemplateVersions`|`fleets/templateversions`|`deletecollection`|
+|`GET /api/v1/fleets/{fleet}/templateVersions`|`ListTemplateVersions`|`fleets/templateversions`|`list`|
+|`DELETE /api/v1/fleets/{fleet}/templateVersions`|`DeleteTemplateVersions`|`fleets/templateversions`|`deletecollection`|
 |`GET /api/v1/fleets/{fleet}/templateVersions/{name}`|`ReadTemplateVersion`|`fleets/templateversions`|`get`|
 |`DELETE /api/v1/fleets/{fleet}/templateVersions/{name}`|`DeleteTemplateVersion`|`fleets/templateversions`|`delete`|

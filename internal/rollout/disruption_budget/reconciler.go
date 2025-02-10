@@ -17,7 +17,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const DisruptionBudgetReconcilationInterval = 30 * time.Second
+const (
+	DisruptionBudgetReconcilationInterval = 30 * time.Second
+	maxItemsToRender                      = 1000
+)
 
 type Reconciler interface {
 	Reconcile(ctx context.Context)
@@ -70,24 +73,6 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 		return fmt.Errorf("template version doesn't exist")
 	}
 	listParams := store.ListParams{
-		Limit: numToRender,
-
-		// The list of labels is converted to MatchExpressions.  In case that the label does not exist
-		// (nil value), then the query requests explicitly that the label should not exist.
-		LabelSelector: selector.NewLabelSelectorOrDie(strings.Join(lo.MapToSlice(key, func(k string, v any) string {
-			if v == nil {
-				return api.MatchExpression{
-					Key:      k,
-					Operator: api.DoesNotExist,
-				}.String()
-			}
-			return api.MatchExpression{
-				Key:      k,
-				Operator: api.In,
-				Values:   lo.ToPtr([]string{v.(string)}),
-			}.String()
-		}), ",")),
-
 		// The query should get only devices that are ready for rendering
 		// but have not been rendered yet.  It means that the annotation 'device-controller/templateVersion'
 		// is equal to the expected template version but the annotation 'device-controller/renderedTemplateVersion'
@@ -106,13 +91,49 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 		}, ",")),
 		FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name))}),
 	}
-	devices, err := r.store.Device().List(ctx, orgId, listParams)
-	if err != nil {
-		return err
+	if len(key) > 0 {
+		// The list of labels is converted to MatchExpressions.  In case that the label does not exist
+		// (nil value), then the query requests explicitly that the label should not exist.
+		var labelSelectorParts []string
+		for k, v := range key {
+			switch val := v.(type) {
+			case nil:
+				labelSelectorParts = append(labelSelectorParts, api.MatchExpression{
+					Key:      k,
+					Operator: api.DoesNotExist,
+				}.String())
+			case string:
+				labelSelectorParts = append(labelSelectorParts, api.MatchExpression{
+					Key:      k,
+					Operator: api.In,
+					Values:   lo.ToPtr([]string{val}),
+				}.String())
+			default:
+				return fmt.Errorf("unexpected type %T for label %s", v, k)
+			}
+		}
+		listParams.LabelSelector = selector.NewLabelSelectorOrDie(strings.Join(labelSelectorParts, ","))
 	}
-	for _, d := range devices.Items {
-		r.log.Infof("%v/%s: sending device to rendering", orgId, lo.FromPtr(d.Metadata.Name))
-		r.callbackManager.DeviceSourceUpdated(orgId, lo.FromPtr(d.Metadata.Name))
+	remaining := lo.Ternary(numToRender > 0, numToRender, math.MaxInt)
+	for {
+		listParams.Limit = util.Min(remaining, maxItemsToRender)
+		devices, err := r.store.Device().List(ctx, orgId, listParams)
+		if err != nil {
+			return err
+		}
+		for _, d := range devices.Items {
+			r.log.Infof("%v/%s: sending device to rendering", orgId, lo.FromPtr(d.Metadata.Name))
+			r.callbackManager.DeviceSourceUpdated(orgId, lo.FromPtr(d.Metadata.Name))
+		}
+		remaining = remaining - len(devices.Items)
+		if devices.Metadata.Continue == nil || remaining == 0 {
+			break
+		}
+		cont, err := store.ParseContinueString(devices.Metadata.Continue)
+		if err != nil {
+			return fmt.Errorf("failed to parse continuation for paging: %w", err)
+		}
+		listParams.Continue = cont
 	}
 	return nil
 }
@@ -121,6 +142,12 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	r.log.Infof("disruption budget: starting reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 	defer r.log.Infof("disruption budget: finished reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 
+	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DisruptionBudget == nil {
+		if err := r.reconcileSelectionDevices(ctx, orgId, fleet, nil, 0); err != nil {
+			return fmt.Errorf("reconcileSelectionDevices: %w", err)
+		}
+		return nil
+	}
 	maxUnavailable := fleet.Spec.RolloutPolicy.DisruptionBudget.MaxUnavailable
 	minAvailable := fleet.Spec.RolloutPolicy.DisruptionBudget.MinAvailable
 	if maxUnavailable == nil && minAvailable == nil {
@@ -142,7 +169,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		}
 		if numToRender > 0 {
 			if err = r.reconcileSelectionDevices(ctx, orgId, fleet, count.key, numToRender); err != nil {
-				return fmt.Errorf("reconcileSelectionDevices: %v", err)
+				return fmt.Errorf("reconcileSelectionDevices: %w", err)
 			}
 		}
 	}
@@ -160,9 +187,6 @@ func (r *reconciler) Reconcile(ctx context.Context) {
 	}
 	for i := range fleetList.Items {
 		fleet := &fleetList.Items[i]
-		if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DisruptionBudget == nil {
-			continue
-		}
 		annotations := lo.FromPtr(fleet.Metadata.Annotations)
 		if annotations == nil {
 			continue

@@ -386,9 +386,9 @@ func (o *GetOptions) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.
 
 func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 	if o.Output == wideFormat {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
+		_, _ = fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
 	} else {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+		_, _ = fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	}
 	for _, d := range devices {
 		lastSeen := "<never>"
@@ -399,7 +399,7 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 		if d.Metadata.Labels != nil {
 			alias = (*d.Metadata.Labels)["alias"]
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
 			*d.Metadata.Name,
 			alias,
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
@@ -409,9 +409,9 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 			lastSeen,
 		)
 		if o.Output == wideFormat {
-			fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
+			_, _ = fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
 		} else {
-			fmt.Fprintln(w)
+			_, _ = fmt.Fprintln(w)
 		}
 	}
 }
@@ -435,7 +435,11 @@ func (o *GetOptions) printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...ap
 }
 
 func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID\tDEVICES")
+	header := "NAME\tOWNER\tSELECTOR\tVALID"
+	if o.Summary {
+		header += "\tDEVICES"
+	}
+	fmt.Fprintln(w, header)
 	for i := range fleets {
 		f := fleets[i]
 		selector := "<none>"
@@ -454,17 +458,23 @@ func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) 
 				valid = string(api.ConditionStatusFalse)
 			}
 		}
+
 		numDevices := "Unknown"
-		if f.Status.DevicesSummary != nil {
+		if o.Summary && f.Status.DevicesSummary != nil {
 			numDevices = fmt.Sprintf("%d", f.Status.DevicesSummary.Total)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s",
 			*f.Metadata.Name,
 			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
 			selector,
 			valid,
-			numDevices,
 		)
+
+		if o.Summary {
+			fmt.Fprintf(w, "\t%s", numDevices)
+		}
+		fmt.Fprintln(w)
 	}
 }
 

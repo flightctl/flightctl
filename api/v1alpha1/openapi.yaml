@@ -3231,6 +3231,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
 components:
   schemas:
     DeviceDecommissionTargetType:
@@ -3925,6 +3926,7 @@ components:
         - architecture
         - bootID
         - operatingSystem
+        - agentVersion
       type: object
       properties:
         architecture:
@@ -3936,6 +3938,9 @@ components:
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
+        agentVersion:
+          type: string
+          description: The Agent version.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
     DeviceApplicationStatus:
       type: object
@@ -4446,7 +4451,6 @@ components:
 
     Percentage:
       type: string
-      format: '^(100|[1-9]?[0-9])%$'
       description: Percentage is the string format representing percentage string.
 
     Batch:
@@ -5004,7 +5008,7 @@ components:
         - signerName
       type: object
     CertificateSigningRequestStatus:
-      description: Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+      description: Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
       properties:
         certificate:
           description: The issued signed certificate, immutable once populated.

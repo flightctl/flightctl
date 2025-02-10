@@ -153,7 +153,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	authMiddleware, err := auth.CreateAuthMiddleware(s.cfg, s.log)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed creating Auth Middleware: %w", err)
 	}
 
 	router := chi.NewRouter()
@@ -167,9 +167,10 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.Logger,
 		middleware.Recoverer,
 		authMiddleware,
+		auth.CreatePermissionsMiddleware(s.log),
 	)
 
-	// a group is a new mux copy, with it's own copy of the middleware stack
+	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service
 	router.Group(func(r chi.Router) {
 		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack

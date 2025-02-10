@@ -45,6 +45,8 @@ const (
 	FleetAnnotationRolloutApprovalMethod = "fleet-controller/rolloutApprovalMethod"
 	// A report specifying the completion report of the last batch
 	FleetAnnotationLastBatchCompletionReport = "fleet-controller/lastBatchCompletionReport"
+	// A frozen digest of device selection definition during rollout
+	FleetAnnotationDeviceSelectionConfigDigest = "fleet-controller/deviceSelectionConfigDigest"
 
 	RepositoryAPIVersion = "v1alpha1"
 	RepositoryKind       = "Repository"
