@@ -9,10 +9,14 @@ RUN go build flightctl-installer.go
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
 # Copy the installer binary
-COPY --from=builder /build/flightctl-installer /usr/bin
+COPY --from=builder /build/flightctl-installer /usr/bin/
 
 # Copy quadlet files
 COPY ./podman/flightctl-db/flightctl-db.container.template /etc/flightctl/flightctl-db/
+COPY ./podman/flightctl-db/flightctl-db.volume /etc/flightctl/flightctl-db/
+COPY ./podman/flightctl-kv/flightctl-kv.container.template /etc/flightctl/flightctl-kv/
+COPY ./podman/flightctl-kv/flightctl-kv.volume /etc/flightctl/flightctl-kv/
 COPY ./podman/config.yaml /etc/flightctl/
 COPY ./podman/flightctl.slice /etc/flightctl/
-COPY ./podman/flightctl.network /etc/flightctl
+COPY ./podman/flightctl.network /etc/flightctl/
+COPY ./podman/flightctl-kv/flightctl-kv-config/redis.conf /etc/flightctl/
