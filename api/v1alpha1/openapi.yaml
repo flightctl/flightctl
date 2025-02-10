@@ -4451,7 +4451,6 @@ components:
 
     Percentage:
       type: string
-      format: '^(100|[1-9]?[0-9])%$'
       description: Percentage is the string format representing percentage string.
 
     Batch:
