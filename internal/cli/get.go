@@ -435,7 +435,11 @@ func (o *GetOptions) printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...ap
 }
 
 func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID\tDEVICES")
+	header := "NAME\tOWNER\tSELECTOR\tVALID"
+	if o.Summary {
+		header += "\tDEVICES"
+	}
+	fmt.Fprintln(w, header)
 	for i := range fleets {
 		f := fleets[i]
 		selector := "<none>"
@@ -454,17 +458,23 @@ func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) 
 				valid = string(api.ConditionStatusFalse)
 			}
 		}
+
 		numDevices := "Unknown"
-		if f.Status.DevicesSummary != nil {
+		if o.Summary && f.Status.DevicesSummary != nil {
 			numDevices = fmt.Sprintf("%d", f.Status.DevicesSummary.Total)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s",
 			*f.Metadata.Name,
 			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
 			selector,
 			valid,
-			numDevices,
 		)
+
+		if o.Summary {
+			fmt.Fprintf(w, "\t%s", numDevices)
+		}
+		fmt.Fprintln(w)
 	}
 }
 
