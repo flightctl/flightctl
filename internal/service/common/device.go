@@ -51,8 +51,9 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLo
 			return nil, err
 		}
 	}
-	if oldDevice.Status.Lifecycle.Status == api.DeviceLifecycleStatusEnrolled && device.Status.Lifecycle.Status == api.DeviceLifecycleStatusUnknown {
-		device.Status.Lifecycle.Status = api.DeviceLifecycleStatusEnrolled
+	// do not overwrite valid service-side lifecycle status with placeholder device-side status
+	if device.Status.Lifecycle.Status == api.DeviceLifecycleStatusUnknown {
+		device.Status.Lifecycle.Status = oldDevice.Status.Lifecycle.Status
 	}
 	oldDevice.Status = device.Status
 	UpdateServiceSideStatus(ctx, st, log, orgId, oldDevice)
