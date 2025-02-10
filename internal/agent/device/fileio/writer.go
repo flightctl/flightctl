@@ -99,13 +99,12 @@ func (w *writer) copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	var dstTarget string
+	dstTarget := dst
 	dstInfo, err := os.Stat(dst)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to stat destination: %w", err)
 		}
-		dstTarget = dst
 	} else {
 		if dstInfo.IsDir() {
 			// destination is a directory, append the source file's base name
@@ -115,7 +114,7 @@ func (w *writer) copyFile(src, dst string) error {
 
 	dstFile, err := os.Create(dstTarget)
 	if err != nil {
-		return fmt.Errorf("failed to create destination file: %w", err)
+		return fmt.Errorf("failed to create destination file %s: %w", dstTarget, err)
 	}
 	defer dstFile.Close()
 

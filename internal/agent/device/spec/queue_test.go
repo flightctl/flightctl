@@ -127,8 +127,11 @@ func TestRequeueThreshold(t *testing.T) {
 	// add item to queue
 	q.Add(ctx, item)
 
+	version, err := stringToInt64(item.RenderedVersion)
+	require.NoError(err)
+
 	// ensure item is immediately available
-	status := q.requeueLookup[stringToInt64(item.RenderedVersion)]
+	status := q.requeueLookup[version]
 	require.NotNil(status)
 	require.Equal(0, status.tries, "tries should be zero")
 	require.True(status.nextAvailable.IsZero(), "nextAvailable should be zero")
@@ -137,7 +140,7 @@ func TestRequeueThreshold(t *testing.T) {
 	q.Add(ctx, item)
 
 	// ensure item is immediately available
-	status = q.requeueLookup[stringToInt64(item.RenderedVersion)]
+	status = q.requeueLookup[version]
 	require.NotNil(status)
 	require.Equal(0, status.tries, "tries should be zero")
 	require.True(status.nextAvailable.IsZero(), "nextAvailable should be zero")

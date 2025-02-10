@@ -180,6 +180,7 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
 		return fmt.Errorf("%s (exit code %d)", stderr, exitCode)
 	}
+	log.Infof("Hook %s executed %q without error", actionCtx.hook, commandLine)
 
 	return nil
 }

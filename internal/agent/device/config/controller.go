@@ -38,14 +38,19 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Render
 
 	if desired.Config != nil {
 		c.log.Debug("Syncing config data")
-		return c.ensureConfigData(ctx, lo.FromPtr(current.Config), lo.FromPtr(desired.Config))
+		return c.ensureConfigData(lo.FromPtr(current.Config), lo.FromPtr(desired.Config))
 	} else {
+		if current.Config == nil {
+			c.log.Debug("Current and desired configs are empty")
+			// no config to sync
+			return nil
+		}
 		// the desired config is nil, so we should remove any files that are present in the current config
 		ignitionConfig, err := ParseAndConvertConfigFromStr(lo.FromPtr(current.Config))
 		if err != nil {
 			return err
 		}
-		if err := c.removeObsoleteFiles(ctx, ignitionConfig.Storage.Files, []ignv3types.File{}); err != nil {
+		if err := c.removeObsoleteFiles(ignitionConfig.Storage.Files, []ignv3types.File{}); err != nil {
 			return fmt.Errorf("failed to remove stale files: %w", err)
 		}
 	}
@@ -72,7 +77,7 @@ func computeRemoval(currentFileList, desiredFileList []ignv3types.File) []string
 	return result
 }
 
-func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredData string) error {
+func (c *Controller) ensureConfigData(currentData, desiredData string) error {
 	currentIgnition, err := ParseAndConvertConfigFromStr(currentData)
 	if err != nil {
 		if errors.Is(err, cerrors.ErrEmpty) {
@@ -87,27 +92,28 @@ func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredD
 		return err
 	}
 
-	if err := c.removeObsoleteFiles(ctx, currentIgnition.Storage.Files, desiredIgnition.Storage.Files); err != nil {
+	if err := c.removeObsoleteFiles(currentIgnition.Storage.Files, desiredIgnition.Storage.Files); err != nil {
 		return fmt.Errorf("failed to remove obsolete files: %w", err)
 	}
 
 	if len(desiredIgnition.Storage.Files) == 0 {
+		c.log.Debug("No config files to write")
 		// no files to write
 		return nil
 	}
 
 	// write ignition files to disk
-	c.log.Debug("Writing ignition files")
-	err = c.writeIgnitionFiles(ctx, desiredIgnition.Storage.Files)
+	c.log.Debug("Writing config files")
+	err = c.writeIgnitionFiles(desiredIgnition.Storage.Files)
 	if err != nil {
-		c.log.Warnf("Writing ignition files failed: %+v", err)
+		c.log.Warnf("Writing config files failed: %+v", err)
 		return fmt.Errorf("failed to apply configuration: %w", err)
 	}
 	return nil
 }
 
 // removeObsoleteFiles removes files that are present in the currentFiles but not in the desiredFiles.
-func (c *Controller) removeObsoleteFiles(ctx context.Context, currentFiles, desiredFiles []ignv3types.File) error {
+func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []ignv3types.File) error {
 	removeFiles := computeRemoval(currentFiles, desiredFiles)
 	for _, file := range removeFiles {
 		c.log.Debugf("Deleting file: %s", file)
@@ -118,7 +124,7 @@ func (c *Controller) removeObsoleteFiles(ctx context.Context, currentFiles, desi
 	return nil
 }
 
-func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.File) error {
+func (c *Controller) writeIgnitionFiles(files []ignv3types.File) error {
 	for _, file := range files {
 		managedFile, err := c.deviceWriter.CreateManagedFile(file)
 		if err != nil {

@@ -184,6 +184,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		})
 		It("One fleet - one device with matching fleet - non matching disruption budget", func() {
 			initTest(nil, 1, true, false)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any())
 			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
 			reconciler.Reconcile(ctx)
 		})
