@@ -11,6 +11,7 @@ import (
 
 const (
 	Unknown = iota
+	UUID
 	Bool
 	Int
 	SmallInt
@@ -29,6 +30,7 @@ const (
 )
 
 var schemaTypeResolution = map[gormschema.DataType]SelectorType{
+	"uuid":            UUID,
 	gormschema.Bool:   Bool,
 	gormschema.Int:    Int,
 	gormschema.Float:  Float,
@@ -61,6 +63,20 @@ var operatorsMap = map[selection.Operator]string{
 }
 
 var arrayPattern = regexp.MustCompile(`^[A-Za-z0-9_.]+\[\d+\]$`)
+
+// Resolver is an interface that provides methods for dynamically resolving
+// selector names and fields in a database model.
+type Resolver interface {
+	// ResolveNames takes a selector name and returns the corresponding field names.
+	// This is useful when a selector can map to multiple fields in the database.
+	ResolveNames(name SelectorName) ([]string, error)
+
+	// ResolveFields takes a selector name and returns detailed metadata associated with the selector.
+	ResolveFields(name SelectorName) ([]*SelectorField, error)
+
+	// List returns a list of all available selector names known by the resolver.
+	List() []SelectorName
+}
 
 // SelectorNameMapping defines an interface for mapping a custom selector
 // to one or more selectors defined for the model.
@@ -156,6 +172,8 @@ func (t SelectorType) ArrayType() SelectorType {
 
 func (t SelectorType) String() string {
 	switch t {
+	case UUID:
+		return "uuid"
 	case Bool:
 		return "boolean"
 	case Int:

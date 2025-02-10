@@ -4153,6 +4153,16 @@ components:
         - "DeviceResourceStatusCritical"
         - "DeviceResourceStatusError"
         - "DeviceResourceStatusUnknown"
+    DeviceLabelList:
+      type: array
+      items:
+        type: string
+      description: |
+        A list of distinct labels, where each item is formatted as "key=value".
+      example:
+        - "environment=production"
+        - "region=us-east-1"
+        - "tier=backend"
 
     EnrollmentRequestApproval:
       type: object
