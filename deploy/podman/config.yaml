@@ -1,0 +1,5 @@
+database: flightctl
+user: demouser
+password: demopass
+admin_user: admin
+admin_pass: adminpass

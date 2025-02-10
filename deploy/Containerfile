@@ -1,6 +1,18 @@
+# Build the installer binary
+FROM registry.access.redhat.com/ubi8/ubi:latest as builder
+WORKDIR /build
+COPY ./podman/installer .
+RUN dnf -y install go-toolset
+RUN go build flightctl-installer.go
+
+# Build the bootc image
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
+# Copy the installer binary
+COPY --from=builder /build/flightctl-installer /usr/bin
+
 # Copy quadlet files
-COPY ./podman/flightctl-db/flightctl-db.container /etc/containers/systemd/users/
-COPY ./podman/flightctl.slice /etc/containers/systemd/users/
-COPY ./podman/flightctl.network /etc/containers/systemd/users/
+COPY ./podman/flightctl-db/flightctl-db.container.template /etc/flightctl/flightctl-db/
+COPY ./podman/config.yaml /etc/flightctl/
+COPY ./podman/flightctl.slice /etc/flightctl/
+COPY ./podman/flightctl.network /etc/flightctl

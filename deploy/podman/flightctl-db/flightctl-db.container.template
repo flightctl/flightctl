@@ -1,0 +1,19 @@
+[Unit]
+Description=PostgreSQL Database for Flightctl
+
+[Container]
+ContainerName=flightctl-db
+Environment=POSTGRESQL_DATABASE={{.Database}} POSTGRESQL_USER={{.User}} POSTGRESQL_PASSWORD={{.Password}} POSTGRESQL_MASTER_USER={{.AdminUser}} POSTGRESQL_MASTER_PASSWORD={{.AdminPass}} PGPASSWORD={{.AdminPass}}
+Image=quay.io/sclorg/postgresql-16-c9s:latest
+Network=flightctl.network
+PublishPort=5432:5432
+Volume=flightctl-db:/var/lib/pgsql/data
+
+[Service]
+Restart=always
+RestartSec=30
+Slice=flightctl.slice
+
+[Install]
+WantedBy=flightctl.slice
+WantedBy=default.target

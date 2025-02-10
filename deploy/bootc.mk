@@ -35,3 +35,6 @@ virt:
 		--memory 4096 \
 		--import --disk ./deploy/bootc/output/qcow2/disk.qcow2,format=qcow2 \
 		--os-variant centos-stream9
+
+build-installer:
+	go build -o deploy/podman/installer/bin/flightctl-installer deploy/podman/installer/flightctl-installer.go
