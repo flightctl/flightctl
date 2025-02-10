@@ -388,12 +388,15 @@ func (b *Batch_Limit) Validate() []error {
 		return nil
 	}
 	intVal, err := b.AsBatchLimit1()
-	if err == nil && intVal <= 0 {
-		return []error{errors.New("absolute limit value must be positive integer")}
+	if err == nil {
+		if intVal <= 0 {
+			return []error{errors.New("absolute limit value must be positive integer")}
+		}
+		return nil
 	}
 	p, err := b.AsPercentage()
 	if err != nil {
-		return []error{errors.New("limit must either an integer value or a percentage")}
+		return []error{fmt.Errorf("limit must either an integer value or a percentage: %w", err)}
 	}
 	if err = validatePercentage(p); err != nil {
 		return []error{err}
@@ -872,12 +875,13 @@ func ValidateConditions(conditions []Condition, allowedConditions, trueCondition
 }
 
 func validatePercentage(p Percentage) error {
-	matched, err := regexp.MatchString(`^(100|[1-9]?[0-9])%$`, p)
+	pattern := `^(100|[1-9]?[0-9])%$`
+	matched, err := regexp.MatchString(pattern, p)
 	if err != nil {
 		return fmt.Errorf("failed to match percentage %s: %w", p, err)
 	}
 	if !matched {
-		return fmt.Errorf("'%s' doesn't match percentage format", p)
+		return fmt.Errorf("'%s' doesn't match percentage pattern '%s'", p, pattern)
 	}
 	return nil
 }
