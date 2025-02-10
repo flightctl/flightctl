@@ -11,7 +11,6 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -140,13 +139,13 @@ var _ = Describe("Device Agent behavior", func() {
 				dev := enrollAndWaitForDevice(h, approval)
 
 				waitForFile("/var/lib/flightctl/certs/agent.crt", *dev.Metadata.Name, h.TestDirPath, nil, nil)
-				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This system is managed by flightctl."), util.IntToPtr(0o0600))
-				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This text is encoded."), util.IntToPtr(0o1775))
+				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, lo.ToPtr("This system is managed by flightctl."), lo.ToPtr(0o0600))
+				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, lo.ToPtr("This text is encoded."), lo.ToPtr(0o1775))
 
 				for key, value := range secrets {
 					value := value
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
-					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, util.IntToPtr(0644))
+					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, lo.ToPtr(0644))
 				}
 			})
 		})

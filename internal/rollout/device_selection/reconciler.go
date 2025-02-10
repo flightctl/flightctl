@@ -5,7 +5,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -18,10 +18,10 @@ type Reconciler interface {
 type reconciler struct {
 	store           store.Store
 	log             logrus.FieldLogger
-	callbackManager tasks.CallbackManager
+	callbackManager tasks_client.CallbackManager
 }
 
-func NewReconciler(store store.Store, callbackManager tasks.CallbackManager, log logrus.FieldLogger) Reconciler {
+func NewReconciler(store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
 		store:           store,
 		log:             log,
@@ -33,13 +33,22 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	r.log.Infof("device selection: starting reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 	defer r.log.Infof("device selection: finished reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 
-	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
-		r.log.Debugf("no device selection definition for fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
-		return
-	}
 	annotations := lo.FromPtr(fleet.Metadata.Annotations)
 	if annotations == nil {
 		r.log.Infof("no annotations for fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
+		return
+	}
+	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
+		r.log.Debugf("no device selection definition for fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
+		rolloutWasActive, err := cleanupRollout(ctx, orgId, &fleet, r.store)
+		if err != nil {
+			r.log.WithError(err).Errorf("%v/%s: CleanupRollout", orgId, lo.FromPtr(fleet.Metadata.Name))
+		}
+		if rolloutWasActive {
+
+			// Send the entire fleet for rollout
+			r.callbackManager.FleetRolloutSelectionUpdated(orgId, lo.FromPtr(fleet.Metadata.Name))
+		}
 		return
 	}
 	templateVersionName, exists := annotations[api.FleetAnnotationTemplateVersion]
@@ -52,9 +61,13 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		r.log.WithError(err).Errorf("%v/%s: NewRolloutDeviceSelector", orgId, lo.FromPtr(fleet.Metadata.Name))
 		return
 	}
-
-	if selector.IsRolloutNew() {
-		// There is a new template version
+	definitionUpdated, err := selector.IsDefinitionUpdated()
+	if err != nil {
+		r.log.WithError(err).Errorf("%v/%s: IsDefinitionUpdated", orgId, lo.FromPtr(fleet.Metadata.Name))
+		return
+	}
+	if selector.IsRolloutNew() || definitionUpdated {
+		// There is either a new template version, or the rollout definition was updated
 		if err := selector.OnNewRollout(ctx); err != nil {
 			r.log.WithError(err).Errorf("%v/%s: OnNewRollout", orgId, lo.FromPtr(fleet.Metadata.Name))
 			return
@@ -69,7 +82,28 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		selection, err := selector.CurrentSelection(ctx)
 		if err != nil {
 			r.log.WithError(err).Errorf("%v/%s: CurrentSelection", orgId, lo.FromPtr(fleet.Metadata.Name))
-			return
+			break
+		}
+
+		if !selection.IsApproved() {
+
+			// A batch may be approved either by a user or automatically
+			mayApprove, err := selection.MayApproveAutomatically()
+			if err != nil {
+				r.log.WithError(err).Errorf("%v/%s: MayApproveAutomatically", orgId, lo.FromPtr(fleet.Metadata.Name))
+				break
+			}
+			if mayApprove {
+				if err = selection.Approve(ctx); err != nil {
+					r.log.WithError(err).Errorf("%v/%s: Approve", orgId, lo.FromPtr(fleet.Metadata.Name))
+					break
+				}
+			} else {
+				if err = selection.OnSuspended(ctx); err != nil {
+					r.log.WithError(err).Errorf("%v/%s: OnSuspended", orgId, lo.FromPtr(fleet.Metadata.Name))
+				}
+				break
+			}
 		}
 
 		// Check if all devices in the batch have been processed by the fleet-rollout task
@@ -79,24 +113,9 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 			break
 		}
 		if !isRolledOut {
-			if !selection.IsApproved() {
-
-				// A batch may be approved either by a user or automatically
-				mayApprove, err := selection.MayApproveAutomatically()
-				if err != nil {
-					r.log.WithError(err).Errorf("%v/%s: MayApproveAutomatically", orgId, lo.FromPtr(fleet.Metadata.Name))
-					break
-				}
-				if mayApprove {
-					if err = selection.Approve(ctx); err != nil {
-						r.log.WithError(err).Errorf("%v/%s: Approve", orgId, lo.FromPtr(fleet.Metadata.Name))
-						break
-					}
-				} else {
-					break
-				}
+			if err = selection.OnRollout(ctx); err != nil {
+				r.log.WithError(err).Errorf("%v/%s: OnRollout", orgId, lo.FromPtr(fleet.Metadata.Name))
 			}
-
 			// Send the current batch to be rolled out.
 			r.callbackManager.FleetRolloutSelectionUpdated(orgId, lo.FromPtr(fleet.Metadata.Name))
 		}
@@ -112,8 +131,8 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		}
 
 		// Once the batch is complete, set the success percentage of the current batch
-		if err = selection.SetSuccessPercentage(ctx); err != nil {
-			r.log.WithError(err).Errorf("%v/%s: SetSuccessPercentage", orgId, lo.FromPtr(fleet.Metadata.Name))
+		if err = selection.SetCompletionReport(ctx); err != nil {
+			r.log.WithError(err).Errorf("%v/%s: SetCompletionReport", orgId, lo.FromPtr(fleet.Metadata.Name))
 			break
 		}
 		hasMoreSelections, err := selector.HasMoreSelections(ctx)
@@ -122,6 +141,9 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 			break
 		}
 		if !hasMoreSelections {
+			if err = selection.OnFinish(ctx); err != nil {
+				r.log.WithError(err).Errorf("%v/%s: OnFinish", orgId, lo.FromPtr(fleet.Metadata.Name))
+			}
 			break
 		}
 

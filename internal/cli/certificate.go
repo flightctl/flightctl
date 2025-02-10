@@ -189,10 +189,10 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		}
 		return checkCsrCertReady(currentCsr), nil
 	})
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		fmt.Fprintln(os.Stderr, " success.")
-	case wait.ErrWaitTimeout:
+	case errors.Is(err, wait.ErrWaitTimeout):
 		return fmt.Errorf("timeout polling for certificate")
 	default:
 		return fmt.Errorf("polling for certificate: %w", err)

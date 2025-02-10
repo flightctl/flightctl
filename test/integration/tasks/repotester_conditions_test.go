@@ -11,11 +11,11 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -39,7 +39,7 @@ func createRepository(ctx context.Context, repostore store.Repository, orgId uui
 	}
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
-			Name:   util.StrToPtr(name),
+			Name:   lo.ToPtr(name),
 			Labels: labels,
 		},
 		Spec: spec,

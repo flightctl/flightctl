@@ -74,8 +74,8 @@ func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceS
 		ApiVersion: api.ResourceSyncAPIVersion,
 		Kind:       api.ResourceSyncKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(rs.Name),
-			CreationTimestamp: util.TimeToPtr(rs.CreatedAt.UTC()),
+			Name:              lo.ToPtr(rs.Name),
+			CreationTimestamp: lo.ToPtr(rs.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(rs.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(rs.Resource.Annotations)),
 			Generation:        rs.Generation,

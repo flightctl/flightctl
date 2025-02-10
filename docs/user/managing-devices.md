@@ -515,7 +515,7 @@ The following device lifecycle hooks are supported:
 | -------------- | ----------- |
 | `beforeUpdating` | This hook is called after the agent completed preparing for the update and before actually making changes to the system. If an action in this hook returns with failure, the agent aborts the update. |
 | `afterUpdating` | This hook is called after the agent has written the update to disk. If an action in this hook returns with failure,the agent will abort and roll back the update. |
-| `beforeRebooting` | This hook is called before the system reboots. The agent will block the reboot until running the action has completed or timed out. If any action in this hook returns with failure, the agent will abort and roll back the update. |
+| `beforeRebooting` | This hook is called before the agent reboots the device. The agent will block the reboot until running the action has completed or timed out. If any action in this hook returns with failure, the agent will abort and roll back the update. |
 | `afterRebooting` | This hook is called when the agent first starts after a reboot. If any action in this hook returns with failure, the agent will report this but continue starting up. |
 
 Refer to the [Device API status reference](device-api-statuses.md) a state diagram defining when each device lifecycle hook is called by the agent.

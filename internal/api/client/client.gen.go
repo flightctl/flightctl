@@ -332,6 +332,9 @@ type ClientInterface interface {
 	ReplaceResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetVersion request
+	GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -1404,6 +1407,18 @@ func (c *Client) ReplaceResourceSyncWithBody(ctx context.Context, name string, c
 
 func (c *Client) ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceResourceSyncRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetVersionRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -3126,9 +3141,9 @@ func NewListFleetsRequest(server string, params *ListFleetsParams) (*http.Reques
 
 		}
 
-		if params.AddDevicesCount != nil {
+		if params.AddDevicesSummary != nil {
 
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "addDevicesCount", runtime.ParamLocationQuery, *params.AddDevicesCount); err != nil {
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "addDevicesSummary", runtime.ParamLocationQuery, *params.AddDevicesSummary); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
@@ -4377,6 +4392,33 @@ func NewReplaceResourceSyncRequestWithBody(server string, name string, contentTy
 	return req, nil
 }
 
+// NewGetVersionRequest generates requests for GetVersion
+func NewGetVersionRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/version")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -4662,6 +4704,9 @@ type ClientWithResponsesInterface interface {
 	ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
 
 	ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
+
+	// GetVersionWithResponse request
+	GetVersionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetVersionResponse, error)
 }
 
 type AuthConfigResponse struct {
@@ -6335,6 +6380,30 @@ func (r ReplaceResourceSyncResponse) StatusCode() int {
 	return 0
 }
 
+type GetVersionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Version
+	JSON403      *Error
+	JSON503      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r GetVersionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetVersionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // AuthConfigWithResponse request returning *AuthConfigResponse
 func (c *ClientWithResponses) AuthConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthConfigResponse, error) {
 	rsp, err := c.AuthConfig(ctx, reqEditors...)
@@ -7116,6 +7185,15 @@ func (c *ClientWithResponses) ReplaceResourceSyncWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseReplaceResourceSyncResponse(rsp)
+}
+
+// GetVersionWithResponse request returning *GetVersionResponse
+func (c *ClientWithResponses) GetVersionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetVersionResponse, error) {
+	rsp, err := c.GetVersion(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetVersionResponse(rsp)
 }
 
 // ParseAuthConfigResponse parses an HTTP response from a AuthConfigWithResponse call
@@ -10738,6 +10816,46 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetVersionResponse parses an HTTP response from a GetVersionWithResponse call
+func ParseGetVersionResponse(rsp *http.Response) (*GetVersionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetVersionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Version
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Error

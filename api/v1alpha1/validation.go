@@ -11,7 +11,6 @@ import (
 	"text/template/parse"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
@@ -323,7 +322,7 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
 			// Can ignore errors because we just validated it in the previous line
 			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
-			_, paramErrs = validateParametersInString(util.StrToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
+			_, paramErrs = validateParametersInString(lo.ToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
 		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
@@ -384,25 +383,73 @@ func (r CertificateSigningRequest) Validate() []error {
 	return allErrs
 }
 
+func (b *Batch) Validate() []error {
+	if b == nil {
+		return []error{errors.New("a batch in a batch sequence must not be null")}
+	}
+	return b.Selector.Validate()
+}
+
+func (b BatchSequence) Validate() []error {
+	var errs []error
+	for _, batch := range lo.FromPtr(b.Sequence) {
+		errs = append(errs, batch.Validate()...)
+	}
+	return errs
+}
+
+func (r *RolloutDeviceSelection) Validate() []error {
+	var errs []error
+	if r == nil {
+		return nil
+	}
+	i, err := r.ValueByDiscriminator()
+	if err != nil {
+		errs = append(errs, err)
+	} else {
+		switch v := i.(type) {
+		case BatchSequence:
+			errs = append(errs, v.Validate()...)
+		}
+	}
+	return errs
+}
+
+func (d *DisruptionBudget) Validate() []error {
+	var errs []error
+	if d == nil {
+		return nil
+	}
+	if d.MinAvailable == nil && d.MaxUnavailable == nil {
+		errs = append(errs, errors.New("at least one of [MinAvailable, MaxUnavailable] must be defined in disruption budget"))
+	}
+	groupBy := lo.FromPtr(d.GroupBy)
+	if len(groupBy) != len(lo.Uniq(groupBy)) {
+		errs = append(errs, errors.New("groupBy items must be unique"))
+	}
+	return errs
+}
+
+func (r *RolloutPolicy) Validate() []error {
+	var errs []error
+	if r == nil {
+		return nil
+	}
+	if r.DeviceSelection == nil && r.DisruptionBudget == nil {
+		errs = append(errs, errors.New("at least one of [DeviceSelection, DisruptionBudget] must be defined"))
+	}
+	errs = append(errs, r.DeviceSelection.Validate()...)
+	errs = append(errs, r.DisruptionBudget.Validate()...)
+	return errs
+}
+
 func (r Fleet) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 	allErrs = append(allErrs, r.Spec.Selector.Validate()...)
-	if r.Spec.RolloutPolicy != nil {
-		i, err := r.Spec.RolloutPolicy.DeviceSelection.ValueByDiscriminator()
-		if err != nil {
-			allErrs = append(allErrs, err)
-		} else {
-			switch v := i.(type) {
-			case BatchSequence:
-				for _, b := range lo.FromPtr(v.Sequence) {
-					allErrs = append(allErrs, b.Selector.Validate()...)
-				}
-			}
-		}
-	}
+	allErrs = append(allErrs, r.Spec.RolloutPolicy.Validate()...)
 
 	// Validate the Device spec settings
 	allErrs = append(allErrs, r.Spec.Template.Spec.Validate(true)...)
@@ -429,7 +476,7 @@ func (u DeviceUpdatePolicySpec) Validate() []error {
 func (u UpdateSchedule) Validate() []error {
 	var allErrs []error
 	if u.TimeZone != nil {
-		if err := validateTimeZone(util.FromPtr(u.TimeZone)); err != nil {
+		if err := validateTimeZone(lo.FromPtr(u.TimeZone)); err != nil {
 			allErrs = append(allErrs, err...)
 		}
 	}
@@ -756,7 +803,7 @@ func validateParametersInString(s *string, path string, fleetTemplate bool) (boo
 	// strings, so an empty map is fine.
 	dev := &Device{
 		Metadata: ObjectMeta{
-			Name:   util.StrToPtr("name"),
+			Name:   lo.ToPtr("name"),
 			Labels: &map[string]string{},
 		},
 	}

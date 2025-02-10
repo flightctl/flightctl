@@ -48,6 +48,7 @@ const (
 	DeviceUpdating                    ConditionType = "Updating"
 	EnrollmentRequestApproved         ConditionType = "Approved"
 	FleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
+	FleetRolloutInProgress            ConditionType = "RolloutInProgress"
 	FleetValid                        ConditionType = "Valid"
 	RepositoryAccessible              ConditionType = "Accessible"
 	ResourceSyncAccessible            ConditionType = "Accessible"
@@ -232,7 +233,7 @@ type CertificateSigningRequest struct {
 	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec.
 	Spec CertificateSigningRequestSpec `json:"spec"`
 
-	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 	Status *CertificateSigningRequestStatus `json:"status,omitempty"`
 }
 
@@ -275,7 +276,7 @@ type CertificateSigningRequestSpec struct {
 	Username *string `json:"username,omitempty"`
 }
 
-// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 type CertificateSigningRequestStatus struct {
 	// Certificate The issued signed certificate, immutable once populated.
 	Certificate *[]byte `json:"certificate,omitempty"`
@@ -403,14 +404,8 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
-// DeviceIntegrityStatus Status of device integrity.
+// DeviceIntegrityStatus Summary status of the integrity of the device.
 type DeviceIntegrityStatus struct {
-	// Summary Summary status of the integrity of the device.
-	Summary DeviceIntegrityStatusSummary `json:"summary"`
-}
-
-// DeviceIntegrityStatusSummary Summary status of the integrity of the device.
-type DeviceIntegrityStatusSummary struct {
 	// Info Human readable information about the last integrity transition.
 	Info *string `json:"info,omitempty"`
 
@@ -525,7 +520,7 @@ type DeviceStatus struct {
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
 
-	// Integrity Status of device integrity.
+	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
 
 	// LastSeen The last time the device was seen by the service.
@@ -564,6 +559,9 @@ type DeviceSummaryStatusType string
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 type DeviceSystemInfo struct {
+	// AgentVersion The Agent version.
+	AgentVersion string `json:"agentVersion"`
+
 	// Architecture The Architecture reported by the device.
 	Architecture string `json:"architecture"`
 
@@ -1433,6 +1431,12 @@ type UpdateSchedule struct {
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
+// Version defines model for Version.
+type Version struct {
+	// Version Git version of the service.
+	Version string `json:"version"`
+}
+
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
 	// Authentication The authentication token to validate.
@@ -1513,8 +1517,8 @@ type ListFleetsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// AddDevicesCount Include the number of devices in each fleet.
-	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
+	// AddDevicesSummary Include a summary of the devices in the fleet.
+	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.

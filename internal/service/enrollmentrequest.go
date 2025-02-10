@@ -9,16 +9,15 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 const ClientCertExpiryDays = 365
@@ -52,7 +51,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		return err
 	}
 	enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
-		Certificate: util.StrToPtr(string(certData)),
+		Certificate: lo.ToPtr(string(certData)),
 		Conditions:  []v1alpha1.Condition{},
 		Approval:    approval,
 	}
@@ -98,27 +97,11 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 
 // (POST /api/v1/enrollmentrequests)
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "create")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.CreateEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.CreateEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	return common.CreateEnrollmentRequest(ctx, h.store, request)
 }
 
 // (GET /api/v1/enrollmentrequests)
 func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request server.ListEnrollmentRequestsRequestObject) (server.ListEnrollmentRequestsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListEnrollmentRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ListEnrollmentRequests403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
@@ -170,17 +153,9 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 // (DELETE /api/v1/enrollmentrequests)
 func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request server.DeleteEnrollmentRequestsRequestObject) (server.DeleteEnrollmentRequestsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteEnrollmentRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteEnrollmentRequests403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
-	err = h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
+	err := h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
 		return server.DeleteEnrollmentRequests200JSONResponse{}, nil
@@ -191,27 +166,11 @@ func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request s
 
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	return common.ReadEnrollmentRequest(ctx, h.store, request)
 }
 
 // (PUT /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
@@ -226,18 +185,18 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 	}
 
 	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		if created {
 			return server.ReplaceEnrollmentRequest201JSONResponse(*result), nil
 		} else {
 			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
 		}
-	case flterrors.ErrResourceNameIsNil, flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
 		return server.ReplaceEnrollmentRequest409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -247,22 +206,14 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 // (PATCH /api/v1/enrollmentrequests/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request server.PatchEnrollmentRequestRequestObject) (server.PatchEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "patch")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.PatchEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.PatchEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
 			return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.PatchEnrollmentRequest404JSONResponse{}, nil
 		default:
 			return nil, err
@@ -295,14 +246,14 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request ser
 	newObj.Metadata.ResourceVersion = nil
 
 	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.PatchEnrollmentRequest200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil, flterrors.ErrIllegalResourceVersionFormat:
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
 		return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.PatchEnrollmentRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict, flterrors.ErrUpdatingResourceWithOwnerNotAllowed:
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict), errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed):
 		return server.PatchEnrollmentRequest409JSONResponse{}, nil
 	default:
 		return nil, err
@@ -311,21 +262,13 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request ser
 
 // (DELETE /api/v1/enrollmentrequests/{name})
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
-	err = h.store.EnrollmentRequest().Delete(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	err := h.store.EnrollmentRequest().Delete(ctx, orgId, request.Name)
+	switch {
+	case err == nil:
 		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.DeleteEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -334,21 +277,13 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 
 // (GET /api/v1/enrollmentrequests/{name}/status)
 func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/status", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadEnrollmentRequestStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadEnrollmentRequestStatus403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReadEnrollmentRequestStatus404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -357,26 +292,18 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 
 // (POST /api/v1/enrollmentrequests/{name}/approval)
 func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request server.ApproveEnrollmentRequestRequestObject) (server.ApproveEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/approval", "post")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ApproveEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ApproveEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
 		return server.ApproveEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
 	}
 	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch err {
+	switch {
 	default:
 		return nil, err
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
-	case nil:
+	case err == nil:
 	}
 
 	// if the enrollment request was already approved we should not try to approve it one more time
@@ -412,10 +339,10 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 		}
 	}
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ApproveEnrollmentRequest200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
 	default:
 		return nil, err
@@ -424,14 +351,6 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 
 // (PUT /api/v1/enrollmentrequests/{name}/status)
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, request server.ReplaceEnrollmentRequestStatusRequestObject) (server.ReplaceEnrollmentRequestStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/status", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceEnrollmentRequestStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceEnrollmentRequestStatus403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
@@ -439,10 +358,10 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, req
 	}
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
+	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ReplaceEnrollmentRequestStatus404JSONResponse{}, nil
 	default:
 		return nil, err

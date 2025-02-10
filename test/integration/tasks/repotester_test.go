@@ -18,8 +18,8 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/gliderlabs/ssh"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -128,7 +128,7 @@ func TestSSHRepo(t *testing.T) {
 		Url: "ssh://root@127.0.0.1:2222",
 		SshConfig: api.SshConfig{
 			SshPrivateKey:          &privKey,
-			SkipServerVerification: util.BoolToPtr(true),
+			SkipServerVerification: lo.ToPtr(true),
 		}})
 	require.NoError(err)
 

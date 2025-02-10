@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -41,8 +42,8 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName)
 	// check for errors
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceNotFound:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			h.log.Errorf("console requested for unknown device: %s", deviceName)
 			http.Error(w, "Device not found", http.StatusNotFound)
 		default:
@@ -144,21 +145,13 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 
 // TODO(majopela): remove this request handler and API call once the UI is migrated to the new websocket API
 func (h *ServiceHandler) RequestConsole(ctx context.Context, request server.RequestConsoleRequestObject) (server.RequestConsoleResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/console", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.RequestConsole503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.RequestConsole403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	// make sure the device exists
-	_, err = h.store.Device().Get(ctx, orgId, request.Name)
+	_, err := h.store.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceNotFound:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			return server.RequestConsole404JSONResponse{}, nil
 		default:
 			return nil, err

@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -28,7 +29,7 @@ import (
 type ResourceSync struct {
 	log             logrus.FieldLogger
 	store           store.Store
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 }
 
 type genericResourceMap map[string]interface{}
@@ -36,7 +37,7 @@ type genericResourceMap map[string]interface{}
 var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{api.FleetKind}
 
-func NewResourceSync(callbackManager CallbackManager, store store.Store, log logrus.FieldLogger) *ResourceSync {
+func NewResourceSync(callbackManager tasks_client.CallbackManager, store store.Store, log logrus.FieldLogger) *ResourceSync {
 	return &ResourceSync{
 		log:             log,
 		store:           store,
@@ -185,7 +186,7 @@ func fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []string {
 func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *model.Repository, gitCloneRepo cloneGitRepoFunc) ([]genericResourceMap, error) {
 	path := rs.Spec.Data.Path
 	revision := rs.Spec.Data.TargetRevision
-	mfs, hash, err := gitCloneRepo(repo, &revision, util.IntToPtr(1))
+	mfs, hash, err := gitCloneRepo(repo, &revision, lo.ToPtr(1))
 	if err != nil {
 		// Cant fetch git repo
 		rs.AddRepoAccessCondition(err)
@@ -200,7 +201,7 @@ func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *m
 	}
 	rs.AddSyncedCondition(fmt.Errorf("out of sync"))
 
-	rs.Status.Data.ObservedCommit = util.StrToPtr(hash)
+	rs.Status.Data.ObservedCommit = lo.ToPtr(hash)
 
 	// Open files
 	fileInfo, err := mfs.Stat(path)

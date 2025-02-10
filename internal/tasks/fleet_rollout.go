@@ -5,18 +5,22 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"text/template"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
-func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
-	if resourceRef.Op != FleetRolloutOpUpdate {
+func fleetRollout(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
+	if resourceRef.Op != tasks_client.FleetRolloutOpUpdate {
 		log.Errorf("received unknown op %s", resourceRef.Op)
 		return nil
 	}
@@ -40,17 +44,17 @@ func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store sto
 }
 
 type FleetRolloutsLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	fleetStore      store.Fleet
 	devStore        store.Device
 	tvStore         store.TemplateVersion
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 	itemsPerPage    int
 	owner           string
 }
 
-func NewFleetRolloutsLogic(callbackManager CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetRolloutsLogic {
+func NewFleetRolloutsLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef tasks_client.ResourceReference) FleetRolloutsLogic {
 	return FleetRolloutsLogic{
 		callbackManager: callbackManager,
 		log:             log,
@@ -91,12 +95,20 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 		Limit:         ItemsPerPage,
 		FieldSelector: fs,
 	}
+	annotationFilter := []string{
+		api.MatchExpression{
+			Key:      api.DeviceAnnotationTemplateVersion,
+			Operator: api.NotIn,
+			Values:   &[]string{lo.FromPtr(templateVersion.Metadata.Name)},
+		}.String(),
+	}
 	if fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DeviceSelection != nil {
-		listParams.AnnotationSelector = selector.NewAnnotationSelectorOrDie(api.MatchExpression{
+		annotationFilter = append(annotationFilter, api.MatchExpression{
 			Key:      api.DeviceAnnotationSelectedForRollout,
 			Operator: api.Exists,
 		}.String())
 	}
+	listParams.AnnotationSelector = selector.NewAnnotationSelectorOrDie(strings.Join(annotationFilter, ","))
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
 	for {
@@ -168,6 +180,15 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	fleet, err := f.fleetStore.Get(ctx, f.resourceRef.OrgID, ownerName)
 	if err != nil {
 		return fmt.Errorf("failed to get fleet: %w", err)
+	}
+	rolloutProgressStage, err := rollout.ProgressStage(fleet)
+	if err != nil {
+		return fmt.Errorf("failed to find rollout progress stage for fleet: %w", err)
+	}
+	if rolloutProgressStage == rollout.ConfiguredBatch {
+		// If a rollout is in progress, then the device will be rolled out by one of the next batches
+		f.log.Infof("Rollout is in progress for fleet %v/%s. Skipping device %s rollout", f.resourceRef.OrgID, lo.FromPtr(fleet.Metadata.Name), f.resourceRef.Name)
+		return nil
 	}
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 	return f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)

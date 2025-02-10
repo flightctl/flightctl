@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -17,12 +18,12 @@ const retryIterations = 10
 type CreateOrUpdateMode string
 
 func ErrorFromGormError(err error) error {
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return nil
-	case gorm.ErrRecordNotFound, gorm.ErrForeignKeyViolated:
+	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, gorm.ErrForeignKeyViolated):
 		return flterrors.ErrResourceNotFound
-	case gorm.ErrDuplicatedKey:
+	case errors.Is(err, gorm.ErrDuplicatedKey):
 		return flterrors.ErrDuplicateName
 	default:
 		return err

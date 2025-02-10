@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
@@ -14,10 +15,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
 	logic := NewFleetValidateLogic(callbackManager, log, store, k8sClient, *resourceRef)
 	switch {
-	case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == api.FleetKind:
+	case resourceRef.Op == tasks_client.FleetValidateOpUpdate && resourceRef.Kind == api.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
 		if err != nil {
 			log.Errorf("failed validating fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
@@ -29,15 +30,15 @@ func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store st
 }
 
 type FleetValidateLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
 	k8sClient       k8sclient.K8SClient
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 	templateConfig  *[]api.ConfigProviderSpec
 }
 
-func NewFleetValidateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) FleetValidateLogic {
+func NewFleetValidateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef tasks_client.ResourceReference) FleetValidateLogic {
 	return FleetValidateLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, resourceRef: resourceRef}
 }
 

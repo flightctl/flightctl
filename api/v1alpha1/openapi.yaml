@@ -28,7 +28,34 @@ tags:
     description: Operations on Repository resources.
   - name: resourcesync
     description: Operations on ResourceSync resources.
+  - name: version
+    description: Operations for receiving service version.
 paths:
+  /api/version:
+    get:
+      tags:
+        - version
+      description: Get service version.
+      operationId: getVersion
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/auth/config:
     get:
       tags:
@@ -2517,9 +2544,9 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: addDevicesCount
+        - name: addDevicesSummary
           in: query
-          description: Include the number of devices in each fleet.
+          description: Include a summary of the devices in the fleet.
           required: false
           schema:
             type: boolean
@@ -3204,6 +3231,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
 components:
   schemas:
     DeviceDecommissionTargetType:
@@ -3898,6 +3926,7 @@ components:
         - architecture
         - bootID
         - operatingSystem
+        - agentVersion
       type: object
       properties:
         architecture:
@@ -3909,6 +3938,9 @@ components:
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
+        agentVersion:
+          type: string
+          description: The Agent version.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
     DeviceApplicationStatus:
       type: object
@@ -4069,14 +4101,6 @@ components:
         - "DeviceLifecycleStatusDecommissioned"
       description: Status type of the device lifecycle.
     DeviceIntegrityStatus:
-      type: object
-      description: Status of device integrity.
-      required:
-        - summary
-      properties:
-        summary:
-          $ref: "#/components/schemas/DeviceIntegrityStatusSummary"
-    DeviceIntegrityStatusSummary:
       type: object
       description: Summary status of the integrity of the device.
       required:
@@ -4417,7 +4441,7 @@ components:
           description: List of label keys to perform grouping for the disruption budget.
         minAvailable:
           type: integer
-          minimum: 0
+          minimum: 1
           description: The maximum number of unavailable devices allowed during rollout.
         maxUnavailable:
           minimum: 1
@@ -4873,6 +4897,7 @@ components:
       - 'Synced'                # ResourceSync
       - 'OverlappingSelectors'  # Fleet
       - 'Valid'                 # Fleet
+      - 'RolloutInProgress'     # Fleet
       - 'Updating'              # Device
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
@@ -4888,6 +4913,7 @@ components:
       - ResourceSyncSynced
       - FleetOverlappingSelectors
       - FleetValid
+      - FleetRolloutInProgress
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
@@ -4983,19 +5009,25 @@ components:
         - signerName
       type: object
     CertificateSigningRequestStatus:
-      description: Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+      description: Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
       properties:
         certificate:
           description: The issued signed certificate, immutable once populated.
           format: byte
           type: string
         conditions:
+          type: array
           description: Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
           items:
-            allOf:
-              - $ref: '#/components/schemas/Condition'
-            default: {}
-          type: array
+            $ref: '#/components/schemas/Condition'
       required:
         - conditions
       type: object
+    Version:
+      properties:
+        version:
+          description: Git version of the service.
+          type: string
+      required:
+        - version
+

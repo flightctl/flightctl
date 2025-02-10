@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -49,6 +50,7 @@ func NewAgentCommand() *agentCmd {
 
 	flag.Parse()
 
+	a.config.ConfigDir = filepath.Dir(a.configFile)
 	if err := a.config.ParseConfigFile(a.configFile); err != nil {
 		a.log.Fatalf("Error parsing config: %v", err)
 	}

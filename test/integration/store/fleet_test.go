@@ -70,7 +70,7 @@ var _ = Describe("FleetStore create", func() {
 			testutil.CreateTestDevices(ctx, 5, storeInst.Device(), orgId, util.SetResourceOwner(api.FleetKind, "myfleet-1"), true)
 			device := api.Device{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("mydevice-1"),
+					Name: lo.ToPtr("mydevice-1"),
 				},
 				Status: &api.DeviceStatus{
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
@@ -86,24 +86,24 @@ var _ = Describe("FleetStore create", func() {
 			}
 			_, err := storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
-			device.Metadata.Name = util.StrToPtr("mydevice-2")
+			device.Metadata.Name = lo.ToPtr("mydevice-2")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
 			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
-			device.Metadata.Name = util.StrToPtr("mydevice-3")
+			device.Metadata.Name = lo.ToPtr("mydevice-3")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
-			device.Metadata.Name = util.StrToPtr("mydevice-4")
+			device.Metadata.Name = lo.ToPtr("mydevice-4")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
-			device.Metadata.Name = util.StrToPtr("mydevice-5")
+			device.Metadata.Name = lo.ToPtr("mydevice-5")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
 			device.Status.Summary.Status = api.DeviceSummaryStatusError
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
@@ -119,7 +119,7 @@ var _ = Describe("FleetStore create", func() {
 			// mydevice-3 | Healthy   | Online    | Updating
 			// mydevice-4 | Healthy   | Rebooting | Updating
 			// mydevice-5 | Error     | Error     | Unknown
-			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1", store.WithSummary(true))
+			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1", store.GetWithDeviceSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
 			Expect(fleet.Status.DevicesSummary.Total).To(Equal(int64(5)))
@@ -340,7 +340,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			lo.ForEach(fleets.Items, func(f api.Fleet, _ int) { Expect(f.Status.DevicesSummary).To(BeNil()) })
-			fleets, err = storeInst.Fleet().List(ctx, orgId, store.ListParams{}, store.WithDeviceCount(true))
+			fleets, err = storeInst.Fleet().List(ctx, orgId, store.ListParams{}, store.ListWithDevicesSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			for _, fleet := range fleets.Items {
@@ -362,7 +362,7 @@ var _ = Describe("FleetStore create", func() {
 		It("CreateOrUpdate create mode", func() {
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("newresourcename"),
+					Name: lo.ToPtr("newresourcename"),
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{
@@ -471,7 +471,7 @@ var _ = Describe("FleetStore create", func() {
 
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("myfleet-1"),
+					Name: lo.ToPtr("myfleet-1"),
 				},
 				Spec: api.FleetSpec{
 					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"key": "value"}},
@@ -507,7 +507,7 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {})
 			err := storeInst.Fleet().DeleteAll(ctx, orgId, callback)
 			Expect(err).ToNot(HaveOccurred())
-			testutil.CreateTestFleets(ctx, numFleets, storeInst.Fleet(), orgId, "myfleet", true, util.StrToPtr(owner))
+			testutil.CreateTestFleets(ctx, numFleets, storeInst.Fleet(), orgId, "myfleet", true, lo.ToPtr(owner))
 
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
