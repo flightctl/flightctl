@@ -16,6 +16,7 @@ const (
 )
 
 type Config struct {
+	Target     string            `json:"target,omitempty"`
 	Database   *dbConfig         `json:"database,omitempty"`
 	Service    *svcConfig        `json:"service,omitempty"`
 	KV         *kvConfig         `json:"kv,omitempty"`
@@ -64,6 +65,7 @@ type kvConfig struct {
 type authConfig struct {
 	K8s                   *k8sAuth  `json:"k8s,omitempty"`
 	OIDC                  *oidcAuth `json:"oidc,omitempty"`
+	AAP                   *aapAuth  `json:"aap,omitempty"`
 	CACert                string    `json:"caCert,omitempty"`
 	InsecureSkipTlsVerify bool      `json:"insecureSkipTlsVerify,omitempty"`
 }
@@ -77,6 +79,11 @@ type k8sAuth struct {
 type oidcAuth struct {
 	OIDCAuthority         string `json:"oidcAuthority,omitempty"`
 	ExternalOIDCAuthority string `json:"externalOidcAuthority,omitempty"`
+}
+
+type aapAuth struct {
+	ApiUrl         string `json:"apiUrl,omitempty"`
+	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
 }
 
 type prometheusConfig struct {

@@ -26,7 +26,8 @@ const (
 )
 
 type AuthNMiddleware interface {
-	ValidateToken(ctx context.Context, token string) (bool, error)
+	GetAuthToken(r *http.Request) (string, error)
+	ValidateToken(ctx context.Context, token string) error
 	GetIdentity(ctx context.Context, token string) (*common.Identity, error)
 	GetAuthConfig() common.AuthConfig
 }
@@ -44,25 +45,6 @@ func GetAuthZ() AuthZMiddleware {
 
 func GetAuthN() AuthNMiddleware {
 	return authN
-}
-
-func ParseAuthHeader(authHeader string) (string, bool) {
-	authToken := strings.Split(authHeader, "Bearer ")
-	if len(authToken) != 2 {
-		return "", false
-	}
-	return authToken[1], true
-}
-
-func getAuthToken(r *http.Request) (string, bool) {
-	if _, isAuthDisabled := authN.(NilAuth); isAuthDisabled {
-		return "", true
-	}
-	authHeader := r.Header.Get(common.AuthHeader)
-	if authHeader == "" {
-		return "", false
-	}
-	return ParseAuthHeader(authHeader)
 }
 
 func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
@@ -87,7 +69,7 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	return nil
 }
 
-func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
+func getTlsConfig(cfg *config.Config) *tls.Config {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
 	}
@@ -96,14 +78,31 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
 		caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
 		tlsConfig.RootCAs = caCertPool
 	}
+	return tlsConfig
+}
+
+func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
 	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
 	authZ = NilAuth{}
 	var err error
-	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, tlsConfig)
+	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg))
 	if err != nil {
 		return fmt.Errorf("failed to create OIDC AuthN: %w", err)
+	}
+	return nil
+}
+
+func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) error {
+	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
+	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
+	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
+	authZ = NilAuth{}
+	var err error
+	authN, err = authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
+	if err != nil {
+		return fmt.Errorf("failed to create AAP AuthN: %w", err)
 	}
 	return nil
 }
@@ -120,6 +119,8 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 			err = initK8sAuth(cfg, log)
 		} else if cfg.Auth.OIDC != nil {
 			err = initOIDCAuth(cfg, log)
+		} else if cfg.Auth.AAP != nil {
+			err = initAAPAuth(cfg, log)
 		}
 
 		if err != nil {
@@ -136,17 +137,19 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 
 	handler := func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/v1/auth/config" || r.URL.Path == "/api/v1/auth/validate" {
+			if r.URL.Path == "/api/v1/auth/config" {
 				next.ServeHTTP(w, r)
 				return
 			}
-			authToken, ok := getAuthToken(r)
-			if !ok {
+			authToken, err := authN.GetAuthToken(r)
+			if err != nil {
+				log.WithError(err).Error("failed to get auth token")
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			valid, err := authN.ValidateToken(r.Context(), authToken)
-			if err != nil || !valid {
+			err = authN.ValidateToken(r.Context(), authToken)
+			if err != nil {
+				log.WithError(err).Error("failed to validate token")
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}

@@ -24,23 +24,6 @@ func (h *ServiceHandler) AuthConfig(ctx context.Context, request server.AuthConf
 
 // (GET /api/v1/auth/validate)
 func (h *ServiceHandler) AuthValidate(ctx context.Context, request server.AuthValidateRequestObject) (server.AuthValidateResponseObject, error) {
-	authn := auth.GetAuthN()
-	if _, ok := authn.(auth.NilAuth); ok {
-		return server.AuthValidate418Response{}, nil
-	}
-	if request.Params.Authentication == nil {
-		return server.AuthValidate401Response{}, nil
-	}
-	token, ok := auth.ParseAuthHeader(*request.Params.Authentication)
-	if !ok {
-		return server.AuthValidate401Response{}, nil
-	}
-	valid, err := authn.ValidateToken(ctx, token)
-	if err != nil {
-		return server.AuthValidate500JSONResponse{Message: err.Error()}, nil
-	}
-	if !valid {
-		return server.AuthValidate401Response{}, nil
-	}
+	// auth middleware already checked the token validity
 	return server.AuthValidate200Response{}, nil
 }

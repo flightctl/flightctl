@@ -1,0 +1,61 @@
+---
+- name: Playbook to add FlightControl as service to AAP Gateway
+  hosts: localhost
+  connection: local
+  vars:
+    gateway_username: ""
+    gateway_password: ""
+    gateway_hostname: ""
+    gateway_validate_certs: False
+    fctl_address: ""
+    fctl_port: 3443
+  module_defaults:
+    group/ansible.platform.gateway:
+      gateway_username: "{{ gateway_username }}"
+      gateway_password: "{{ gateway_password }}"
+      gateway_hostname: "{{ gateway_hostname }}"
+      gateway_validate_certs: "{{ gateway_validate_certs }}"
+      state: present
+
+  tasks:
+    - name: Check if API is available and returning status 200
+      uri:
+        url: "{{ gateway_hostname }}/api/"
+        validate_certs: "{{ gateway_validate_certs|default(False) }}"
+      register: result
+      until: "result.status == 200"
+      retries: 10
+      delay: 5
+    
+    - name: Manage service_types
+      ansible.platform.service_type:
+        name: fctl
+        ping_url: "/api/v1/auth/config"
+        service_index_path: "/"
+
+    - name: Manage service_clusters
+      ansible.platform.service_cluster:
+        name: fctl
+        service_type: fctl
+        health_checks_enabled: False
+
+    - name: Manage service_nodes
+      ansible.platform.service_node:
+        name: fctl
+        service_cluster: fctl
+        address: "{{ fctl_address }}"
+
+    - name: Manage services
+      ansible.platform.service:
+        name: fctl
+        description: "FlightControl"
+        api_slug: fctl
+        http_port: "API Port"
+        service_cluster: fctl
+        is_service_https: True
+        service_path: "/"
+        service_port: "{{ fctl_port }}"
+        order: 50
+        is_internal_route: False
+
+...

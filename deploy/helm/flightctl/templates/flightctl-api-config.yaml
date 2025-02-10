@@ -6,6 +6,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   config.yaml: |-
+    target: {{ .Values.global.target }}
     database:
         hostname: flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         type: pgsql
@@ -58,6 +59,10 @@ data:
             apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
             externalOpenShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
             rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+        {{- else if eq .Values.global.auth.type "aap"}}
+        aap:
+          apiUrl: {{ .Values.global.auth.aap.apiUrl }}
+          externalApiUrl: {{ .Values.global.auth.aap.externalApiUrl }}
         {{- else }}
         oidc:
             oidcAuthority: {{ .Values.global.auth.oidc.oidcAuthority }}

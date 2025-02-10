@@ -570,22 +570,22 @@ func (siw *ServerInterfaceWrapper) AuthValidate(w http.ResponseWriter, r *http.R
 
 	headers := r.Header
 
-	// ------------- Optional header parameter "Authentication" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Authentication")]; found {
-		var Authentication string
+	// ------------- Optional header parameter "Authorization" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Authorization")]; found {
+		var Authorization string
 		n := len(valueList)
 		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Authentication", Count: n})
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Authorization", Count: n})
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "Authentication", valueList[0], &Authentication, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		err = runtime.BindStyledParameterWithOptions("simple", "Authorization", valueList[0], &Authorization, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
 		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Authentication", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Authorization", Err: err})
 			return
 		}
 
-		params.Authentication = &Authentication
+		params.Authorization = &Authorization
 
 	}
 

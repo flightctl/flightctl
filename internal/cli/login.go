@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
@@ -115,14 +116,23 @@ func (o *LoginOptions) Validate(args []string) error {
 	}
 	o.authConfig = authConfig
 
+	if authConfig.AuthType == common.AuthTypeAAP && (!strIsEmpty(o.Password) || !strIsEmpty(o.Username)) {
+		return fmt.Errorf("only --token or --web options are supported for AAP Gateway auth")
+	}
+
+	if authConfig.AuthType == common.AuthTypeAAP && strIsEmpty(o.ClientId) {
+		return fmt.Errorf("--client-id must be specified for AAP Gateway auth")
+	}
+
 	if strIsEmpty(o.Token) && strIsEmpty(o.Password) && strIsEmpty(o.Username) && !o.Web {
 		fmt.Println("You must provide one of the following options to log in:")
 		fmt.Println("  --token=<token>")
-		fmt.Println("  --username=<username> and --password=<password>")
+		if authConfig.AuthType != common.AuthTypeAAP {
+			fmt.Println("  --username=<username> and --password=<password>")
+		}
 		fmt.Print("  --web (to log in via your browser)\n\n")
-		if o.authConfig.AuthType == "k8s" && !strIsEmpty(o.authConfig.AuthURL) {
-			oauth2 := login.NewK8sOAuth2Config(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
-			oauthConfig, err := oauth2.GetOAuth2Config()
+		if o.authConfig.AuthType == common.AuthTypeK8s && !strIsEmpty(o.authConfig.AuthURL) {
+			oauthConfig, err := login.GetOAuth2Config(o.authConfig.AuthURL, o.AuthCAFile, o.InsecureSkipVerify)
 			if err != nil {
 				return fmt.Errorf("could not get oauth config: %w", err)
 			}
@@ -166,12 +176,12 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		}
 		var authProvider login.AuthProvider
 		switch o.authConfig.AuthType {
-		case "OIDC":
+		case common.AuthTypeOIDC:
 			if o.ClientId == "" {
 				o.ClientId = "flightctl"
 			}
 			authProvider = login.NewOIDCConfig(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
-		case "k8s":
+		case common.AuthTypeK8s:
 			if o.ClientId == "" {
 				if o.Username != "" {
 					o.ClientId = "openshift-challenging-client"
@@ -180,6 +190,8 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 				}
 			}
 			authProvider = login.NewK8sOAuth2Config(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
+		case common.AuthTypeAAP:
+			authProvider = login.NewAAPOAuth2Config(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
 		}
 
 		if authProvider == nil {
@@ -201,7 +213,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	headerVal := "Bearer " + token
-	res, err := c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authentication: &headerVal})
+	res, err := c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
 	if err != nil {
 		return fmt.Errorf("validating token: %w", err)
 	}
