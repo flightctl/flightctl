@@ -69,6 +69,20 @@ func (m *Device) ListSelectors() selector.SelectorNameSet {
 	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameoralias")).Add(keys...)
 }
 
+func (m *DeviceLabel) MapSelectorName(name selector.SelectorName) []selector.SelectorName {
+	if strings.EqualFold("metadata.label.keyorvalue", name.String()) {
+		return []selector.SelectorName{
+			selector.NewSelectorName("metadata.label.key"),
+			selector.NewSelectorName("metadata.label.value"),
+		}
+	}
+	return nil
+}
+
+func (m *DeviceLabel) ListSelectors() selector.SelectorNameSet {
+	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.label.keyorvalue"))
+}
+
 func (m *Fleet) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
 	if typ, exists := fleetSpecSelectors[name]; exists {
 		return &selector.SelectorField{
