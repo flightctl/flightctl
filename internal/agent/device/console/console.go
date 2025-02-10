@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/containers/storage/pkg/pools"
+	"github.com/creack/pty"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -25,6 +28,11 @@ type ConsoleController struct {
 	currentStreamID  string
 	lastClosedStream string
 	executor         executer.Executer
+}
+
+type TerminalSize struct {
+	Width  uint16
+	Height uint16
 }
 
 func NewController(
@@ -204,31 +212,61 @@ func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteC
 }
 
 func (c *ConsoleController) bashProcess(ctx context.Context) (io.WriteCloser, io.ReadCloser, error) {
-	// TODO pty: this is how oci does a PTY:
-	// https://github.com/cri-o/cri-o/blob/main/internal/oci/oci_unix.go
-	//
-	// set PS1 environment variable to make bash print the default prompt
+
+	// create a new bash process
 	cmd := c.executor.CommandContext(ctx, "bash", "-i", "-l")
-	stdin, err := cmd.StdinPipe()
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+
+	// create a new PTY
+	p, err := pty.Start(cmd)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdout pipe: %w", err)
+		return nil, nil, fmt.Errorf("error starting pty: %w", err)
 	}
 
-	cmd.Stderr = cmd.Stdout
+	c.log.Info("bash process started under pty")
 
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("error starting bash process: %w", err)
-	}
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+
+	var stdinErr, stdoutErr error
+
 	go func() {
-		if err := cmd.Wait(); err != nil {
+		// copy from stdinWriter to pty
+		_, stdinErr = pools.Copy(p, stdinReader)
+		_ = cmd.Process.Kill()
+	}()
+	go func() {
+		// copy from pty to stdoutWriter
+		_, stdoutErr = pools.Copy(stdoutWriter, p)
+		stdoutWriter.Close()
+		_ = cmd.Process.Kill()
+	}()
+
+	// set the initial terminal size until we receive a window resize event from the other side
+	size := TerminalSize{Width: 80, Height: 25}
+	if err := setSize(p.Fd(), size); err != nil {
+		return nil, nil, fmt.Errorf("error setting terminal size: %w", err)
+	}
+
+	go func() {
+		defer p.Close()
+		err := cmd.Wait()
+		if stdinErr != nil {
+			c.log.Errorf("error copying to stdin: %v", stdinErr)
+		}
+		if stdoutErr != nil {
+			c.log.Errorf("error copying from stdout: %v", stdoutErr)
+		}
+		if err != nil {
 			c.log.Errorf("error waiting for bash process: %v", err)
 		} else {
 			c.log.Info("bash process exited successfully")
 		}
 	}()
-	return stdin, stdout, nil
+	return stdinWriter, stdoutReader, nil
+}
+
+func setSize(fd uintptr, size TerminalSize) error {
+	winsize := &unix.Winsize{Row: size.Height, Col: size.Width}
+	return unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, winsize)
 }
