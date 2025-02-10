@@ -383,11 +383,40 @@ func (r CertificateSigningRequest) Validate() []error {
 	return allErrs
 }
 
+func (b *Batch_Limit) Validate() []error {
+	if b == nil {
+		return nil
+	}
+	intVal, err := b.AsBatchLimit1()
+	if err == nil {
+		if intVal <= 0 {
+			return []error{errors.New("absolute limit value must be positive integer")}
+		}
+		return nil
+	}
+	p, err := b.AsPercentage()
+	if err != nil {
+		return []error{fmt.Errorf("limit must either an integer value or a percentage: %w", err)}
+	}
+	if err = validatePercentage(p); err != nil {
+		return []error{err}
+	}
+	return nil
+}
+
 func (b *Batch) Validate() []error {
+	var errs []error
 	if b == nil {
 		return []error{errors.New("a batch in a batch sequence must not be null")}
 	}
-	return b.Selector.Validate()
+	errs = append(errs, b.Selector.Validate()...)
+	errs = append(errs, b.Limit.Validate()...)
+	if b.SuccessThreshold != nil {
+		if err := validatePercentage(*b.SuccessThreshold); err != nil {
+			errs = append(errs, fmt.Errorf("batch success threshold: %w", err))
+		}
+	}
+	return errs
 }
 
 func (b BatchSequence) Validate() []error {
@@ -440,6 +469,11 @@ func (r *RolloutPolicy) Validate() []error {
 	}
 	errs = append(errs, r.DeviceSelection.Validate()...)
 	errs = append(errs, r.DisruptionBudget.Validate()...)
+	if r.SuccessThreshold != nil {
+		if err := validatePercentage(*r.SuccessThreshold); err != nil {
+			errs = append(errs, fmt.Errorf("rollout policy success threshold: %w", err))
+		}
+	}
 	return errs
 }
 
@@ -838,4 +872,16 @@ func ValidateConditions(conditions []Condition, allowedConditions, trueCondition
 		allErrs = append(allErrs, fmt.Errorf("only one of %v may be set", exclusiveConditions))
 	}
 	return allErrs
+}
+
+func validatePercentage(p Percentage) error {
+	pattern := `^(100|[1-9]?[0-9])%$`
+	matched, err := regexp.MatchString(pattern, p)
+	if err != nil {
+		return fmt.Errorf("failed to match percentage %s: %w", p, err)
+	}
+	if !matched {
+		return fmt.Errorf("'%s' doesn't match percentage pattern '%s'", p, pattern)
+	}
+	return nil
 }
