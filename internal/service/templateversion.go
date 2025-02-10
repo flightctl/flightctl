@@ -9,7 +9,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
@@ -25,16 +24,8 @@ func TemplateVersionFromReader(r io.Reader) (*api.TemplateVersion, error) {
 	return &templateVersion, err
 }
 
-// (GET /api/v1/api/v1/fleets/{fleet}/templateVersions)
+// (GET api/v1/fleets/{fleet}/templateVersions)
 func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request server.ListTemplateVersionsRequestObject) (server.ListTemplateVersionsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/templateversions", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListTemplateVersions503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ListTemplateVersions403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
@@ -90,19 +81,14 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	}
 }
 
-// (DELETE /api/v1/api/v1/fleets/{fleet}/templateVersions)
+// (DELETE api/v1/fleets/{fleet}/templateVersions)
 func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request server.DeleteTemplateVersionsRequestObject) (server.DeleteTemplateVersionsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/templateversions", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteTemplateVersions503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
-	var fieldSelector *selector.FieldSelector
+	var (
+		fieldSelector *selector.FieldSelector
+		err           error
+	)
 	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}); err != nil {
 		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
 	}
@@ -144,14 +130,6 @@ func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request ser
 
 // (GET /api/v1/fleets/{fleet}/templateVersions/{name})
 func (h *ServiceHandler) ReadTemplateVersion(ctx context.Context, request server.ReadTemplateVersionRequestObject) (server.ReadTemplateVersionResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/templateversions", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadTemplateVersion503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadTemplateVersion403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.TemplateVersion().Get(ctx, orgId, request.Fleet, request.Name)
@@ -167,18 +145,10 @@ func (h *ServiceHandler) ReadTemplateVersion(ctx context.Context, request server
 
 // (DELETE /api/v1/fleets/{fleet}/templateVersions/{name})
 func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request server.DeleteTemplateVersionRequestObject) (server.DeleteTemplateVersionResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/templateversions", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteTemplateVersion503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteTemplateVersion403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: request.Fleet, TemplateVersion: request.Name}
-	err = h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
+	err := h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
 	if err != nil {
 		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, request.Fleet, request.Name)
 	}

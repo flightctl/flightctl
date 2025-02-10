@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,6 +18,7 @@ type RolloutDeviceSelector interface {
 	Advance(ctx context.Context) error
 	Reset(ctx context.Context) error
 	IsRolloutNew() bool
+	IsDefinitionUpdated() (bool, error)
 	OnNewRollout(ctx context.Context) error
 	UnmarkRolloutSelection(ctx context.Context) error
 }
@@ -65,4 +67,29 @@ func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defau
 	default:
 		return nil, fmt.Errorf("unexpected selector %T", selectorInterface)
 	}
+}
+
+func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, store store.Store) (bool, error) {
+	fleetName := lo.FromPtr(fleet.Metadata.Name)
+	annotationsToDelete := []string{
+		api.FleetAnnotationBatchNumber,
+		api.FleetAnnotationLastBatchCompletionReport,
+		api.FleetAnnotationRolloutApproved,
+		api.FleetAnnotationRolloutApprovalMethod,
+		api.FleetAnnotationDeployingTemplateVersion,
+		api.FleetAnnotationDeviceSelectionConfigDigest,
+	}
+	if lo.NoneBy(annotationsToDelete, func(ann string) bool {
+		return lo.HasKey(lo.CoalesceMapOrEmpty(lo.FromPtr(fleet.Metadata.Annotations)), ann)
+	}) {
+		return false, nil
+	}
+
+	if err := store.Device().UnmarkRolloutSelection(ctx, orgId, fleetName); err != nil {
+		return false, err
+	}
+	if err := store.Fleet().UpdateAnnotations(ctx, orgId, fleetName, nil, annotationsToDelete); err != nil {
+		return false, err
+	}
+	return true, nil
 }

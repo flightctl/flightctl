@@ -211,18 +211,25 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 
-	if err := a.sync(ctx, current, desired); err != nil {
+	if syncErr := a.sync(ctx, current, desired); syncErr != nil {
 		// if context is canceled return to exit the sync loop
-		if errors.Is(err, context.Canceled) {
+		if errors.Is(syncErr, context.Canceled) {
 			return
+		}
+
+		if !errors.IsRetryable(syncErr) {
+			a.log.Errorf("Marking template version %v as failed: %v", desired.RenderedVersion, syncErr)
+			if err := a.specManager.SetUpgradeFailed(desired.RenderedVersion); err != nil {
+				a.log.Errorf("Failed to set upgrade failed: %v", err)
+			}
 		}
 
 		if err := a.rollbackSpec(ctx, current, desired); err != nil {
-			a.log.Errorf("Failed to rollback: %v", err)
+			a.log.Warnf("Rollback did not complete cleanly: %v", err)
 			return
 		}
 
-		a.handleSyncError(ctx, desired, err)
+		a.handleSyncError(ctx, desired, syncErr)
 		return
 	}
 
@@ -238,7 +245,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 }
 
 func (a *Agent) rollbackSpec(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
-	a.log.Warnf("Attempting to roll back to previous renderedVersion: %s", current.RenderedVersion)
+	a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.RenderedVersion)
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.DeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
@@ -257,7 +264,7 @@ func (a *Agent) rollbackSpec(ctx context.Context, current, desired *v1alpha1.Ren
 	// ensure a clean rollback state.
 	if err := a.sync(ctx, desired, current); err != nil {
 		// log error and continue to ensure the device is in a consistent state
-		a.log.Errorf("Failed to sync roll back spec: %v", err)
+		a.log.Errorf("Failed to sync rollback spec: %v", err)
 	}
 
 	a.log.Warnf("Rolled back to previous renderedVersion: %s", current.RenderedVersion)
@@ -497,18 +504,12 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedD
 	}
 
 	if !errors.IsRetryable(syncErr) {
-		a.log.Errorf("Marking template version %v as failed: %v", version, syncErr)
-
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusError
 		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
 
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
-
-		if err := a.specManager.SetUpgradeFailed(desired.RenderedVersion); err != nil {
-			a.log.Errorf("Failed to set upgrade failed: %v", err)
-		}
 		a.log.Error(lo.FromPtr(statusUpdate.Info))
 	} else {
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded

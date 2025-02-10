@@ -74,11 +74,17 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 		t.ownerFleet = &owner
 
-		if device.Metadata.Annotations == nil {
+		annotations := lo.FromPtr(device.Metadata.Annotations)
+		tvString, exists := util.GetFromMap(annotations, api.DeviceAnnotationTemplateVersion)
+		if !exists {
 			return fmt.Errorf("device has no templateversion annotation")
 		}
-		tvString := (*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
 		t.templateVersion = &tvString
+		renderedTemplateVersion, exists := annotations[api.DeviceAnnotationRenderedTemplateVersion]
+		if exists && tvString == renderedTemplateVersion {
+			// Skipping since this template version was already rendered
+			return nil
+		}
 	}
 
 	ignitionConfig, referencedRepos, renderErr := t.renderConfig(ctx)
