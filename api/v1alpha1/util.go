@@ -411,3 +411,12 @@ func (e MatchExpression) String() string {
 	}
 	return sb.String()
 }
+
+// GetConsoles returns the list of DeviceConsole objects, or an empty list if the field is nil.
+func (rd RenderedDeviceSpec) GetConsoles() []DeviceConsole {
+	if rd.Consoles == nil {
+		return []DeviceConsole{}
+	} else {
+		return *rd.Consoles
+	}
+}
