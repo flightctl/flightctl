@@ -10,6 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -25,6 +26,7 @@ type Device interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.DeviceLabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
@@ -73,7 +75,7 @@ func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c IntegrationTest
 }
 
 func (s *DeviceStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.Device{}); err != nil {
+	if err := s.db.AutoMigrate(&model.Device{}, &model.DeviceLabel{}); err != nil {
 		return err
 	}
 
@@ -151,6 +153,64 @@ func (s *DeviceStore) InitialMigration() error {
 		}
 	}
 
+	// Create indexes for device_labels (Partial Matching Support)
+	if !s.db.Migrator().HasIndex(&model.DeviceLabel{}, "idx_device_labels_partial") {
+		if s.db.Dialector.Name() == "postgres" {
+			// Enable pg_trgm extension for partial matching
+			if err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
+				return err
+			}
+			// Create GIN index for partial match searches
+			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	// Ensure trigger is created for INSERT & UPDATE (labels JSONB changes)
+	if s.db.Dialector.Name() == "postgres" {
+		triggerSQL := `
+		DROP TRIGGER IF EXISTS device_labels_insert ON devices;
+		DROP TRIGGER IF EXISTS device_labels_update ON devices;
+	
+		CREATE OR REPLACE FUNCTION sync_device_labels()
+		RETURNS TRIGGER AS $$
+		DECLARE
+			label RECORD;
+		BEGIN
+			IF TG_OP = 'UPDATE' THEN
+				DELETE FROM device_labels
+				WHERE org_id = OLD.org_id AND device_name = OLD.name
+				AND label_key NOT IN (SELECT jsonb_object_keys(NEW.labels));
+			END IF;
+	
+			FOR label IN SELECT * FROM jsonb_each_text(NEW.labels)
+			LOOP
+				INSERT INTO device_labels (org_id, device_name, label_key, label_value)
+				VALUES (NEW.org_id, NEW.name, label.key, label.value)
+				ON CONFLICT (org_id, device_name, label_key) DO UPDATE
+				SET label_value = EXCLUDED.label_value;
+			END LOOP;
+	
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+	
+		CREATE TRIGGER device_labels_insert
+		AFTER INSERT ON devices
+		FOR EACH ROW
+		EXECUTE FUNCTION sync_device_labels();
+	
+		CREATE TRIGGER device_labels_update
+		AFTER UPDATE OF labels ON devices
+		FOR EACH ROW
+		WHEN (OLD.labels IS DISTINCT FROM NEW.labels)
+		EXECUTE FUNCTION sync_device_labels();
+		`
+		if err := s.db.Exec(triggerSQL).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -172,6 +232,42 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
 	return s.genericStore.List(ctx, orgId, listParams)
+}
+
+func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.DeviceLabelList, error) {
+	var labels []model.DeviceLabel
+
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
+
+	resolver, err := selector.NewCompositeSelectorResolver(&model.Device{}, &model.DeviceLabel{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create selector resolver: %w", err)
+	}
+
+	query, err := ListQuery(model.Device{}, WithSelectorResolver(resolver)).BuildNoOrder(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
+	query = query.Select("DISTINCT device_labels.label_key, device_labels.label_value").
+		Joins("JOIN device_labels ON devices.org_id = device_labels.org_id AND devices.name = device_labels.device_name")
+
+	if listParams.Limit > 0 {
+		query = query.Limit(listParams.Limit)
+	}
+
+	if err := query.Find(&labels).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	labelStrings := make([]string, len(labels))
+	for i, label := range labels {
+		labelStrings[i] = fmt.Sprintf("%s=%s", label.LabelKey, label.LabelValue)
+	}
+
+	return labelStrings, nil
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
