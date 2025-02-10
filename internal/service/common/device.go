@@ -217,7 +217,7 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 		device.Status.ApplicationsSummary.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 	}
-	if device.IsRebooting() {
+	if device.IsRebooting() && len(device.Status.Applications) > 0 {
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
 		device.Status.ApplicationsSummary.Info = lo.ToPtr(DeviceStatusInfoRebooting)
 		return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
