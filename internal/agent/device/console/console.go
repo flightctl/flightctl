@@ -53,8 +53,9 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
+	desiredConsoles := desired.GetConsoles()
 	// do we have an open console stream, and we are supposed to close it?
-	if desired.Console == nil {
+	if len(desiredConsoles) == 0 {
 		c.log.Debug("No desired console")
 		if c.active {
 			if c.streamClient != nil {
@@ -68,25 +69,28 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 		return nil
 	}
 
+	// TODO: handle multiple consoles
+	console := desiredConsoles[0]
+
 	// TO-DO: manage the situation where a new console is requested while the current one is still open
 	// if we have an active console, and the session ID is the same, we should keep it open
 	if c.active && c.streamClient != nil {
-		c.log.Infof("active console on session %s", desired.Console.SessionID)
+		c.log.Infof("active console on session %s", console.SessionID)
 		return nil
 	}
 
-	if c.lastClosedStream == desired.Console.SessionID {
-		c.log.Debugf("console session %s was closed, not opening again", desired.Console.SessionID)
+	if c.lastClosedStream == console.SessionID {
+		c.log.Debugf("console session %s was closed, not opening again", console.SessionID)
 		return nil
 	}
 
 	if c.grpcClient == nil {
-		c.log.Errorf("no gRPC client available, cannot start console session to %s", desired.Console.SessionID)
+		c.log.Errorf("no gRPC client available, cannot start console session to %s", console.SessionID)
 		return nil
 	}
-	c.log.Infof("starting console for session %s", desired.Console.SessionID)
-	// add key-value pairs of metadata to context, for now we are ignoring the Console.GRPCEndpoint
-	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, desired.Console.SessionID)
+	c.log.Infof("starting console for session %s", console.SessionID)
+	// add key-value pairs of metadata to context
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, console.SessionID)
 	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcClientNameKey, c.deviceName)
 
 	stdin, stdout, err := c.bashProcess(ctx)
@@ -102,19 +106,19 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 	}
 	c.streamClient = streamClient
 	c.active = true
-	c.currentStreamID = desired.Console.SessionID
+	c.currentStreamID = console.SessionID
 
 	go func() {
 		c.log.Info("starting console forwarding")
 		err := c.startForwarding(ctx, stdin, stdout)
 		// make sure that we wait for the command to finish, otherwise we will have a zombie process
 		if err != nil {
-			c.log.Errorf("error forwarding console ended for session %s: %v", desired.Console.SessionID, err)
+			c.log.Errorf("error forwarding console ended for session %s: %v", console.SessionID, err)
 		}
-		c.log.Infof("console session %s ended", desired.Console.SessionID)
+		c.log.Infof("console session %s ended", console.SessionID)
 		// if the stream has been closed we won't try to re-open it until we find a
 		// new session ID
-		c.lastClosedStream = desired.Console.SessionID
+		c.lastClosedStream = console.SessionID
 		c.active = false
 		c.streamClient = nil
 	}()

@@ -643,8 +643,8 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 
 	if val, ok := annotations[api.DeviceAnnotationConsole]; ok {
 		console = &api.DeviceConsole{
-			GRPCEndpoint: consoleGrpcEndpoint,
-			SessionID:    val,
+			SessionMetadata: "",
+			SessionID:       val,
 		}
 	}
 
@@ -653,6 +653,11 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	if console == nil && knownRenderedVersion != nil && renderedVersion == *knownRenderedVersion {
 		return nil, nil
 	}
+	// TODO: handle multiple consoles, for now we just encapsulate our one console in a list
+	var consoles *[]api.DeviceConsole
+	if console != nil {
+		consoles = &[]api.DeviceConsole{*console}
+	}
 
 	renderedConfig := api.RenderedDeviceSpec{
 		RenderedVersion: renderedVersion,
@@ -660,7 +665,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 		Os:              device.Spec.Data.Os,
 		Systemd:         device.Spec.Data.Systemd,
 		Resources:       device.Spec.Data.Resources,
-		Console:         console,
+		Consoles:        consoles,
 		Applications:    device.RenderedApplications.Data,
 		UpdatePolicy:    device.Spec.Data.UpdatePolicy,
 		Decommission:    device.Spec.Data.Decommissioning,

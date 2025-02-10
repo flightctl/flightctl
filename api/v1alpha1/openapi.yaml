@@ -3454,18 +3454,14 @@ components:
       type: object
       description: DeviceConsole represents the console connection information.
       properties:
-        # TODO: when migrating to ws, this should be a ws url instead of gRPCEndpoint
-        #wsURL:
-        #  type: string
-        #  description: 'The URL to connect to the console through a websocket'
-        gRPCEndpoint:
+        sessionMetadata:
           type: string
-          description: The gRPC endpoint for the console connection.
+          description: Additional session metadata in the form of key=value pairs, can be used to initialize the type of terminal, console to be used, etc.
         sessionID:
           type: string
           description: The session ID for the console connection.
       required:
-        - gRPCEndpoint
+        - sessionMetadata
         - sessionID
     ConfigProviderSpec:
       oneOf:
@@ -4580,8 +4576,11 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
-        console:
-          $ref: '#/components/schemas/DeviceConsole'
+        consoles:
+          type: array
+          description: The list of active console sessions.
+          items:
+            $ref: '#/components/schemas/DeviceConsole'
         decommission:
           $ref: '#/components/schemas/DeviceDecommission'
       required:
