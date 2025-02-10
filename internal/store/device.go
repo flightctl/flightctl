@@ -640,9 +640,15 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	var console *api.DeviceConsole
 
 	if val, ok := annotations[api.DeviceAnnotationConsole]; ok {
+		// TODO: support multiple sessions
+		sessions := []api.ConsoleSession{
+			{
+				Id: val,
+			},
+		}
 		console = &api.DeviceConsole{
 			GRPCEndpoint: consoleGrpcEndpoint,
-			SessionID:    val,
+			Sessions:     sessions,
 		}
 	}
 

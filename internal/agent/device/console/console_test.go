@@ -41,7 +41,11 @@ func (suite *ConsoleControllerSuite) SetupTest() {
 
 	suite.desired = &api.RenderedDeviceSpec{
 		Console: &api.DeviceConsole{
-			SessionID: sessionId,
+			Sessions: []api.ConsoleSession{
+				{
+					Id: sessionId,
+				},
+			},
 		},
 	}
 
@@ -81,7 +85,7 @@ func (suite *ConsoleControllerSuite) TestNoDesiredConsoleWithActiveStreamFailure
 }
 
 func (suite *ConsoleControllerSuite) TestActiveConsoleWithSameSessionID() {
-	suite.consoleController.currentStreamID = suite.desired.Console.SessionID
+	suite.consoleController.currentStreamID = suite.desired.Console.Sessions[0].Id
 
 	suite.mockStreamClient.EXPECT().Recv().Return(nil, nil).AnyTimes()
 	suite.mockStreamClient.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
@@ -94,7 +98,7 @@ func (suite *ConsoleControllerSuite) TestActiveConsoleWithSameSessionID() {
 }
 
 func (suite *ConsoleControllerSuite) TestConsoleSessionWasClosed() {
-	suite.consoleController.lastClosedStream = suite.desired.Console.SessionID
+	suite.consoleController.lastClosedStream = suite.desired.Console.Sessions[0].Id
 
 	err := suite.consoleController.Sync(suite.ctx, suite.desired)
 	suite.NoError(err)

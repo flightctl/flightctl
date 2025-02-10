@@ -167,9 +167,16 @@ func (h *ServiceHandler) RequestConsole(ctx context.Context, request server.Requ
 		return server.RequestConsole503JSONResponse{Message: "Unable to annotate device for console setup"}, err
 	}
 
+	// TODO: support multiple sessions
+	sessions := []api.ConsoleSession{
+		{
+			Id: sessionId,
+		},
+	}
+
 	// create a new console session
 	return server.RequestConsole200JSONResponse{
-		SessionID:    sessionId,
+		Sessions:    sessions,
 		GRPCEndpoint: h.agentEndpoint,
 	}, nil
 

@@ -317,6 +317,12 @@ type ConfigProviderSpec struct {
 	union json.RawMessage
 }
 
+// ConsoleSession Represents a console session.
+type ConsoleSession struct {
+	// Id The session ID for the console session.
+	Id string `json:"id"`
+}
+
 // CpuResourceMonitorSpec Specification for monitoring a resource.
 type CpuResourceMonitorSpec = ResourceMonitorSpec
 
@@ -391,8 +397,8 @@ type DeviceConsole struct {
 	// GRPCEndpoint The gRPC endpoint for the console connection.
 	GRPCEndpoint string `json:"gRPCEndpoint"`
 
-	// SessionID The session ID for the console connection.
-	SessionID string `json:"sessionID"`
+	// Sessions A list of console sessions for the console connection.
+	Sessions []ConsoleSession `json:"sessions"`
 }
 
 // DeviceDecommission Metadata about a device decommissioning request.

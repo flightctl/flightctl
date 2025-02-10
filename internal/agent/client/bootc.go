@@ -39,7 +39,7 @@ func (b *bootc) Status(ctx context.Context) (*container.BootcHost, error) {
 
 	var bootcHost container.BootcHost
 	if err := json.Unmarshal([]byte(stdout), &bootcHost); err != nil {
-		return nil, fmt.Errorf("unmarshalling config file: %w", err)
+		return nil, fmt.Errorf("unmarshaling bootc status: %w", err)
 	}
 
 	return &bootcHost, nil

@@ -3461,12 +3461,23 @@ components:
         gRPCEndpoint:
           type: string
           description: The gRPC endpoint for the console connection.
-        sessionID:
-          type: string
-          description: The session ID for the console connection.
+        sessions:
+          type: array
+          description: A list of console sessions for the console connection.
+          items:
+            $ref: '#/components/schemas/ConsoleSession'
       required:
         - gRPCEndpoint
-        - sessionID
+        - sessions
+    ConsoleSession:
+      type: object
+      description: Represents a console session.
+      properties:
+        id:
+          type: string
+          description: The session ID for the console session.
+      required:
+        - id
     ConfigProviderSpec:
       oneOf:
         - $ref: "#/components/schemas/GitConfigProviderSpec"
