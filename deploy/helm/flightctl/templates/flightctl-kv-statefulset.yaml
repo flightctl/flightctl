@@ -35,6 +35,7 @@ metadata:
     flightctl.service: flightctl-kv
 spec:
   serviceName: flightctl-kv
+  revisionHistoryLimit: 10
   replicas: 1
   selector:
     matchLabels:
