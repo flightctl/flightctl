@@ -275,6 +275,11 @@ func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
 		return false
 	}
 
+	// Check Decommission
+	if !reflect.DeepEqual(d1.Decommissioning, d2.Decommissioning) {
+		return false
+	}
+
 	return true
 }
 
