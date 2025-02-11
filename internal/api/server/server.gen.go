@@ -69,9 +69,6 @@ type ServerInterface interface {
 	// (PUT /api/v1/devices/{name})
 	ReplaceDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/devices/{name}/console)
-	RequestConsole(w http.ResponseWriter, r *http.Request, name string)
-
 	// (PUT /api/v1/devices/{name}/decommission)
 	DecommissionDevice(w http.ResponseWriter, r *http.Request, name string)
 
@@ -297,11 +294,6 @@ func (_ Unimplemented) PatchDevice(w http.ResponseWriter, r *http.Request, name 
 
 // (PUT /api/v1/devices/{name})
 func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, name string) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (GET /api/v1/devices/{name}/console)
-func (_ Unimplemented) RequestConsole(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -997,32 +989,6 @@ func (siw *ServerInterfaceWrapper) ReplaceDevice(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceDevice(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// RequestConsole operation middleware
-func (siw *ServerInterfaceWrapper) RequestConsole(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var err error
-
-	// ------------- Path parameter "name" -------------
-	var name string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RequestConsole(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2483,9 +2449,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/api/v1/devices/{name}", wrapper.ReplaceDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}/console", wrapper.RequestConsole)
-	})
-	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/devices/{name}/decommission", wrapper.DecommissionDevice)
 	})
 	r.Group(func(r chi.Router) {
@@ -3592,68 +3555,6 @@ func (response ReplaceDevice409JSONResponse) VisitReplaceDeviceResponse(w http.R
 type ReplaceDevice503JSONResponse Error
 
 func (response ReplaceDevice503JSONResponse) VisitReplaceDeviceResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type RequestConsoleRequestObject struct {
-	Name string `json:"name"`
-}
-
-type RequestConsoleResponseObject interface {
-	VisitRequestConsoleResponse(w http.ResponseWriter) error
-}
-
-type RequestConsole200JSONResponse DeviceConsole
-
-func (response RequestConsole200JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type RequestConsole401JSONResponse Error
-
-func (response RequestConsole401JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type RequestConsole403JSONResponse Error
-
-func (response RequestConsole403JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type RequestConsole404JSONResponse Error
-
-func (response RequestConsole404JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type RequestConsole409JSONResponse Error
-
-func (response RequestConsole409JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type RequestConsole503JSONResponse Error
-
-func (response RequestConsole503JSONResponse) VisitRequestConsoleResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
 
@@ -6410,9 +6311,6 @@ type StrictServerInterface interface {
 	// (PUT /api/v1/devices/{name})
 	ReplaceDevice(ctx context.Context, request ReplaceDeviceRequestObject) (ReplaceDeviceResponseObject, error)
 
-	// (GET /api/v1/devices/{name}/console)
-	RequestConsole(ctx context.Context, request RequestConsoleRequestObject) (RequestConsoleResponseObject, error)
-
 	// (PUT /api/v1/devices/{name}/decommission)
 	DecommissionDevice(ctx context.Context, request DecommissionDeviceRequestObject) (DecommissionDeviceResponseObject, error)
 
@@ -7055,32 +6953,6 @@ func (sh *strictHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request, n
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceDeviceResponseObject); ok {
 		if err := validResponse.VisitReplaceDeviceResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// RequestConsole operation middleware
-func (sh *strictHandler) RequestConsole(w http.ResponseWriter, r *http.Request, name string) {
-	var request RequestConsoleRequestObject
-
-	request.Name = name
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.RequestConsole(ctx, request.(RequestConsoleRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RequestConsole")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(RequestConsoleResponseObject); ok {
-		if err := validResponse.VisitRequestConsoleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

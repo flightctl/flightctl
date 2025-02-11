@@ -388,11 +388,11 @@ type DeviceConfigStatus struct {
 
 // DeviceConsole DeviceConsole represents the console connection information.
 type DeviceConsole struct {
-	// GRPCEndpoint The gRPC endpoint for the console connection.
-	GRPCEndpoint string `json:"gRPCEndpoint"`
-
 	// SessionID The session ID for the console connection.
 	SessionID string `json:"sessionID"`
+
+	// SessionMetadata Additional session metadata in the form of key=value pairs, can be used to initialize the type of terminal, console to be used, etc.
+	SessionMetadata string `json:"sessionMetadata"`
 }
 
 // DeviceDecommission Metadata about a device decommissioning request.
@@ -1121,8 +1121,8 @@ type RenderedDeviceSpec struct {
 	// Config The configuration to apply, in Ignition format.
 	Config *string `json:"config,omitempty"`
 
-	// Console DeviceConsole represents the console connection information.
-	Console *DeviceConsole `json:"console,omitempty"`
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
 
 	// Decommission Metadata about a device decommissioning request.
 	Decommission *DeviceDecommission `json:"decommission,omitempty"`
