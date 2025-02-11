@@ -1318,56 +1318,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /api/v1/devices/{name}/console:
-    get:
-      tags:
-        - device
-      description: Request a console connection
-      operationId: requestConsole
-      parameters:
-        - name: name
-          in: path
-          description: The name of the Device resource to create a console connection to.
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeviceConsole'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "404":
-          description: NotFound
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "409":
-          description: StatusConflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
   /api/v1/devices/{name}/decommission:
     put:
       tags:
