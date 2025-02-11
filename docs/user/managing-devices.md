@@ -502,7 +502,7 @@ In particular, to only run an action if a given file or directory has changed du
 | Parameter | Description |
 | --------- | ----------- |
 | Path | An absolute path to a file or directory that must have changed during the update as condition for the action to be performed. Paths must be specified using forward slashes (`/`) and if the path is to a directory it must terminate with a forward slash `/`.<br/></br>If you specify a path to a file, the file must have changed to satisfy the condition.</br>If you specify a path to a directory, a file in that directory or any of its subdirectories must have changed to satisfy the condition.|
-| On | A list of file operations (`created`, `updated`, `removed`) to further limit the kind of changes to the specified path as condition for the action to be performed. |
+| Op | A list of file operations (`created`, `updated`, `removed`) to further limit the kind of changes to the specified path as condition for the action to be performed. |
 
 If you have specified a "path condition" for an action in the `afterUpdating` hook, you have the following variables that you can include in arguments to your command and that will be replaced with the absolute path(s) to the changed files:
 
