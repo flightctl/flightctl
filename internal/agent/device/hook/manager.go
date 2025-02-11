@@ -139,6 +139,10 @@ func (m *manager) loadActions(actionsMap map[string][]api.HookAction, actionFile
 
 func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, actionCtx *actionContext) error {
 	for i, action := range actions {
+		if err := checkActionDependency(action); err != nil {
+			m.log.Debugf("Skipping %s hook action #%d: dependencies not met: %v", actionCtx.hook, i+1, err)
+			continue
+		}
 		if action.If != nil {
 			conditionsMet := true
 			for j, condition := range *action.If {
@@ -148,7 +152,7 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 					return fmt.Errorf("failed to check %s hook action #%d condition #%d: %w", actionCtx.hook, i+1, j+1, err)
 				}
 				if !conditionMet {
-					m.log.Debugf("skipping %s hook action #%d condition #%d: condition not met", actionCtx.hook, i+1, j+1)
+					m.log.Debugf("Skipping %s hook action #%d condition #%d: condition not met", actionCtx.hook, i+1, j+1)
 					conditionsMet = false
 					break
 				}
