@@ -1,19 +1,16 @@
 package service
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -41,8 +38,8 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName)
 	// check for errors
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceNotFound:
+		switch {
+		case errors.Is(err, flterrors.ErrResourceNotFound):
 			h.log.Errorf("console requested for unknown device: %s", deviceName)
 			http.Error(w, "Device not found", http.StatusNotFound)
 		default:
@@ -140,44 +137,4 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		h.log.Errorf("Error closing console session %s for device %s: %v", consoleSession.UUID, deviceName, err)
 	}
-}
-
-// TODO(majopela): remove this request handler and API call once the UI is migrated to the new websocket API
-func (h *ServiceHandler) RequestConsole(ctx context.Context, request server.RequestConsoleRequestObject) (server.RequestConsoleResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/console", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.RequestConsole503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.RequestConsole403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
-
-	// make sure the device exists
-	_, err = h.store.Device().Get(ctx, orgId, request.Name)
-	if err != nil {
-		switch err {
-		case flterrors.ErrResourceNotFound:
-			return server.RequestConsole404JSONResponse{}, nil
-		default:
-			return nil, err
-		}
-	}
-
-	sessionId := uuid.New().String()
-
-	annotations := map[string]string{api.DeviceAnnotationConsole: sessionId}
-
-	if err := h.store.Device().UpdateAnnotations(ctx, orgId, request.Name, annotations, []string{}); err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.RequestConsole503JSONResponse{Message: "Unable to annotate device for console setup"}, err
-	}
-
-	// create a new console session
-	return server.RequestConsole200JSONResponse{
-		SessionID:    sessionId,
-		GRPCEndpoint: h.agentEndpoint,
-	}, nil
-
 }

@@ -8,8 +8,8 @@ import (
 	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -34,10 +34,10 @@ func TestSync(t *testing.T) {
 		{
 			name: "desired config is invalid",
 			current: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(`{"ignition":{"version":"3.4.0"}}`),
+				Config: lo.ToPtr(`{"ignition":{"version":"3.4.0"}}`),
 			},
 			desired: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr("invalid"),
+				Config: lo.ToPtr("invalid"),
 			},
 			wantErr: errors.ErrInvalid,
 		},
@@ -47,13 +47,13 @@ func TestSync(t *testing.T) {
 				Config: nil,
 			},
 			desired: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(`{"ignition":{"version":"3.4.0"}}`),
+				Config: lo.ToPtr(`{"ignition":{"version":"3.4.0"}}`),
 			},
 		},
 		{
 			name: "current config is valid desired is nil",
 			current: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(ignitionConfigCurrent),
+				Config: lo.ToPtr(ignitionConfigCurrent),
 			},
 			desired: &v1alpha1.RenderedDeviceSpec{},
 			removedFiles: []string{
@@ -65,10 +65,10 @@ func TestSync(t *testing.T) {
 		{
 			name: "validate removal of files",
 			current: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(ignitionConfigCurrent),
+				Config: lo.ToPtr(ignitionConfigCurrent),
 			},
 			desired: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(ignitionConfigDesired),
+				Config: lo.ToPtr(ignitionConfigDesired),
 			},
 			createdFiles: []string{
 				"/etc/example/file1.txt",
@@ -169,7 +169,7 @@ func TestComputeRemoval(t *testing.T) {
 	}
 }
 
-func expectCreateFile(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, f string) {
+func expectCreateFile(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, _ string) {
 	mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile, nil)
 	mockManagedFile.EXPECT().IsUpToDate().Return(false, nil)
 	mockManagedFile.EXPECT().Exists().Return(false, nil)

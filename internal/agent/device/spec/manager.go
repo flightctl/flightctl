@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
-	"golang.org/x/net/context"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -73,7 +73,7 @@ func NewManager(
 	}
 }
 
-func (s *manager) Initialize() error {
+func (s *manager) Initialize(ctx context.Context) error {
 	// current
 	if err := s.write(Current, initRenderedDeviceSpec); err != nil {
 		return err
@@ -86,6 +86,8 @@ func (s *manager) Initialize() error {
 	if err := s.write(Rollback, initRenderedDeviceSpec); err != nil {
 		return err
 	}
+	// reconcile the initial spec even though its empty
+	s.queue.Add(ctx, initRenderedDeviceSpec)
 	return nil
 }
 
@@ -188,13 +190,23 @@ func (s *manager) Upgrade(ctx context.Context) error {
 		s.log.Infof("Spec reconciliation complete: current version %s", desired.RenderedVersion)
 	}
 
-	// remove desired spec from the queue
-	s.queue.Remove(s.cache.getRenderedVersion(Desired))
+	// remove reconciled desired spec from the queue
+	version, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+	if err != nil {
+		return err
+	}
+	s.queue.Remove(version)
+
 	return nil
 }
 
-func (s *manager) SetUpgradeFailed() {
-	s.queue.SetFailed(s.cache.getRenderedVersion(Desired))
+func (s *manager) SetUpgradeFailed(version string) error {
+	versionInt, err := stringToInt64(version)
+	if err != nil {
+		return err
+	}
+	s.queue.SetFailed(versionInt)
+	return nil
 }
 
 func (s *manager) IsUpgrading() bool {
@@ -237,16 +249,28 @@ func (s *manager) ClearRollback() error {
 	return s.write(Rollback, initRenderedDeviceSpec)
 }
 
-func (s *manager) Rollback() error {
-	desiredRenderedVersion := s.cache.getRenderedVersion(Desired)
+func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
+	cfg := &rollbackConfig{}
 
-	// set the desired spec as failed
-	s.queue.SetFailed(desiredRenderedVersion)
+	// apply opts
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	if cfg.setFailed {
+		version, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+		if err != nil {
+			return err
+		}
+		// set the desired spec as failed
+
+		s.queue.SetFailed(version)
+	}
 
 	// copy the current rendered spec to the desired rendered spec
 	// this will reconcile the device with the desired "rollback" state
 	if err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath); err != nil {
-		return fmt.Errorf("%w: copy %q to %q", errors.ErrCopySpec, s.currentPath, s.desiredPath)
+		return fmt.Errorf("%w: copy %q to %q: %w", errors.ErrCopySpec, s.currentPath, s.desiredPath, err)
 	}
 
 	// update cache
@@ -254,6 +278,10 @@ func (s *manager) Rollback() error {
 	if err != nil {
 		return err
 	}
+
+	// add the desired spec back to the queue to ensure reconciliation
+	s.queue.Add(ctx, desired)
+
 	s.cache.update(Desired, desired)
 	return nil
 }
@@ -282,11 +310,14 @@ func (s *manager) OSVersion(specType Type) string {
 }
 
 func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error) {
-	renderedVersion := s.getRenderedVersion()
+	renderedVersion, err := s.getRenderedVersion()
+	if err != nil {
+		return nil, false, err
+	}
 	newDesired := &v1alpha1.RenderedDeviceSpec{}
 
 	startTime := time.Now()
-	err := wait.ExponentialBackoff(s.backoff, func() (bool, error) {
+	err = wait.ExponentialBackoff(s.backoff, func() (bool, error) {
 		return s.getRenderedFromManagementAPIWithRetry(ctx, renderedVersion, newDesired)
 	})
 
@@ -407,12 +438,16 @@ func (s *manager) exists(specType Type) (bool, error) {
 // getRenderedVersion returns the next rendered version to reconcile. If the
 // desired rendered version is marked as failed it will return the next version
 // to make progress.
-func (s *manager) getRenderedVersion() string {
+func (s *manager) getRenderedVersion() (string, error) {
 	desiredRenderedVersion := s.cache.getRenderedVersion(Desired)
-	if s.queue.IsFailed(desiredRenderedVersion) {
-		return desiredRenderedVersion
+	version, err := stringToInt64(desiredRenderedVersion)
+	if err != nil {
+		return "", err
 	}
-	return s.cache.getRenderedVersion(Current)
+	if s.queue.IsFailed(version) {
+		return desiredRenderedVersion, nil
+	}
+	return s.cache.getRenderedVersion(Current), nil
 }
 
 func (s *manager) pathFromType(specType Type) (string, error) {
@@ -499,4 +534,17 @@ func writeRenderedToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDevice
 
 func IsUpgrading(current *v1alpha1.RenderedDeviceSpec, desired *v1alpha1.RenderedDeviceSpec) bool {
 	return current.RenderedVersion != desired.RenderedVersion
+}
+
+type rollbackConfig struct {
+	setFailed bool
+}
+
+type RollbackOption func(*rollbackConfig)
+
+// WithSetFailed enables setting the desired spec as failed.
+func WithSetFailed() RollbackOption {
+	return func(cfg *rollbackConfig) {
+		cfg.setFailed = true
+	}
 }

@@ -32,7 +32,7 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql
 image with:
 ```
-export PGSQL_IMAGE=registry.redhat.io/rhel8/postgresql-12
+export PGSQL_IMAGE=registry.redhat.io/rhel9/postgresql-16
 podman login registry.redhat.io
 ```
 

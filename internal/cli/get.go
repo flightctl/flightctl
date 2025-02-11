@@ -16,6 +16,7 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
@@ -120,17 +121,23 @@ func (o *GetOptions) Validate(args []string) error {
 	if len(name) > 0 && len(o.FieldSelector) > 0 {
 		return fmt.Errorf("cannot specify field selector when fetching a single resource")
 	}
-	if o.Summary || o.SummaryOnly {
+	if o.Summary {
+		if kind != DeviceKind && kind != FleetKind {
+			return fmt.Errorf("summary can only be specified when fetching devices or fleets")
+		}
+		if kind == DeviceKind && len(name) > 0 {
+			return fmt.Errorf("cannot specify summary when fetching a single device")
+		}
+	}
+	if o.SummaryOnly {
 		if kind != DeviceKind {
-			return fmt.Errorf("summary can only be specified when fetching devices")
+			return fmt.Errorf("summary-only can only be specified when fetching devices")
 		}
 		if len(name) > 0 {
-			return fmt.Errorf("cannot specify summary when fetching a single resource")
+			return fmt.Errorf("cannot specify summary-only when fetching a single device")
 		}
-		if o.SummaryOnly {
-			if o.Limit > 0 || len(o.Continue) > 0 {
-				return fmt.Errorf("flags such as 'limit' and 'continue' are not supported when 'summary-only' is specified")
-			}
+		if o.Limit > 0 || len(o.Continue) > 0 {
+			return fmt.Errorf("flags such as 'limit' and 'continue' are not supported when 'summary-only' is specified")
 		}
 	}
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
@@ -172,81 +179,84 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		response, err = c.GetRenderedDeviceSpecWithResponse(ctx, name, &api.GetRenderedDeviceSpecParams{})
 	case kind == DeviceKind && len(name) == 0:
 		params := api.ListDevicesParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
-			SummaryOnly:   util.BoolToPtr(o.SummaryOnly),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
+			SummaryOnly:   lo.ToPtr(o.SummaryOnly),
 		}
 		response, err = c.ListDevicesWithResponse(ctx, &params)
 	case kind == EnrollmentRequestKind && len(name) > 0:
 		response, err = c.ReadEnrollmentRequestWithResponse(ctx, name)
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		params := api.ListEnrollmentRequestsParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
 	case kind == FleetKind && len(name) > 0:
-		response, err = c.ReadFleetWithResponse(ctx, name, nil)
+		params := api.ReadFleetParams{
+			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
+		}
+		response, err = c.ReadFleetWithResponse(ctx, name, &params)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
-			LabelSelector:   util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector:   util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:           util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:        util.StrToPtrWithNilDefault(o.Continue),
-			AddDevicesCount: util.BoolToPtr(true),
+			LabelSelector:     util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector:     util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:             util.ToPtrWithNilDefault(o.Limit),
+			Continue:          util.ToPtrWithNilDefault(o.Continue),
+			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
 		}
 		response, err = c.ListFleetsWithResponse(ctx, &params)
 	case kind == TemplateVersionKind && len(name) > 0:
 		response, err = c.ReadTemplateVersionWithResponse(ctx, o.FleetName, name)
 	case kind == TemplateVersionKind && len(name) == 0:
 		params := api.ListTemplateVersionsParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListTemplateVersionsWithResponse(ctx, o.FleetName, &params)
 	case kind == RepositoryKind && len(name) > 0:
 		response, err = c.ReadRepositoryWithResponse(ctx, name)
 	case kind == RepositoryKind && len(name) == 0:
 		params := api.ListRepositoriesParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListRepositoriesWithResponse(ctx, &params)
 	case kind == ResourceSyncKind && len(name) > 0:
 		response, err = c.ReadResourceSyncWithResponse(ctx, name)
 	case kind == ResourceSyncKind && len(name) == 0:
 		params := api.ListResourceSyncParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListResourceSyncWithResponse(ctx, &params)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
 		response, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
 	case kind == CertificateSigningRequestKind && len(name) == 0:
 		params := api.ListCertificateSigningRequestsParams{
-			LabelSelector: util.StrToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.StrToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.Int32ToPtrWithNilDefault(o.Limit),
-			Continue:      util.StrToPtrWithNilDefault(o.Continue),
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListCertificateSigningRequestsWithResponse(ctx, &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-	return o.processReponse(response, err, kind, name)
+	return o.processResponse(response, err, kind, name)
 }
 
-func (o *GetOptions) processReponse(response interface{}, err error, kind string, name string) error {
+func (o *GetOptions) processResponse(response interface{}, err error, kind string, name string) error {
 	errorPrefix := fmt.Sprintf("reading %s/%s", kind, name)
 	if len(name) == 0 {
 		errorPrefix = fmt.Sprintf("listing %s", plural(kind))
@@ -376,9 +386,9 @@ func (o *GetOptions) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.
 
 func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
 	if o.Output == wideFormat {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
+		_, _ = fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
 	} else {
-		fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
+		_, _ = fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
 	}
 	for _, d := range devices {
 		lastSeen := "<never>"
@@ -389,7 +399,7 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 		if d.Metadata.Labels != nil {
 			alias = (*d.Metadata.Labels)["alias"]
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
 			*d.Metadata.Name,
 			alias,
 			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
@@ -399,9 +409,9 @@ func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Devic
 			lastSeen,
 		)
 		if o.Output == wideFormat {
-			fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
+			_, _ = fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
 		} else {
-			fmt.Fprintln(w)
+			_, _ = fmt.Fprintln(w)
 		}
 	}
 }
@@ -425,7 +435,11 @@ func (o *GetOptions) printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...ap
 }
 
 func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
-	fmt.Fprintln(w, "NAME\tOWNER\tSELECTOR\tVALID\tDEVICES")
+	header := "NAME\tOWNER\tSELECTOR\tVALID"
+	if o.Summary {
+		header += "\tDEVICES"
+	}
+	fmt.Fprintln(w, header)
 	for i := range fleets {
 		f := fleets[i]
 		selector := "<none>"
@@ -444,17 +458,23 @@ func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) 
 				valid = string(api.ConditionStatusFalse)
 			}
 		}
+
 		numDevices := "Unknown"
-		if f.Status.DevicesSummary != nil {
+		if o.Summary && f.Status.DevicesSummary != nil {
 			numDevices = fmt.Sprintf("%d", f.Status.DevicesSummary.Total)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s",
 			*f.Metadata.Name,
 			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
 			selector,
 			valid,
-			numDevices,
 		)
+
+		if o.Summary {
+			fmt.Fprintf(w, "\t%s", numDevices)
+		}
+		fmt.Fprintln(w)
 	}
 }
 

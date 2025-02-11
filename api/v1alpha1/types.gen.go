@@ -48,6 +48,7 @@ const (
 	DeviceUpdating                    ConditionType = "Updating"
 	EnrollmentRequestApproved         ConditionType = "Approved"
 	FleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
+	FleetRolloutInProgress            ConditionType = "RolloutInProgress"
 	FleetValid                        ConditionType = "Valid"
 	RepositoryAccessible              ConditionType = "Accessible"
 	ResourceSyncAccessible            ConditionType = "Accessible"
@@ -232,7 +233,7 @@ type CertificateSigningRequest struct {
 	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec.
 	Spec CertificateSigningRequestSpec `json:"spec"`
 
-	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 	Status *CertificateSigningRequestStatus `json:"status,omitempty"`
 }
 
@@ -275,7 +276,7 @@ type CertificateSigningRequestSpec struct {
 	Username *string `json:"username,omitempty"`
 }
 
-// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 type CertificateSigningRequestStatus struct {
 	// Certificate The issued signed certificate, immutable once populated.
 	Certificate *[]byte `json:"certificate,omitempty"`
@@ -387,11 +388,11 @@ type DeviceConfigStatus struct {
 
 // DeviceConsole DeviceConsole represents the console connection information.
 type DeviceConsole struct {
-	// GRPCEndpoint The gRPC endpoint for the console connection.
-	GRPCEndpoint string `json:"gRPCEndpoint"`
-
 	// SessionID The session ID for the console connection.
 	SessionID string `json:"sessionID"`
+
+	// SessionMetadata Additional session metadata in the form of key=value pairs, can be used to initialize the type of terminal, console to be used, etc.
+	SessionMetadata string `json:"sessionMetadata"`
 }
 
 // DeviceDecommission Metadata about a device decommissioning request.
@@ -403,14 +404,8 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
-// DeviceIntegrityStatus Status of device integrity.
+// DeviceIntegrityStatus Summary status of the integrity of the device.
 type DeviceIntegrityStatus struct {
-	// Summary Summary status of the integrity of the device.
-	Summary DeviceIntegrityStatusSummary `json:"summary"`
-}
-
-// DeviceIntegrityStatusSummary Summary status of the integrity of the device.
-type DeviceIntegrityStatusSummary struct {
 	// Info Human readable information about the last integrity transition.
 	Info *string `json:"info,omitempty"`
 
@@ -420,6 +415,9 @@ type DeviceIntegrityStatusSummary struct {
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
+
+// DeviceLabelList A list of distinct labels, where each item is formatted as "key=value".
+type DeviceLabelList = []string
 
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
@@ -525,7 +523,7 @@ type DeviceStatus struct {
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
 
-	// Integrity Status of device integrity.
+	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
 
 	// LastSeen The last time the device was seen by the service.
@@ -564,6 +562,9 @@ type DeviceSummaryStatusType string
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 type DeviceSystemInfo struct {
+	// AgentVersion The Agent version.
+	AgentVersion string `json:"agentVersion"`
+
 	// Architecture The Architecture reported by the device.
 	Architecture string `json:"architecture"`
 
@@ -1120,8 +1121,8 @@ type RenderedDeviceSpec struct {
 	// Config The configuration to apply, in Ignition format.
 	Config *string `json:"config,omitempty"`
 
-	// Console DeviceConsole represents the console connection information.
-	Console *DeviceConsole `json:"console,omitempty"`
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
 
 	// Decommission Metadata about a device decommissioning request.
 	Decommission *DeviceDecommission `json:"decommission,omitempty"`
@@ -1433,6 +1434,12 @@ type UpdateSchedule struct {
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
+// Version defines model for Version.
+type Version struct {
+	// Version Git version of the service.
+	Version string `json:"version"`
+}
+
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
 	// Authentication The authentication token to validate.
@@ -1513,8 +1520,8 @@ type ListFleetsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// AddDevicesCount Include the number of devices in each fleet.
-	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
+	// AddDevicesSummary Include a summary of the devices in the fleet.
+	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.

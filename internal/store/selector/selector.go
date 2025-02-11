@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/flightctl/flightctl/internal/flterrors"
 	gormschema "gorm.io/gorm/schema"
 )
 
@@ -28,7 +28,7 @@ type selectorFieldResolver struct {
 
 // SelectorFieldResolver initializes a new selectorFieldResolver. It resolves schema fields from the provided model.
 // If the model implements SelectorNameMapping or SelectorResolver, it will be used to resolve custom selectors.
-func SelectorFieldResolver(model any) (*selectorFieldResolver, error) {
+func SelectorFieldResolver(model any) (Resolver, error) {
 	resolved, err := ResolveFieldsFromSchema(model)
 	if err != nil {
 		return nil, err
@@ -63,99 +63,6 @@ func (sr *selectorFieldResolver) ResolveNames(name SelectorName) ([]string, erro
 // It supports resolving JSONB fields and custom field resolutions if selectorNameMapping or selectorResolver are present.
 // It returns a slice of resolved SelectorField or an error if the selector cannot be resolved.
 func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorField, error) {
-	resolve := func(name SelectorName) (*SelectorField, error) {
-		if resolvedField, exists := sr.schemaFields[name]; exists {
-			selectorType, ok := schemaTypeResolution[resolvedField.DataType]
-			if !ok {
-				return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", resolvedField.DBName)
-			}
-
-			if selectorType.IsArray() {
-				fieldKind := resolvedField.StructField.Type.Kind()
-				if fieldKind != reflect.Array && fieldKind != reflect.Slice {
-					return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", resolvedField.DBName, fieldKind.String())
-				}
-			}
-
-			// Parse the selector tag from the field's struct tag.
-			// Safe to call because we only process fields with the `selector` tag.
-			_, opt := parseSelectorTag(resolvedField.StructField.Tag.Get("selector"))
-
-			return &SelectorField{
-				Type:      selectorType,
-				FieldName: resolvedField.DBName,
-				FieldType: resolvedField.DataType,
-				Options:   opt,
-			}, nil
-		}
-
-		// Handle nested selector resolutions
-		selectorName := name.String()
-		for sn, schemaField := range sr.schemaFields {
-			if len(selectorName) > len(sn.String()) && strings.HasPrefix(selectorName, sn.String()) {
-				selectorType, ok := schemaTypeResolution[schemaField.DataType]
-				if !ok {
-					return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", schemaField.DBName)
-				}
-
-				if selectorType.IsArray() && selectorName[len(sn.String())] == '[' {
-					if !arrayPattern.MatchString(selectorName) {
-						return nil, fmt.Errorf(
-							"array access must specify a valid index (e.g., 'conditions[0]'); invalid selector: %s", selectorName)
-					}
-
-					fieldKind := schemaField.StructField.Type.Kind()
-					if fieldKind != reflect.Array && fieldKind != reflect.Slice {
-						return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", schemaField.DBName, fieldKind.String())
-					}
-
-					arrayIndex, err := strconv.Atoi(selectorName[strings.Index(selectorName, "[")+1 : len(selectorName)-1])
-					if err != nil {
-						return nil, err
-					}
-
-					if arrayIndex == math.MaxInt {
-						return nil, fmt.Errorf("array index overflow for selector %s", selectorName)
-					}
-
-					// 1-based indexing for PostgreSQL
-					arrayIndex += 1
-
-					// Parse the selector tag from the field's struct tag.
-					// Safe to call because we only process fields with the `selector` tag.
-					_, opt := parseSelectorTag(schemaField.StructField.Tag.Get("selector"))
-
-					return &SelectorField{
-						Type:      selectorType.ArrayType(),
-						FieldName: fmt.Sprintf("%s[%d]", schemaField.DBName, arrayIndex),
-						FieldType: schemaField.DataType,
-						Options:   opt,
-					}, nil
-
-				}
-
-				if selectorType == Jsonb && selectorName[len(sn.String())] == '.' {
-					keyPath := schemaField.DBName + selectorName[len(sn.String()):]
-					if strings.Contains(keyPath, "::") {
-						return nil, fmt.Errorf("casting is not permitted: %s", selectorName)
-					}
-
-					// Parse the selector tag from the field's struct tag.
-					// Safe to call because we only process fields with the `selector` tag.
-					_, opt := parseSelectorTag(schemaField.StructField.Tag.Get("selector"))
-
-					return &SelectorField{
-						Type:      Jsonb,
-						FieldName: keyPath,
-						FieldType: schemaField.DataType,
-						Options:   opt,
-					}, nil
-				}
-			}
-		}
-		return nil, nil
-	}
-
 	selectorNames := []SelectorName{name}
 	if sr.selectorNameMapping != nil && sr.selectorNameMapping.ListSelectors().Contains(name) {
 		if refs := sr.selectorNameMapping.MapSelectorName(name); len(refs) > 0 {
@@ -172,14 +79,14 @@ func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorFi
 		if sr.selectorResolver != nil && sr.selectorResolver.ListSelectors().Contains(selectorName) {
 			resolvedField, err = sr.selectorResolver.ResolveSelector(selectorName)
 		} else {
-			resolvedField, err = resolve(selectorName)
+			resolvedField, err = sr.resolveSelector(selectorName)
 		}
 
 		if err != nil {
-			return nil, sr.newUnsupportedSelectorError(selectorName, err)
+			return nil, err
 		}
 		if resolvedField == nil {
-			return nil, sr.newUnsupportedSelectorError(selectorName, nil)
+			continue
 		}
 
 		// Should not changed, explicitly assign it
@@ -191,19 +98,115 @@ func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorFi
 			case Bool, Int, SmallInt, BigInt, Float, Timestamp, String:
 				fields = append(fields, resolvedField)
 			default:
-				return nil, sr.newUnsupportedSelectorError(selectorName,
-					fmt.Errorf("casting to %q is not supported for JSONB fields", resolvedField.Type.String()))
+				return nil, fmt.Errorf("casting to %q is not supported for JSONB fields", resolvedField.Type.String())
 			}
 		} else {
 			fields = append(fields, resolvedField)
 		}
 	}
 
+	if len(fields) > 0 && len(fields) != len(selectorNames) {
+		fields = make([]*SelectorField, 0)
+	}
+
 	return fields, nil
 }
 
-// ListSelectors returns a list of all selectors managed by the selectorFieldResolver.
-func (sr *selectorFieldResolver) ListSelectors() []SelectorName {
+func (sr *selectorFieldResolver) resolveSelector(name SelectorName) (*SelectorField, error) {
+	if resolvedField, exists := sr.schemaFields[name]; exists {
+		selectorType, ok := schemaTypeResolution[resolvedField.DataType]
+		if !ok {
+			return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", resolvedField.DBName)
+		}
+
+		if selectorType.IsArray() {
+			fieldKind := resolvedField.StructField.Type.Kind()
+			if fieldKind != reflect.Array && fieldKind != reflect.Slice {
+				return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", resolvedField.DBName, fieldKind.String())
+			}
+		}
+
+		// Parse the selector tag from the field's struct tag.
+		// Safe to call because we only process fields with the `selector` tag.
+		_, opt := parseSelectorTag(resolvedField.StructField.Tag.Get("selector"))
+
+		return &SelectorField{
+			Type:      selectorType,
+			FieldName: resolvedField.DBName,
+			FieldType: resolvedField.DataType,
+			Options:   opt,
+		}, nil
+	}
+
+	// Handle nested selector resolutions
+	selectorName := name.String()
+	for sn, schemaField := range sr.schemaFields {
+		if len(selectorName) > len(sn.String()) && strings.HasPrefix(selectorName, sn.String()) {
+			selectorType, ok := schemaTypeResolution[schemaField.DataType]
+			if !ok {
+				return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", schemaField.DBName)
+			}
+
+			if selectorType.IsArray() && selectorName[len(sn.String())] == '[' {
+				if !arrayPattern.MatchString(selectorName) {
+					return nil, fmt.Errorf(
+						"array access must specify a valid index (e.g., 'conditions[0]'); invalid selector: %s", selectorName)
+				}
+
+				fieldKind := schemaField.StructField.Type.Kind()
+				if fieldKind != reflect.Array && fieldKind != reflect.Slice {
+					return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", schemaField.DBName, fieldKind.String())
+				}
+
+				arrayIndex, err := strconv.Atoi(selectorName[strings.Index(selectorName, "[")+1 : len(selectorName)-1])
+				if err != nil {
+					return nil, err
+				}
+
+				if arrayIndex == math.MaxInt {
+					return nil, fmt.Errorf("array index overflow for selector %s", selectorName)
+				}
+
+				// 1-based indexing for PostgreSQL
+				arrayIndex += 1
+
+				// Parse the selector tag from the field's struct tag.
+				// Safe to call because we only process fields with the `selector` tag.
+				_, opt := parseSelectorTag(schemaField.StructField.Tag.Get("selector"))
+
+				return &SelectorField{
+					Type:      selectorType.ArrayType(),
+					FieldName: fmt.Sprintf("%s[%d]", schemaField.DBName, arrayIndex),
+					FieldType: schemaField.DataType,
+					Options:   opt,
+				}, nil
+
+			}
+
+			if selectorType == Jsonb && selectorName[len(sn.String())] == '.' {
+				keyPath := schemaField.DBName + selectorName[len(sn.String()):]
+				if strings.Contains(keyPath, "::") {
+					return nil, fmt.Errorf("casting is not permitted: %s", selectorName)
+				}
+
+				// Parse the selector tag from the field's struct tag.
+				// Safe to call because we only process fields with the `selector` tag.
+				_, opt := parseSelectorTag(schemaField.StructField.Tag.Get("selector"))
+
+				return &SelectorField{
+					Type:      Jsonb,
+					FieldName: keyPath,
+					FieldType: schemaField.DataType,
+					Options:   opt,
+				}, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// List returns a list of all selectors managed by the selectorFieldResolver.
+func (sr *selectorFieldResolver) List() []SelectorName {
 	set := NewSelectorFieldNameSet()
 	for selector := range sr.schemaFields {
 		set.Add(selector)
@@ -221,32 +224,16 @@ func (sr *selectorFieldResolver) ListSelectors() []SelectorName {
 		return nil
 	}
 
-	supportedFields := set.List()
+	supportedFields := slices.DeleteFunc(set.List(), func(sn SelectorName) bool {
+		_, isHidden := sn.(hiddenSelectorName)
+		return isHidden
+	})
+
 	sort.Slice(supportedFields, func(i, j int) bool {
 		return supportedFields[i].String() < supportedFields[j].String()
 	})
 
 	return supportedFields
-}
-
-// newUnsupportedSelectorError creates a new SelectorError indicating an unsupported selector,
-// and includes a list of all supported selectors only if no prior error is provided.
-func (sr *selectorFieldResolver) newUnsupportedSelectorError(name SelectorName, err error) error {
-	if err == nil {
-		// Filter out hidden selectors
-		visibleSelectors := make([]SelectorName, 0)
-		for _, sn := range sr.ListSelectors() {
-			if _, isHidden := sn.(hiddenSelectorName); !isHidden {
-				visibleSelectors = append(visibleSelectors, sn)
-			}
-		}
-
-		return NewSelectorError(flterrors.ErrFieldSelectorUnknownSelector,
-			fmt.Errorf("unable to resolve selector name %q. Supported selectors are: %v", name, visibleSelectors))
-	}
-
-	return NewSelectorError(flterrors.ErrFieldSelectorUnknownSelector,
-		fmt.Errorf("unable to resolve selector name %q: %w", name, err))
 }
 
 // ResolveFieldsFromSchema parses the schema of the given model and extracts the fields annotated with

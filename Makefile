@@ -81,6 +81,10 @@ build: bin build-cli
 		./cmd/flightctl-periodic \
 		./cmd/flightctl-worker
 
+bin/flightctl-agent: bin $(GO_FILES)
+	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
+		./cmd/flightctl-agent 
+
 build-cli: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
 
@@ -103,7 +107,11 @@ build-periodic: bin
 # rebuild container only on source changes
 bin/.flightctl-api-container: bin Containerfile.api go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.api $(GO_CACHE) -t flightctl-api:latest
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.api $(GO_CACHE) -t flightctl-api:latest
 	touch bin/.flightctl-api-container
 
 bin/.flightctl-worker-container: bin Containerfile.worker go.mod go.sum $(GO_FILES)

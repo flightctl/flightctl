@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	reflect "reflect"
+	"os/exec"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -180,6 +182,7 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
 		return fmt.Errorf("%s (exit code %d)", stderr, exitCode)
 	}
+	log.Infof("Hook %s executed %q without error", actionCtx.hook, commandLine)
 
 	return nil
 }
@@ -249,4 +252,54 @@ func replaceTokens(s string, tokens map[CommandLineVarKey]string) string {
 		s = re.ReplaceAllString(s, tokens[key])
 	}
 	return s
+}
+
+func checkActionDependency(action api.HookAction) error {
+	actionType, err := action.Type()
+	if err != nil {
+		return err
+	}
+
+	switch actionType {
+	case api.HookActionTypeRun:
+		runAction, err := action.AsHookActionRun()
+		if err != nil {
+			return err
+		}
+		return checkRunActionDependency(runAction)
+	default:
+		return fmt.Errorf("unknown hook action type %q", actionType)
+	}
+}
+
+// checkRunActionDependency checks if the first executable in the run action is available
+func checkRunActionDependency(action api.HookActionRun) error {
+	parts := strings.Fields(action.Run)
+	for _, part := range parts {
+		// skip if ENV var prefix
+		if strings.Contains(part, "=") {
+			continue
+		}
+
+		_, err := exec.LookPath(part)
+		if err != nil {
+			if errors.Is(err, exec.ErrNotFound) {
+				return fmt.Errorf("%w: %s", err, part)
+			} else if pathErr, ok := err.(*os.PathError); ok {
+				return fmt.Errorf("%w: %s", pathErr.Err, part)
+			} else {
+				return err
+			}
+		}
+
+		// TODO: run can include multiple commands, for now we only verify the
+		// first
+		return nil
+	}
+
+	if len(parts) == 0 {
+		return fmt.Errorf("%w: no executable: %s", errors.ErrRunActionInvalid, action.Run)
+	}
+
+	return nil
 }

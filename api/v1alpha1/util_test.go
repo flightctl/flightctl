@@ -5,7 +5,7 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -113,7 +113,7 @@ func TestExecuteGoTemplateOnDevice(t *testing.T) {
 
 			dev := &Device{
 				Metadata: ObjectMeta{
-					Name:   util.StrToPtr("Name"),
+					Name:   lo.ToPtr("Name"),
 					Labels: &map[string]string{"key": "Value"},
 				},
 			}

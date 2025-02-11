@@ -9,8 +9,8 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -88,7 +88,7 @@ func generateMockDevices(count int) []v1alpha1.Device {
 	for i := 0; i < count; i++ {
 		devices[i] = v1alpha1.Device{
 			Metadata: v1alpha1.ObjectMeta{
-				Name: util.StrToPtr(fmt.Sprintf("device-%d", i)),
+				Name: lo.ToPtr(fmt.Sprintf("device-%d", i)),
 			},
 			Spec: &v1alpha1.DeviceSpec{},
 

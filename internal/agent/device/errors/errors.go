@@ -49,6 +49,7 @@ var (
 	ErrInvalidTokenFormat             = errors.New("invalid token: formatting")
 	ErrTokenNotSupported              = errors.New("invalid token: not supported")
 	ErrActionTypeNotFound             = errors.New("failed to find action type")
+	ErrRunActionInvalid               = errors.New("invalid run action")
 	ErrUnsupportedFilesystemOperation = errors.New("unsupported filesystem operation")
 
 	// networking
@@ -64,6 +65,7 @@ var (
 	ErrPathIsDir   = errors.New("provided path is a directory")
 	ErrNotFound    = errors.New("not found")
 	ErrNotExist    = os.ErrNotExist
+	ErrInvalidPath = errors.New("invalid path")
 
 	// images
 	ErrImageNotFound = errors.New("image not found")

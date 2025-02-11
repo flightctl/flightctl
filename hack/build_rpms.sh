@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+CI_RPM_IMAGE=${CI_RPM_IMAGE:-quay.io/flightctl/ci-rpm-builder:latest}
+
 # if FLIGHTCTL_RPM is set, exit
 if [ -n "${FLIGHTCTL_RPM:-}" ]; then
     echo "Skipping rpm build, as FLIGHTCTL_RPM is set to ${FLIGHTCTL_RPM}"
@@ -18,7 +20,8 @@ fi
 git config --global --add safe.directory /work
 ./hack/build_rpms_packit.sh
 EOF
-    podman run --privileged --rm -t -v "$(pwd)":/work quay.io/flightctl/ci-rpm-builder:latest bash /work/bin/build_rpms.sh
+    podman pull "${CI_RPM_IMAGE}"
+    podman run --privileged --rm -t -v "$(pwd)":/work "${CI_RPM_IMAGE}" bash /work/bin/build_rpms.sh
 else
     ./hack/build_rpms_packit.sh
 fi

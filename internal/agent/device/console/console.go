@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/containers/storage/pkg/pools"
+	"github.com/creack/pty"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -25,6 +28,11 @@ type ConsoleController struct {
 	currentStreamID  string
 	lastClosedStream string
 	executor         executer.Executer
+}
+
+type TerminalSize struct {
+	Width  uint16
+	Height uint16
 }
 
 func NewController(
@@ -45,8 +53,9 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
+	desiredConsoles := desired.GetConsoles()
 	// do we have an open console stream, and we are supposed to close it?
-	if desired.Console == nil {
+	if len(desiredConsoles) == 0 {
 		c.log.Debug("No desired console")
 		if c.active {
 			if c.streamClient != nil {
@@ -60,25 +69,28 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 		return nil
 	}
 
+	// TODO: handle multiple consoles
+	console := desiredConsoles[0]
+
 	// TO-DO: manage the situation where a new console is requested while the current one is still open
 	// if we have an active console, and the session ID is the same, we should keep it open
 	if c.active && c.streamClient != nil {
-		c.log.Infof("active console on session %s", desired.Console.SessionID)
+		c.log.Infof("active console on session %s", console.SessionID)
 		return nil
 	}
 
-	if c.lastClosedStream == desired.Console.SessionID {
-		c.log.Debugf("console session %s was closed, not opening again", desired.Console.SessionID)
+	if c.lastClosedStream == console.SessionID {
+		c.log.Debugf("console session %s was closed, not opening again", console.SessionID)
 		return nil
 	}
 
 	if c.grpcClient == nil {
-		c.log.Errorf("no gRPC client available, cannot start console session to %s", desired.Console.SessionID)
+		c.log.Errorf("no gRPC client available, cannot start console session to %s", console.SessionID)
 		return nil
 	}
-	c.log.Infof("starting console for session %s", desired.Console.SessionID)
-	// add key-value pairs of metadata to context, for now we are ignoring the Console.GRPCEndpoint
-	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, desired.Console.SessionID)
+	c.log.Infof("starting console for session %s", console.SessionID)
+	// add key-value pairs of metadata to context
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, console.SessionID)
 	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcClientNameKey, c.deviceName)
 
 	stdin, stdout, err := c.bashProcess(ctx)
@@ -94,19 +106,19 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.Rendered
 	}
 	c.streamClient = streamClient
 	c.active = true
-	c.currentStreamID = desired.Console.SessionID
+	c.currentStreamID = console.SessionID
 
 	go func() {
 		c.log.Info("starting console forwarding")
 		err := c.startForwarding(ctx, stdin, stdout)
 		// make sure that we wait for the command to finish, otherwise we will have a zombie process
 		if err != nil {
-			c.log.Errorf("error forwarding console ended for session %s: %v", desired.Console.SessionID, err)
+			c.log.Errorf("error forwarding console ended for session %s: %v", console.SessionID, err)
 		}
-		c.log.Infof("console session %s ended", desired.Console.SessionID)
+		c.log.Infof("console session %s ended", console.SessionID)
 		// if the stream has been closed we won't try to re-open it until we find a
 		// new session ID
-		c.lastClosedStream = desired.Console.SessionID
+		c.lastClosedStream = console.SessionID
 		c.active = false
 		c.streamClient = nil
 	}()
@@ -204,31 +216,61 @@ func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteC
 }
 
 func (c *ConsoleController) bashProcess(ctx context.Context) (io.WriteCloser, io.ReadCloser, error) {
-	// TODO pty: this is how oci does a PTY:
-	// https://github.com/cri-o/cri-o/blob/main/internal/oci/oci_unix.go
-	//
-	// set PS1 environment variable to make bash print the default prompt
+
+	// create a new bash process
 	cmd := c.executor.CommandContext(ctx, "bash", "-i", "-l")
-	stdin, err := cmd.StdinPipe()
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+
+	// create a new PTY
+	p, err := pty.Start(cmd)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdout pipe: %w", err)
+		return nil, nil, fmt.Errorf("error starting pty: %w", err)
 	}
 
-	cmd.Stderr = cmd.Stdout
+	c.log.Info("bash process started under pty")
 
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("error starting bash process: %w", err)
-	}
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+
+	var stdinErr, stdoutErr error
+
 	go func() {
-		if err := cmd.Wait(); err != nil {
+		// copy from stdinWriter to pty
+		_, stdinErr = pools.Copy(p, stdinReader)
+		_ = cmd.Process.Kill()
+	}()
+	go func() {
+		// copy from pty to stdoutWriter
+		_, stdoutErr = pools.Copy(stdoutWriter, p)
+		stdoutWriter.Close()
+		_ = cmd.Process.Kill()
+	}()
+
+	// set the initial terminal size until we receive a window resize event from the other side
+	size := TerminalSize{Width: 80, Height: 25}
+	if err := setSize(p.Fd(), size); err != nil {
+		return nil, nil, fmt.Errorf("error setting terminal size: %w", err)
+	}
+
+	go func() {
+		defer p.Close()
+		err := cmd.Wait()
+		if stdinErr != nil {
+			c.log.Errorf("error copying to stdin: %v", stdinErr)
+		}
+		if stdoutErr != nil {
+			c.log.Errorf("error copying from stdout: %v", stdoutErr)
+		}
+		if err != nil {
 			c.log.Errorf("error waiting for bash process: %v", err)
 		} else {
 			c.log.Info("bash process exited successfully")
 		}
 	}()
-	return stdin, stdout, nil
+	return stdinWriter, stdoutReader, nil
+}
+
+func setSize(fd uintptr, size TerminalSize) error {
+	winsize := &unix.Winsize{Row: size.Height, Col: size.Width}
+	return unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, winsize)
 }

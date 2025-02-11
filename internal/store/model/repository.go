@@ -63,7 +63,7 @@ func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error)
 
 func hideValue(value *string) {
 	if value != nil {
-		*value = *util.StrToPtr("*****")
+		*value = *lo.ToPtr("*****")
 	}
 }
 
@@ -109,8 +109,8 @@ func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, 
 		ApiVersion: api.RepositoryAPIVersion,
 		Kind:       api.RepositoryKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(r.Name),
-			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
+			Name:              lo.ToPtr(r.Name),
+			CreationTimestamp: lo.ToPtr(r.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(r.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(r.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(r.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(r.ResourceVersion), 10)), nil),

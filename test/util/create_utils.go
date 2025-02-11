@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) api.Device {
@@ -41,7 +42,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	}
 	httpConfig.HttpRef.Repository = "http-repo"
 	httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
-	httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
+	httpConfig.HttpRef.Suffix = lo.ToPtr("/http-suffix")
 	httpItem := api.ConfigProviderSpec{}
 	_ = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 
@@ -171,7 +172,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 		}
 		resource := api.Repository{
 			Metadata: api.ObjectMeta{
-				Name:   util.StrToPtr(fmt.Sprintf("myrepository-%d", i)),
+				Name:   lo.ToPtr(fmt.Sprintf("myrepository-%d", i)),
 				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
 			},
 			Spec: spec,

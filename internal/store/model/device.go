@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
@@ -37,6 +38,16 @@ type Device struct {
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
+}
+
+type DeviceLabel struct {
+	OrgID      uuid.UUID `gorm:"primaryKey;type:uuid;index:,composite:device_label_org_device" selector:"metadata.orgid,hidden,private"`
+	DeviceName string    `gorm:"primaryKey;index:,composite:device_label_org_device" selector:"metadata.name"`
+	LabelKey   string    `gorm:"primaryKey;index:,composite:device_label_key" selector:"metadata.label.key"`
+	LabelValue string    `gorm:"index" selector:"metadata.label.value"`
+
+	// Foreign Key Constraint with CASCADE DELETE
+	Device Device `gorm:"foreignKey:OrgID,DeviceName;references:OrgID,Name;constraint:OnDelete:CASCADE"`
 }
 
 type ServiceConditions struct {
@@ -125,8 +136,8 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 		ApiVersion: api.DeviceAPIVersion,
 		Kind:       api.DeviceKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(d.Name),
-			CreationTimestamp: util.TimeToPtr(d.CreatedAt.UTC()),
+			Name:              lo.ToPtr(d.Name),
+			CreationTimestamp: lo.ToPtr(d.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(d.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(d.Resource.Annotations)),
 			Generation:        d.Generation,

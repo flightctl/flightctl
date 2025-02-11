@@ -16,9 +16,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 // PodmanInspect represents the overall structure of podman inspect output
@@ -342,9 +342,6 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 		}
 		statuses = append(statuses, *appStatus)
 
-		m.log.Debugf("Application %s status: %s", app.Name(), appStatus.Status)
-		m.log.Debugf("Application %s summary status: %s", app.Name(), appSummary.Status)
-
 		// phases can get worse but not better
 		switch appSummary.Status {
 		case v1alpha1.ApplicationsSummaryStatusError:
@@ -366,7 +363,7 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 			unstarted = append(unstarted, app.Name())
 			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
 				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
-				summary.Info = util.StrToPtr("Not started: " + strings.Join(unstarted, ", "))
+				summary.Info = lo.ToPtr("Not started: " + strings.Join(unstarted, ", "))
 			}
 		default:
 			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary.Status))

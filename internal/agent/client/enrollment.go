@@ -36,7 +36,7 @@ func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.E
 		return nil, err
 	}
 	if resp.HTTPResponse != nil {
-		defer resp.HTTPResponse.Body.Close()
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
 	}
 
 	if e.rpcMetricsCallbackFunc != nil {
@@ -62,7 +62,7 @@ func (e *enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...
 		return nil, err
 	}
 	if resp.HTTPResponse != nil {
-		defer resp.HTTPResponse.Body.Close()
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
 	}
 
 	if e.rpcMetricsCallbackFunc != nil {
