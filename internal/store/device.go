@@ -34,7 +34,7 @@ type Device interface {
 	UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error
 	MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error
 	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]CompletionCount, error)
-	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string, busyOnly bool) ([]map[string]any, error)
+	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
@@ -414,25 +414,27 @@ func labelKeyToSymbol(labelKey string) string {
 }
 
 // CountByLabels is used for rollout policy disruption budget to provide device count values grouped by the label values.
-func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string, busyOnly bool) ([]map[string]any, error) {
+func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error) {
 	query, err := ListQuery(&model.Device{}).BuildNoOrder(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
 
-	// Do not count disconnected devices
-	query = query.Where("status -> 'summary' ->> 'status' <> 'Unknown'")
-	if busyOnly {
-		// The busy devices are those that the 'status.config.renderedVersion' != annotations['device-controller/renderedVersion']
-		query = query.Where(`status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> ?, '')`, api.DeviceAnnotationRenderedVersion)
-	}
 	selectList := lo.RepeatBy(len(groupBy), func(_ int) string { return "labels ->> ? as ?" })
-	selectList = append(selectList, "count(*) as count")
+	countByCondition := "count(case when ? then 1 end) as ?"
+	selectList = append(selectList,
+		"count(*) as total",
+		countByCondition,
+		countByCondition)
 
 	labelSymbols := lo.Map(groupBy, func(s string, _ int) string { return labelKeyToSymbol(s) })
 
-	query.Select(strings.Join(selectList, ","),
-		lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(s) }))...)
+	args := lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(s) }))
+	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown'"), gorm.Expr("connected"))
+	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> ?, '')",
+		api.DeviceAnnotationRenderedVersion), gorm.Expr("busy_connected"))
+
+	query.Select(strings.Join(selectList, ","), args...)
 	for _, g := range labelSymbols {
 		query = query.Group(g)
 	}
@@ -442,7 +444,7 @@ func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listPa
 		return nil, ErrorFromGormError(err)
 	}
 	ret := lo.Map(results, func(m map[string]any, _ int) map[string]any {
-		return lo.SliceToMap(append(groupBy, "count"), func(s string) (string, any) {
+		return lo.SliceToMap(append(groupBy, "total", "connected", "busy_connected"), func(s string) (string, any) {
 			return s, m[labelKeyToSymbol(s)]
 		})
 	})
