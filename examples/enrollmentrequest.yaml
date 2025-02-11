@@ -1,4 +1,4 @@
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: EnrollmentRequest
 metadata:
   name: ab238b7190128394809b809a0b980231984b098c0983408aa8a8a0809800991
