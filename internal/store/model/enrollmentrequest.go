@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -55,6 +56,10 @@ func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) (*Enro
 	}, nil
 }
 
+func EnrollmentRequestAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.EnrollmentRequestAPIVersion)
+}
+
 func (e *EnrollmentRequest) ToApiResource(opts ...APIResourceOption) (*api.EnrollmentRequest, error) {
 	if e == nil {
 		return &api.EnrollmentRequest{}, nil
@@ -71,7 +76,7 @@ func (e *EnrollmentRequest) ToApiResource(opts ...APIResourceOption) (*api.Enrol
 	}
 
 	return &api.EnrollmentRequest{
-		ApiVersion: api.EnrollmentRequestAPIVersion,
+		ApiVersion: EnrollmentRequestAPIVersion(),
 		Kind:       api.EnrollmentRequestKind,
 		Metadata: api.ObjectMeta{
 			Name:              lo.ToPtr(e.Name),
@@ -92,7 +97,7 @@ func EnrollmentRequestsToApiResource(ers []EnrollmentRequest, cont *string, numR
 		enrollmentRequestList[i] = *apiResource
 	}
 	ret := api.EnrollmentRequestList{
-		ApiVersion: api.EnrollmentRequestAPIVersion,
+		ApiVersion: EnrollmentRequestAPIVersion(),
 		Kind:       api.EnrollmentRequestListKind,
 		Items:      enrollmentRequestList,
 		Metadata:   api.ListMeta{},
