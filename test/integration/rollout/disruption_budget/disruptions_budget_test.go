@@ -196,6 +196,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		It("One fleet - one device with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 1, true, false)
 			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - two devices with matching fleet - with matching disruption budget", func() {
@@ -208,6 +209,8 @@ var _ = Describe("Rollout disruption budget test", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 6, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
 			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), equalLabels(labels1))
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), equalLabels(labels2))
 			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})

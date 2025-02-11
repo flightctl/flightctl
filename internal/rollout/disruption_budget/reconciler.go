@@ -32,6 +32,13 @@ type reconciler struct {
 	callbackManager tasks_client.CallbackManager
 }
 
+type groupCounts struct {
+	totalCount         int64
+	connectedCount     int64
+	busyConnectedCount int64
+	key                map[string]any
+}
+
 func NewReconciler(store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
 		store:           store,
@@ -40,27 +47,53 @@ func NewReconciler(store store.Store, callbackManager tasks_client.CallbackManag
 	}
 }
 
-func (r *reconciler) getFleetCounts(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (map[string]*Counts, error) {
+func intValue(m map[string]any, key string) (int64, error) {
+	v, exists := util.GetFromMap(m, key)
+	if !exists {
+		return 0, fmt.Errorf("key %s doesn't exists in map", key)
+	}
+	intVal, ok := v.(int64)
+	if !ok {
+		return 0, fmt.Errorf("value %v has type %T, not int64", v, v)
+	}
+	return intVal, nil
+}
+
+func collectDeviceBudgetCounts(counts []map[string]any, groupBy []string) ([]*groupCounts, error) {
+	var ret []*groupCounts
+	for _, m := range counts {
+		totalCount, err := intValue(m, "total")
+		if err != nil {
+			return nil, err
+		}
+		connectedCount, err := intValue(m, "connected")
+		if err != nil {
+			return nil, err
+		}
+		busyConnectedCount, err := intValue(m, "busy_connected")
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, &groupCounts{
+			totalCount:         totalCount,
+			connectedCount:     connectedCount,
+			busyConnectedCount: busyConnectedCount,
+			key:                lo.SliceToMap(groupBy, func(k string) (string, any) { return k, m[k] }),
+		})
+	}
+	return ret, nil
+}
+
+func (r *reconciler) getFleetCounts(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
 	groupBy := lo.FromPtr(fleet.Spec.RolloutPolicy.DisruptionBudget.GroupBy)
 
-	totalCounts, err := r.store.Device().CountByLabels(ctx, orgId, store.ListParams{
+	counts, err := r.store.Device().CountByLabels(ctx, orgId, store.ListParams{
 		FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name))}),
-	}, groupBy, false)
+	}, groupBy)
 	if err != nil {
 		return nil, err
 	}
-	annotations := lo.FromPtr(fleet.Metadata.Annotations)
-	if annotations == nil {
-		return nil, fmt.Errorf("annotations don't exist")
-	}
-
-	busyCounts, err := r.store.Device().CountByLabels(ctx, orgId, store.ListParams{
-		FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name))}),
-	}, groupBy, true)
-	if err != nil {
-		return nil, err
-	}
-	return mergeDeviceAllowanceCounts(totalCounts, busyCounts, groupBy)
+	return collectDeviceBudgetCounts(counts, groupBy)
 }
 
 func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, key map[string]any, numToRender int) error {
@@ -153,19 +186,19 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	if maxUnavailable == nil && minAvailable == nil {
 		return fmt.Errorf("both maxUnavailable and minAvailable for fleet %s are nil", lo.FromPtr(fleet.Metadata.Name))
 	}
-	m, err := r.getFleetCounts(ctx, orgId, fleet)
+	counts, err := r.getFleetCounts(ctx, orgId, fleet)
 	if err != nil {
 		return fmt.Errorf("getFleetCounts: %w", err)
 	}
-	for _, count := range m {
-		unavailable := count.BusyCount
-		available := count.TotalCount - count.BusyCount
+	for _, count := range counts {
+		unavailable := int(count.busyConnectedCount)
+		available := int(count.connectedCount - count.busyConnectedCount)
 		numToRender := math.MaxInt
 		if maxUnavailable != nil {
 			numToRender = util.Min(numToRender, lo.FromPtr(maxUnavailable)-unavailable)
 		}
 		if minAvailable != nil {
-			numToRender = util.Min(numToRender, available-lo.FromPtr(minAvailable))
+			numToRender = util.Min(numToRender, available-util.Min(lo.FromPtr(minAvailable), int(count.totalCount-1)))
 		}
 		if numToRender > 0 {
 			if err = r.reconcileSelectionDevices(ctx, orgId, fleet, count.key, numToRender); err != nil {
