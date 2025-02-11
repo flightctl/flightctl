@@ -8,21 +8,32 @@ on:
   pull_request:
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api_changed: ${{ steps.filter.outputs.exists }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check file changes
+        id: filter
+        uses: yumemi-inc/path-filter@v2
+        with:
+          patterns: |
+            .spectral.yaml
+            api/**/openapi.yaml
+
   lint-openapi:
+    needs: check-changes
+    if: ${{ needs.check-changes.outputs.api_changed == 'true' }}
     runs-on: "ubuntu-latest"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            api:
-              - '.spectral.yaml'
-              - 'api/**/openapi.yaml'
-
       - name: Running Spectral Linter
-        if: ${{ steps.filter.outputs.api == 'true' }}
         run: make lint-openapi

@@ -12,13 +12,38 @@ permissions:
   pull-requests: read
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      src_changed: ${{ steps.filter.outputs.exists }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check file changes
+        id: filter
+        uses: yumemi-inc/path-filter@v2
+        with:
+          patterns: |
+            '!.spelling'
+            '!README.md'
+            '!docs/**'
+            '!.spectral.yaml'
+            '!api/**/openapi.yaml'
+            '!.github/**'
+
   lint:
+    needs: check-changes
+    if: ${{ needs.check-changes.outputs.src_changed == 'true' }}
     runs-on: "ubuntu-24.04"
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: Checkout
+
+      - name: Fetch Additional Commits
         run: |
           commits=${{ github.event.pull_request.commits }}
           if [[ -n "$commits" ]]; then
@@ -26,30 +51,17 @@ jobs:
             git fetch --depth="$(( commits + 1 ))"
           fi
 
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            notdocs:
-              - '!.spelling'
-              - '!README.md'
-              - '!docs/**'
-
       - name: Check commit message
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: hack/check-commits.sh
 
       - name: Setup all dependencies
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
       - name: Check that generated files have been updated and that go.mod is tidy
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           make generate
           make tidy
           git diff --exit-code
 
       - name: Running Linter
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make lint
