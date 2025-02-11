@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -26,6 +27,7 @@ type command struct {
 }
 
 func TestHookManager(t *testing.T) {
+	require := require.New(t)
 	testCases := []struct {
 		name             string
 		hooks            map[string]string
@@ -104,13 +106,13 @@ func TestHookManager(t *testing.T) {
 			readWriter := createTempHooksDir(t, tc.hooks)
 			mockExecuter := executer.NewMockExecuter(ctrl)
 			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.DebugLevel)
 			hookManager := NewManager(readWriter, mockExecuter, logger)
-
 			expectExecCalls(mockExecuter, tc.expectedCommands)
 
 			ctx, cancel := context.WithCancel(context.TODO())
 			defer cancel()
-			require.NoError(t, hookManager.OnAfterUpdating(ctx, tc.current, tc.desired, tc.rebooted))
+			require.NoError(hookManager.OnAfterUpdating(ctx, tc.current, tc.desired, tc.rebooted))
 		})
 	}
 }
