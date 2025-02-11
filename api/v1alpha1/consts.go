@@ -3,9 +3,11 @@ package v1alpha1
 import "time"
 
 const (
-	CertificateSigningRequestAPI      = "v1alpha1"
-	CertificateSigningRequestKind     = "CertificateSigningRequest"
-	CertificateSigningRequestListKind = "CertificateSigningRequestList"
+	APIGroup = "flightctl.io"
+
+	CertificateSigningRequestAPIVersion = "v1alpha1"
+	CertificateSigningRequestKind       = "CertificateSigningRequest"
+	CertificateSigningRequestListKind   = "CertificateSigningRequestList"
 
 	DeviceAPIVersion = "v1alpha1"
 	DeviceKind       = "Device"

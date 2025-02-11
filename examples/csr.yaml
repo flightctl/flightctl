@@ -1,4 +1,4 @@
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: CertificateSigningRequest
 metadata:
   name: mycsr

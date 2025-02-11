@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"time"
@@ -71,6 +72,10 @@ func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) (*Template
 	}, nil
 }
 
+func TemplateVersionAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.TemplateVersionAPIVersion)
+}
+
 func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*api.TemplateVersion, error) {
 	// Shouldn't happen, but just to be safe
 	if tv == nil {
@@ -88,7 +93,7 @@ func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*api.Templa
 	}
 
 	return &api.TemplateVersion{
-		ApiVersion: api.TemplateVersionAPIVersion,
+		ApiVersion: TemplateVersionAPIVersion(),
 		Kind:       api.TemplateVersionKind,
 		Metadata: api.ObjectMeta{
 			Name:              lo.ToPtr(tv.Name),
@@ -111,7 +116,7 @@ func TemplateVersionsToApiResource(tvs []TemplateVersion, cont *string, numRemai
 		deviceList[i] = *apiResource
 	}
 	ret := api.TemplateVersionList{
-		ApiVersion: api.TemplateVersionAPIVersion,
+		ApiVersion: TemplateVersionAPIVersion(),
 		Kind:       api.TemplateVersionListKind,
 		Items:      deviceList,
 	}

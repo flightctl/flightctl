@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -382,7 +383,7 @@ var _ = Describe("FleetStore create", func() {
 
 			createdFleet, err := storeInst.Fleet().Get(ctx, orgId, "newresourcename")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(createdFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(createdFleet.ApiVersion).To(Equal(model.FleetAPIVersion()))
 			Expect(createdFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(createdFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(createdFleet.Status.Conditions).ToNot(BeNil())
@@ -427,7 +428,7 @@ var _ = Describe("FleetStore create", func() {
 
 			updatedFleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPIVersion()))
 			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())
@@ -452,7 +453,7 @@ var _ = Describe("FleetStore create", func() {
 
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPIVersion()))
 			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeNil())
@@ -481,7 +482,7 @@ var _ = Describe("FleetStore create", func() {
 
 			returnedFleet, err := storeInst.Fleet().UpdateStatus(ctx, orgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(returnedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(returnedFleet.ApiVersion).To(Equal(model.FleetAPIVersion()))
 			Expect(returnedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(returnedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(returnedFleet.Status.Conditions).ToNot(BeEmpty())
@@ -489,7 +490,7 @@ var _ = Describe("FleetStore create", func() {
 
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedFleet.ApiVersion).To(Equal(api.FleetAPIVersion))
+			Expect(updatedFleet.ApiVersion).To(Equal(model.FleetAPIVersion()))
 			Expect(updatedFleet.Kind).To(Equal(api.FleetKind))
 			Expect(lo.FromPtr(updatedFleet.Spec.Selector.MatchLabels)["key"]).To(Equal("value-1"))
 			Expect(updatedFleet.Status.Conditions).ToNot(BeEmpty())

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -59,6 +60,10 @@ func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
 	}, nil
 }
 
+func FleetAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.FleetAPIVersion)
+}
+
 func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
 	if f == nil {
 		return &api.Fleet{}, nil
@@ -81,7 +86,7 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
 	status.DevicesSummary = options.devicesSummary
 
 	return &api.Fleet{
-		ApiVersion: api.FleetAPIVersion,
+		ApiVersion: FleetAPIVersion(),
 		Kind:       api.FleetKind,
 		Metadata: api.ObjectMeta{
 			Name:              lo.ToPtr(f.Name),
@@ -108,7 +113,7 @@ func FleetsToApiResource(fleets []Fleet, cont *string, numRemaining *int64) (api
 		fleetList[i] = *apiResource
 	}
 	ret := api.FleetList{
-		ApiVersion: api.FleetAPIVersion,
+		ApiVersion: FleetAPIVersion(),
 		Kind:       api.FleetListKind,
 		Items:      fleetList,
 		Metadata:   api.ListMeta{},
