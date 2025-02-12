@@ -4,14 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -105,7 +103,7 @@ func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	return nil
 }
 
-func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http.Handler) http.Handler, error) {
+func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
 		log.Warnln("Auth disabled")
@@ -122,47 +120,17 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 		}
 
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	if authN == nil {
-		return nil, errors.New("no authN provider defined")
+		return errors.New("no authN provider defined")
 	}
 	if authZ == nil {
-		return nil, errors.New("no authZ provider defined")
+		return errors.New("no authZ provider defined")
 	}
-
-	handler := func(next http.Handler) http.Handler {
-		fn := func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/v1/auth/config" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			authToken, err := authN.GetAuthToken(r)
-			if err != nil {
-				log.WithError(err).Error("failed to get auth token")
-				writeResponse(w, api.StatusBadRequest("failed to get auth token"), log)
-				return
-			}
-			err = authN.ValidateToken(r.Context(), authToken)
-			if err != nil {
-				log.WithError(err).Error("failed to validate token")
-				writeResponse(w, api.StatusUnauthorized("failed to validate token"), log)
-				return
-			}
-			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
-			identity, err := authN.GetIdentity(ctx, authToken)
-			if err != nil {
-				log.WithError(err).Error("failed to get identity")
-			} else {
-				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
-			}
-			next.ServeHTTP(w, r.WithContext(ctx))
-		}
-		return http.HandlerFunc(fn)
-	}
-	return handler, nil
+	return nil
 }
 
 type K8sToK8sAuth struct {
@@ -176,17 +144,4 @@ func (o K8sToK8sAuth) CheckPermission(ctx context.Context, resource string, op s
 	}
 	k8sToken := k8sTokenVal.(string)
 	return o.K8sAuthZ.CheckPermission(ctx, k8sToken, resource, op)
-}
-
-func writeResponse(w http.ResponseWriter, status api.Status, log logrus.FieldLogger) {
-	resp, err := json.Marshal(status)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(int(status.Code))
-	if _, err := w.Write(resp); err != nil {
-		log.WithError(err).Warn("failed to write response")
-	}
 }
