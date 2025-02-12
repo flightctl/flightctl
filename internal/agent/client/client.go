@@ -15,7 +15,7 @@ import (
 	"github.com/go-chi/chi/middleware"
 )
 
-// NewFromConfig returns a new FlightCtl API client from the given config.
+// NewFromConfig returns a new Flight Control API client from the given config.
 func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, error) {
 
 	httpClient, err := baseclient.NewHTTPClientFromConfig(config)
