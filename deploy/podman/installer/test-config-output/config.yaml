@@ -5,16 +5,7 @@ database:
     name: flightctl
     user: demouser
     password: demopass
-service:
-    address: :3443
-    agentEndpointAddress: :7443
-    agentGrpcAddress: :7444
-    baseUrl: https://flightctl-test.com:3443/
-    baseAgentEndpointUrl: https://flightctl-test.com:7443/
-    baseAgentGrpcUrl: grpcs://flightctl-test.com:7444/
-    baseUIUrl: http://flightctl-test.com:8080
-    altNames:
-      - flightctl-test.com
+service: {}
 kv:
     hostname: flightctl-kv
     port: 6379

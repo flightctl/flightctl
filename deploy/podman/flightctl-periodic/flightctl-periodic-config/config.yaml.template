@@ -1,0 +1,11 @@
+database:
+    hostname: flightctl-db
+    type: pgsql
+    port: {{.Global.Ports.DB}}
+    name: {{.DB.Name}}
+    user: {{.DB.User}}
+    password: {{.DB.Password}}
+service: {}
+kv:
+    hostname: flightctl-kv
+    port: {{.Global.Ports.KV}}

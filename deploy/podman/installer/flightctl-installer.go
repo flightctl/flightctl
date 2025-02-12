@@ -13,10 +13,13 @@ import (
 )
 
 type Config struct {
-	Global *globalConfig `yaml:"global,omitempty"`
-	DB     *dbConfig     `yaml:"db,omitempty"`
-	KV     *kvConfig     `yaml:"kv,omitempty"`
-	API    *apiConfig    `yaml:"api,omitempty"`
+	Global   *globalConfig   `yaml:"global,omitempty"`
+	DB       *dbConfig       `yaml:"db,omitempty"`
+	KV       *kvConfig       `yaml:"kv,omitempty"`
+	API      *apiConfig      `yaml:"api,omitempty"`
+	Periodic *periodicConfig `yaml:"periodic,omitempty"`
+	Worker   *workerConfig   `yaml:"worker,omitempty"`
+	UI       *uiConfig       `yaml:"ui,omitempty"`
 
 	// Set by flags
 	ConfigDir      string
@@ -61,7 +64,26 @@ type apiConfig struct {
 	Image *imageConfig `yaml:"image"`
 }
 
-var services = []string{"flightctl-db", "flightctl-kv", "flightctl-api"}
+type periodicConfig struct {
+	Image *imageConfig `yaml:"image"`
+}
+
+type workerConfig struct {
+	Image *imageConfig `yaml:"image"`
+}
+
+type uiConfig struct {
+	Image *imageConfig `yaml:"image"`
+}
+
+var services = []string{
+	"flightctl-db",
+	"flightctl-kv",
+	"flightctl-api",
+	"flightctl-periodic",
+	"flightctl-worker",
+	"flightctl-ui",
+}
 
 func main() {
 	var configDir, systemdUnitDir, userConfigDir string

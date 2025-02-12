@@ -1,0 +1,19 @@
+[Unit]
+Description=FlightCtl Worker service
+After=flightctl-db.service
+Requires=flightctl-db.service
+
+[Container]
+ContainerName=flightctl-worker
+Image={{.Worker.Image.Image}}
+Network=flightctl.network
+Environment=HOME=/root
+Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:Z
+
+[Service]
+Restart=always
+RestartSec=30
+Slice=flightctl.slice
+
+[Install]
+WantedBy=flightctl.slice

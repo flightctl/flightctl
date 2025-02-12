@@ -15,7 +15,7 @@ db:
   adminUser: admin
   adminPassword: adminpass
   user: demouser
-  password: demopass
+  password: demopasss
 kv:
   image:
     image: docker.io/redis:7.4.1
@@ -24,3 +24,12 @@ kv:
 api:
   image:
     image: quay.io/flightctl/flightctl-api:0.4.0
+worker:
+  image:
+    image: quay.io/flightctl/flightctl-worker:0.4.0
+periodic:
+  image:
+    image: quay.io/flightctl/flightctl-periodic:0.4.0
+ui:
+  image:
+    image: quay.io/flightctl/flightctl-ui:0.4.0

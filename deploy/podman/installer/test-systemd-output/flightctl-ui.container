@@ -8,10 +8,10 @@ ContainerName=flightctl-ui
 Image=quay.io/flightctl/flightctl-ui:0.4.0
 Network=flightctl.network
 Environment=API_PORT=8080
-Environment=FLIGHTCTL_SERVER="https://flightctl-api:3443/"
-Environment=FLIGHTCTL_GRPC_SERVER="grpcs://flightctl-api:7444/"
+Environment=FLIGHTCTL_SERVER="https://flightctl-test.com:3443/"
+Environment=FLIGHTCTL_GRPC_SERVER="grpcs://flightctl-test.com:7444/"
 Environment=FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY="true"
-Environment=BASE_UI_URL=https://ui.localhost
+Environment=BASE_UI_URL=https://flightctl-test.com
 #Environment=INTERNAL_OIDC_URL=http://flightctl-keycloak:9080/realms/flightctl
 Environment=OIDC_INSECURE_SKIP_VERIFY="true"
 

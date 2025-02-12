@@ -8,7 +8,7 @@ ContainerName=flightctl-periodic
 Image=quay.io/flightctl/flightctl-periodic:0.4.0
 Network=flightctl.network
 Environment=HOME=/root
-Volume=%h/.config/flightctl/flightctl-periodic-config/config.yaml:/root/.flightctl/config.yaml:Z
+Volume=deploy/podman/installer/test-config-output/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Restart=always

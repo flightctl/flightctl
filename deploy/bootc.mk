@@ -25,7 +25,9 @@ qemu:
 		-m 4096 \
 		-bios /usr/share/OVMF/OVMF_CODE.fd \
 		-nographic \
-		-snapshot deploy/bootc/output/qcow2/disk.qcow2
+		-snapshot deploy/bootc/output/qcow2/disk.qcow2 \
+    	-netdev user,id=net0,hostfwd=tcp::8080-:8080,hostfwd=tcp::3443-:3443 \
+    	-device e1000,netdev=net0
 
 virt:
 	sudo virt-install \
@@ -46,3 +48,9 @@ test-template:
 		-c deploy/podman \
 		-s deploy/podman/installer/test-systemd-output \
 		-u deploy/podman/installer/test-config-output
+
+deploy-new-quadlets:
+	./deploy/podman/installer/bin/flightctl-installer \
+		-c deploy/podman \
+		-s ~/.config/containers/systemd \
+		-u ~/.config/flightctl

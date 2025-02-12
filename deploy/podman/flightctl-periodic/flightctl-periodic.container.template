@@ -1,14 +1,14 @@
 [Unit]
-Description=FlightCtl Worker service
+Description=FlightCtl Periodic service
 After=flightctl-db.service
 Requires=flightctl-db.service
 
 [Container]
-ContainerName=flightctl-worker
-Image=quay.io/flightctl/flightctl-worker:0.4.0
+ContainerName=flightctl-periodic
+Image={{.Periodic.Image.Image}}
 Network=flightctl.network
 Environment=HOME=/root
-Volume=%h/.config/flightctl/flightctl-worker-config/config.yaml:/root/.flightctl/config.yaml:Z
+Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Restart=always
