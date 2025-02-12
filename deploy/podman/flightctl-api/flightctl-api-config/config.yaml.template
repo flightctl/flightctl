@@ -1,27 +1,20 @@
 database:
     hostname: flightctl-db
     type: pgsql
-    port: 5432
-    name: flightctl
-    user: admin
-    password: adminpass   # we should funnel this via secrets instead
+    port: {{.Global.Ports.DB}}
+    name: {{.DB.Name}}
+    user: {{.DB.User}}
+    password: {{.DB.Password}}
 service:
-    address: flightctl-api:3443
-    agentEndpointAddress: flightctl-api:7443
-    agentGrpcAddress: flightctl-api:7444
-    baseUrl: https://api.flightctl.$PRIMARY_IP.nip.io:3443/
-    baseAgentEndpointUrl: https://agent-api.flightctl.$PRIMARY_IP.nip.io:7443/
-    baseAgentGrpcUrl: grpcs://agent-grpc.flightctl.$PRIMARY_IP.nip.io:7444/
-    baseUIUrl: http://ui.flightctl.$PRIMARY_IP.nip.io:8080
+    address: :{{.Global.Ports.API}}
+    agentEndpointAddress: :{{.Global.Ports.Agent}}
+    agentGrpcAddress: :{{.Global.Ports.GRPC}}
+    baseUrl: https://{{.Global.BaseDomain}}:3443/
+    baseAgentEndpointUrl: https://{{.Global.BaseDomain}}:7443/
+    baseAgentGrpcUrl: grpcs://{{.Global.BaseDomain}}:7444/
+    baseUIUrl: http://{{.Global.BaseDomain}}:8080
     altNames:
-      - api.localhost
-      - agent-api.localhost
-      - agent-grpc.localhost
-      - flightctl-api
-      - flightctl-api-agent-grpc
-      - agent-grpc.flightctl.$PRIMARY_IP.nip.io
-      - agent-api.flightctl.$PRIMARY_IP.nip.io
-      - api.flightctl.$PRIMARY_IP.nip.io
+      - {{.Global.BaseDomain}}
 kv:
     hostname: flightctl-kv
-    port: 6379
+    port: {{.Global.Ports.KV}}

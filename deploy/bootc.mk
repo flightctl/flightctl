@@ -1,5 +1,5 @@
 build-image:
-	sudo podman build -f deploy/Containerfile -t quadlet-bootc-image:latest
+	sudo podman build -f deploy/Containerfile -t quadlet-bootc-image:latest --network=host
 
 build-qcow:
 	sudo podman run \
@@ -38,3 +38,11 @@ virt:
 
 build-installer:
 	go build -o deploy/podman/installer/bin/flightctl-installer deploy/podman/installer/flightctl-installer.go
+
+test-template:
+	rm -rf deploy/podman/installer/test-systemd-output
+	rm -rf deploy/podman/installer/test-config-output
+	./deploy/podman/installer/bin/flightctl-installer \
+		-c deploy/podman \
+		-s deploy/podman/installer/test-systemd-output \
+		-u deploy/podman/installer/test-config-output

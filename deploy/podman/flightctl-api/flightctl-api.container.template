@@ -2,23 +2,21 @@
 Description=FlightCtl API server
 After=flightctl-db.service flightctl-kv.service
 Requires=flightctl-db.service flightctl-kv.service
-Wants=flightctl-periodic.service flightctl-worker.service
-Before=flightctl-periodic.service flightctl-worker.service
+# Wants=flightctl-periodic.service flightctl-worker.service
+# Before=flightctl-periodic.service flightctl-worker.service
 
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:0.4.0
+Image={{.API.Image.Image}}
 Network=flightctl.network
 Environment=HOME=/root
 Environment=FLIGHTCTL_DISABLE_AUTH=true
 
-PublishPort=3443:3443
-PublishPort=7443:7443
-PublishPort=7444:7444
-PublishPort=15690:15690
-PublishPort=15691:15691
+PublishPort={{.Global.Ports.API}}:3443
+PublishPort={{.Global.Ports.Agent}}:7443
+PublishPort={{.Global.Ports.GRPC}}:7444
 Volume=flightctl-api-certs:/root/.flightctl/certs:Z
-Volume=%h/.config/flightctl/flightctl-api-config/config.yaml:/root/.flightctl/config.yaml:Z
+Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Slice=flightctl.slice

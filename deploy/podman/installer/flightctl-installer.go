@@ -13,16 +13,55 @@ import (
 )
 
 type Config struct {
-	Database  string `yaml:"database"`
-	User      string `yaml:"user"`
-	Password  string `yaml:"password"`
-	AdminUser string `yaml:"admin_user"`
-	AdminPass string `yaml:"admin_pass"`
+	Global *globalConfig `yaml:"global,omitempty"`
+	DB     *dbConfig     `yaml:"db,omitempty"`
+	KV     *kvConfig     `yaml:"kv,omitempty"`
+	API    *apiConfig    `yaml:"api,omitempty"`
 
 	// Set by flags
-	ConfigDir     string `yaml:"config_dir"`
-	UserConfigDir string `yaml:"user_config_dir"`
+	ConfigDir      string
+	UserConfigDir  string
+	SystemdUnitDir string
 }
+
+type globalConfig struct {
+	Ports      *portsConfig `yaml:"ports"`
+	BaseDomain string       `yaml:"baseDomain"`
+}
+
+type imageConfig struct {
+	Image string `yaml:"image"`
+}
+
+type portsConfig struct {
+	DB    int `yaml:"db"`
+	KV    int `yaml:"kv"`
+	API   int `yaml:"api"`
+	Agent int `yaml:"agent"`
+	GRPC  int `yaml:"grpc"`
+	UI    int `yaml:"ui"`
+}
+
+type dbConfig struct {
+	Image         *imageConfig `yaml:"image"`
+	Name          string       `yaml:"name"`
+	AdminUser     string       `yaml:"adminUser"`
+	AdminPassword string       `yaml:"adminPassword"`
+	User          string       `yaml:"user"`
+	Password      string       `yaml:"password"`
+}
+
+type kvConfig struct {
+	Image    *imageConfig `yaml:"image"`
+	Password string       `yaml:"password"`
+	Save     string       `yaml:"save"`
+}
+
+type apiConfig struct {
+	Image *imageConfig `yaml:"image"`
+}
+
+var services = []string{"flightctl-db", "flightctl-kv", "flightctl-api"}
 
 func main() {
 	var configDir, systemdUnitDir, userConfigDir string
@@ -65,55 +104,114 @@ func run(configDir string, systemdUnitDir string, userConfigDir string) error {
 	// Set config dir
 	config.ConfigDir = configDir
 	config.UserConfigDir = userConfigDir
+	config.SystemdUnitDir = systemdUnitDir
 
-	// Read template file
-	services := []string{"flightctl-db", "flightctl-kv"}
+	// Handle each service
 	for _, service := range services {
-		templatePath := filepath.Join(configDir, fmt.Sprintf("%s/%s.container.template", service, service))
-		containerTemplate, err := os.ReadFile(templatePath)
-		if err != nil {
-			return fmt.Errorf("error reading template file: %v", err)
-		}
-
-		// Parse and execute template
-		tmpl, err := template.New("container").Parse(string(containerTemplate))
-		if err != nil {
-			return fmt.Errorf("error parsing template: %v", err)
-		}
-
-		var output bytes.Buffer
-		if err := tmpl.Execute(&output, config); err != nil {
-			return fmt.Errorf("error executing template: %v", err)
-		}
-
-		// Write output to file
-		outputPath := filepath.Join(systemdUnitDir, fmt.Sprintf("%s.container", service))
-		if err := os.WriteFile(outputPath, output.Bytes(), 0644); err != nil {
-			return fmt.Errorf("error writing output file: %v", err)
+		if err := ensureServiceFiles(service, config); err != nil {
+			return fmt.Errorf("error handling service %s: %v", service, err)
 		}
 	}
 
-	// Move static files
-	staticFiles := []string{"flightctl.network", "flightctl.slice"}
-	for _, file := range staticFiles {
-		src := filepath.Join(configDir, file)
-		dst := filepath.Join(systemdUnitDir, file)
-		if err := copyFile(src, dst); err != nil {
-			return fmt.Errorf("error copying static file: %v", err)
-		}
-	}
-
-	// Move config files
-	mountConfigFiles := []string{"redis.conf"}
-	for _, file := range mountConfigFiles {
-		src := filepath.Join(configDir, file)
-		dst := filepath.Join(userConfigDir, file)
-		if err := copyFile(src, dst); err != nil {
-			return fmt.Errorf("error copying config file: %v", err)
-		}
+	// Move top level files like the .network and .slice files
+	err = ensureFiles(config.ConfigDir, config.SystemdUnitDir, config)
+	if err != nil {
+		return fmt.Errorf("error moving top level static files: %v", err)
 	}
 
 	fmt.Println("Generated quadlet files successfully.")
+	return nil
+}
+
+func ensureServiceFiles(serviceName string, config Config) error {
+	serviceBasePath := filepath.Join(config.ConfigDir, serviceName)
+	serviceConfigPath := filepath.Join(serviceBasePath, fmt.Sprintf("%s-config", serviceName))
+
+	// Write systemd unit files
+	err := ensureFiles(serviceBasePath, config.SystemdUnitDir, config)
+	if err != nil {
+		return fmt.Errorf("error writing systemd unit files for %s: %v", serviceName, err)
+	}
+
+	// Write config files if they exist
+	if _, err := os.Stat(serviceConfigPath); !os.IsNotExist(err) {
+		err = ensureFiles(serviceConfigPath, config.UserConfigDir, config)
+		if err != nil {
+			return fmt.Errorf("error writing config files for %s: %v", serviceName, err)
+		}
+	}
+
+	return nil
+}
+
+func ensureFiles(sourceDir string, writePath string, config Config) error {
+	files, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return fmt.Errorf("error reading source directory: %v", err)
+	}
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		fileName := file.Name()
+		if filepath.Ext(fileName) == ".template" {
+			if err := writeTemplate(fileName, sourceDir, writePath, config); err != nil {
+				return err
+			}
+		} else {
+			dst := filepath.Join(writePath, fileName)
+			if err := ensurePath(writePath); err != nil {
+				return err
+			}
+
+			src := filepath.Join(sourceDir, fileName)
+			if err := copyFile(src, dst); err != nil {
+				return fmt.Errorf("error copying static file: %v", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func writeTemplate(fileName string, sourceDir string, writePath string, config Config) error {
+	templateFilePath := filepath.Join(sourceDir, fileName)
+	templateContent, err := os.ReadFile(templateFilePath)
+	if err != nil {
+		return fmt.Errorf("error reading template file %s: %v", fileName, err)
+	}
+
+	tmpl, err := template.New(fileName).Parse(string(templateContent))
+	if err != nil {
+		return fmt.Errorf("error parsing template %s: %v", fileName, err)
+	}
+
+	var output bytes.Buffer
+	if err := tmpl.Execute(&output, config); err != nil {
+		return fmt.Errorf("error executing template %s: %v", fileName, err)
+	}
+
+	if err := ensurePath(writePath); err != nil {
+		return err
+	}
+	outputFilePath := filepath.Join(writePath, fileName)
+	outputFilePath = outputFilePath[:len(outputFilePath)-len(".template")] // Remove .template extension
+
+	if err := os.WriteFile(outputFilePath, output.Bytes(), 0644); err != nil {
+		return fmt.Errorf("error writing output file %s: %v", outputFilePath, err)
+	}
+
+	return nil
+}
+
+func ensurePath(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.MkdirAll(path, os.ModePerm); err != nil {
+			return fmt.Errorf("error creating path %s: %v", path, err)
+		}
+	}
 	return nil
 }
 

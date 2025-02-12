@@ -1,0 +1,21 @@
+bind 0.0.0.0
+protected-mode yes
+port 6379
+dir /var/lib/redis/data
+
+# Password authentication
+requirepass {{.KV.Password}}
+
+# Logging
+loglevel warning
+
+# Snapshotting configuration
+save {{.KV.Save}}
+
+# Snapshot filename
+dbfilename dump.rdb
+
+# AOF configuration
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
