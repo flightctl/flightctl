@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/containers/storage/pkg/pools"
 	"github.com/creack/pty"
@@ -229,15 +230,23 @@ func (c *ConsoleController) bashProcess(ctx context.Context) (io.WriteCloser, io
 	stdoutReader, stdoutWriter := io.Pipe()
 
 	var stdinErr, stdoutErr error
+	// create a wg to wait for the copy goroutines to finish
 
+	var wgStdioCopiers sync.WaitGroup
+
+	// declare a waitgroup to wait on the copiers before we attempt to look at any copy errors
+	wgStdioCopiers.Add(2)
 	go func() {
 		// copy from stdinWriter to pty
 		_, stdinErr = pools.Copy(p, stdinReader)
+		wgStdioCopiers.Done()
 		_ = cmd.Process.Kill()
 	}()
+
 	go func() {
 		// copy from pty to stdoutWriter
 		_, stdoutErr = pools.Copy(stdoutWriter, p)
+		wgStdioCopiers.Done()
 		stdoutWriter.Close()
 		_ = cmd.Process.Kill()
 	}()
@@ -251,6 +260,8 @@ func (c *ConsoleController) bashProcess(ctx context.Context) (io.WriteCloser, io
 	go func() {
 		defer p.Close()
 		err := cmd.Wait()
+		// Make sure that the copiers finished before we check for errors
+		wgStdioCopiers.Wait()
 		if stdinErr != nil {
 			c.log.Errorf("error copying to stdin: %v", stdinErr)
 		}
