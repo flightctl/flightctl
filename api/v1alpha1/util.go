@@ -275,6 +275,11 @@ func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
 		return false
 	}
 
+	// Check Decommission
+	if !reflect.DeepEqual(d1.Decommissioning, d2.Decommissioning) {
+		return false
+	}
+
 	return true
 }
 
@@ -410,4 +415,13 @@ func (e MatchExpression) String() string {
 		return ""
 	}
 	return sb.String()
+}
+
+// GetConsoles returns the list of DeviceConsole objects, or an empty list if the field is nil.
+func (rd RenderedDeviceSpec) GetConsoles() []DeviceConsole {
+	if rd.Consoles == nil {
+		return []DeviceConsole{}
+	} else {
+		return *rd.Consoles
+	}
 }

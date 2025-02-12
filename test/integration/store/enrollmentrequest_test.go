@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -183,7 +184,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
-			Expect(er.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(er.Spec.Csr).To(Equal("csr string"))
 			Expect(er.Status.Conditions).ToNot(BeNil())
@@ -205,13 +206,13 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
-			Expect(er.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(er.Spec.Csr).To(Equal("new csr string"))
 
 			er, err = storeInst.EnrollmentRequest().Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(er.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(er.Spec.Csr).To(Equal("new csr string"))
 			Expect(er.Status.Certificate).ToNot(BeNil())
@@ -241,7 +242,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := storeInst.EnrollmentRequest().Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(dev.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
+			Expect(dev.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(dev.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(dev.Spec.Csr).To(Equal("csr string"))
 			Expect(dev.Status.Conditions).ToNot(BeNil())
