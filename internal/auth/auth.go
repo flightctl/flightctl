@@ -108,7 +108,7 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	return nil
 }
 
-func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http.Handler) http.Handler, error) {
+func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
 		log.Warnln("Auth disabled")
@@ -123,45 +123,17 @@ func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http
 		}
 
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	if authN == nil {
-		return nil, errors.New("no authN provider defined")
+		return errors.New("no authN provider defined")
 	}
 	if authZ == nil {
-		return nil, errors.New("no authZ provider defined")
+		return errors.New("no authZ provider defined")
 	}
-
-	handler := func(next http.Handler) http.Handler {
-		fn := func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/v1/auth/config" || r.URL.Path == "/api/v1/auth/validate" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			authToken, ok := getAuthToken(r)
-			if !ok {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			valid, err := authN.ValidateToken(r.Context(), authToken)
-			if err != nil || !valid {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
-			identity, err := authN.GetIdentity(ctx, authToken)
-			if err != nil {
-				log.WithError(err).Error("failed to get identity")
-			} else {
-				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
-			}
-			next.ServeHTTP(w, r.WithContext(ctx))
-		}
-		return http.HandlerFunc(fn)
-	}
-	return handler, nil
+	return nil
 }
 
 type K8sToK8sAuth struct {

@@ -3,8 +3,10 @@ package auth
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/sirupsen/logrus"
 )
 
@@ -37,7 +39,39 @@ var defaultActions = map[string]action{
 	http.MethodDelete: actionDelete,
 }
 
-func CreatePermissionsMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
+var apiVersionPattern = regexp.MustCompile(`^v[1-9]+$`)
+
+func CreateAuthNMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/auth/config" || r.URL.Path == "/api/v1/auth/validate" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			authToken, ok := getAuthToken(r)
+			if !ok {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			valid, err := authN.ValidateToken(r.Context(), authToken)
+			if err != nil || !valid {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
+			identity, err := authN.GetIdentity(ctx, authToken)
+			if err != nil {
+				log.WithError(err).Error("failed to get identity")
+			} else {
+				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		}
+		return http.HandlerFunc(fn)
+	}
+}
+
+func CreateAuthZMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			var (
@@ -50,19 +84,26 @@ func CreatePermissionsMiddleware(log logrus.FieldLogger) func(http.Handler) http
 			} else {
 				parts := strings.Split(r.URL.Path, "/")
 				// /, /api, /api/v{api-version} and /api/v{version}/auth don't require permissions
-				if len(parts) < 3 || (len(parts) >= 4 && parts[3] == "auth") {
+				matchesAPIVPath := false
+				if len(parts) == 3 {
+					matchesAPIVPath = apiVersionPattern.MatchString(parts[2])
+				}
+				if len(parts) < 3 || matchesAPIVPath || (len(parts) >= 4 && parts[3] == "auth") {
 					next.ServeHTTP(w, r)
 					return
 				}
 
-				// Extract resource and action from the request
-				// Skip /api/v{api-version}, but not for /api/version does
-				resource, action = extractResourceAndAction(parts[3:], r.Method)
-				if resource == resourceNil || action == actionNil {
-					log.Errorf("Unable to extract resource and action from %s and %s", r.URL.Path, r.Method)
-					http.Error(w, errBadRequest, http.StatusBadRequest)
-					return
+				parts = parts[3:]
+				if len(parts) != 0 {
+					// Extract resource and action from the request
+					resource, action = extractResourceAndAction(parts, r.Method)
 				}
+			}
+
+			if resource == resourceNil || action == actionNil {
+				log.Errorf("Unable to extract resource and action from %s and %s", r.URL.Path, r.Method)
+				http.Error(w, errBadRequest, http.StatusBadRequest)
+				return
 			}
 
 			if !isAllowed(r.Context(), resource, action, w) {

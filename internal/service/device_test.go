@@ -80,7 +80,7 @@ func verifyDevicePatchFailed(require *require.Assertions, resp server.PatchDevic
 
 func testDevicePatch(require *require.Assertions, patch v1alpha1.PatchRequest) (server.PatchDeviceResponseObject, v1alpha1.Device) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_, _ = auth.CreateAuthMiddleware(nil, log.InitLogs())
+	_ = auth.InitAuth(nil, log.InitLogs())
 	status := v1alpha1.NewDeviceStatus()
 	device := v1alpha1.Device{
 		ApiVersion: "v1",
