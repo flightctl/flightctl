@@ -30,6 +30,7 @@ type Config struct {
 type globalConfig struct {
 	Ports      *portsConfig `yaml:"ports"`
 	BaseDomain string       `yaml:"baseDomain"`
+	Production bool         `yaml:"production"`
 }
 
 type imageConfig struct {

@@ -15,8 +15,8 @@ Environment=FLIGHTCTL_DISABLE_AUTH=true
 PublishPort={{.Global.Ports.API}}:3443
 PublishPort={{.Global.Ports.Agent}}:7443
 PublishPort={{.Global.Ports.GRPC}}:7444
-Volume=flightctl-api-certs:/root/.flightctl/certs:Z
-Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:Z
+Volume=flightctl-api-certs:/root/.flightctl/certs
+Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:ro
 
 [Service]
 Slice=flightctl.slice
@@ -25,3 +25,4 @@ RestartSec=30
 
 [Install]
 WantedBy=flightctl.slice
+{{if .Global.Production}}WantedBy=default.target{{end}}

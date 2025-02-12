@@ -7,6 +7,7 @@ global:
     grpc: 7444
     ui: 8080
   baseDomain: flightctl-test.com
+  production: true
 
 db:
   image:
@@ -15,7 +16,7 @@ db:
   adminUser: admin
   adminPassword: adminpass
   user: demouser
-  password: demopass
+  password: demopasss
 kv:
   image:
     image: docker.io/redis:7.4.1

@@ -1,5 +1,5 @@
 build-image:
-	sudo podman build -f deploy/Containerfile -t quadlet-bootc-image:latest --network=host
+	sudo podman build -f deploy/Containerfile.embedded -t quadlet-bootc-image:latest --network=host
 
 build-qcow:
 	sudo podman run \

@@ -1,0 +1,20 @@
+# Build the installer binary
+FROM registry.access.redhat.com/ubi8/ubi:latest as builder
+WORKDIR /build
+COPY ./podman .
+WORKDIR /build/installer
+RUN dnf -y install go-toolset
+RUN go build -o ./bin/flightctl-installer ./flightctl-installer.go
+WORKDIR /build
+
+# Generate the quadlet files
+# TODO clean up steps, this whole directory hopping is confusing
+# TODO /usr/lib/flightctl/ is bound to the host intallation location and the var injected into templates
+RUN ./installer/bin/flightctl-installer -c . -s ./output/systemd -u /usr/lib/flightctl/
+
+# Build the bootc image
+FROM quay.io/centos-bootc/centos-bootc:stream9
+
+# Copy the generated quadlet files
+COPY --from=builder /build/output/systemd /etc/containers/systemd/users/
+COPY --from=builder /usr/lib/flightctl/ /usr/lib/flightctl/

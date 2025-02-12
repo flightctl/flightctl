@@ -8,7 +8,7 @@ ContainerName=flightctl-worker
 Image={{.Worker.Image.Image}}
 Network=flightctl.network
 Environment=HOME=/root
-Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:Z
+Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:ro
 
 [Service]
 Restart=always

@@ -4,7 +4,7 @@ database:
     port: 5432
     name: flightctl
     user: demouser
-    password: demopass
+    password: demopasss
 service: {}
 kv:
     hostname: flightctl-kv

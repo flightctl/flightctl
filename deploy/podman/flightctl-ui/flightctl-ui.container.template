@@ -17,7 +17,7 @@ Environment=OIDC_INSECURE_SKIP_VERIFY="true"
 
 PublishPort={{.Global.Ports.UI}}:{{.Global.Ports.UI}}
 
-Volume=flightctl-api-certs:/app/certs:Z
+Volume=flightctl-api-certs:/app/certs
 
 [Service]
 Restart=always
@@ -26,3 +26,4 @@ Slice=flightctl.slice
 
 [Install]
 WantedBy=flightctl.slice
+{{if .Global.Production}}WantedBy=default.target{{end}}
