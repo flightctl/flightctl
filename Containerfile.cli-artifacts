@@ -49,8 +49,8 @@ WORKDIR ${HOME}/src
 
 COPY --from=builder /app/bin/clis/archives/ ./
 
-LABEL io.k8s.display-name="Flightctl Client Multiarch Artifacts with Server" \
-      io.k8s.description="FlightCtl is an edge management system for edge devices and servers." \
+LABEL io.k8s.display-name="Flight Control CLI multiarch artifacts with server" \
+      io.k8s.description="Flight Control is a service for declarative management of fleets of edge devices and their workloads." \
       io.openshift.tags="flightctl,cli-artifacts"
 
 

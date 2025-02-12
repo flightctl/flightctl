@@ -112,7 +112,7 @@ func TestDevicePatchName(t *testing.T) {
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
 	resp, _ := testDevicePatch(require, pr)
-	require.Equal(server.PatchDevice400JSONResponse{Message: "metadata.name is immutable"}, resp)
+	require.Equal(server.PatchDevice400JSONResponse(v1alpha1.StatusBadRequest("metadata.name is immutable")), resp)
 
 	pr = v1alpha1.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
@@ -250,5 +250,5 @@ func TestDeviceNonExistingResource(t *testing.T) {
 		Body: &pr,
 	})
 	require.NoError(err)
-	require.Equal(server.PatchDevice404JSONResponse{}, resp)
+	require.Equal(server.PatchDevice404JSONResponse(v1alpha1.StatusResourceNotFound("Device", "bar")), resp)
 }

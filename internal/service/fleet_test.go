@@ -250,5 +250,5 @@ func TestFleetNonExistingResource(t *testing.T) {
 		Body: &pr,
 	})
 	require.NoError(err)
-	require.Equal(server.PatchFleet404JSONResponse{}, resp)
+	require.Equal(server.PatchFleet404JSONResponse(v1alpha1.StatusResourceNotFound("Fleet", "bar")), resp)
 }

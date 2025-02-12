@@ -149,7 +149,7 @@ func processApprovalReponse(response *http.Response, err error, kind string, nam
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		var responseError api.Error
+		var responseError api.Status
 		// not handling errors as we are only interested in the message
 		// and in case there will be a problem in reading the body or unmarshalling it
 		// we will print the status like

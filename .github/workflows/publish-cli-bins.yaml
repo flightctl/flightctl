@@ -165,7 +165,7 @@ jobs:
             gh release upload latest --clobber release/*
           else
             # if the release did not exist, we should create it at least once
-            gh release create -p -n "Flightctl CLI pre-release" latest release/*
+            gh release create -p -n "Flight Control CLI pre-release" latest release/*
           fi
 
       # if this is a tag, we upload the release binaries, the release already exists
