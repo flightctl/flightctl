@@ -13,7 +13,6 @@ import (
 	"time"
 
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
@@ -150,7 +149,7 @@ func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, is
 // }
 
 func (ca *CA) EnsureServerCertificate(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error) {
-	certConfig, err := GetServerCert(certFile, keyFile, hostnames)
+	certConfig, err := GetServerCert(certFile, keyFile)
 	if err != nil {
 		certConfig, err = ca.MakeAndWriteServerCert(certFile, keyFile, hostnames, expireDays)
 		return certConfig, true, err
@@ -159,8 +158,8 @@ func (ca *CA) EnsureServerCertificate(certFile, keyFile string, hostnames []stri
 	return certConfig, false, nil
 }
 
-func GetServerCert(certFile, keyFile string, hostnames []string) (*TLSCertificateConfig, error) {
-	internalServer, err := oscrypto.GetServerCert(certFile, keyFile, sets.NewString(hostnames...))
+func GetServerCert(certFile, keyFile string) (*TLSCertificateConfig, error) {
+	internalServer, err := oscrypto.GetTLSCertificateConfig(certFile, keyFile)
 	if err != nil {
 		return nil, err
 	}
