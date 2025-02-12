@@ -82,7 +82,6 @@ enrollment-service:
     certificate-authority-data: LS0tLS1CRUdJTiBD...
     server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
   enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8081
-  grpc-management-endpoint: grpcs://agent-grpc.flightctl.127.0.0.1.nip.io:7444
 ```
 
 ### Building the OS Image (bootc)
