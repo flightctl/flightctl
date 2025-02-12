@@ -201,5 +201,5 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 		Body: &pr,
 	})
 	require.NoError(err)
-	require.Equal(server.PatchRepository404JSONResponse{}, resp)
+	require.Equal(server.PatchRepository404JSONResponse(v1alpha1.StatusResourceNotFound("Repository", "bar")), resp)
 }
