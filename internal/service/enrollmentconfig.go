@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -25,16 +26,16 @@ func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, request server
 	clientCert := []byte{}
 	if request.Params.Csr != nil {
 		if errs := validation.ValidateResourceName(request.Params.Csr); len(errs) > 0 {
-			return server.GetEnrollmentConfig400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+			return server.GetEnrollmentConfig400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 		}
 
 		csr, err := h.store.CertificateSigningRequest().Get(ctx, orgId, *request.Params.Csr)
 		if err != nil {
 			switch {
 			case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-				return server.GetEnrollmentConfig400JSONResponse{Message: err.Error()}, nil
+				return server.GetEnrollmentConfig400JSONResponse(api.StatusBadRequest(err.Error())), nil
 			case errors.Is(err, flterrors.ErrResourceNotFound):
-				return server.GetEnrollmentConfig404JSONResponse{}, nil
+				return server.GetEnrollmentConfig404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", *request.Params.Csr)), nil
 			default:
 				return nil, err
 			}

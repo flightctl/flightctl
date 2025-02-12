@@ -1,5 +1,5 @@
 [Unit]
-Description=FlightCtl Key Value service
+Description=Flight Control Key Value service
 
 [Container]
 ContainerName=flightctl-kv
