@@ -61,7 +61,7 @@ flightctl get devices -l type=pos-terminal -l stage=development
 If the list of returned devices is OK, you could then define a `development-pos-terminals` fleet selecting these like this:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
   name: development-pos-terminals
