@@ -1,2 +1,5 @@
 bootc/output
 podman/installer/bin
+deploy/podman/installer/bin
+deploy/podman/installer/test-config-output
+deploy/podman/installer/test-systemd-output

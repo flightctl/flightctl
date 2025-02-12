@@ -16,7 +16,7 @@ db:
   adminUser: admin
   adminPassword: adminpass
   user: demouser
-  password: demopasss
+  password: demopass
 kv:
   image:
     image: docker.io/redis:7.4.1
