@@ -7,11 +7,16 @@ import (
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
-func TLSConfigForServer(caConfig, serverConfig *TLSCertificateConfig) (*tls.Config, *tls.Config, error) {
-	certBytes, err := oscrypto.EncodeCertificates(serverConfig.Certs...)
+func TLSConfigForServer(caBundlex509 []*x509.Certificate, serverConfig *TLSCertificateConfig) (*tls.Config, *tls.Config, error) {
+
+	certs := append(serverConfig.Certs, caBundlex509...)
+
+	certBytes, err := oscrypto.EncodeCertificates(certs...)
 	if err != nil {
 		return nil, nil, err
 	}
+
+
 	keyBytes, err := PEMEncodeKey(serverConfig.Key)
 	if err != nil {
 		return nil, nil, err
@@ -22,7 +27,7 @@ func TLSConfigForServer(caConfig, serverConfig *TLSCertificateConfig) (*tls.Conf
 	}
 
 	caPool := x509.NewCertPool()
-	for _, caCert := range caConfig.Certs {
+	for _, caCert := range caBundlex509 {
 		caPool.AddCert(caCert)
 	}
 
@@ -41,9 +46,9 @@ func TLSConfigForServer(caConfig, serverConfig *TLSCertificateConfig) (*tls.Conf
 	return tlsConfig, agentTlsConfig, nil
 }
 
-func TLSConfigForClient(caConfig, clientConfig *TLSCertificateConfig) (*tls.Config, error) {
+func TLSConfigForClient(caBundleX509 []*x509.Certificate, clientConfig *TLSCertificateConfig) (*tls.Config, error) {
 	caPool := x509.NewCertPool()
-	for _, caCert := range caConfig.Certs {
+	for _, caCert := range caBundleX509 {
 		caPool.AddCert(caCert)
 	}
 	tlsConfig := &tls.Config{
