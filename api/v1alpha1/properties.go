@@ -82,6 +82,14 @@ func (d *Device) IsUpdatedToFleetSpec(f *Fleet) bool {
 	return d.IsUpdatedToDeviceSpec() && deviceTemplateVersion == fleetTemplateVersion
 }
 
+func (d *Device) Version() string {
+	deviceVersion, ok := (*d.Metadata.Annotations)[DeviceAnnotationRenderedVersion]
+	if !ok {
+		return ""
+	}
+	return deviceVersion
+}
+
 // IsDecomStarted() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Started' Reason.
 func (c *Condition) IsDecomStarted() bool {
 	if c.Type == DeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateStarted) {

@@ -70,12 +70,12 @@ paths:
     get:
       tags:
         - device
-      description: Get the rendered, self-contained device specification for a Device resource.
-      operationId: getRenderedDeviceSpec
+      description: Get the rendered device resource.
+      operationId: getRenderedDevice
       parameters:
         - name: name
           in: path
-          description: The name of the Device resource to get the rendered device specification for.
+          description: The name of the Device to get the rendered specification for.
           required: true
           schema:
             type: string
@@ -91,7 +91,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/RenderedDeviceSpec'
+                $ref: '../openapi.yaml#/components/schemas/Device'
         "204":
           description: No content
           content: {}

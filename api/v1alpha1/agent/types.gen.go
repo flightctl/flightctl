@@ -7,8 +7,8 @@ import (
 	externalRef0 "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
-// GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
-type GetRenderedDeviceSpecParams struct {
+// GetRenderedDeviceParams defines parameters for GetRenderedDevice.
+type GetRenderedDeviceParams struct {
 	// KnownRenderedVersion The last known renderedVersion.
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
