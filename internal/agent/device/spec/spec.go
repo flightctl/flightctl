@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 type Type string
@@ -29,7 +30,7 @@ const (
 )
 
 type Manager interface {
-	// Initialize initializes the current, desired and rollback spec files on
+	// Initialize initializes the current, desired and rollback device files on
 	// disk. If the files already exist, they are overwritten.
 	Initialize(ctx context.Context) error
 	// Ensure ensures that spec files exist on disk and re initializes them if they do not.
@@ -38,8 +39,8 @@ type Manager interface {
 	RenderedVersion(specType Type) string
 	// OSVersion returns the OS version of the specified spec type.
 	OSVersion(specType Type) string
-	// Read returns the rendered device spec of the specified type from disk.
-	Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error)
+	// Read returns the rendered device of the specified type from disk.
+	Read(specType Type) (*v1alpha1.Device, error)
 	// Upgrade updates the current rendered spec to the desired rendered spec
 	// and resets the rollback spec.
 	Upgrade(ctx context.Context) error
@@ -61,8 +62,8 @@ type Manager interface {
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// SetClient sets the management API client.
 	SetClient(client.Management)
-	// GetDesired returns the desired rendered device spec from the management API.
-	GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error)
+	// GetDesired returns the desired rendered device from the management API.
+	GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error)
 	// CheckPolicy validates the update policy is ready to process.
 	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
 	status.Exporter
@@ -70,9 +71,9 @@ type Manager interface {
 
 type PriorityQueue interface {
 	// Add adds a new spec to the scheduler
-	Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpec)
+	Add(ctx context.Context, spec *v1alpha1.Device)
 	// Next returns the next spec to process
-	Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool)
+	Next(ctx context.Context) (*v1alpha1.Device, bool)
 	// Remove removes a spec from the scheduler
 	Remove(version int64)
 	// SetFailed marks a rendered spec version as failed
@@ -81,10 +82,6 @@ type PriorityQueue interface {
 	IsFailed(version int64) bool
 	// CheckPolicy validates the update policy is ready to process.
 	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
-}
-
-var initRenderedDeviceSpec = &v1alpha1.RenderedDeviceSpec{
-	RenderedVersion: "0",
 }
 
 type cacheData struct {
@@ -112,20 +109,26 @@ func newCache(log *log.PrefixLogger) *cache {
 }
 
 // update updates the rendered version and OS version of the specified spec type.
-func (c *cache) update(specType Type, device *v1alpha1.RenderedDeviceSpec) {
-	var osImage string
-	if device.Os != nil {
-		osImage = device.Os.Image
+func (c *cache) update(specType Type, device *v1alpha1.Device) {
+	if device.Spec == nil {
+		c.log.Errorf("Failed to update cache device spec is nil")
+		return
 	}
+	var osImage string
+	if device.Spec.Os != nil {
+		osImage = device.Spec.Os.Image
+	}
+
+	renderedVersion := device.Version()
 	switch specType {
 	case Current:
-		c.current.renderedVersion = device.RenderedVersion
+		c.current.renderedVersion = renderedVersion
 		c.current.osVersion = osImage
 	case Desired:
-		c.desired.renderedVersion = device.RenderedVersion
+		c.desired.renderedVersion = renderedVersion
 		c.desired.osVersion = osImage
 	case Rollback:
-		c.rollback.renderedVersion = device.RenderedVersion
+		c.rollback.renderedVersion = renderedVersion
 		c.rollback.osVersion = osImage
 	}
 }
@@ -158,4 +161,16 @@ func (c *cache) getOSVersion(specType Type) string {
 		c.log.Errorf("Invalid spec type: %s", specType)
 		return ""
 	}
+}
+
+func newVersionedDevice(version string) *v1alpha1.Device {
+	deice := &v1alpha1.Device{
+		Metadata: v1alpha1.ObjectMeta{
+			Annotations: lo.ToPtr(map[string]string{
+				v1alpha1.DeviceAnnotationRenderedVersion: version,
+			}),
+		},
+	}
+	deice.Spec = &v1alpha1.DeviceSpec{}
+	return deice
 }

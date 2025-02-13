@@ -39,7 +39,7 @@ type Device interface {
 	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
-	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error)
+	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
@@ -624,54 +624,16 @@ func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name,
 	})
 }
 
-func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error) {
-	device := model.Device{
+func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error) {
+	deviceModel := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.First(&device)
+	result := s.db.First(&deviceModel)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
 
-	annotations := util.EnsureMap(device.Annotations)
-	renderedVersion, ok := annotations[api.DeviceAnnotationRenderedVersion]
-	if !ok {
-		return nil, flterrors.ErrNoRenderedVersion
-	}
-
-	var console *api.DeviceConsole
-
-	if val, ok := annotations[api.DeviceAnnotationConsole]; ok {
-		console = &api.DeviceConsole{
-			SessionMetadata: "",
-			SessionID:       val,
-		}
-	}
-
-	// if we have a console request we ignore the rendered version
-	// TODO: bump the rendered version instead?
-	if console == nil && knownRenderedVersion != nil && renderedVersion == *knownRenderedVersion {
-		return nil, nil
-	}
-	// TODO: handle multiple consoles, for now we just encapsulate our one console in a list
-	var consoles *[]api.DeviceConsole
-	if console != nil {
-		consoles = &[]api.DeviceConsole{*console}
-	}
-
-	renderedConfig := api.RenderedDeviceSpec{
-		RenderedVersion: renderedVersion,
-		Config:          device.RenderedConfig,
-		Os:              device.Spec.Data.Os,
-		Systemd:         device.Spec.Data.Systemd,
-		Resources:       device.Spec.Data.Resources,
-		Consoles:        consoles,
-		Applications:    device.RenderedApplications.Data,
-		UpdatePolicy:    device.Spec.Data.UpdatePolicy,
-		Decommission:    device.Spec.Data.Decommissioning,
-	}
-
-	return &renderedConfig, nil
+	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
 }
 
 func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditions []api.Condition) (retry bool, err error) {

@@ -50,7 +50,7 @@ func NewController(
 	}
 }
 
-func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
