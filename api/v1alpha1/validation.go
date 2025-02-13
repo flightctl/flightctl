@@ -47,6 +47,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	if r.UpdatePolicy != nil {
 		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
 	}
+	if r.Consoles != nil {
+		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
+	}
 	if r.Os != nil {
 		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
 		allErrs = append(allErrs, paramErrs...)
