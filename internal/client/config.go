@@ -31,7 +31,7 @@ const (
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
 
-// Config holds the information needed to connect to a FlightCtl API server
+// Config holds the information needed to connect to a Flight Control API server
 type Config struct {
 	Service  Service  `json:"service"`
 	AuthInfo AuthInfo `json:"authentication"`
@@ -43,9 +43,9 @@ type Config struct {
 	testRootDir string `json:"-"`
 }
 
-// Service contains information how to connect to and authenticate the FlightCtl API server.
+// Service contains information how to connect to and authenticate the Flight Control API server.
 type Service struct {
-	// Server is the URL of the FlightCtl API server (the part before /api/v1/...).
+	// Server is the URL of the Flight Control API server (the part before /api/v1/...).
 	Server string `json:"server"`
 	// TLSServerName is passed to the server for SNI and is used in the client to check server certificates against.
 	// If TLSServerName is empty, the hostname used to contact the server is used.
@@ -58,7 +58,7 @@ type Service struct {
 	InsecureSkipVerify       bool   `json:"insecureSkipVerify,omitempty"`
 }
 
-// AuthInfo contains information for authenticating FlightCtl API clients.
+// AuthInfo contains information for authenticating Flight Control API clients.
 type AuthInfo struct {
 	// ClientCertificate is the path to a client cert file for TLS.
 	// +optional
@@ -169,7 +169,7 @@ func NewDefault() *Config {
 	return c
 }
 
-// NewFromConfig returns a new FlightCtl API client from the given config.
+// NewFromConfig returns a new Flight Control API client from the given config.
 func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
 
 	httpClient, err := NewHTTPClientFromConfig(config)
@@ -309,7 +309,7 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 	return router, nil
 }
 
-// DefaultFlightctlClientConfigPath returns the default path to the FlightCtl client config file.
+// DefaultFlightctlClientConfigPath returns the default path to the Flight Control client config file.
 func DefaultFlightctlClientConfigPath() string {
 	return filepath.Join(homedir.HomeDir(), ".config", "flightctl", "client.yaml")
 }
@@ -330,7 +330,7 @@ func ParseConfigFile(filename string) (*Config, error) {
 	return config, config.Flatten()
 }
 
-// NewFromConfigFile returns a new FlightCtl API client using the config read from the given file.
+// NewFromConfigFile returns a new Flight Control API client using the config read from the given file.
 func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
 	config, err := ParseConfigFile(filename)
 	if err != nil {
@@ -339,7 +339,7 @@ func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
 	return NewFromConfig(config)
 }
 
-// NewFromConfigFile returns a new FlightCtl API client using the config read from the given file.
+// NewFromConfigFile returns a new Flight Control API client using the config read from the given file.
 func NewGrpcClientFromConfigFile(filename string, endpoint string) (grpc_v1.RouterServiceClient, error) {
 	contents, err := os.ReadFile(filename)
 	if err != nil {

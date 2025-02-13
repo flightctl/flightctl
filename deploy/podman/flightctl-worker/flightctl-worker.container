@@ -1,5 +1,5 @@
 [Unit]
-Description=FlightCtl Worker service
+Description=Flight Control Worker service
 After=flightctl-db.service
 Requires=flightctl-db.service
 

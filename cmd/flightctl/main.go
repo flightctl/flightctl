@@ -17,7 +17,7 @@ func main() {
 func NewFlightCtlCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "flightctl [flags] [options]",
-		Short: "flightctl controls the Flight Control device management service.",
+		Short: "flightctl controls the Flight Control fleet management service.",
 		Run: func(cmd *cobra.Command, args []string) {
 			_ = cmd.Help()
 			os.Exit(1)

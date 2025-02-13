@@ -278,7 +278,7 @@ func (o *GetOptions) processResponse(response interface{}, err error, kind strin
 
 	if httpResponse.StatusCode != http.StatusOK {
 		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
-			var dest api.Error
+			var dest api.Status
 			if err := json.Unmarshal(responseBody, &dest); err != nil {
 				return fmt.Errorf("unmarshalling error: %w", err)
 			}

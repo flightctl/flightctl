@@ -1,5 +1,5 @@
 [Unit]
-Description=FlightCtl UI
+Description=Flight Control UI
 After=flightctl-api.service
 Requires=flightctl-api.service
 
