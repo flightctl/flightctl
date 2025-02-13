@@ -23,7 +23,7 @@ URL:            %{gourl}
 
 Source0:        1%{?dist}
 
-BuildRequires:  golang
+BuildRequires:  go1.22.5
 BuildRequires:  make
 BuildRequires:  git
 BuildRequires:  openssl-devel
