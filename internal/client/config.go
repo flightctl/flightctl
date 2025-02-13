@@ -360,11 +360,7 @@ func NewGrpcClientFromConfigFile(filename string, endpoint string) (grpc_v1.Rout
 }
 
 // WriteConfig writes a client config file using the given parameters.
-func WriteConfig(filename string, server string, tlsServerName string, ca *crypto.TLSCertificateConfig, client *crypto.TLSCertificateConfig) error {
-	caCertPEM, _, err := ca.GetPEMBytes()
-	if err != nil {
-		return fmt.Errorf("PEM-encoding CA certs: %w", err)
-	}
+func WriteConfig(filename string, server string, tlsServerName string, caCertPEM []byte, client *crypto.TLSCertificateConfig) error {
 
 	config := NewDefault()
 	config.Service = Service{

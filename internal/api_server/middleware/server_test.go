@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"crypto/x509"
 	"errors"
 	"io"
 	"net"
@@ -45,7 +46,7 @@ var _ = Describe("Low level server behavior", func() {
 		noSubjectCert, _, err = ca.EnsureClientCertificate(filepath.Join(tempDir, "no-subject.crt"), filepath.Join(tempDir, "no-subject.key"), "", 365)
 		Expect(err).NotTo(HaveOccurred())
 
-		_, tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+		_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 		Expect(err).ToNot(HaveOccurred())
 
 		// create a listener using the next available port
@@ -71,14 +72,14 @@ var _ = Describe("Low level server behavior", func() {
 
 	Context("TLS client peer CommonName", func() {
 		It("should be included as context in the request for client bootstrap", func() {
-			dataStr := requestFromTLSCNServer(ca.Config, enrollmentCert, listener)
+			dataStr := requestFromTLSCNServer(ca.GetCABundleX509(), enrollmentCert, listener)
 			Expect(dataStr).To(Equal(crypto.ClientBootstrapCommonName))
 		})
 	})
 
 	Context("TLS client peer with no subject/common name", func() {
 		It("should not include a context in the request", func() {
-			requestFromTLSCNServerExpectNotFound(ca.Config, noSubjectCert, listener)
+			requestFromTLSCNServerExpectNotFound(ca.GetCABundleX509(), noSubjectCert, listener)
 		})
 	})
 
@@ -106,8 +107,8 @@ func (s testTLSCNServer) ServeHTTP(response http.ResponseWriter, request *http.R
 	}
 }
 
-func requestFromTLSCNServer(caCert, clientCert *crypto.TLSCertificateConfig, listener net.Listener) string {
-	client, err := testutil.NewBareHTTPsClient(caCert, clientCert)
+func requestFromTLSCNServer(caBundle []*x509.Certificate, clientCert *crypto.TLSCertificateConfig, listener net.Listener) string {
+	client, err := testutil.NewBareHTTPsClient(caBundle, clientCert)
 	Expect(err).NotTo(HaveOccurred())
 
 	resp, err := client.Get("https://" + listener.Addr().String())
@@ -124,8 +125,8 @@ func requestFromTLSCNServer(caCert, clientCert *crypto.TLSCertificateConfig, lis
 	return dataStr
 }
 
-func requestFromTLSCNServerExpectNotFound(caCert, clientCert *crypto.TLSCertificateConfig, listener net.Listener) {
-	client, err := testutil.NewBareHTTPsClient(caCert, clientCert)
+func requestFromTLSCNServerExpectNotFound(caBundle []*x509.Certificate, clientCert *crypto.TLSCertificateConfig, listener net.Listener) {
+	client, err := testutil.NewBareHTTPsClient(caBundle, clientCert)
 	Expect(err).NotTo(HaveOccurred())
 
 	resp, err := client.Get("https://" + listener.Addr().String())
