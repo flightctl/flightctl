@@ -30,19 +30,19 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+		return server.ListTemplateVersions400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))), nil
 	}
 
 	var fieldSelector *selector.FieldSelector
 	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}); err != nil {
-		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+		return server.ListTemplateVersions400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))), nil
 	}
 
 	// If additional field selectors are provided, merge them
 	if request.Params.FieldSelector != nil {
 		additionalSelector, err := selector.NewFieldSelector(*request.Params.FieldSelector)
 		if err != nil {
-			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse additional field selector: %v", err)}, nil
+			return server.ListTemplateVersions400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse additional field selector: %v", err))), nil
 		}
 		fieldSelector.Add(additionalSelector)
 	}
@@ -50,7 +50,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 	var labelSelector *selector.LabelSelector
 	if request.Params.LabelSelector != nil {
 		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+			return server.ListTemplateVersions400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))), nil
 		}
 	}
 	listParams := store.ListParams{
@@ -63,7 +63,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
+		return server.ListTemplateVersions400JSONResponse(api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))), nil
 	}
 
 	result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
@@ -75,7 +75,7 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request serve
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListTemplateVersions400JSONResponse{Message: se.Error()}, nil
+		return server.ListTemplateVersions400JSONResponse(api.StatusBadRequest(se.Error())), nil
 	default:
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request ser
 		err           error
 	)
 	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}); err != nil {
-		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
+		return server.DeleteTemplateVersions403JSONResponse(api.StatusForbidden("")), nil
 	}
 
 	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's config storage
@@ -137,7 +137,7 @@ func (h *ServiceHandler) ReadTemplateVersion(ctx context.Context, request server
 	case err == nil:
 		return server.ReadTemplateVersion200JSONResponse(*result), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadTemplateVersion404JSONResponse{}, nil
+		return server.ReadTemplateVersion404JSONResponse(api.StatusResourceNotFound("TemplateVersion", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request serv
 	case err == nil:
 		return server.DeleteTemplateVersion200JSONResponse{}, nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteTemplateVersion404JSONResponse{}, nil
+		return server.DeleteTemplateVersion404JSONResponse(api.StatusResourceNotFound("TemplateVersion", request.Name)), nil
 	default:
 		return nil, err
 	}

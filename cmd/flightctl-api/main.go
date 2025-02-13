@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
@@ -52,14 +53,51 @@ func main() {
 		log.Fatalf("ensuring CA cert: %v", err)
 	}
 
-	// default certificate hostnames to localhost if nothing else is configured
-	if len(cfg.Service.AltNames) == 0 {
-		cfg.Service.AltNames = []string{"localhost"}
+	var serverCerts *crypto.TLSCertificateConfig
+
+	// check for user-provided certificate files
+	if cfg.Service.SrvCertFile != "" || cfg.Service.SrvKeyFile != "" {
+		if canReadCertAndKey, err := crypto.CanReadCertAndKey(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile); !canReadCertAndKey {
+			log.Fatalf("cannot read provided server certificate or key: %v", err)
+		}
+
+		serverCerts, err = crypto.GetTLSCertificateConfig(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile)
+		if err != nil {
+			log.Fatalf("failed to load provided certificate: %v", err)
+		}
+	} else {
+		srvCertFile := certFile(serverCertName)
+		srvKeyFile := keyFile(serverCertName)
+
+		// check if existing self-signed certificate is available
+		if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
+			serverCerts, err = crypto.GetTLSCertificateConfig(srvCertFile, srvKeyFile)
+			if err != nil {
+				log.Fatalf("failed to load existing self-signed certificate: %v", err)
+			}
+		} else {
+			// default to localhost if no alternative names are set
+			if len(cfg.Service.AltNames) == 0 {
+				cfg.Service.AltNames = []string{"localhost"}
+			}
+
+			serverCerts, err = ca.MakeAndWriteServerCert(srvCertFile, srvKeyFile, cfg.Service.AltNames, serverCertValidityDays)
+			if err != nil {
+				log.Fatalf("failed to create self-signed certificate: %v", err)
+			}
+		}
 	}
 
-	serverCerts, _, err := ca.EnsureServerCertificate(certFile(serverCertName), keyFile(serverCertName), cfg.Service.AltNames, serverCertValidityDays)
-	if err != nil {
-		log.Fatalf("ensuring server cert: %v", err)
+	// check for expired certificate
+	for _, x509Cert := range serverCerts.Certs {
+		expired := time.Now().After(x509Cert.NotAfter)
+		log.Printf("checking certificate: subject='%s', issuer='%s', expiry='%v'",
+			x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
+
+		if expired {
+			log.Warnf("server certificate for '%s' issued by '%s' has expired on: %v",
+				x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
+		}
 	}
 
 	_, _, err = ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), crypto.ClientBootstrapCommonName, clientBootStrapValidityDays)

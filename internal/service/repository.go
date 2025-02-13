@@ -25,7 +25,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateRepository400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.CreateRepository400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 
 	result, err := h.store.Repository().Create(ctx, orgId, request.Body, h.callbackManager.RepositoryUpdatedCallback)
@@ -33,9 +33,9 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, request server.Cr
 	case err == nil:
 		return server.CreateRepository201JSONResponse(*result), nil
 	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.CreateRepository400JSONResponse{Message: err.Error()}, nil
+		return server.CreateRepository400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	case errors.Is(err, flterrors.ErrDuplicateName):
-		return server.CreateRepository409JSONResponse{Message: err.Error()}, nil
+		return server.CreateRepository409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	default:
 		return nil, err
 	}
@@ -47,20 +47,20 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+		return server.ListRepositories400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))), nil
 	}
 
 	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
 		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+			return server.ListRepositories400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))), nil
 		}
 	}
 
 	var labelSelector *selector.LabelSelector
 	if request.Params.LabelSelector != nil {
 		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+			return server.ListRepositories400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))), nil
 		}
 	}
 
@@ -74,7 +74,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListRepositories400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
+		return server.ListRepositories400JSONResponse(api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))), nil
 	}
 
 	result, err := h.store.Repository().List(ctx, orgId, listParams)
@@ -86,7 +86,7 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, request server.Li
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListRepositories400JSONResponse{Message: se.Error()}, nil
+		return server.ListRepositories400JSONResponse(api.StatusBadRequest(se.Error())), nil
 	default:
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (h *ServiceHandler) DeleteRepositories(ctx context.Context, request server.
 	err := h.store.Repository().DeleteAll(ctx, orgId, h.callbackManager.AllRepositoriesDeletedCallback)
 	switch err {
 	case nil:
-		return server.DeleteRepositories200JSONResponse{}, nil
+		return server.DeleteRepositories200JSONResponse(api.StatusOK()), nil
 	default:
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (h *ServiceHandler) ReadRepository(ctx context.Context, request server.Read
 	case err == nil:
 		return server.ReadRepository200JSONResponse(*result), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadRepository404JSONResponse{}, nil
+		return server.ReadRepository404JSONResponse(api.StatusResourceNotFound("Repository", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -129,10 +129,10 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceRepository400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.ReplaceRepository400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceRepository400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+		return server.ReplaceRepository400JSONResponse(api.StatusBadRequest("resource name specified in metadata does not match name in path")), nil
 	}
 
 	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, request.Body, h.callbackManager.RepositoryUpdatedCallback)
@@ -144,13 +144,13 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, request server.R
 			return server.ReplaceRepository200JSONResponse(*result), nil
 		}
 	case errors.Is(err, flterrors.ErrResourceIsNil):
-		return server.ReplaceRepository400JSONResponse{Message: err.Error()}, nil
+		return server.ReplaceRepository400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	case errors.Is(err, flterrors.ErrResourceNameIsNil):
-		return server.ReplaceRepository400JSONResponse{Message: err.Error()}, nil
+		return server.ReplaceRepository400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceRepository404JSONResponse{}, nil
+		return server.ReplaceRepository404JSONResponse(api.StatusResourceNotFound("Repository", request.Name)), nil
 	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.ReplaceRepository409JSONResponse{}, nil
+		return server.ReplaceRepository409JSONResponse(api.StatusResourceVersionConflict("")), nil
 	default:
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func (h *ServiceHandler) DeleteRepository(ctx context.Context, request server.De
 	case err == nil:
 		return server.DeleteRepository200JSONResponse{}, nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteRepository404JSONResponse{}, nil
+		return server.DeleteRepository404JSONResponse(api.StatusResourceNotFound("Repository", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -180,9 +180,9 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	if err != nil {
 		switch {
 		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
+			return server.PatchRepository400JSONResponse(api.StatusBadRequest(err.Error())), nil
 		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.PatchRepository404JSONResponse{}, nil
+			return server.PatchRepository404JSONResponse(api.StatusResourceNotFound("Repository", request.Name)), nil
 		default:
 			return nil, err
 		}
@@ -191,20 +191,20 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	newObj := &api.Repository{}
 	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/repositories/"+request.Name)
 	if err != nil {
-		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
+		return server.PatchRepository400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	}
 
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchRepository400JSONResponse{Message: "metadata.name is immutable"}, nil
+		return server.PatchRepository400JSONResponse(api.StatusBadRequest("metadata.name is immutable")), nil
 	}
 	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchRepository400JSONResponse{Message: "apiVersion is immutable"}, nil
+		return server.PatchRepository400JSONResponse(api.StatusBadRequest("apiVersion is immutable")), nil
 	}
 	if currentObj.Kind != newObj.Kind {
-		return server.PatchRepository400JSONResponse{Message: "kind is immutable"}, nil
+		return server.PatchRepository400JSONResponse(api.StatusBadRequest("kind is immutable")), nil
 	}
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchRepository400JSONResponse{Message: "status is immutable"}, nil
+		return server.PatchRepository400JSONResponse(api.StatusBadRequest("status is immutable")), nil
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
@@ -221,11 +221,11 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, request server.Pat
 	case err == nil:
 		return server.PatchRepository200JSONResponse(*result), nil
 	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-		return server.PatchRepository400JSONResponse{Message: err.Error()}, nil
+		return server.PatchRepository400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.PatchRepository404JSONResponse{}, nil
+		return server.PatchRepository404JSONResponse(api.StatusResourceNotFound("Repository", request.Name)), nil
 	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.PatchRepository409JSONResponse{}, nil
+		return server.PatchRepository409JSONResponse(api.StatusResourceVersionConflict("")), nil
 	default:
 		return nil, err
 	}

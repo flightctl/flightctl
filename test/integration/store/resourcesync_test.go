@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -258,7 +259,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
-			Expect(rs.ApiVersion).To(Equal(api.ResourceSyncAPIVersion))
+			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))
 			Expect(rs.Kind).To(Equal(api.ResourceSyncKind))
 			Expect(rs.Spec.Repository).To(Equal("myrepo"))
 			Expect(rs.Spec.Path).To(Equal("my/path"))
@@ -280,7 +281,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
-			Expect(rs.ApiVersion).To(Equal(api.ResourceSyncAPIVersion))
+			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))
 			Expect(rs.Kind).To(Equal(api.ResourceSyncKind))
 			Expect(rs.Spec.Repository).To(Equal("myotherrepo"))
 			Expect(rs.Spec.Path).To(Equal("my/other/path"))

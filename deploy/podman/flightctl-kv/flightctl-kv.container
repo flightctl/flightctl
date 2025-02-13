@@ -1,5 +1,5 @@
 [Unit]
-Description=FlightCtl Key Value service
+Description=Flight Control Key Value service
 After=flightctl-db.service
 Requires=flightctl-db.service
 

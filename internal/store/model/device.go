@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -106,6 +107,10 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	}, nil
 }
 
+func DeviceAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.DeviceAPIVersion)
+}
+
 func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	if d == nil {
 		return &api.Device{}, nil
@@ -133,7 +138,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 		resourceVersion = lo.ToPtr(strconv.FormatInt(*d.ResourceVersion, 10))
 	}
 	return &api.Device{
-		ApiVersion: api.DeviceAPIVersion,
+		ApiVersion: DeviceAPIVersion(),
 		Kind:       api.DeviceKind,
 		Metadata: api.ObjectMeta{
 			Name:              lo.ToPtr(d.Name),
@@ -165,7 +170,7 @@ func DevicesToApiResource(devices []Device, cont *string, numRemaining *int64) (
 		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
 	}
 	ret := api.DeviceList{
-		ApiVersion: api.DeviceAPIVersion,
+		ApiVersion: DeviceAPIVersion(),
 		Kind:       api.DeviceListKind,
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},

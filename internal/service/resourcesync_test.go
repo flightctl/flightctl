@@ -233,5 +233,5 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 		Body: &pr,
 	})
 	require.NoError(err)
-	require.Equal(server.PatchResourceSync404JSONResponse{}, resp)
+	require.Equal(server.PatchResourceSync404JSONResponse(v1alpha1.StatusResourceNotFound("ResourceSync", "bar")), resp)
 }

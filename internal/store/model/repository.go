@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -67,6 +68,10 @@ func hideValue(value *string) {
 	}
 }
 
+func RepositoryAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.RepositoryAPIVersion)
+}
+
 func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, error) {
 	if r == nil {
 		return &api.Repository{}, nil
@@ -106,7 +111,7 @@ func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, 
 	}
 
 	return &api.Repository{
-		ApiVersion: api.RepositoryAPIVersion,
+		ApiVersion: RepositoryAPIVersion(),
 		Kind:       api.RepositoryKind,
 		Metadata: api.ObjectMeta{
 			Name:              lo.ToPtr(r.Name),
@@ -126,7 +131,7 @@ func RepositoriesToApiResource(repos []Repository, cont *string, numRemaining *i
 		repo, err := repository.ToApiResource()
 		if err != nil {
 			return api.RepositoryList{
-				ApiVersion: api.RepositoryAPIVersion,
+				ApiVersion: RepositoryAPIVersion(),
 				Kind:       api.RepositoryListKind,
 				Items:      []api.Repository{},
 			}, err
@@ -134,7 +139,7 @@ func RepositoriesToApiResource(repos []Repository, cont *string, numRemaining *i
 		repositoryList[i] = *repo
 	}
 	ret := api.RepositoryList{
-		ApiVersion: api.RepositoryAPIVersion,
+		ApiVersion: RepositoryAPIVersion(),
 		Kind:       api.RepositoryListKind,
 		Items:      repositoryList,
 		Metadata:   api.ListMeta{},

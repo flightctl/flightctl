@@ -324,7 +324,7 @@ func (response GetRenderedDeviceSpec204Response) VisitGetRenderedDeviceSpecRespo
 	return nil
 }
 
-type GetRenderedDeviceSpec401JSONResponse externalRef0.Error
+type GetRenderedDeviceSpec401JSONResponse externalRef0.Status
 
 func (response GetRenderedDeviceSpec401JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -333,7 +333,7 @@ func (response GetRenderedDeviceSpec401JSONResponse) VisitGetRenderedDeviceSpecR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetRenderedDeviceSpec404JSONResponse externalRef0.Error
+type GetRenderedDeviceSpec404JSONResponse externalRef0.Status
 
 func (response GetRenderedDeviceSpec404JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -342,7 +342,7 @@ func (response GetRenderedDeviceSpec404JSONResponse) VisitGetRenderedDeviceSpecR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetRenderedDeviceSpec409JSONResponse externalRef0.Error
+type GetRenderedDeviceSpec409JSONResponse externalRef0.Status
 
 func (response GetRenderedDeviceSpec409JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -369,7 +369,7 @@ func (response ReplaceDeviceStatus200JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus400JSONResponse externalRef0.Error
+type ReplaceDeviceStatus400JSONResponse externalRef0.Status
 
 func (response ReplaceDeviceStatus400JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -378,7 +378,7 @@ func (response ReplaceDeviceStatus400JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus401JSONResponse externalRef0.Error
+type ReplaceDeviceStatus401JSONResponse externalRef0.Status
 
 func (response ReplaceDeviceStatus401JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -387,7 +387,7 @@ func (response ReplaceDeviceStatus401JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus404JSONResponse externalRef0.Error
+type ReplaceDeviceStatus404JSONResponse externalRef0.Status
 
 func (response ReplaceDeviceStatus404JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -413,7 +413,7 @@ func (response CreateEnrollmentRequest201JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest400JSONResponse externalRef0.Error
+type CreateEnrollmentRequest400JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest400JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -422,7 +422,7 @@ func (response CreateEnrollmentRequest400JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest401JSONResponse externalRef0.Error
+type CreateEnrollmentRequest401JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest401JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -431,7 +431,7 @@ func (response CreateEnrollmentRequest401JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest403JSONResponse externalRef0.Error
+type CreateEnrollmentRequest403JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest403JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -440,7 +440,7 @@ func (response CreateEnrollmentRequest403JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest409JSONResponse externalRef0.Error
+type CreateEnrollmentRequest409JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest409JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -449,7 +449,7 @@ func (response CreateEnrollmentRequest409JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest503JSONResponse externalRef0.Error
+type CreateEnrollmentRequest503JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest503JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -475,7 +475,7 @@ func (response ReadEnrollmentRequest200JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest401JSONResponse externalRef0.Error
+type ReadEnrollmentRequest401JSONResponse externalRef0.Status
 
 func (response ReadEnrollmentRequest401JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -484,7 +484,7 @@ func (response ReadEnrollmentRequest401JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest403JSONResponse externalRef0.Error
+type ReadEnrollmentRequest403JSONResponse externalRef0.Status
 
 func (response ReadEnrollmentRequest403JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -493,7 +493,7 @@ func (response ReadEnrollmentRequest403JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest404JSONResponse externalRef0.Error
+type ReadEnrollmentRequest404JSONResponse externalRef0.Status
 
 func (response ReadEnrollmentRequest404JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -502,7 +502,7 @@ func (response ReadEnrollmentRequest404JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest503JSONResponse externalRef0.Error
+type ReadEnrollmentRequest503JSONResponse externalRef0.Status
 
 func (response ReadEnrollmentRequest503JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")

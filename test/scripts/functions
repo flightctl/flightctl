@@ -45,6 +45,7 @@ kind_load_image() {
     fi
 
     # Save to tar file
+    rm -f "${tar_filename}"
     podman save "${image}" -o "${tar_filename}"
     if [ $? -eq 0 ]; then
       echo "Image saved successfully to ${tar_filename}."
@@ -189,3 +190,4 @@ function package_cli() {
     local VERSION=$(echo "${FLIGHTCTL_RPM}" | cut -d'/' -f2)
     append_rpm_version "flightctl"
 }
+
