@@ -79,6 +79,7 @@ jobs:
       - name: Push helm charts
         run: |
           helm push "flightctl-${{ needs.generate-tags.outputs.helm_tag }}.tgz" oci://${{ env.QUAY_CHARTS }}/
+          helm push "flightctl-${{ needs.generate-tags.outputs.helm_tag }}.tgz" oci://${{ env.QUAY_CHARTS }}/ --version 0-latest
 
   publish-flightctl-containers:
     strategy:
