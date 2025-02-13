@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
@@ -161,12 +161,12 @@ func ensureTrailingSlash(path string) string {
 	return path
 }
 
-func pathEquals(path string, files map[string]ignv3types.File) bool {
+func pathEquals(path string, files map[string]v1alpha1.FileSpec) bool {
 	_, ok := files[path]
 	return ok
 }
 
-func treeFromPathContains(path string, files map[string]ignv3types.File) bool {
+func treeFromPathContains(path string, files map[string]v1alpha1.FileSpec) bool {
 	// ensure path ends with a trailing '/', so HasPrefix() doesn't accidentally match a file with a similar prefix
 	path = ensureTrailingSlash(path)
 	for file := range files {
@@ -177,7 +177,7 @@ func treeFromPathContains(path string, files map[string]ignv3types.File) bool {
 	return false
 }
 
-func getContainedFiles(path string, files map[string]ignv3types.File) []string {
+func getContainedFiles(path string, files map[string]v1alpha1.FileSpec) []string {
 	containedFiles := []string{}
 	for file := range files {
 		if strings.HasPrefix(file, path) {

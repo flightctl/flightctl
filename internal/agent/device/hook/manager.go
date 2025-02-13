@@ -29,10 +29,10 @@ const (
 var _ Manager = (*manager)(nil)
 
 type Manager interface {
-	Sync(current, desired *api.RenderedDeviceSpec) error
+	Sync(current, desired *api.DeviceSpec) error
 
-	OnBeforeUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec) error
-	OnAfterUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec, systemRebooted bool) error
+	OnBeforeUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec) error
+	OnAfterUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) error
 	OnBeforeRebooting(ctx context.Context) error
 	OnAfterRebooting(ctx context.Context) error
 }
@@ -51,16 +51,16 @@ func NewManager(reader fileio.Reader, exec executer.Executer, log *log.PrefixLog
 	}
 }
 
-func (m *manager) Sync(currentPtr, desiredPtr *api.RenderedDeviceSpec) error {
+func (m *manager) Sync(currentPtr, desiredPtr *api.DeviceSpec) error {
 	return nil
 }
 
-func (m *manager) OnBeforeUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec) error {
+func (m *manager) OnBeforeUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec) error {
 	actionCtx := newActionContext(api.DeviceLifecycleHookBeforeUpdating, current, desired, false)
 	return m.loadAndExecuteActions(ctx, actionCtx)
 }
 
-func (m *manager) OnAfterUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec, systemRebooted bool) error {
+func (m *manager) OnAfterUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) error {
 	actionCtx := newActionContext(api.DeviceLifecycleHookAfterUpdating, current, desired, systemRebooted)
 	return m.loadAndExecuteActions(ctx, actionCtx)
 }

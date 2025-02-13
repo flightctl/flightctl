@@ -54,7 +54,7 @@ type Manager interface {
 	Ensure(app Application) error
 	Remove(app Application) error
 	Update(app Application) error
-	BeforeUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
+	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
 	AfterUpdate(ctx context.Context) error
 	Stop(ctx context.Context) error
 	status.Exporter
@@ -326,7 +326,7 @@ func (a *applications) ImageBased() []*application[*v1alpha1.ImageApplicationPro
 }
 
 // ImageProvidersFromSpec returns a list of image application providers from a rendered device spec.
-func ImageProvidersFromSpec(spec *v1alpha1.RenderedDeviceSpec) ([]v1alpha1.ImageApplicationProvider, error) {
+func ImageProvidersFromSpec(spec *v1alpha1.DeviceSpec) ([]v1alpha1.ImageApplicationProvider, error) {
 	var providers []v1alpha1.ImageApplicationProvider
 	for _, appSpec := range *spec.Applications {
 		appProvider, err := appSpec.Type()

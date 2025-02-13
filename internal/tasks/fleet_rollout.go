@@ -267,13 +267,13 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	return err
 }
 
-func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationSpec, []error) {
+func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationProviderSpec, []error) {
 	if templateVersion.Status.Applications == nil {
 		return nil, nil
 	}
 	errs := []error{}
 
-	deviceApps := []api.ApplicationSpec{}
+	deviceApps := []api.ApplicationProviderSpec{}
 	for appIndex, app := range *templateVersion.Status.Applications {
 		appType, err := app.Type()
 		if err != nil {
@@ -296,7 +296,7 @@ func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *a
 	return &deviceApps, errs
 }
 
-func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationSpec) (*api.ApplicationSpec, error) {
+func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, error) {
 	if app.EnvVars == nil {
 		return &app, nil
 	}

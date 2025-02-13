@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -35,12 +36,12 @@ func TestSync(t *testing.T) {
 	defer cancel()
 
 	testCases := []struct {
-		name        string
-		currentSpec *v1alpha1.RenderedDeviceSpec
-		desiredSpec *v1alpha1.RenderedDeviceSpec
-		setupMocks  func(
-			currentSpec *v1alpha1.RenderedDeviceSpec,
-			desiredSpec *v1alpha1.RenderedDeviceSpec,
+		name       string
+		current    *v1alpha1.Device
+		desired    *v1alpha1.Device
+		setupMocks func(
+			currentSpec *v1alpha1.Device,
+			desiredSpec *v1alpha1.Device,
 			mockOSClient *os.MockClient,
 			mockManagementClient *client.MockManagement,
 			mockSystemClient *client.MockSystem,
@@ -54,12 +55,12 @@ func TestSync(t *testing.T) {
 		)
 	}{
 		{
-			name:        "sync with error and rollback with error",
-			currentSpec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "0"},
-			desiredSpec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"},
+			name:    "sync with error and rollback with error",
+			current: newVersionedDevice("0"),
+			desired: newVersionedDevice("1"),
 			setupMocks: func(
-				currentSpec *v1alpha1.RenderedDeviceSpec,
-				desiredSpec *v1alpha1.RenderedDeviceSpec,
+				current *v1alpha1.Device,
+				desired *v1alpha1.Device,
 				mockOSClient *os.MockClient,
 				mockManagementClient *client.MockManagement,
 				mockSystemClient *client.MockSystem,
@@ -74,47 +75,47 @@ func TestSync(t *testing.T) {
 				nonRetryableHookError := errors.New("hook error")
 				gomock.InOrder(
 					mockSystemClient.EXPECT().BootID().Return("boot-id"),
-					mockManagementClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(desiredSpec, 200, nil),
+					mockManagementClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(desired, 200, nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
-					mockAppManager.EXPECT().BeforeUpdate(ctx, desiredSpec).Return(nil),
-					mockHookManager.EXPECT().OnBeforeUpdating(ctx, currentSpec, desiredSpec).Return(nil),
+					mockAppManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
+					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, desired.Spec).Return(nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
-					mockHookManager.EXPECT().Sync(currentSpec, desiredSpec).Return(nil),
+					mockHookManager.EXPECT().Sync(current.Spec, desired.Spec).Return(nil),
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
-					mockLifecycleManager.EXPECT().Sync(ctx, currentSpec, desiredSpec).Return(nil),
-					mockLifecycleManager.EXPECT().AfterUpdate(ctx, currentSpec, desiredSpec).Return(nil),
+					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, desired.Spec).Return(nil),
+					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, desired.Spec).Return(nil),
 					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
-					mockHookManager.EXPECT().OnAfterUpdating(ctx, currentSpec, desiredSpec, false).Return(nonRetryableHookError),
+					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					//
 					// rollback switch current and desired spec ordering
 					//
-					mockAppManager.EXPECT().BeforeUpdate(ctx, currentSpec).Return(nil),
-					mockHookManager.EXPECT().OnBeforeUpdating(ctx, desiredSpec, currentSpec).Return(nil),
-					mockHookManager.EXPECT().Sync(desiredSpec, currentSpec).Return(nil),
+					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec).Return(nil),
+					mockHookManager.EXPECT().OnBeforeUpdating(ctx, desired.Spec, current.Spec).Return(nil),
+					mockHookManager.EXPECT().Sync(desired.Spec, current.Spec).Return(nil),
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
-					mockLifecycleManager.EXPECT().Sync(ctx, desiredSpec, currentSpec).Return(nil),
-					mockLifecycleManager.EXPECT().AfterUpdate(ctx, desiredSpec, currentSpec).Return(nil),
+					mockLifecycleManager.EXPECT().Sync(ctx, desired.Spec, current.Spec).Return(nil),
+					mockLifecycleManager.EXPECT().AfterUpdate(ctx, desired.Spec, current.Spec).Return(nil),
 					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
-					mockHookManager.EXPECT().OnAfterUpdating(ctx, desiredSpec, currentSpec, false).Return(nonRetryableHookError),
+					mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nonRetryableHookError),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					//
 					// resync steady state current 0 desired 0
 					//
-					mockManagementClient.EXPECT().GetRenderedDeviceSpec(ctx, deviceName, gomock.Any()).Return(desiredSpec, 200, nil),
-					mockAppManager.EXPECT().BeforeUpdate(ctx, currentSpec).Return(nil),
-					mockHookManager.EXPECT().OnBeforeUpdating(ctx, currentSpec, currentSpec).Return(nil),
-					mockHookManager.EXPECT().Sync(currentSpec, currentSpec).Return(nil),
+					mockManagementClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(desired, 200, nil),
+					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec).Return(nil),
+					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, current.Spec).Return(nil),
+					mockHookManager.EXPECT().Sync(current.Spec, current.Spec).Return(nil),
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
-					mockLifecycleManager.EXPECT().Sync(ctx, currentSpec, currentSpec).Return(nil),
-					mockLifecycleManager.EXPECT().AfterUpdate(ctx, currentSpec, currentSpec).Return(nil),
+					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, current.Spec).Return(nil),
+					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, current.Spec).Return(nil),
 					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
-					mockHookManager.EXPECT().OnAfterUpdating(ctx, currentSpec, currentSpec, false).Return(nonRetryableHookError),
+					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, current.Spec, false).Return(nonRetryableHookError),
 				)
 			},
 		},
@@ -135,8 +136,8 @@ func TestSync(t *testing.T) {
 			mockAppManager := applications.NewMockManager(ctrl)
 			mockLifecycleManager := lifecycle.NewMockManager(ctrl)
 			tc.setupMocks(
-				tc.currentSpec,
-				tc.desiredSpec,
+				tc.current,
+				tc.desired,
 				mockOSClient,
 				mockManagementClient,
 				mockSystemClient,
@@ -206,4 +207,16 @@ func TestSync(t *testing.T) {
 		})
 	}
 
+}
+
+func newVersionedDevice(version string) *v1alpha1.Device {
+	deice := &v1alpha1.Device{
+		Metadata: v1alpha1.ObjectMeta{
+			Annotations: lo.ToPtr(map[string]string{
+				v1alpha1.DeviceAnnotationRenderedVersion: version,
+			}),
+		},
+	}
+	deice.Spec = &v1alpha1.DeviceSpec{}
+	return deice
 }

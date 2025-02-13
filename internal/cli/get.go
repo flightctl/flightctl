@@ -176,7 +176,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	case kind == DeviceKind && len(name) > 0 && !o.Rendered:
 		response, err = c.ReadDeviceWithResponse(ctx, name)
 	case kind == DeviceKind && len(name) > 0 && o.Rendered:
-		response, err = c.GetRenderedDeviceSpecWithResponse(ctx, name, &api.GetRenderedDeviceSpecParams{})
+		response, err = c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
 	case kind == DeviceKind && len(name) == 0:
 		params := api.ListDevicesParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),

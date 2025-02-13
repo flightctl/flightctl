@@ -27,7 +27,7 @@ func NewManager(log *log.PrefixLogger) Manager {
 	}
 }
 
-func (m *manager) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

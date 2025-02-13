@@ -2,10 +2,12 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -516,32 +518,50 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrNoRenderedVersion))
 
+			firstConfig, err := createTestConfigProvider("this is the first config")
+			Expect(err).ToNot(HaveOccurred())
+
+			fmt.Printf("firstConfig: %+v\n", firstConfig)
+
 			// Set first rendered config
-			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the first config", "")
+			err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
-			renderedConfig, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
+			renderedDevice, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
+			fmt.Printf("renderedDevice: %+v\n", renderedDevice)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*renderedConfig.Config).To(Equal("this is the first config"))
-			Expect(renderedConfig.Os.Image).To(Equal("os"))
-			Expect(renderedConfig.RenderedVersion).To(Equal("1"))
+			renderedConfig := *renderedDevice.Spec.Config
+			Expect(len(renderedConfig)).To(BeNumerically(">", 0))
+			provider, err := renderedConfig[0].AsInlineConfigProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(provider.Inline).ToNot(BeEmpty())
+			Expect(provider.Inline[0].Content).To(Equal("this is the first config"))
+			Expect(renderedDevice.Spec.Os.Image).To(Equal("os"))
+			Expect(renderedDevice.Version()).To(Equal("1"))
 
 			// Passing correct renderedVersion
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
+			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(renderedConfig).To(BeNil())
+			Expect(renderedDevice).To(BeNil())
 
 			// Set second rendered config
-			err = devStore.UpdateRendered(ctx, orgId, "dev", "this is the second config", "")
+			secondConfig, err := createTestConfigProvider("this is the second config")
+			Expect(err).ToNot(HaveOccurred())
+			err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
-			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
+			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev", lo.ToPtr("1"), "")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*renderedConfig.Config).To(Equal("this is the second config"))
-			Expect(renderedConfig.Os.Image).To(Equal("os"))
-			Expect(renderedConfig.RenderedVersion).To(Equal("2"))
+			renderedConfig = *renderedDevice.Spec.Config
+			Expect(len(renderedConfig)).To(BeNumerically(">", 0))
+			provider, err = renderedConfig[0].AsInlineConfigProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(provider.Inline).ToNot(BeEmpty())
+			Expect(provider.Inline[0].Content).To(Equal("this is the second config"))
+			Expect(renderedDevice.Spec.Os.Image).To(Equal("os"))
+			Expect(renderedDevice.Version()).To(Equal("2"))
 		})
 
 		It("OverwriteRepositoryRefs", func() {
@@ -610,3 +630,22 @@ var _ = Describe("DeviceStore create", func() {
 		})
 	})
 })
+
+func createTestConfigProvider(contents string) (string, error) {
+	provider := api.ConfigProviderSpec{}
+	files := []v1alpha1.FileSpec{
+		{
+			Content: contents,
+		},
+	}
+	if err := provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{Inline: files}); err != nil {
+		return "", err
+	}
+
+	providers := &[]api.ConfigProviderSpec{provider}
+	providersBytes, err := json.Marshal(providers)
+	if err != nil {
+		return "", err
+	}
+	return string(providersBytes), nil
+}
