@@ -243,8 +243,8 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server
 }
 
 // (GET /api/v1/devices/{name}/rendered)
-func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.agentEndpoint)
+func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, request server.GetRenderedDeviceRequestObject) (server.GetRenderedDeviceResponseObject, error) {
+	return common.GetRenderedDevice(ctx, h.store, h.log, request, h.agentEndpoint)
 }
 
 // (PATCH /api/v1/devices/{name})

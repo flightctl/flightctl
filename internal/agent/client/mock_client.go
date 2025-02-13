@@ -42,25 +42,25 @@ func (m *MockManagement) EXPECT() *MockManagementMockRecorder {
 	return m.recorder
 }
 
-// GetRenderedDeviceSpec mocks base method.
-func (m *MockManagement) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
+// GetRenderedDevice mocks base method.
+func (m *MockManagement) GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, name, params}
 	for _, a := range rcb {
 		varargs = append(varargs, a)
 	}
-	ret := m.ctrl.Call(m, "GetRenderedDeviceSpec", varargs...)
-	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
+	ret := m.ctrl.Call(m, "GetRenderedDevice", varargs...)
+	ret0, _ := ret[0].(*v1alpha1.Device)
 	ret1, _ := ret[1].(int)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
 
-// GetRenderedDeviceSpec indicates an expected call of GetRenderedDeviceSpec.
-func (mr *MockManagementMockRecorder) GetRenderedDeviceSpec(ctx, name, params any, rcb ...any) *gomock.Call {
+// GetRenderedDevice indicates an expected call of GetRenderedDevice.
+func (mr *MockManagementMockRecorder) GetRenderedDevice(ctx, name, params any, rcb ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, name, params}, rcb...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDeviceSpec", reflect.TypeOf((*MockManagement)(nil).GetRenderedDeviceSpec), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDevice", reflect.TypeOf((*MockManagement)(nil).GetRenderedDevice), varargs...)
 }
 
 // UpdateDeviceStatus mocks base method.

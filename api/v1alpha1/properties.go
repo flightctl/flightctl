@@ -83,6 +83,9 @@ func (d *Device) IsUpdatedToFleetSpec(f *Fleet) bool {
 }
 
 func (d *Device) Version() string {
+	if d == nil || d.Metadata.Annotations == nil {
+		return ""
+	}
 	deviceVersion, ok := (*d.Metadata.Annotations)[DeviceAnnotationRenderedVersion]
 	if !ok {
 		return ""
