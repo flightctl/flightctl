@@ -1378,8 +1378,8 @@ paths:
     get:
       tags:
         - device
-      description: Get the rendered, self-contained device specification for a Device resource.
-      operationId: getRenderedDeviceSpec
+      description: Get the rendered device.
+      operationId: getRenderedDevice
       parameters:
         - name: name
           in: path
@@ -1399,7 +1399,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RenderedDeviceSpec'
+                $ref: '#/components/schemas/Device'
         "204":
           description: No content
           content: {}
@@ -3413,6 +3413,7 @@ components:
       required:
         - sessionMetadata
         - sessionID
+      readOnly: true
     ConfigProviderSpec:
       oneOf:
         - $ref: "#/components/schemas/GitConfigProviderSpec"
@@ -3541,7 +3542,7 @@ components:
       required:
       - name
       - httpRef
-    ApplicationSpec:
+    ApplicationProviderSpec:
       type: object
       allOf:
         - $ref: '#/components/schemas/ApplicationEnvVars'
@@ -3569,18 +3570,6 @@ components:
           description: Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
           additionalProperties:
             type: string
-    RenderedApplicationSpec:
-      type: object
-      description: RenderedApplicationSpec describes the rendered and self-contained specification of an application.
-      allOf:
-        - $ref: '#/components/schemas/ApplicationEnvVars'
-        - type: object
-          properties:
-            name:
-              type: string
-              description: An application name.
-        - oneOf:
-            - $ref: '#/components/schemas/ImageApplicationProvider'
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'
@@ -3969,7 +3958,7 @@ components:
       properties:
         renderedVersion:
           type: string
-          description: Version of the device rendered config.
+          description: Rendered version of the device config.
     DeviceSummaryStatus:
       type: object
       description: A summary of the health of the device hardware and operating system resources.
@@ -4492,49 +4481,6 @@ components:
             - spec
       required:
         - template
-    RenderedDeviceSpec:
-      type: object
-      description: RenderedDeviceSpec describes the rendered and self-contained specification of a Device.
-      properties:
-        renderedVersion:
-          type: string
-          description: Version of the rendered device spec.
-        updatePolicy:
-          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
-        os:
-          $ref: '#/components/schemas/DeviceOsSpec'
-        config:
-          type: string
-          description: The configuration to apply, in Ignition format.
-        applications:
-          type: array
-          description: The list of applications to deploy.
-          items:
-            $ref: '#/components/schemas/RenderedApplicationSpec'
-        systemd:
-          type: object
-          description: The systemd services to monitor.
-          properties:
-            matchPatterns:
-              type: array
-              description: A list of match patterns.
-              items:
-                type: string
-                description: A single systemd unit name, with or without suffix, or a shell-style glob pattern to match against currently loaded units.
-        resources:
-          type: array
-          description: 'Array of resource monitor configurations.'
-          items:
-            $ref: '#/components/schemas/ResourceMonitor'
-        consoles:
-          type: array
-          description: The list of active console sessions.
-          items:
-            $ref: '#/components/schemas/DeviceConsole'
-        decommission:
-          $ref: '#/components/schemas/DeviceDecommission'
-      required:
-        - renderedVersion
     DeviceSpec:
       type: object
       description: DeviceSpec describes a device.
@@ -4550,9 +4496,9 @@ components:
             $ref: '#/components/schemas/ConfigProviderSpec'
         applications:
           type: array
-          description: List of applications.
+          description: List of application providers.
           items:
-            $ref: '#/components/schemas/ApplicationSpec'
+            $ref: '#/components/schemas/ApplicationProviderSpec'
         systemd:
           type: object
           description: The systemd services to monitor.
@@ -4570,6 +4516,11 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+        consoles:
+          type: array
+          description: The list of active console sessions.
+          items:
+            $ref: '#/components/schemas/DeviceConsole'
         decommissioning:
           $ref: '#/components/schemas/DeviceDecommission'
     FleetRolloutStatus:
