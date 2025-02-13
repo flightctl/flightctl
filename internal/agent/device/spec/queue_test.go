@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
@@ -25,9 +24,9 @@ func TestQueue(t *testing.T) {
 			name:    "ensure priory ordering",
 			maxSize: 10,
 			items: []*Item{
-				{Version: 3, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
+				{Version: 3, Spec: newVersionedDevice("3")},
+				{Version: 1, Spec: newVersionedDevice("1")},
+				{Version: 2, Spec: newVersionedDevice("2")},
 			},
 			expectOrder: []string{"1", "2", "3"},
 		},
@@ -35,9 +34,9 @@ func TestQueue(t *testing.T) {
 			name:    "maxSize exceeded lowest version evicted",
 			maxSize: 2,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
-				{Version: 3, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "3"}},
+				{Version: 1, Spec: newVersionedDevice("1")},
+				{Version: 2, Spec: newVersionedDevice("2")},
+				{Version: 3, Spec: newVersionedDevice("3")},
 			},
 			expectOrder: []string{"2", "3"}, // 1 was evicted
 		},
@@ -45,7 +44,7 @@ func TestQueue(t *testing.T) {
 			name:    "add items equal to maxSize",
 			maxSize: 1,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{Version: 1, Spec: newVersionedDevice("1")},
 			},
 			expectOrder: []string{"1"}, // remove item after maxRetries
 		},
@@ -53,8 +52,8 @@ func TestQueue(t *testing.T) {
 			name:    "maxSize unlimited",
 			maxSize: 0,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-				{Version: 2, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "2"}},
+				{Version: 1, Spec: newVersionedDevice("1")},
+				{Version: 2, Spec: newVersionedDevice("2")},
 			},
 			expectOrder: []string{"1", "2"},
 		},
@@ -62,8 +61,8 @@ func TestQueue(t *testing.T) {
 			name:    "add same item twice",
 			maxSize: 1,
 			items: []*Item{
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
-				{Version: 1, Spec: &v1alpha1.RenderedDeviceSpec{RenderedVersion: "1"}},
+				{Version: 1, Spec: newVersionedDevice("1")},
+				{Version: 1, Spec: newVersionedDevice("1")},
 			},
 			expectOrder: []string{"1"},
 		},
@@ -85,7 +84,7 @@ func TestQueue(t *testing.T) {
 			for _, expectedVersion := range tt.expectOrder {
 				item, ok := q.Pop()
 				require.True(ok)
-				require.Equal(expectedVersion, item.Spec.RenderedVersion)
+				require.Equal(expectedVersion, item.Spec.Version())
 			}
 		})
 	}
@@ -119,7 +118,7 @@ func TestRequeueThreshold(t *testing.T) {
 		log:            log,
 	}
 
-	item := &v1alpha1.RenderedDeviceSpec{RenderedVersion: renderedVersion}
+	item := newVersionedDevice(renderedVersion)
 
 	_, ok := q.Next(ctx)
 	require.False(ok, "queue should be empty")
@@ -127,7 +126,7 @@ func TestRequeueThreshold(t *testing.T) {
 	// add item to queue
 	q.Add(ctx, item)
 
-	version, err := stringToInt64(item.RenderedVersion)
+	version, err := stringToInt64(item.Version())
 	require.NoError(err)
 
 	// ensure item is immediately available
@@ -156,6 +155,6 @@ func TestRequeueThreshold(t *testing.T) {
 
 	require.Eventually(func() bool {
 		item, ok := q.Next(ctx)
-		return ok && item.RenderedVersion == renderedVersion
+		return ok && item.Version() == renderedVersion
 	}, time.Second, time.Millisecond*10, "retrieval after threshold duration should succeed")
 }

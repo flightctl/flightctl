@@ -37,7 +37,7 @@ func NewController(
 	}
 }
 
-func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	c.log.Debug("Syncing device applications")
 	defer c.log.Debug("Finished syncing device applications")
 
@@ -146,7 +146,7 @@ func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v
 }
 
 // parseApps parses applications from a rendered device spec.
-func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.RenderedDeviceSpec) (*applications, error) {
+func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.DeviceSpec) (*applications, error) {
 	var apps applications
 	if spec.Applications == nil {
 		return &apps, nil

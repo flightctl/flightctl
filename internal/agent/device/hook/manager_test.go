@@ -2,20 +2,19 @@ package hook
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
-	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
@@ -31,48 +30,48 @@ func TestHookManager(t *testing.T) {
 	testCases := []struct {
 		name             string
 		hooks            map[string]string
-		current          *api.RenderedDeviceSpec
-		desired          *api.RenderedDeviceSpec
+		current          *api.DeviceSpec
+		desired          *api.DeviceSpec
 		rebooted         bool
 		expectedCommands []command
 	}{
 		{
 			name:             "creating a file outside the default hooks' paths should trigger no action",
 			hooks:            map[string]string{},
-			current:          createRenderedDeviceSpec(map[string]string{}),
-			desired:          createRenderedDeviceSpec(map[string]string{"/etc/systemd/user/some.config": "data:,content"}),
+			current:          createDeviceSpec(require, map[string]string{}),
+			desired:          createDeviceSpec(require, map[string]string{"/etc/systemd/user/some.config": "data:,content"}),
 			rebooted:         false,
 			expectedCommands: []command{},
 		},
 		{
 			name:             "creating a file inside a default hook's path should trigger its default action",
 			hooks:            map[string]string{},
-			current:          createRenderedDeviceSpec(map[string]string{}),
-			desired:          createRenderedDeviceSpec(map[string]string{"/etc/systemd/system/some.config": "data:,content"}),
+			current:          createDeviceSpec(require, map[string]string{}),
+			desired:          createDeviceSpec(require, map[string]string{"/etc/systemd/system/some.config": "data:,content"}),
 			rebooted:         false,
 			expectedCommands: []command{{"systemctl", []string{"daemon-reload"}}},
 		},
 		{
 			name:             "creating a file whose path is being watched should trigger the action once",
 			hooks:            map[string]string{"/etc/flightctl/hooks.d/afterupdating/01-test.yaml": testHookPathToFile},
-			current:          createRenderedDeviceSpec(map[string]string{}),
-			desired:          createRenderedDeviceSpec(map[string]string{"/etc/someservice/some.config": "data:,content"}),
+			current:          createDeviceSpec(require, map[string]string{}),
+			desired:          createDeviceSpec(require, map[string]string{"/etc/someservice/some.config": "data:,content"}),
 			rebooted:         false,
 			expectedCommands: []command{{"systemctl", []string{"restart", "someservice"}}},
 		},
 		{
 			name:             "creating a file whose parent directory's path is being watched should trigger the action once",
 			hooks:            map[string]string{"/etc/flightctl/hooks.d/afterupdating/01-test.yaml": testHookPathToDir},
-			current:          createRenderedDeviceSpec(map[string]string{}),
-			desired:          createRenderedDeviceSpec(map[string]string{"/etc/someservice/some.config": "data:,content"}),
+			current:          createDeviceSpec(require, map[string]string{}),
+			desired:          createDeviceSpec(require, map[string]string{"/etc/someservice/some.config": "data:,content"}),
 			rebooted:         false,
 			expectedCommands: []command{{"systemctl", []string{"restart", "someservice"}}},
 		},
 		{
 			name:    "creating multiple files whose parent directory's path is being watched should trigger the action once",
 			hooks:   map[string]string{"/etc/flightctl/hooks.d/afterupdating/01-test.yaml": testHookPathToDir},
-			current: createRenderedDeviceSpec(map[string]string{}),
-			desired: createRenderedDeviceSpec(map[string]string{
+			current: createDeviceSpec(require, map[string]string{}),
+			desired: createDeviceSpec(require, map[string]string{
 				"/etc/someservice/some.config":      "data:,content",
 				"/etc/someservice/someother.config": "data:,content",
 			}),
@@ -82,16 +81,16 @@ func TestHookManager(t *testing.T) {
 		{
 			name:             "actions with rebooted condition should run if the system rebooted during the update",
 			hooks:            map[string]string{"/etc/flightctl/hooks.d/afterupdating/01-test.yaml": testHookRebootedCondition},
-			current:          createRenderedDeviceSpec(map[string]string{}),
-			desired:          createRenderedDeviceSpec(map[string]string{"/etc/someservice/some.config": "data:,content"}),
+			current:          createDeviceSpec(require, map[string]string{}),
+			desired:          createDeviceSpec(require, map[string]string{"/etc/someservice/some.config": "data:,content"}),
 			rebooted:         true,
 			expectedCommands: []command{{"echo", []string{"\"System was rebooted.\""}}},
 		},
 		{
 			name:             "actions with rebooted condition should run if the system rebooted during the update",
 			hooks:            map[string]string{"/etc/flightctl/hooks.d/afterupdating/01-test.yaml": testHookRebootedCondition},
-			current:          createRenderedDeviceSpec(map[string]string{}),
-			desired:          createRenderedDeviceSpec(map[string]string{"/etc/someservice/some.config": "data:,content"}),
+			current:          createDeviceSpec(require, map[string]string{}),
+			desired:          createDeviceSpec(require, map[string]string{"/etc/someservice/some.config": "data:,content"}),
 			rebooted:         false,
 			expectedCommands: []command{{"echo", []string{"\"System was not rebooted.\""}}},
 		},
@@ -160,29 +159,20 @@ func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter
 	return readerWriter
 }
 
-func createRenderedDeviceSpec(files map[string]string) *api.RenderedDeviceSpec {
-	ignFiles := []ignv3types.File{}
-	for path, data := range files {
-		ignFiles = append(ignFiles, ignv3types.File{
-			Node: ignv3types.Node{Path: path},
-			FileEmbedded1: ignv3types.FileEmbedded1{
-				Contents: ignv3types.Resource{
-					Source: lo.ToPtr(data),
-				},
-			},
+func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *api.DeviceSpec {
+	files := []v1alpha1.FileSpec{}
+	for path, data := range fileMap {
+		files = append(files, v1alpha1.FileSpec{
+			Path:    path,
+			Content: data,
 		})
 	}
-	ignitionConfig := &ignv3types.Config{
-		Ignition: ignv3types.Ignition{
-			Version: ignv3types.MaxVersion.String(),
-		},
-		Storage: ignv3types.Storage{
-			Files: ignFiles,
-		},
-	}
-	marshalledIgnitionConfig, _ := json.Marshal(ignitionConfig)
-	return &api.RenderedDeviceSpec{
-		Config: lo.ToPtr(string(marshalledIgnitionConfig)),
+
+	config, err := config.FilesToProviderSpec(files)
+	require.NoError(err)
+
+	return &api.DeviceSpec{
+		Config: config,
 	}
 }
 

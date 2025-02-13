@@ -21,9 +21,9 @@ type Client interface {
 }
 
 type Manager interface {
-	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error
-	AfterUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
-	Reboot(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
+	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error
+	AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error
 	status.Exporter
 }
 
@@ -53,7 +53,7 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) err
 	return nil
 }
 
-func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
 	}
@@ -71,7 +71,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.R
 	return nil
 }
 
-func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
 	}
@@ -79,7 +79,7 @@ func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.RenderedDev
 	return m.client.Switch(ctx, osImage)
 }
 
-func (m *manager) Reboot(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	return m.client.Apply(ctx)
 }
 

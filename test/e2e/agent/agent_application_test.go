@@ -53,11 +53,11 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 				// Create applicationSpec.
-				var applicationSpec v1alpha1.ApplicationSpec
+				var applicationSpec v1alpha1.ApplicationProviderSpec
 				err := applicationSpec.FromImageApplicationProvider(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationSpec{applicationSpec}
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{applicationSpec}
 				logrus.Infof("Updating %s with application %s", deviceId, sleepAppImage)
 			})
 
@@ -107,13 +107,13 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 				// Create applicationSpec.
-				var updateApplicationSpec v1alpha1.ApplicationSpec
+				var updateApplicationSpec v1alpha1.ApplicationProviderSpec
 				err := updateApplicationSpec.FromImageApplicationProvider(updateApplicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
 				updateApplicationSpec.EnvVars = &applicationVars
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationSpec{updateApplicationSpec}
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{updateApplicationSpec}
 				logrus.Infof("Updating %s with application %s", deviceId, updateImage)
 			})
 
@@ -146,7 +146,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationSpec{}
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
 				logrus.Infof("Updating %s removing application %s", deviceId, updateImage)
 			})
 

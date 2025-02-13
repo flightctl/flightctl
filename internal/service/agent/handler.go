@@ -64,19 +64,20 @@ func NewAgentServiceHandler(store store.Store, ca *crypto.CA, log logrus.FieldLo
 }
 
 // (GET /api/v1/devices/{name}/rendered)
-func (s *AgentServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request agentServer.GetRenderedDeviceSpecRequestObject) (agentServer.GetRenderedDeviceSpecResponseObject, error) {
+func (s *AgentServiceHandler) GetRenderedDevice(ctx context.Context, request agentServer.GetRenderedDeviceRequestObject) (agentServer.GetRenderedDeviceResponseObject, error) {
 
 	if err := ValidateDeviceAccessFromContext(ctx, request.Name, s.log); err != nil {
-		return agentServer.GetRenderedDeviceSpec401JSONResponse{
+		return agentServer.GetRenderedDevice401JSONResponse{
 			Message: err.Error(),
 		}, err
 	}
 
-	serverRequest := server.GetRenderedDeviceSpecRequestObject{
+	serverRequest := server.GetRenderedDeviceRequestObject{
 		Name:   request.Name,
 		Params: request.Params,
 	}
-	return common.GetRenderedDeviceSpec(ctx, s.store, s.log, serverRequest, s.agentGrpcEndpoint)
+
+	return common.GetRenderedDevice(ctx, s.store, s.log, serverRequest, s.agentGrpcEndpoint)
 }
 
 // (PUT /api/v1/devices/{name}/status)
