@@ -1,5 +1,5 @@
 [Unit]
-Description=FlightCtl API server
+Description=Flight Control API server
 After=flightctl-db.service flightctl-kv.service
 Requires=flightctl-db.service flightctl-kv.service
 Wants=flightctl-periodic.service flightctl-worker.service

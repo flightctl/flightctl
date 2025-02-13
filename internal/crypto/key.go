@@ -6,10 +6,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -121,18 +121,30 @@ func WritePasswordEncryptedKey(keyPath string, key crypto.PrivateKey, password [
 
 func PEMEncodeKey(key crypto.PrivateKey) ([]byte, error) {
 	b := bytes.Buffer{}
+	var keyBytes []byte
+	var err error
+	var pemType string
+
 	switch key := key.(type) {
 	case *ecdsa.PrivateKey:
-		keyBytes, err := x509.MarshalECPrivateKey(key)
+		keyBytes, err = x509.MarshalECPrivateKey(key)
 		if err != nil {
-			return []byte{}, err
+			return nil, fmt.Errorf("failed to marshal ECDSA private key: %w", err)
 		}
-		if err := pem.Encode(&b, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes}); err != nil {
-			return b.Bytes(), err
-		}
+		pemType = "EC PRIVATE KEY"
+	case *rsa.PrivateKey:
+		keyBytes = x509.MarshalPKCS1PrivateKey(key)
+		pemType = "RSA PRIVATE KEY"
 	default:
-		return []byte{}, errors.New("unsupported key type")
+		keyBytes, err = x509.MarshalPKCS8PrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal PKCS8 private key: %w", err)
+		}
+		pemType = "PRIVATE KEY"
+	}
 
+	if err := pem.Encode(&b, &pem.Block{Type: pemType, Bytes: keyBytes}); err != nil {
+		return nil, fmt.Errorf("failed to encode %s: %w", pemType, err)
 	}
 	return b.Bytes(), nil
 }

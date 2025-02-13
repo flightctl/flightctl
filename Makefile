@@ -53,7 +53,7 @@ help:
 	@echo "    redeploy-*       redeploy the api,worker,periodic containers in kind"
 	@echo "    deploy-db:       deploy only the database as a container, for testing"
 	@echo "    deploy-mq:       deploy only the message queue broker as a container"
-	@echo "    deploy-quadlets: deploy FlightCtl using Quadlets"
+	@echo "    deploy-quadlets: deploy the Flight Control service using Quadlets"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"

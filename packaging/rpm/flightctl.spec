@@ -14,7 +14,7 @@
 Name:           flightctl
 Version:        0.4.0
 Release:        1%{?dist}
-Summary:        Flightctl is a manager of the edge device fleets.
+Summary:        Flight Control service
 
 %gometa
 
@@ -36,23 +36,23 @@ Requires: openssl
 
 # cli sub-package
 %package cli
-Summary: Flightctl CLI
+Summary: Flight Control CLI
 %description cli
-Flightctl is a command line interface for managing edge device fleets.
+flightctl is the CLI for controlling the Flight Control service.
 
 # agent sub-package
 %package agent
-Summary: Flightctl Agent
+Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
 Requires: bootc
 
 %description agent
-Flightctl Agent is a component of the flightctl tool.
+The flightctl-agent package provides the management agent for the Flight Control fleet management service.
 
 
 %package selinux
-Summary: SELinux policies for Flightctl Agent
+Summary: SELinux policies for the Flight Control management agent
 BuildRequires: selinux-policy >= %{selinux_policyver}
 BuildRequires: selinux-policy-devel >= %{selinux_policyver}
 BuildArch: noarch
@@ -60,7 +60,7 @@ Requires: flightctl-agent = %{version}
 Requires: selinux-policy >= %{selinux_policyver}
 
 %description selinux
-The flightctl-selinux package provides the SELinux policy modules required by the Flightctl Agent.
+The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
 
 
 %prep

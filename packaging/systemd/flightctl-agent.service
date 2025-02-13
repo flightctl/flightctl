@@ -1,6 +1,6 @@
 
 [Unit]
-Description=Flightctl Agent
+Description=Flight Control management agent
 After=network.target
 Before=getty@tty1.service
 

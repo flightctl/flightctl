@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -106,20 +107,20 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+		return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))), nil
 	}
 
 	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
 		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+			return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))), nil
 		}
 	}
 
 	var labelSelector *selector.LabelSelector
 	if request.Params.LabelSelector != nil {
 		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+			return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))), nil
 		}
 	}
 
@@ -133,7 +134,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
+		return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))), nil
 	}
 
 	result, err := h.store.EnrollmentRequest().List(ctx, orgId, listParams)
@@ -145,7 +146,7 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request ser
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListEnrollmentRequests400JSONResponse{Message: se.Error()}, nil
+		return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(se.Error())), nil
 	default:
 		return nil, err
 	}
@@ -158,7 +159,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request s
 	err := h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
-		return server.DeleteEnrollmentRequests200JSONResponse{}, nil
+		return server.DeleteEnrollmentRequests200JSONResponse(api.StatusOK()), nil
 	default:
 		return nil, err
 	}
@@ -174,10 +175,10 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 	orgId := store.NullOrgId
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.ReplaceEnrollmentRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceEnrollmentRequest400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+		return server.ReplaceEnrollmentRequest400JSONResponse(api.StatusBadRequest("resource name specified in metadata does not match name in path")), nil
 	}
 
 	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
@@ -193,11 +194,11 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request s
 			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
 		}
 	case errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+		return server.ReplaceEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil
+		return server.ReplaceEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.ReplaceEnrollmentRequest409JSONResponse{}, nil
+		return server.ReplaceEnrollmentRequest409JSONResponse(api.StatusConflict("")), nil
 	default:
 		return nil, err
 	}
@@ -212,9 +213,9 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request ser
 	if err != nil {
 		switch {
 		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+			return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
 		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.PatchEnrollmentRequest404JSONResponse{}, nil
+			return server.PatchEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 		default:
 			return nil, err
 		}
@@ -223,23 +224,23 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request ser
 	newObj := &v1alpha1.EnrollmentRequest{}
 	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/enrollmentrequests/"+request.Name)
 	if err != nil {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	}
 
 	if errs := newObj.Validate(); len(errs) > 0 {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: "metadata.name is immutable"}, nil
+		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest("metadata.name is immutable")), nil
 	}
 	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: "apiVersion is immutable"}, nil
+		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest("apiVersion is immutable")), nil
 	}
 	if currentObj.Kind != newObj.Kind {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: "kind is immutable"}, nil
+		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest("kind is immutable")), nil
 	}
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: "status is immutable"}, nil
+		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest("status is immutable")), nil
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
@@ -250,11 +251,11 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request ser
 	case err == nil:
 		return server.PatchEnrollmentRequest200JSONResponse(*result), nil
 	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.PatchEnrollmentRequest404JSONResponse{}, nil
+		return server.PatchEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict), errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed):
-		return server.PatchEnrollmentRequest409JSONResponse{}, nil
+		return server.PatchEnrollmentRequest409JSONResponse(api.StatusConflict("")), nil
 	default:
 		return nil, err
 	}
@@ -269,7 +270,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request se
 	case err == nil:
 		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteEnrollmentRequest404JSONResponse{}, nil
+		return server.DeleteEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -284,7 +285,7 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 	case err == nil:
 		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadEnrollmentRequestStatus404JSONResponse{}, nil
+		return server.ReadEnrollmentRequestStatus404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -295,21 +296,21 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 	orgId := store.NullOrgId
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ApproveEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.ApproveEnrollmentRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
 	switch {
 	default:
 		return nil, err
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
+		return server.ApproveEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	case err == nil:
 	}
 
 	// if the enrollment request was already approved we should not try to approve it one more time
 	if request.Body.Approved {
 		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.EnrollmentRequestApproved) {
-			return server.ApproveEnrollmentRequest400JSONResponse{Message: "Enrollment request is already approved"}, nil
+			return server.ApproveEnrollmentRequest400JSONResponse(api.StatusBadRequest("Enrollment request is already approved")), nil
 		}
 
 		identity, err := authcommon.GetIdentity(ctx)
@@ -330,7 +331,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 		}
 
 		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
-			return server.ApproveEnrollmentRequest400JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
+			return server.ApproveEnrollmentRequest400JSONResponse(api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))), nil
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
@@ -343,7 +344,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 	case err == nil:
 		return server.ApproveEnrollmentRequest200JSONResponse{}, nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
+		return server.ApproveEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -362,7 +363,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, req
 	case err == nil:
 		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceEnrollmentRequestStatus404JSONResponse{}, nil
+		return server.ReplaceEnrollmentRequestStatus404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	default:
 		return nil, err
 	}

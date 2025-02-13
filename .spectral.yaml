@@ -448,14 +448,15 @@ rules:
         - application/json
 
   response-schema-4xx-5xx:
-    description: "4xx and 5xx responses must have Error component schema."
+    description: "4xx and 5xx responses must have Status component schema."
     severity: error
-    given: $.paths.[*].responses[?(@property.match(/^(4|5)/))]..schema[*]
+    given: $.paths.[*].responses[?(@property.match(/^(4|5)/))]..schema.*
+    resolved: false
     then:
       function: enumeration
       functionOptions:
         values:
-        - '#/components/schemas/Error'
+        - '#/components/schemas/Status'
 
   # Components
   ## Component formatting and descriptions
