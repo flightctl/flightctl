@@ -26,7 +26,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 	Context("updates", func() {
 		It("should update to the requested image", Label("updates", "rh-75523"), func() {
 
-			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
+			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
+			Expect(err).NotTo(HaveOccurred())
 
 			currentImage := device.Status.Os.Image
 			logrus.Infof("Current image is: %s", currentImage)
@@ -63,7 +64,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 		It("Should update to v4 with embedded application", Label("updates", "rh-77667"), func() {
 
-			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
+			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
+			Expect(err).NotTo(HaveOccurred())
 
 			currentImage := device.Status.Os.Image
 			logrus.Infof("Current image is: %s", currentImage)
@@ -106,7 +108,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			logrus.Info("We expect podman containers with sleep infinity process to be present but not running 👌")
 
-			device, newImageReference = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":base")
+			device, newImageReference, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":base")
+			Expect(err).NotTo(HaveOccurred())
 
 			currentImage = device.Status.Os.Image
 			logrus.Infof("Current image is: %s", currentImage)

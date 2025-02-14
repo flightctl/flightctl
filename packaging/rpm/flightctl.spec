@@ -12,8 +12,8 @@
     restorecon -v /usr/bin/flightctl-agent
 
 Name:           flightctl
-Version:        0.4.0
-Release:        1%{?dist}
+Version:        0.5.0~rc1~14~gd5413d2
+Release:        1.20250214103219710427.960edm.14.gd5413d2%{?dist}
 Summary:        Flight Control service
 
 %gometa
@@ -21,7 +21,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        1%{?dist}
+Source0:        flightctl-0.5.0~rc1~14~gd5413d2.tar.gz
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -65,7 +65,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs}
+%setup -q %{forgesetupargs} -n flightctl-0.5.0~rc1~14~gd5413d2
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -166,6 +166,28 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
 %changelog
+
+* Fri Feb 14 2025 Super User - 0.5.0~rc1~14~gd5413d2-1.20250214103219710427.960edm.14.gd5413d2
+- EDM-960: E2E Validations inline config Test (amalykhi)
+- EDM-1160: docs: update stale references (Sam Batschelet)
+- EDM-1160: api/vaidation: ensure consoles can not be added directly to device (Sam Batschelet)
+- EDM-1160: *: react to api changes (Sam Batschelet)
+- EDM-1160: api: add versioning to agent (Sam Batschelet)
+- NO-ISSUE: Remove tar before re-creating it (#903) (Gregory Shilin)
+- EDM-1112: pods pull from quay.io in disconnected env (#904) (Gregory Shilin)
+- NO-ISSUE: Add API group to docs yamls (Avishay Traeger)
+- NO-ISSUE: keep agent config naming consistent in getting started guide (Nick Cao)
+
+* Fri Feb 14 2025 Super User - 0.5.0~rc1~14~gd5413d2-1.20250214102416308125.960edm.14.gd5413d2
+- EDM-960: E2E Validations inline config Test (amalykhi)
+- EDM-1160: docs: update stale references (Sam Batschelet)
+- EDM-1160: api/vaidation: ensure consoles can not be added directly to device (Sam Batschelet)
+- EDM-1160: *: react to api changes (Sam Batschelet)
+- EDM-1160: api: add versioning to agent (Sam Batschelet)
+- NO-ISSUE: Remove tar before re-creating it (#903) (Gregory Shilin)
+- EDM-1112: pods pull from quay.io in disconnected env (#904) (Gregory Shilin)
+- NO-ISSUE: Add API group to docs yamls (Avishay Traeger)
+- NO-ISSUE: keep agent config naming consistent in getting started guide (Nick Cao)
 
 * Fri Feb 7 2025 Miguel Angel Ajo <majopela@redhat.com> - 0.4.0-1
 - Add selinux support for console pty access

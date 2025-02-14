@@ -16,7 +16,7 @@ func TestConfigurations(t *testing.T) {
 	RunSpecs(t, "Inline configuration E2E Suite")
 }
 
-var _ = Describe("Inline configuration tests", Ordered, func() {
+var _ = Describe("Inline configuration tests", func() {
 	var (
 		harness  *e2e.Harness
 		deviceId string
@@ -28,8 +28,7 @@ var _ = Describe("Inline configuration tests", Ordered, func() {
 	})
 
 	AfterEach(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
+		harness.Cleanup(true)
 	})
 
 	Context("Inline config tests", func() {
@@ -39,51 +38,115 @@ var _ = Describe("Inline configuration tests", Ordered, func() {
 			By("Update device with inline config, set path of the config (the fields that have defaults - don't set (mode,user, group)")
 			validConfigs, err := getConfigurationFromInlineConfig(validInlineConfig)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceConfigUpdate(deviceId, validConfigs)
+
+			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The device should have the online config.")
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &validConfigs
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			logrus.Infof("The device should have the online config, the content is empty.")
 			stdout, err := harness.VM.RunSSH([]string{"cat", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(""))
 
+			logrus.Infof("The device should have the default owner permissions:root.")
+			owner, err := harness.VM.RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(owner.String()).To(ContainSubstring(fmt.Sprintf("%s %s", "root", "root")))
+
+			logrus.Infof("The device should have the default permissions: 0644.")
+			mode, err := harness.VM.RunSSH([]string{"stat -c %A", inlinePath}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(mode.String()).To(ContainSubstring(inlineDefaultNotationMode))
+
 			By("Update device with inline config, set file mode")
 			validConfigsWithMode, err := getConfigurationFromInlineConfig(validInlineConfigWithMode)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceConfigUpdate(deviceId, validConfigsWithMode)
+
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &validConfigsWithMode
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The device should have the correct permissions.")
-			mode, err := harness.VM.RunSSH([]string{"stat -c %A", inlinePath}, nil)
+			mode, err = harness.VM.RunSSH([]string{"stat -c %A", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mode.String()).To(ContainSubstring(inlineNotationMode))
 
 			By("Update device with inline config, set the owner")
 			validConfigsWithUser, err := getConfigurationFromInlineConfig(validInlineConfigWithUser)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceConfigUpdate(deviceId, validConfigsWithUser)
+
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &validConfigsWithUser
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The device should have the updated owner permissions.")
-			owner, err := harness.VM.RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
+			owner, err = harness.VM.RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(owner.String()).To(ContainSubstring(fmt.Sprintf("%s %s", inlineUser, inlineGroup)))
 
 			By("Update device with inline config, set the content")
 			validConfigsWithContent, err := getConfigurationFromInlineConfig(validInlineConfigWithContent)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceConfigUpdate(deviceId, validConfigsWithContent)
+
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The device should have the updated content.")
-			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath}, nil)
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &validConfigsWithContent
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(inlineContent))
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			logrus.Infof("The device should have the updated content")
+			logrus.Infof("================DEBUG===============================")
+			stdout0, _ := harness.VM.RunSSH([]string{"ls -la", "/etc"}, nil)
+			logrus.Infof("================DEBUG /etc folder=============================== %s", stdout0.String())
+			stdout00, _ := harness.VM.RunSSH([]string{"cat", inlinePath1}, nil)
+			logrus.Infof("================FILE=============================== %s", stdout00.String())
+			stdout1, err := harness.VM.RunSSH([]string{"cat", inlinePath1}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stdout1.String()).To(ContainSubstring(inlineContent))
 
 			By("Update device with inline config, change the path")
 			validConfigsWithPath2, err := getConfigurationFromInlineConfig(validInlineConfigWithPath2)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceConfigUpdate(deviceId, validConfigsWithPath2)
+
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &validConfigsWithPath2
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The device should have the updated content.")
@@ -94,29 +157,126 @@ var _ = Describe("Inline configuration tests", Ordered, func() {
 			By("Update device with inline config, change the inline config name")
 			validConfigsWithName2, err := getConfigurationFromInlineConfig(validInlineConfigWithName2)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceConfigUpdate(deviceId, validConfigsWithName2)
+
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &validConfigsWithName2
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Update device with inline config, add another file to inline config")
 			validConfigsWith2Files, err := getConfigurationFromInlineConfig(validInlineConfigWith2Files)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceConfigUpdate(deviceId, validConfigsWith2Files)
+
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &validConfigsWith2Files
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The device should have the updated content.")
-			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath}, nil)
+			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath2}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 
 			By("Update device with inline config, add another inline config")
 			combinedConfigs := &[]v1alpha1.ConfigProviderSpec{validConfigsWithContent[0], validConfigsWithName2[0]}
-			err = harness.WaitForDeviceConfigUpdate(deviceId, *combinedConfigs)
+
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = combinedConfigs
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The device should have the updated content.")
-			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath}, nil)
+			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath2}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
+		})
+		It("Validations for flighctl inlineconfigs", Label("78364"), func() {
+			currentVersion1, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Try to update device with inline config without mandatory fields: path")
+			invalidInlineConfigsNoPath, err := getConfigurationFromInlineConfig(invalidInlineConfigNoPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &invalidInlineConfigsNoPath
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+
+			})
+			Expect(err).NotTo(HaveOccurred())
+			// Expect(err).To(ContainSubstring("property \"path\" is missing"))
+
+			currentVersion2, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(currentVersion1).To(Equal(currentVersion2))
+
+			By("Try to update device with inline config without mandatory fields: name")
+			invalidInlineConfigsNoName, err := getConfigurationFromInlineConfig(invalidInlineConfigNoName)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &invalidInlineConfigsNoName
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+
+			})
+			Expect(err).NotTo(HaveOccurred())
+			// Expect(err).To(ContainSubstring("name: Invalid value"))
+
+			currentVersion2, err = harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(currentVersion1).To(Equal(currentVersion2))
+
+			By("Try to update device with inline config wit not absolute path")
+			invalidInlineConfigsRelativePath, err := getConfigurationFromInlineConfig(invalidInlineConfigRelativePath)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &invalidInlineConfigsRelativePath
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+
+			})
+			Expect(err).NotTo(HaveOccurred())
+			// Expect(err).To(ContainSubstring("must be an absolute path"))
+
+			currentVersion2, err = harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(currentVersion1).To(Equal(currentVersion2))
+
+			By("Try to update device with inline config wit invalid file mode")
+			invalidInlineConfigsInvalidMode, err := getConfigurationFromInlineConfig(invalidInlineConfigInvalidMode)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &invalidInlineConfigsInvalidMode
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+
+			})
+			Expect(err).NotTo(HaveOccurred())
+			// Expect(err).To(ContainSubstring("mode: Invalid value"))
+
+			By("Verify the rendered version wasn't upgraded")
+			currentVersion2, err = harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(currentVersion1).To(Equal(currentVersion2))
 		})
 	})
 })
@@ -132,17 +292,22 @@ func getConfigurationFromInlineConfig(inlineConfig v1alpha1.InlineConfigProvider
 }
 
 var (
-	inlineMode         = 0666
-	inlineNotationMode = "-rw-rw-rw-"
-	inlineModePointer  = &inlineMode
-	inlineContent      = "This system is managed by flightctl."
-	inlinePath         = "/etc/inline"
-	inlinePath2        = "/etc/inline2"
-	inlineUser         = "user"
-	inlineGroup        = "user"
-	inlineName1        = "valid-inline-config"
-	inlineName2        = "valid-inline-config-2"
-	inlineName2files   = "valid-inline-config-2-files"
+	inlineMode                = 0666
+	inlineNotationMode        = "-rw-rw-rw-"
+	inlineDefaultNotationMode = "-rw-r--r--"
+	inlineModePointer         = &inlineMode
+	invalidnlineMode          = 9999
+	inlineContent             = "This system is managed by flightctl"
+	inlinePath                = "/etc/inline"
+	inlinePath1               = "/etc/inline"
+	inlinePath2               = "/etc/inline2"
+	relativePath              = "etc/inline2"
+	inlineUser                = "user"
+	inlineGroup               = "user"
+	inlineName1               = "valid-inline-config"
+	inlineName2               = "valid-inline-config-2"
+	inlineName2files          = "valid-inline-config-2-files"
+	invalidInlineName1        = "invalid-inline-config"
 )
 
 // Helper function to generate a FileSpec
@@ -166,20 +331,26 @@ func newInlineConfigProviderSpec(name string, files []v1alpha1.FileSpec) v1alpha
 
 // Create reusable FileSpecs
 var (
-	inlineConfig        = newFileSpec(inlinePath, nil, nil, nil, "")
-	inlineConfigMode    = newFileSpec(inlinePath, inlineModePointer, nil, nil, "")
-	inlineConfigUser    = newFileSpec(inlinePath, inlineModePointer, &inlineUser, &inlineGroup, "")
-	inlineConfigContent = newFileSpec(inlinePath, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	inlineConfigPath2   = newFileSpec(inlinePath2, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
+	inlineConfig                    = newFileSpec(inlinePath, nil, nil, nil, "")
+	inlineConfigMode                = newFileSpec(inlinePath, inlineModePointer, nil, nil, "")
+	inlineConfigUser                = newFileSpec(inlinePath, inlineModePointer, &inlineUser, &inlineGroup, "")
+	inlineConfigContent             = newFileSpec(inlinePath1, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
+	inlineConfigPath2               = newFileSpec(inlinePath2, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
+	invalidinlineConfigRelativePath = newFileSpec(relativePath, nil, nil, nil, "")
+	invalidinlineConfigInvalidMode  = newFileSpec(inlinePath, &invalidnlineMode, nil, nil, "")
 )
 
 // Create InlineConfigProviderSpecs
 var (
-	validInlineConfig            = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfig})
-	validInlineConfigWithMode    = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigMode})
-	validInlineConfigWithUser    = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigUser})
-	validInlineConfigWithContent = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigContent})
-	validInlineConfigWithPath2   = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigPath2})
-	validInlineConfigWithName2   = newInlineConfigProviderSpec(inlineName2, []v1alpha1.FileSpec{inlineConfigPath2})
-	validInlineConfigWith2Files  = newInlineConfigProviderSpec(inlineName2files, []v1alpha1.FileSpec{inlineConfigPath2, inlineConfigContent})
+	validInlineConfig               = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfig})
+	validInlineConfigWithMode       = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigMode})
+	validInlineConfigWithUser       = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigUser})
+	validInlineConfigWithContent    = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigContent})
+	validInlineConfigWithPath2      = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigPath2})
+	validInlineConfigWithName2      = newInlineConfigProviderSpec(inlineName2, []v1alpha1.FileSpec{inlineConfigPath2})
+	validInlineConfigWith2Files     = newInlineConfigProviderSpec(inlineName2files, []v1alpha1.FileSpec{inlineConfigPath2, inlineConfigContent})
+	invalidInlineConfigNoPath       = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{})
+	invalidInlineConfigNoName       = newInlineConfigProviderSpec("", []v1alpha1.FileSpec{inlineConfig})
+	invalidInlineConfigRelativePath = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidinlineConfigRelativePath})
+	invalidInlineConfigInvalidMode  = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidinlineConfigInvalidMode})
 )
