@@ -1,6 +1,6 @@
 # Authentication resources
 
-The table below contains the routes, names, resource names, and verbs for flightctl API endpoints:
+The table below contains the routes, names, resource names, and verbs for Flight Control API endpoints:
 
 |Route| Name| Resource| Verb |
 |-----|-----|---------|------|
