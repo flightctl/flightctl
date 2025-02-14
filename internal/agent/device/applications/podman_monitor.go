@@ -107,6 +107,8 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 
 	go m.listenForEvents(ctx, stdoutPipe)
 
+	m.Initialize()
+
 	return nil
 }
 
@@ -114,20 +116,20 @@ func (m *PodmanMonitor) Stop(ctx context.Context) error {
 	var errs []error
 	m.once.Do(func() {
 		m.log.Info("Stopping podman monitor")
+		defer m.log.Info("Podman monitor stopped")
+
 		if err := m.drain(ctx); err != nil {
 			errs = append(errs, err)
 		}
-		m.log.Infof("Podman drain complete")
+		m.log.Info("Podman drain complete")
+		if !m.IsInitialized() {
+			return
+		}
 		m.cancelFn()
 
-		// its possible that we call stop before the monitor has been
-		// initialized
-		if m.cmd != nil {
-			if err := m.cmd.Wait(); err != nil {
-				errs = append(errs, fmt.Errorf("failed to wait for podman events: %v", err))
-			}
+		if err := m.cmd.Wait(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wait for podman events: %v", err))
 		}
-		m.log.Info("Podman monitor stopped")
 	})
 
 	if len(errs) > 0 {
@@ -152,6 +154,10 @@ func (m *PodmanMonitor) drain(ctx context.Context) error {
 	var errs []error
 
 	apps := m.getApps()
+	if len(apps) == 0 {
+		m.log.Debug("No applications to drain")
+		return nil
+	}
 	m.log.Infof("Draining %d applications", len(apps))
 	for _, app := range apps {
 		if err := m.remove(app); err != nil {
@@ -291,6 +297,11 @@ func (m *PodmanMonitor) IsInitialized() bool {
 
 func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 	actions := m.drainActions()
+	if len(actions) == 0 && len(m.apps) == 0 {
+		// don't start the monitor if there are no apps to manage
+		return nil
+	}
+
 	for i := range actions {
 		action := actions[i]
 		if action.Handler == lifecycle.ActionHandlerCompose {
@@ -302,13 +313,12 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 		}
 	}
 
-	// if this is the first time we are executing actions we need to ensure
-	// the monitor is initialized before we return.
+	// start the monitor if it hasn't been initialized this is after actions to
+	// ensure we don't miss any events on restart
 	if !m.IsInitialized() {
 		if err := m.Run(ctx); err != nil {
 			return err
 		}
-		m.Initialize()
 	}
 
 	return nil
