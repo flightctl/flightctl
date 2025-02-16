@@ -20,7 +20,7 @@ import (
 type ServerInterface interface {
 
 	// (GET /api/v1/devices/{name}/rendered)
-	GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams)
+	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
@@ -37,7 +37,7 @@ type ServerInterface interface {
 type Unimplemented struct{}
 
 // (GET /api/v1/devices/{name}/rendered)
-func (_ Unimplemented) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams) {
+func (_ Unimplemented) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -65,8 +65,8 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
-// GetRenderedDeviceSpec operation middleware
-func (siw *ServerInterfaceWrapper) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request) {
+// GetRenderedDevice operation middleware
+func (siw *ServerInterfaceWrapper) GetRenderedDevice(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var err error
@@ -81,7 +81,7 @@ func (siw *ServerInterfaceWrapper) GetRenderedDeviceSpec(w http.ResponseWriter, 
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetRenderedDeviceSpecParams
+	var params GetRenderedDeviceParams
 
 	// ------------- Optional query parameter "knownRenderedVersion" -------------
 
@@ -92,7 +92,7 @@ func (siw *ServerInterfaceWrapper) GetRenderedDeviceSpec(w http.ResponseWriter, 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetRenderedDeviceSpec(w, r, name, params)
+		siw.Handler.GetRenderedDevice(w, r, name, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -283,7 +283,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDeviceSpec)
+		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReplaceDeviceStatus)
@@ -298,53 +298,53 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	return r
 }
 
-type GetRenderedDeviceSpecRequestObject struct {
+type GetRenderedDeviceRequestObject struct {
 	Name   string `json:"name"`
-	Params GetRenderedDeviceSpecParams
+	Params GetRenderedDeviceParams
 }
 
-type GetRenderedDeviceSpecResponseObject interface {
-	VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error
+type GetRenderedDeviceResponseObject interface {
+	VisitGetRenderedDeviceResponse(w http.ResponseWriter) error
 }
 
-type GetRenderedDeviceSpec200JSONResponse externalRef0.RenderedDeviceSpec
+type GetRenderedDevice200JSONResponse externalRef0.Device
 
-func (response GetRenderedDeviceSpec200JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice200JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetRenderedDeviceSpec204Response struct {
+type GetRenderedDevice204Response struct {
 }
 
-func (response GetRenderedDeviceSpec204Response) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice204Response) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
 }
 
-type GetRenderedDeviceSpec401JSONResponse externalRef0.Error
+type GetRenderedDevice401JSONResponse externalRef0.Status
 
-func (response GetRenderedDeviceSpec401JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice401JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetRenderedDeviceSpec404JSONResponse externalRef0.Error
+type GetRenderedDevice404JSONResponse externalRef0.Status
 
-func (response GetRenderedDeviceSpec404JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice404JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetRenderedDeviceSpec409JSONResponse externalRef0.Error
+type GetRenderedDevice409JSONResponse externalRef0.Status
 
-func (response GetRenderedDeviceSpec409JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice409JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
 
@@ -369,7 +369,7 @@ func (response ReplaceDeviceStatus200JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus400JSONResponse externalRef0.Error
+type ReplaceDeviceStatus400JSONResponse externalRef0.Status
 
 func (response ReplaceDeviceStatus400JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -378,7 +378,7 @@ func (response ReplaceDeviceStatus400JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus401JSONResponse externalRef0.Error
+type ReplaceDeviceStatus401JSONResponse externalRef0.Status
 
 func (response ReplaceDeviceStatus401JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -387,7 +387,7 @@ func (response ReplaceDeviceStatus401JSONResponse) VisitReplaceDeviceStatusRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReplaceDeviceStatus404JSONResponse externalRef0.Error
+type ReplaceDeviceStatus404JSONResponse externalRef0.Status
 
 func (response ReplaceDeviceStatus404JSONResponse) VisitReplaceDeviceStatusResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -413,7 +413,7 @@ func (response CreateEnrollmentRequest201JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest400JSONResponse externalRef0.Error
+type CreateEnrollmentRequest400JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest400JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -422,7 +422,7 @@ func (response CreateEnrollmentRequest400JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest401JSONResponse externalRef0.Error
+type CreateEnrollmentRequest401JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest401JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -431,7 +431,7 @@ func (response CreateEnrollmentRequest401JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest403JSONResponse externalRef0.Error
+type CreateEnrollmentRequest403JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest403JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -440,7 +440,7 @@ func (response CreateEnrollmentRequest403JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest409JSONResponse externalRef0.Error
+type CreateEnrollmentRequest409JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest409JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -449,7 +449,7 @@ func (response CreateEnrollmentRequest409JSONResponse) VisitCreateEnrollmentRequ
 	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateEnrollmentRequest503JSONResponse externalRef0.Error
+type CreateEnrollmentRequest503JSONResponse externalRef0.Status
 
 func (response CreateEnrollmentRequest503JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -475,7 +475,7 @@ func (response ReadEnrollmentRequest200JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest401JSONResponse externalRef0.Error
+type ReadEnrollmentRequest401JSONResponse externalRef0.Status
 
 func (response ReadEnrollmentRequest401JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -484,7 +484,7 @@ func (response ReadEnrollmentRequest401JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest403JSONResponse externalRef0.Error
+type ReadEnrollmentRequest403JSONResponse externalRef0.Status
 
 func (response ReadEnrollmentRequest403JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -493,7 +493,7 @@ func (response ReadEnrollmentRequest403JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest404JSONResponse externalRef0.Error
+type ReadEnrollmentRequest404JSONResponse externalRef0.Status
 
 func (response ReadEnrollmentRequest404JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -502,7 +502,7 @@ func (response ReadEnrollmentRequest404JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReadEnrollmentRequest503JSONResponse externalRef0.Error
+type ReadEnrollmentRequest503JSONResponse externalRef0.Status
 
 func (response ReadEnrollmentRequest503JSONResponse) VisitReadEnrollmentRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -515,7 +515,7 @@ func (response ReadEnrollmentRequest503JSONResponse) VisitReadEnrollmentRequestR
 type StrictServerInterface interface {
 
 	// (GET /api/v1/devices/{name}/rendered)
-	GetRenderedDeviceSpec(ctx context.Context, request GetRenderedDeviceSpecRequestObject) (GetRenderedDeviceSpecResponseObject, error)
+	GetRenderedDevice(ctx context.Context, request GetRenderedDeviceRequestObject) (GetRenderedDeviceResponseObject, error)
 
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(ctx context.Context, request ReplaceDeviceStatusRequestObject) (ReplaceDeviceStatusResponseObject, error)
@@ -556,26 +556,26 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
-// GetRenderedDeviceSpec operation middleware
-func (sh *strictHandler) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams) {
-	var request GetRenderedDeviceSpecRequestObject
+// GetRenderedDevice operation middleware
+func (sh *strictHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
+	var request GetRenderedDeviceRequestObject
 
 	request.Name = name
 	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetRenderedDeviceSpec(ctx, request.(GetRenderedDeviceSpecRequestObject))
+		return sh.ssi.GetRenderedDevice(ctx, request.(GetRenderedDeviceRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetRenderedDeviceSpec")
+		handler = middleware(handler, "GetRenderedDevice")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetRenderedDeviceSpecResponseObject); ok {
-		if err := validResponse.VisitGetRenderedDeviceSpecResponse(w); err != nil {
+	} else if validResponse, ok := response.(GetRenderedDeviceResponseObject); ok {
+		if err := validResponse.VisitGetRenderedDeviceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

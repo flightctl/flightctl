@@ -16,13 +16,19 @@ import (
 	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
 	"github.com/flightctl/flightctl/pkg/queryparser"
 	"github.com/flightctl/flightctl/pkg/queryparser/sql"
+	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 type FieldSelector struct {
 	parser           queryparser.Parser
-	fieldResolver    *selectorFieldResolver
 	selector         selector.Selector
 	privateSelectors bool
+}
+
+type selectorParserSession struct {
+	selector selector.Selector
+	resolver Resolver
 }
 
 type FieldSelectorOption func(*FieldSelector)
@@ -38,17 +44,14 @@ func WithPrivateSelectors() FieldSelectorOption {
 
 // NewFieldSelectorFromMapOrDie creates a FieldSelector from a map of key-value pairs,
 // where each pair represents a field selector condition. If the operation fails,
-// it panics. This function is a convenience wrapper around NewFieldSelectorFromMap.
-//
-// The `invert` parameter allows toggling between equality (`=`) and inequality (`!=`) operators
-// for the field selector conditions. By default, it uses equality (`=`).
+// it panics.
 //
 // Example:
 //
-//	fs := NewFieldSelectorFromMapOrDie(map[string]string{"key": "value"}, true)
-//	// Equivalent to creating a selector: "key!=value"
-func NewFieldSelectorFromMapOrDie(fields map[string]string, invert bool, opts ...FieldSelectorOption) *FieldSelector {
-	fs, err := NewFieldSelectorFromMap(fields, invert, opts...)
+//	fs := NewFieldSelectorFromMapOrDie(map[string]string{"key1": "value1", "key2": "value2"})
+//	// Equivalent to creating a selector: "key1=value1,key2=value2"
+func NewFieldSelectorFromMapOrDie(fields map[string]string, opts ...FieldSelectorOption) *FieldSelector {
+	fs, err := NewFieldSelectorFromMap(fields, opts...)
 	if err != nil {
 		panic(err)
 	}
@@ -58,29 +61,18 @@ func NewFieldSelectorFromMapOrDie(fields map[string]string, invert bool, opts ..
 // NewFieldSelectorFromMap creates a FieldSelector from a map of key-value pairs,
 // where each pair represents a field selector condition.
 //
-// The `invert` parameter allows toggling between equality (`=`) and inequality (`!=`) operators
-// for the field selector conditions. By default, it uses equality (`=`).
-//
 // Example:
 //
 //	fs, err := NewFieldSelectorFromMap(map[string]string{"key1": "value1", "key2": "value2"})
 //	// Equivalent to creating a selector: "key1=value1,key2=value2"
-//
-//	fs, err := NewFieldSelectorFromMap(map[string]string{"key1": "value1"}, true)
-//	// Equivalent to creating a selector: "key1!=value1"
-func NewFieldSelectorFromMap(fields map[string]string, invert bool, opts ...FieldSelectorOption) (*FieldSelector, error) {
+func NewFieldSelectorFromMap(fields map[string]string, opts ...FieldSelectorOption) (*FieldSelector, error) {
 	if len(fields) == 0 {
 		return NewFieldSelector("")
 	}
 
-	operator := selection.Equals
-	if invert {
-		operator = selection.NotEquals
-	}
-
 	var parts []string
 	for key, val := range fields {
-		parts = append(parts, key+string(operator)+val)
+		parts = append(parts, key+string(selection.Equals)+val)
 	}
 
 	return NewFieldSelector(strings.Join(parts, ","), opts...)
@@ -129,6 +121,21 @@ func NewFieldSelector(input string, opts ...FieldSelectorOption) (*FieldSelector
 		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax, err)
 	}
 
+	var allErrs field.ErrorList
+	requirements, _ := selector.Requirements()
+	for _, r := range requirements {
+		if len(r.Key()) > 1 {
+			allErrs = append(allErrs, field.Invalid(field.ToPath().Child("key"), r.Key(),
+				fmt.Sprintf("keysets with multiple selectors are not supported: %v", r.Key())))
+			continue
+		}
+	}
+
+	// If validation errors exist, aggregate and return them as a single error.
+	if err = allErrs.ToAggregate(); err != nil {
+		return nil, NewSelectorError(flterrors.ErrFieldSelectorSyntax, err)
+	}
+
 	fs := &FieldSelector{
 		selector: selector,
 	}
@@ -158,41 +165,36 @@ func (fs *FieldSelector) Add(src *FieldSelector) *FieldSelector {
 }
 
 // Parse translates a FieldSelector into a SQL query with parameters.
-// This method is responsible for resolving field names, operators, and values
-// from the FieldSelector and generating a corresponding SQL query that can be
-// executed against a database.
-//
-// The method validates and processes the destination structure (dest) to map field
-// names and types correctly, ensuring compatibility with the database schema.
+// It resolves field names, operators, and values using the provided `resolver`
+// and generates a corresponding SQL query that can be executed against a database.
 //
 // Parameters:
 //
-//	ctx  - A context.Context to manage the lifetime of the operation.
-//	dest - The target object (e.g., a database model) that provides field definitions
-//	       for resolving selector fields.
+//	ctx      - A context.Context to manage the operation lifecycle.
+//	resolver - A pre-initialized Resolver that resolves selector names to field mappings.
 //
 // Returns:
 //
 //	string - The generated SQL query as a string.
 //	[]any  - A slice of arguments to be used as parameters for the SQL query.
-//	error  - An error if the parsing fails due to invalid input, unresolved fields, or other issues.
+//	error  - An error if parsing fails due to invalid input, unresolved fields, or other issues.
 //
-// Example:
+// Example Usage:
 //
-//	fs, _ := NewFieldSelector("key1=value1")
-//	query, args, err := fs.Parse(ctx, &MyModel{})
+//	resolver, _ := NewCompositeSelectorResolver(&Device{}, &DeviceLabel{})
+//	fs, _ := NewFieldSelector("key1=value1,key2!=value2")
+//	query, args, err := fs.Parse(ctx, resolver)
 //	if err != nil {
 //	    log.Fatalf("Failed to parse selector: %v", err)
 //	}
 //	fmt.Printf("Query: %s, Args: %v\n", query, args)
-func (fs *FieldSelector) Parse(ctx context.Context, dest any) (string, []any, error) {
-	var err error
-
-	fs.fieldResolver, err = SelectorFieldResolver(dest)
-	if err != nil {
-		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed, err)
+func (fs *FieldSelector) Parse(ctx context.Context, resolver Resolver) (string, []any, error) {
+	if resolver == nil {
+		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+			fmt.Errorf("resolver is not provided, cannot resolve fields"))
 	}
 
+	var err error
 	fs.parser, err = sql.NewSQLParser(
 		sql.WithTokenizer(fs),
 		sql.WithOverrideFunction("K", sql.Wrap(fs.queryField)),
@@ -201,9 +203,9 @@ func (fs *FieldSelector) Parse(ctx context.Context, dest any) (string, []any, er
 		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed, err)
 	}
 
-	q, args, err := fs.parser.Parse(ctx, fs.selector)
+	q, args, err := fs.parser.Parse(ctx, selectorParserSession{selector: fs.selector, resolver: resolver})
 	if err != nil {
-		if ok := IsSelectorError(err); ok {
+		if IsSelectorError(err) {
 			return "", nil, err
 		}
 		return "", nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed, err)
@@ -217,17 +219,17 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 		return nil, nil
 	}
 
-	if fs.fieldResolver == nil {
-		return nil, fmt.Errorf("fieldResolver is not defined")
-	}
-
-	// Assert that input is a selector
-	selector, ok := input.(selector.Selector)
+	// Assert that input is a selector session
+	session, ok := input.(selectorParserSession)
 	if !ok {
-		return nil, fmt.Errorf("invalid input type: expected fieldSelector, got %T", input)
+		return nil, fmt.Errorf("invalid input type: expected selectorParserSession, got %T", input)
 	}
 
-	requirements, selectable := selector.Requirements()
+	if session.resolver == nil {
+		return nil, fmt.Errorf("resolver is not defined")
+	}
+
+	requirements, selectable := session.selector.Requirements()
 	if !selectable {
 		return nil, nil
 	}
@@ -239,9 +241,15 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 		}
 
 		key, values, operator := req.Key(), req.Values(), req.Operator()
-		resolvedFields, err := fs.resolveSelectorField(key)
+		resolvedFields, err := fs.resolveSelectorField(session.resolver, key.String())
 		if err != nil {
 			return nil, err
+		}
+
+		if len(resolvedFields) == 0 {
+			return nil, NewSelectorError(flterrors.ErrFieldSelectorUnknownSelector,
+				fmt.Errorf("unable to resolve selector name %q. Supported selectors are: %v",
+					key.String(), session.resolver.List()))
 		}
 
 		resolvedTokens := queryparser.NewTokenSet()
@@ -258,10 +266,10 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 			}
 
 			var valuesToken queryparser.TokenSet
-			if values.Len() > 0 {
+			if len(values) > 0 {
 				valuesToken = queryparser.NewTokenSet()
-				for _, val := range values.List() {
-					valueToken, err := fs.createValueToken(operator, resolvedField, val)
+				for _, val := range values {
+					valueToken, err := fs.createValueToken(operator, resolvedField, val.String())
 					if err != nil {
 						return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 							fmt.Errorf("failed to parse value for selector %q: %w", key, err))
@@ -289,6 +297,7 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 		}
 	}
 
+	// If multiple requirements exist, wrap them in an AND token
 	if len(requirements) > 1 {
 		tokens = queryparser.NewTokenSet(len(tokens)+2).AddFunctionToken("AND", func() queryparser.TokenSet {
 			return tokens
@@ -417,6 +426,13 @@ func (fs *FieldSelector) resolveValue(
 	resolve resolverFunc[any],
 ) (queryparser.TokenSet, error) {
 	switch selectorField.Type {
+	case UUID:
+		v, err := uuid.Parse(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse UUID value: %w", err)
+		}
+		return resolve(v), nil
+
 	case Int, IntArray:
 		v, err := strconv.Atoi(value)
 		if err != nil {
@@ -491,6 +507,8 @@ func (fs *FieldSelector) resolveQuery(operator selection.Operator, selectorField
 	}
 
 	switch selectorField.Type {
+	case UUID:
+		return fs.applyUUIDOperator(operator, resolve)
 	case Int, Float, SmallInt, BigInt:
 		return fs.applyNumbersOperator(operator, resolve)
 	case Bool:
@@ -505,6 +523,20 @@ func (fs *FieldSelector) resolveQuery(operator selection.Operator, selectorField
 		return fs.applyStringOperator(operator, selectorField, resolve)
 	default:
 		return nil, fmt.Errorf("unsupported type %q for operator %q", selectorField.Type.String(), operator)
+	}
+}
+
+// applyUUIDOperator applies the appropriate operator for UUID fields.
+func (fs *FieldSelector) applyUUIDOperator(operator selection.Operator, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	switch operator {
+	case selection.Equals, selection.DoubleEquals, selection.NotEquals,
+		selection.GreaterThan, selection.GreaterThanOrEquals,
+		selection.LessThan, selection.LessThanOrEquals,
+		selection.In, selection.NotIn,
+		selection.Exists, selection.DoesNotExist:
+		return resolve(operatorsMap[operator]), nil
+	default:
+		return nil, fmt.Errorf("operator %q is unsupported for type UUID", operator)
 	}
 }
 
@@ -608,11 +640,11 @@ func (fs *FieldSelector) queryField(args ...string) (*sql.FunctionResult, error)
 }
 
 // resolveSelectorField attempts to resolve a field using both visible and hidden selectors.
-func (fs *FieldSelector) resolveSelectorField(key string) ([]*SelectorField, error) {
-	resolvedFields, err := fs.fieldResolver.ResolveFields(NewSelectorName(key))
-	if err != nil {
+func (fs *FieldSelector) resolveSelectorField(resolver Resolver, key string) ([]*SelectorField, error) {
+	resolvedFields, _ := resolver.ResolveFields(NewSelectorName(key))
+	if len(resolvedFields) == 0 {
 		// Fallback to resolving as a hidden selector
-		return fs.fieldResolver.ResolveFields(NewHiddenSelectorName(key))
+		return resolver.ResolveFields(NewHiddenSelectorName(key))
 	}
 	return resolvedFields, nil
 }

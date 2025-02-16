@@ -22,7 +22,7 @@ type ConsoleControllerSuite struct {
 	mockStreamClient  *MockRouterService_StreamClient
 	mockExecutor      *executer.MockExecuter
 	testCommand       *exec.Cmd
-	desired           *api.RenderedDeviceSpec
+	desired           *api.DeviceSpec
 }
 
 func (suite *ConsoleControllerSuite) SetupTest() {
@@ -39,10 +39,10 @@ func (suite *ConsoleControllerSuite) SetupTest() {
 
 	suite.consoleController = NewController(suite.mockGrpcClient, deviceName, suite.mockExecutor, logger)
 
-	suite.desired = &api.RenderedDeviceSpec{
-		Console: &api.DeviceConsole{
+	suite.desired = &api.DeviceSpec{
+		Consoles: &[]api.DeviceConsole{{
 			SessionID: sessionId,
-		},
+		}},
 	}
 
 	suite.testCommand = exec.Command("echo", "testing")
@@ -55,7 +55,7 @@ func (suite *ConsoleControllerSuite) TearDownTest() {
 func (suite *ConsoleControllerSuite) TestNoDesiredConsole() {
 	suite.consoleController.active = true
 
-	err := suite.consoleController.Sync(suite.ctx, &api.RenderedDeviceSpec{})
+	err := suite.consoleController.Sync(suite.ctx, &api.DeviceSpec{})
 	suite.NoError(err)
 	suite.False(suite.consoleController.active)
 }
@@ -75,13 +75,13 @@ func (suite *ConsoleControllerSuite) TestNoDesiredConsoleWithActiveStreamFailure
 
 	suite.mockStreamClient.EXPECT().CloseSend().Return(errors.New("close send error"))
 
-	err := suite.consoleController.Sync(suite.ctx, &api.RenderedDeviceSpec{})
+	err := suite.consoleController.Sync(suite.ctx, &api.DeviceSpec{})
 	suite.Error(err)
 	suite.True(suite.consoleController.active)
 }
 
 func (suite *ConsoleControllerSuite) TestActiveConsoleWithSameSessionID() {
-	suite.consoleController.currentStreamID = suite.desired.Console.SessionID
+	suite.consoleController.currentStreamID = (*suite.desired.Consoles)[0].SessionID
 
 	suite.mockStreamClient.EXPECT().Recv().Return(nil, nil).AnyTimes()
 	suite.mockStreamClient.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
@@ -94,7 +94,7 @@ func (suite *ConsoleControllerSuite) TestActiveConsoleWithSameSessionID() {
 }
 
 func (suite *ConsoleControllerSuite) TestConsoleSessionWasClosed() {
-	suite.consoleController.lastClosedStream = suite.desired.Console.SessionID
+	suite.consoleController.lastClosedStream = (*suite.desired.Consoles)[0].SessionID
 
 	err := suite.consoleController.Sync(suite.ctx, suite.desired)
 	suite.NoError(err)

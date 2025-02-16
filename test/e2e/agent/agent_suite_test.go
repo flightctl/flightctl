@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const TIMEOUT = "1m"
+const TIMEOUT = "5m"
 const POLLING = "250ms"
 const LONGTIMEOUT = "10m"
 
@@ -15,7 +15,11 @@ const LONGTIMEOUT = "10m"
 type Message string
 
 const (
-	UpdateRenderedVersionSuccess Message = "Updated to desired renderedVersion: 2"
+	UpdateRenderedVersionSuccess    Message = "Updated to desired renderedVersion: 2"
+	ComposeFile                     string  = "podman-compose.yaml"
+	ExpectedNumSleepAppV1Containers string  = "3"
+	ExpectedNumSleepAppV2Containers string  = "1"
+	ZeroContainers                  string  = "0"
 )
 
 // String returns the string representation of a message.

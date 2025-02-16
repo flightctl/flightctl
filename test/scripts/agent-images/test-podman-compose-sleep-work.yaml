@@ -1,0 +1,13 @@
+
+version: '3'
+
+services:
+  service1:
+    image: alpine
+    command: ["sleep", "infinity"]
+  service2:
+    image: alpine
+    command: ["sleep", "infinity"]
+  service3:
+    image: alpine
+    command: ["sleep", "infinity"]

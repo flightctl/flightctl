@@ -1,15 +1,5 @@
 {{ if .Values.kv.enabled }}
 ---
-# Secret to store the Redis password
-apiVersion: v1
-kind: Secret
-metadata:
-  name: flightctl-kv-secret
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
-type: Opaque
-data:
-  REDIS_PASSWORD: {{ .Values.kv.password | b64enc }}
----
 # ConfigMap for Redis configuration
 apiVersion: v1
 kind: ConfigMap
@@ -45,17 +35,17 @@ metadata:
     flightctl.service: flightctl-kv
 spec:
   serviceName: flightctl-kv
+  revisionHistoryLimit: 10
   replicas: 1
   selector:
     matchLabels:
       flightctl.service: flightctl-kv
+  podManagementPolicy: OrderedReady
   template:
     metadata:
       labels:
         flightctl.service: flightctl-kv
     spec:
-      securityContext:
-        fsGroup: 1001
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
@@ -67,15 +57,12 @@ spec:
           ports:
             - name: kv
               containerPort: 6379
-          securityContext:
-            runAsUser: 1001
-            runAsGroup: 1001
           env:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: flightctl-kv-secret
-                  key: REDIS_PASSWORD
+                  key: password
           command:
             - "redis-server"
             - "/etc/redis/redis.conf"

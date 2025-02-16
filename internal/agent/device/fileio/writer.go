@@ -2,8 +2,8 @@ package fileio
 
 import (
 	"bufio"
-	"bytes"
-	"compress/gzip"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"syscall"
 
-	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/google/renameio"
-	"github.com/vincent-petithory/dataurl"
+	"github.com/samber/lo"
 	"k8s.io/klog/v2"
 )
 
@@ -98,13 +98,12 @@ func (w *writer) copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	var dstTarget string
+	dstTarget := dst
 	dstInfo, err := os.Stat(dst)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to stat destination: %w", err)
 		}
-		dstTarget = dst
 	} else {
 		if dstInfo.IsDir() {
 			// destination is a directory, append the source file's base name
@@ -114,7 +113,7 @@ func (w *writer) copyFile(src, dst string) error {
 
 	dstFile, err := os.Create(dstTarget)
 	if err != nil {
-		return fmt.Errorf("failed to create destination file: %w", err)
+		return fmt.Errorf("failed to create destination file %s: %w", dstTarget, err)
 	}
 	defer dstFile.Close()
 
@@ -147,8 +146,43 @@ func (w *writer) copyFile(src, dst string) error {
 	return nil
 }
 
-func (w *writer) CreateManagedFile(file ign3types.File) (ManagedFile, error) {
+func (w *writer) CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error) {
 	return newManagedFile(file, w)
+}
+
+func (w *writer) OverwriteAndWipe(file string) error {
+	if err := w.overwriteFileWithRandomData(file); err != nil {
+		return fmt.Errorf("could not overwrite file %s with random data: %w", file, err)
+	}
+	if err := w.RemoveFile(file); err != nil {
+		return fmt.Errorf("could not remove file %s: %w", file, err)
+	}
+	return nil
+}
+
+func (w *writer) overwriteFileWithRandomData(file string) error {
+	f, err := os.OpenFile(filepath.Join(w.rootDir, file), os.O_WRONLY, 0)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer f.Close()
+
+	fileInfo, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+	fileSize := fileInfo.Size()
+
+	randomData := make([]byte, fileSize)
+	if _, err := rand.Read(randomData); err != nil {
+		return fmt.Errorf("failed to generate random data: %w", err)
+	}
+
+	if _, err := f.WriteAt(randomData, 0); err != nil {
+		return fmt.Errorf("failed to write random data: %w", err)
+	}
+
+	return nil
 }
 
 // writeFileAtomically uses the renameio package to provide atomic file writing, we can't use renameio.WriteFile
@@ -185,27 +219,49 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 }
 
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
-func getFileOwnership(file ign3types.File) (int, int, error) {
+func getFileOwnership(file v1alpha1.FileSpec) (int, int, error) {
 	uid, gid := 0, 0 // default to root
-	var err error    // create default error var
-	if file.User.ID != nil {
-		uid = *file.User.ID
-	} else if file.User.Name != nil && *file.User.Name != "" {
-		uid, err = lookupUID(*file.User.Name)
+	var err error
+	user := lo.FromPtr(file.User)
+	if user != "" {
+		uid, err = userToUID(user)
 		if err != nil {
 			return uid, gid, err
 		}
 	}
 
-	if file.Group.ID != nil {
-		gid = *file.Group.ID
-	} else if file.Group.Name != nil && *file.Group.Name != "" {
-		gid, err = lookupGID(*file.Group.Name)
+	group := lo.FromPtr(file.Group)
+	if group != "" {
+		gid, err = groupToGID(*file.Group)
 		if err != nil {
 			return uid, gid, err
 		}
 	}
 	return uid, gid, nil
+}
+
+func userToUID(user string) (int, error) {
+	userID, err := strconv.Atoi(user)
+	if err != nil {
+		uid, err := lookupUID(user)
+		if err != nil {
+			return 0, fmt.Errorf("failed to convert user to UID: %w", err)
+		}
+		return uid, nil
+	}
+	return userID, nil
+}
+
+func groupToGID(group string) (int, error) {
+	groupID, err := strconv.Atoi(group)
+	if err != nil {
+		gid, err := lookupGID(group)
+		if err != nil {
+			return 0, fmt.Errorf("failed to convert group to GID: %w", err)
+		}
+		return gid, nil
+	}
+	return groupID, nil
 }
 
 func getUserIdentity() (int, int, error) {
@@ -244,35 +300,19 @@ func lookupGID(group string) (int, error) {
 	return gid, nil
 }
 
-func decodeIgnitionFileContents(source, compression *string) ([]byte, error) {
-	var contentsBytes []byte
-
-	// To allow writing of "empty" files we'll allow source to be nil
-	if source != nil {
-		source, err := dataurl.DecodeString(*source)
-		if err != nil {
-			return []byte{}, fmt.Errorf("could not decode file content string: %w", err)
-		}
-		if compression != nil {
-			switch *compression {
-			case "":
-				contentsBytes = source.Data
-			case "gzip":
-				reader, err := gzip.NewReader(bytes.NewReader(source.Data))
-				if err != nil {
-					return []byte{}, fmt.Errorf("could not create gzip reader: %w", err)
-				}
-				defer reader.Close()
-				contentsBytes, err = io.ReadAll(reader)
-				if err != nil {
-					return []byte{}, fmt.Errorf("failed decompressing: %w", err)
-				}
-			default:
-				return []byte{}, fmt.Errorf("unsupported compression type %q", *compression)
-			}
-		} else {
-			contentsBytes = source.Data
-		}
+func decodeFileContents(content string, encoding *v1alpha1.FileSpecContentEncoding) ([]byte, error) {
+	if encoding == nil || *encoding == "plain" {
+		return []byte(content), nil
 	}
-	return contentsBytes, nil
+
+	switch *encoding {
+	case "base64":
+		decoded, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode base64 content: %w", err)
+		}
+		return decoded, nil
+	default:
+		return nil, fmt.Errorf("unsupported content encoding: %q", *encoding)
+	}
 }

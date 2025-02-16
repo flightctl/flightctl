@@ -8,8 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,11 +34,11 @@ func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, callback store.FleetStoreCallback) (*v1alpha1.Fleet, error) {
+func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback) (*v1alpha1.Fleet, error) {
 	return fleet, nil
 }
 
-func (s *DummyFleet) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, callback store.FleetStoreCallback) (*v1alpha1.Fleet, bool, error) {
+func (s *DummyFleet) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *v1alpha1.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback) (*v1alpha1.Fleet, bool, error) {
 	return fleet, false, nil
 }
 
@@ -52,7 +52,7 @@ func testFleetPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (s
 		ApiVersion: "v1",
 		Kind:       "Fleet",
 		Metadata: v1alpha1.ObjectMeta{
-			Name:   util.StrToPtr("foo"),
+			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
 		Spec: v1alpha1.FleetSpec{
@@ -242,7 +242,7 @@ func TestFleetNonExistingResource(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &FleetStore{FleetVal: v1alpha1.Fleet{
-			Metadata: v1alpha1.ObjectMeta{Name: util.StrToPtr("foo")},
+			Metadata: v1alpha1.ObjectMeta{Name: lo.ToPtr("foo")},
 		}},
 	}
 	resp, err := serviceHandler.PatchFleet(context.Background(), server.PatchFleetRequestObject{
@@ -250,5 +250,5 @@ func TestFleetNonExistingResource(t *testing.T) {
 		Body: &pr,
 	})
 	require.NoError(err)
-	require.Equal(server.PatchFleet404JSONResponse{}, resp)
+	require.Equal(server.PatchFleet404JSONResponse(v1alpha1.StatusResourceNotFound("Fleet", "bar")), resp)
 }

@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	podmanCmd = "podman"
+	podmanCmd              = "podman"
+	defaultPullLogInterval = 30 * time.Second
 )
 
 type Podman struct {
@@ -46,6 +47,25 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 		opt(&options)
 	}
 
+	doneCh := make(chan struct{})
+	defer close(doneCh)
+
+	startTime := time.Now()
+	go func() {
+		ticker := time.NewTicker(defaultPullLogInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-doneCh:
+				return
+			case <-ticker.C:
+				elapsed := time.Since(startTime)
+				p.log.Infof("Pulling image, please wait... (elapsed: %v)", elapsed)
+			}
+		}
+	}()
+
 	if options.retry {
 		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func() (bool, error) {
 			resp, err = p.pullImage(ctx, image)
@@ -55,7 +75,6 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 					p.log.Error(err)
 					return false, err
 				}
-				p.log.Debugf("Retrying: %s", err)
 				return false, nil
 			}
 			return true, nil
@@ -87,7 +106,8 @@ func (p *Podman) pullImage(ctx context.Context, image string) (string, error) {
 	return out, nil
 }
 
-// Inspect returns the JSON output of the image inspection.
+// Inspect returns the JSON output of the image inspection. The expectation is
+// that the image exists in local container storage.
 func (p *Podman) Inspect(ctx context.Context, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()

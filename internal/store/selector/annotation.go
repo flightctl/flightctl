@@ -21,53 +21,37 @@ type AnnotationSelector struct {
 	selector selector.Selector
 }
 
-// NewAnnotationSelectorFromMapOrDie creates an AnnotationSelector from a map of annotations
-// with an optional invert flag. It panics if the creation fais.
-//
-// Parameters:
-//
-//	annotations - A map where keys are annotation names and values are annotation values.
-//	invert - If true, inverts the operator to "!=" instead of "=".
+// NewAnnotationSelectorFromMapOrDie creates an AnnotationSelector from a map of annotations.
+// It panics if the creation fais.
 //
 // Example:
 //
 //	annotations := map[string]string{"env": "prod", "tier": "backend"}
 //	selector := NewAnnotationSelectorFromMapOrDie(annotations)
 //	// selector represents: "env=prod,tier=backend"
-func NewAnnotationSelectorFromMapOrDie(annotations map[string]string, invert bool) *AnnotationSelector {
-	ls, err := NewAnnotationSelectorFromMap(annotations, invert)
+func NewAnnotationSelectorFromMapOrDie(annotations map[string]string) *AnnotationSelector {
+	ls, err := NewAnnotationSelectorFromMap(annotations)
 	if err != nil {
 		panic(err)
 	}
 	return ls
 }
 
-// NewAnnotationSelectorFromMap creates an AnnotationSelector from a map of annotations
-// with an optional invert flag.
-//
-// Parameters:
-//
-//	annotations - A map where keys are annotation names and values are annotation values.
-//	invert - If true, inverts the operator to "!=" instead of "=".
+// NewAnnotationSelectorFromMap creates an AnnotationSelector from a map of annotations.
 //
 // Example:
 //
 //	annotations := map[string]string{"env": "prod", "tier": "backend"}
-//	selector, err := NewAnnotationSelectorFromMap(annotations, true)
+//	selector, err := NewAnnotationSelectorFromMap(annotations)
 //	// selector represents: "env!=prod,tier!=backend"
-func NewAnnotationSelectorFromMap(annotations map[string]string, invert bool) (*AnnotationSelector, error) {
+func NewAnnotationSelectorFromMap(annotations map[string]string) (*AnnotationSelector, error) {
 	if len(annotations) == 0 {
 		return NewAnnotationSelector("")
 	}
 
-	operator := selection.Equals
-	if invert {
-		operator = selection.NotEquals
-	}
-
 	var parts []string
 	for key, val := range annotations {
-		parts = append(parts, key+string(operator)+val)
+		parts = append(parts, key+string(selection.Equals)+val)
 	}
 
 	return NewAnnotationSelector(strings.Join(parts, ","))
@@ -115,8 +99,14 @@ func NewAnnotationSelector(input string) (*AnnotationSelector, error) {
 	var allErrs field.ErrorList
 	requirements, _ := selector.Requirements()
 	for _, r := range requirements {
+		if len(r.Key()) > 1 {
+			allErrs = append(allErrs, field.Invalid(field.ToPath().Child("key"), r.Key(),
+				fmt.Sprintf("keysets with multiple keys are not supported: %v", r.Key())))
+			continue
+		}
+
 		// Convert the key to lowercase before validation.
-		lowerKey := strings.ToLower(r.Key())
+		lowerKey := strings.ToLower(r.Key().String())
 		if errs := validation.IsQualifiedName(lowerKey); len(errs) != 0 {
 			allErrs = append(allErrs, field.Invalid(field.ToPath().Child("key"), r.Key(), strings.Join(errs, "; ")))
 		}
@@ -134,36 +124,36 @@ func NewAnnotationSelector(input string) (*AnnotationSelector, error) {
 }
 
 // Parse converts the AnnotationSelector into a SQL query with parameters.
-// The method resolves the destination structure (dest) and maps it
-// to the annotation field to generate the query.
+// The method uses a provided resolver to determine the correct annotations field.
 //
 // Parameters:
 //
-//	ctx   - The context for managing operation lifecycle.
-//	dest  - The target object (e.g., database model) providing field definitions.
-//	name  - The selector name to resolve the annotation field.
+//	ctx      - The context for managing operation lifecycle.
+//	name     - The selector name to resolve the annotations field.
+//	resolver - A Resolver instance used to resolve the selector fields.
 //
 // Returns:
 //
 //	string - The generated SQL query string.
 //	[]any  - Parameters to be used with the SQL query.
-//	error  - An error if parsing or field resolution fais.
+//	error  - An error if parsing or field resolution fails.
 //
 // Example:
 //
-//	ls, _ := NewAnnotationSelector("key1=value1,key2!=value2")
-//	query, args, err := s.Parse(ctx, &MyModel{}, "annotations")
+//	s, _ := NewAnnotationSelector("key1=value1,key2!=value2")
+//	query, args, err := s.Parse(ctx, "annotations", myResolver)
 //	if err != nil {
 //	    log.Fatalf("Failed to parse annotation selector: %v", err)
 //	}
 //	fmt.Printf("Query: %s, Args: %v\n", query, args)
-func (s *AnnotationSelector) Parse(ctx context.Context, dest any, name SelectorName) (string, []any, error) {
-	fr, err := SelectorFieldResolver(dest)
-	if err != nil {
-		return "", nil, NewSelectorError(flterrors.ErrAnnotationSelectorParseFailed, err)
+func (s *AnnotationSelector) Parse(ctx context.Context, name SelectorName, resolver Resolver) (string, []any, error) {
+	if resolver == nil {
+		return "", nil, NewSelectorError(flterrors.ErrAnnotationSelectorParseFailed,
+			fmt.Errorf("resolver is not defined"))
 	}
 
-	resolvedFields, err := fr.ResolveFields(name)
+	// Resolve selector fields using the provided resolver
+	resolvedFields, err := resolver.ResolveFields(name)
 	if err != nil {
 		return "", nil, NewSelectorError(flterrors.ErrAnnotationSelectorParseFailed, err)
 	}
@@ -189,7 +179,7 @@ func (s *AnnotationSelector) Parse(ctx context.Context, dest any, name SelectorN
 
 	q, args, err := s.parser.Parse(ctx, s.selector)
 	if err != nil {
-		if ok := IsSelectorError(err); ok {
+		if IsSelectorError(err) {
 			return "", nil, err
 		}
 		return "", nil, NewSelectorError(flterrors.ErrAnnotationSelectorParseFailed, err)
@@ -220,8 +210,8 @@ func (s *AnnotationSelector) Tokenize(ctx context.Context, input any) (querypars
 			return nil, err
 		}
 
-		key := strings.TrimSpace(req.Key())
-		values := req.Values().List()
+		key := req.Key()
+		values := req.Values()
 		operator := req.Operator()
 
 		reTokens, err := s.parseRequirement(key, values, operator)
@@ -242,7 +232,7 @@ func (s *AnnotationSelector) Tokenize(ctx context.Context, input any) (querypars
 
 // parseRequirement parses a single annotation requirement into queryparser tokens.
 // It resolves the field, operator, and values for the requirement.
-func (s *AnnotationSelector) parseRequirement(key string, values []string, operator selection.Operator) (queryparser.TokenSet, error) {
+func (s *AnnotationSelector) parseRequirement(key selector.Tuple, values []selector.Tuple, operator selection.Operator) (queryparser.TokenSet, error) {
 	// Create a token for the field
 	fieldToken := queryparser.NewTokenSet().AddFunctionToken("K", func() queryparser.TokenSet {
 		return queryparser.NewTokenSet().AddValueToken(s.field.FieldName)
@@ -250,7 +240,7 @@ func (s *AnnotationSelector) parseRequirement(key string, values []string, opera
 
 	// Create an EXISTS token for the key
 	existsToken := queryparser.NewTokenSet().AddFunctionToken("EXISTS", func() queryparser.TokenSet {
-		return queryparser.NewTokenSet().Append(fieldToken, s.createKeyToken(key))
+		return queryparser.NewTokenSet().Append(fieldToken, s.createKeyToken(key.String()))
 	})
 
 	// Helper to wrap tokens with ISNULL and NOT logic
@@ -278,7 +268,7 @@ func (s *AnnotationSelector) parseRequirement(key string, values []string, opera
 		valuesTokens := queryparser.NewTokenSet()
 		for _, val := range values {
 			valuesTokens = valuesTokens.Append(queryparser.NewTokenSet().AddFunctionToken("CONTAINS", func() queryparser.TokenSet {
-				return queryparser.NewTokenSet().Append(fieldToken, s.createPairToken(key, val))
+				return queryparser.NewTokenSet().Append(fieldToken, s.createPairToken(key.String(), val.String()))
 			}))
 		}
 

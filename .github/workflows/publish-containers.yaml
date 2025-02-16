@@ -30,7 +30,8 @@ jobs:
           if ${{ github.ref_type == 'tag' }}; then
             # The images tags will match the Release tag
             image_tags=( ${{ github.ref_name }} )
-            image_tags=${image_tags#v} # remove the leading v prefix for version
+            # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
+            image_tags=$(echo "${image_tags#v}" | sed 's/~/-/g')
 
             echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
             echo "helm_tag=${image_tags[@]}" >> $GITHUB_OUTPUT
@@ -38,7 +39,9 @@ jobs:
 
           else
             version=$(git describe --long --tags --exclude latest)
-            version=${version#v} # remove the leading v prefix for version
+            # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
+            version=$(echo "${version#v}" | sed 's/~/-/g')
+
             # The images tags are taken from git
             image_tags=( latest-${GITHUB_SHA} latest ${version} )
             echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
@@ -80,7 +83,7 @@ jobs:
   publish-flightctl-containers:
     strategy:
       matrix:
-        image: ['api', 'periodic', 'worker']
+        image: ['api', 'periodic', 'worker', 'cli-artifacts']
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
     steps:

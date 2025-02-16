@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 )
 
-func ValidateAndCompleteEnrollmentRequest(enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+func ValidateAndCompleteEnrollmentRequest(enrollmentRequest *api.EnrollmentRequest) error {
 	if enrollmentRequest.Status == nil {
-		enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
+		enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 			Certificate: nil,
-			Conditions:  []v1alpha1.Condition{},
+			Conditions:  []api.Condition{},
 		}
 	}
 	return nil
@@ -28,7 +28,7 @@ func CreateEnrollmentRequest(ctx context.Context, st store.Store, request server
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.CreateEnrollmentRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 
 	if err := ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
@@ -36,13 +36,13 @@ func CreateEnrollmentRequest(ctx context.Context, st store.Store, request server
 	}
 
 	result, err := st.EnrollmentRequest().Create(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.CreateEnrollmentRequest201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
-		return server.CreateEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
-		return server.CreateEnrollmentRequest409JSONResponse{Message: err.Error()}, nil
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
+		return server.CreateEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
+	case errors.Is(err, flterrors.ErrDuplicateName):
+		return server.CreateEnrollmentRequest409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	default:
 		return nil, err
 	}
@@ -52,11 +52,11 @@ func ReadEnrollmentRequest(ctx context.Context, st store.Store, request server.R
 	orgId := store.NullOrgId
 
 	result, err := st.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadEnrollmentRequest200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
-		return server.ReadEnrollmentRequest404JSONResponse{}, nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.ReadEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	default:
 		return nil, err
 	}

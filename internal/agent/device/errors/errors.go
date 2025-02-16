@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -25,6 +26,11 @@ var (
 	ErrParseAppType           = errors.New("failed to parse application type")
 	ErrAppDependency          = errors.New("failed to resolve application dependency")
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")
+	ErrNoComposeFile          = errors.New("no compose file found")
+	ErrNoComposeServices      = errors.New("no services found in compose spec")
+
+	// container images
+	ErrImageShortName = errors.New("failed to resolve image short name: use the full name i.e registry/image:tag")
 
 	// spec
 	ErrMissingRenderedSpec  = errors.New("missing rendered spec")
@@ -43,6 +49,7 @@ var (
 	ErrInvalidTokenFormat             = errors.New("invalid token: formatting")
 	ErrTokenNotSupported              = errors.New("invalid token: not supported")
 	ErrActionTypeNotFound             = errors.New("failed to find action type")
+	ErrRunActionInvalid               = errors.New("invalid run action")
 	ErrUnsupportedFilesystemOperation = errors.New("unsupported filesystem operation")
 
 	// networking
@@ -57,6 +64,8 @@ var (
 	ErrReadingPath = errors.New("failed reading path")
 	ErrPathIsDir   = errors.New("provided path is a directory")
 	ErrNotFound    = errors.New("not found")
+	ErrNotExist    = os.ErrNotExist
+	ErrInvalidPath = errors.New("invalid path")
 
 	// images
 	ErrImageNotFound = errors.New("image not found")
@@ -141,6 +150,8 @@ func FromStderr(stderr string, exitCode int) error {
 		// context
 		"context canceled":          context.Canceled,
 		"context deadline exceeded": context.DeadlineExceeded,
+		// container image resolution
+		"short-name resolution enforced": ErrImageShortName,
 	}
 	for check, err := range errMap {
 		if strings.Contains(stderr, check) {

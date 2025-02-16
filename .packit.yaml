@@ -10,7 +10,9 @@ packages:
     upstream_package_name: flightctl
     downstream_package_name: flightctl
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
-
+actions:
+  get-current-version:
+    - bash -c 'git describe --tags | sed "s/^v//; s/-/~/g"'
 jobs:
   - job: copr_build
     trigger: pull_request
@@ -28,6 +30,8 @@ jobs:
     targets:
       - fedora-40-aarch64
       - fedora-40-x86_64
+      - fedora-41-aarch64
+      - fedora-41-x86_64
       - fedora-rawhide-aarch64
       - fedora-rawhide-x86_64
       - fedora-eln-aarch64
@@ -49,6 +53,8 @@ jobs:
     targets:
       - fedora-40-aarch64
       - fedora-40-x86_64
+      - fedora-41-aarch64
+      - fedora-41-x86_64
       - fedora-rawhide-aarch64
       - fedora-rawhide-x86_64
       - fedora-eln-aarch64

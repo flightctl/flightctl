@@ -48,6 +48,9 @@ integration-test: deploy-db deploy-kv run-integration-test kill-kv kill-db
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
+deploy-e2e-ocp-test-vm:
+	sudo test/scripts/create_vm_libvirt.sh
+
 prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
 	./test/scripts/prepare_cli.sh
 
@@ -87,4 +90,4 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
-.PHONY: unit-test integration-test run-integration-test view-coverage prepare-e2e-test
+.PHONY: unit-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm

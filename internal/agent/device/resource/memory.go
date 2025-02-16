@@ -61,8 +61,6 @@ func (m *MemoryMonitor) Run(ctx context.Context) {
 	}
 }
 
-// TODO: dedupe this with the other monitors
-
 func (m *MemoryMonitor) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -108,7 +106,6 @@ func (m *MemoryMonitor) sync(ctx context.Context, usage *MemoryUsage) {
 
 	if err := m.CollectUsage(ctx, usage); err != nil {
 		m.log.Errorf("Failed to collect Memory usage: %v", err)
-		return
 	}
 
 	m.ensureAlerts(usage.UsedPercent)

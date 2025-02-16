@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -24,7 +26,7 @@ func createResourceSyncs(ctx context.Context, numResourceSyncs int, storeInst st
 	for i := 1; i <= numResourceSyncs; i++ {
 		resource := api.ResourceSync{
 			Metadata: api.ObjectMeta{
-				Name:   util.StrToPtr(fmt.Sprintf("myresourcesync-%d", i)),
+				Name:   lo.ToPtr(fmt.Sprintf("myresourcesync-%d", i)),
 				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
 			},
 			Spec: api.ResourceSyncSpec{
@@ -70,7 +72,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			var gen int64 = 1
 			rs := api.ResourceSync{
 				Metadata: api.ObjectMeta{
-					Name:   util.StrToPtr("rs1"),
+					Name:   lo.ToPtr("rs1"),
 					Labels: &map[string]string{"key": "rs1"},
 				},
 				Spec: api.ResourceSyncSpec{
@@ -114,7 +116,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			listParams := store.ListParams{
 				Limit: 100,
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
-					map[string]string{"metadata.owner": *fleetowner}, false, selector.WithPrivateSelectors()),
+					map[string]string{"metadata.owner": *fleetowner}, selector.WithPrivateSelectors()),
 			}
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, fleetowner)
 			callbackCalled := false
@@ -236,7 +238,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("List with paging", func() {
 			listParams := store.ListParams{
 				Limit:         1000,
-				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"}, false)}
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
 			resourcesyncs, err := storeInst.ResourceSync().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(resourcesyncs.Items)).To(Equal(1))
@@ -246,7 +248,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("CreateOrUpdateResourceSync create mode", func() {
 			resourcesync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("newresourcename"),
+					Name: lo.ToPtr("newresourcename"),
 				},
 				Spec: api.ResourceSyncSpec{
 					Repository: "myrepo",
@@ -257,7 +259,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
-			Expect(rs.ApiVersion).To(Equal(api.ResourceSyncAPIVersion))
+			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))
 			Expect(rs.Kind).To(Equal(api.ResourceSyncKind))
 			Expect(rs.Spec.Repository).To(Equal("myrepo"))
 			Expect(rs.Spec.Path).To(Equal("my/path"))
@@ -268,7 +270,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		It("CreateOrUpdateResourceSync update mode", func() {
 			resourcesync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("myresourcesync-1"),
+					Name: lo.ToPtr("myresourcesync-1"),
 				},
 				Spec: api.ResourceSyncSpec{
 					Repository: "myotherrepo",
@@ -279,7 +281,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			rs, created, err := storeInst.ResourceSync().CreateOrUpdate(ctx, orgId, &resourcesync)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
-			Expect(rs.ApiVersion).To(Equal(api.ResourceSyncAPIVersion))
+			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))
 			Expect(rs.Kind).To(Equal(api.ResourceSyncKind))
 			Expect(rs.Spec.Repository).To(Equal("myotherrepo"))
 			Expect(rs.Spec.Path).To(Equal("my/other/path"))

@@ -30,6 +30,7 @@ func TestFieldSelectorTypes(t *testing.T) {
 		"model.field15[1]= 2024-10-15T15:04:05Z",                       // Timestamp Array
 		"model.field16={\"some\":\"json\"}",                            // JSONB
 		"model.field16.array[0]={\"some\":\"json\"}",                   // JSONB
+		"model.field18=00000000-0000-0000-0000-000000000000",           // UUID
 	}
 
 	testBadStrings := []string{
@@ -42,6 +43,13 @@ func TestFieldSelectorTypes(t *testing.T) {
 		"model.field11=aa", // Boolean Array
 		"model.field13=aa", // Float Array
 		"model.field15=aa", // Timestamp Array
+		"model.field18=aa", // UUID
+	}
+
+	resolver, err := SelectorFieldResolver(&goodTestModel{})
+	if err != nil {
+		t.Errorf("error %v (%#v)\n", err, err)
+		return
 	}
 
 	for _, test := range testGoodStrings {
@@ -51,7 +59,7 @@ func TestFieldSelectorTypes(t *testing.T) {
 			continue
 		}
 
-		_, _, err = f.Parse(context.Background(), &goodTestModel{})
+		_, _, err = f.Parse(context.Background(), resolver)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", test, err, err)
 		}
@@ -64,7 +72,7 @@ func TestFieldSelectorTypes(t *testing.T) {
 			continue
 		}
 
-		_, _, err = f.Parse(context.Background(), &goodTestModel{})
+		_, _, err = f.Parse(context.Background(), resolver)
 		if err == nil {
 			t.Errorf("%v: did not get expected error\n", test)
 		}
@@ -89,14 +97,23 @@ func TestFieldSelectorQueries(t *testing.T) {
 		LessThanOrEquals    Operator = "lte"
 	*/
 	testGoodOperations := map[string]string{
+		// UUID
+		"model.field18":  "ISNOTNULL(K(field18))", //Exists
+		"!model.field18": "ISNULL(K(field18))",    //DoesNotExist
+		"model.field18=00000000-0000-0000-0000-000000000000":         "EQ(K(field18),V(00000000-0000-0000-0000-000000000000))",                           //Equals
+		"model.field18==00000000-0000-0000-0000-000000000000":        "EQ(K(field18),V(00000000-0000-0000-0000-000000000000))",                           //DoubleEquals
+		"model.field18 in (00000000-0000-0000-0000-000000000000)":    "IN(K(field18),V(00000000-0000-0000-0000-000000000000))",                           //In
+		"model.field18!=00000000-0000-0000-0000-000000000000":        "OR(ISNULL(K(field18)),NOTEQ(K(field18),V(00000000-0000-0000-0000-000000000000)))", //NotEquals
+		"model.field18 notin (00000000-0000-0000-0000-000000000000)": "OR(ISNULL(K(field18)),NOTIN(K(field18),V(00000000-0000-0000-0000-000000000000)))", //NotIn
+
 		// Booleans
 		"model.field1":                    "ISNOTNULL(K(field1))",                                    //Exists
 		"!model.field1":                   "ISNULL(K(field1))",                                       //DoesNotExist
 		"model.field1=true":               "EQ(K(field1),V(true))",                                   //Equals
 		"model.field1==true":              "EQ(K(field1),V(true))",                                   //DoubleEquals
-		"model.field1 in (true,false)":    "IN(K(field1),V(false),V(true))",                          //In
+		"model.field1 in (true,false)":    "IN(K(field1),V(true),V(false))",                          //In
 		"model.field1!=true":              "OR(ISNULL(K(field1)),NOTEQ(K(field1),V(true)))",          //NotEquals
-		"model.field1 notin (true,false)": "OR(ISNULL(K(field1)),NOTIN(K(field1),V(false),V(true)))", //NotIn
+		"model.field1 notin (true,false)": "OR(ISNULL(K(field1)),NOTIN(K(field1),V(true),V(false)))", //NotIn
 
 		// Numbers
 		"model.field2":             "ISNOTNULL(K(field2))",                             //Exists
@@ -165,7 +182,7 @@ func TestFieldSelectorQueries(t *testing.T) {
 		"model.field16.some.array[12].val=\"text\"": "EQ(K(field16 -> 'some' -> 'array' -> 12 -> 'val'),V(\"text\"))", //Equals + array index
 
 		// Multiple requirements
-		"model.field1, model.field1 notin (true,false)": "AND(ISNOTNULL(K(field1)),OR(ISNULL(K(field1)),NOTIN(K(field1),V(false),V(true))))",                     // Exists + NotIn
+		"model.field1, model.field1 notin (true,false)": "AND(ISNOTNULL(K(field1)),OR(ISNULL(K(field1)),NOTIN(K(field1),V(true),V(false))))",                     // Exists + NotIn
 		"model.field2 >= 0, model.field2 <= 10":         "AND(GTE(K(field2),V(0)), LTE(K(field2),V(10)))",                                                        // GreaterThanOrEquals + LessThanOrEquals
 		"model.field6 != text1, model.field6 != text2":  "AND(OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text1))), OR(ISNULL(K(field6)),NOTEQ(K(field6),V(text2))))", // NotEquals
 
@@ -179,6 +196,10 @@ func TestFieldSelectorQueries(t *testing.T) {
 	}
 
 	testBadOperations := []string{
+		// UUID
+		"model.field18 contains 00000000-0000-0000-0000-000000000000",    //Contains
+		"model.field18 notcontains 00000000-0000-0000-0000-000000000000", //NotContains
+
 		// Booleans
 		"model.field1 contains true",    //Contains
 		"model.field1 notcontains true", //NotContains
@@ -240,6 +261,12 @@ func TestFieldSelectorQueries(t *testing.T) {
 		"model.field16.badfield$$=text",
 	}
 
+	resolver, err := SelectorFieldResolver(&goodTestModel{})
+	if err != nil {
+		t.Errorf("error %v (%#v)\n", err, err)
+		return
+	}
+
 	for k8s, qp := range testGoodOperations {
 		f, err := NewFieldSelector(k8s)
 		if err != nil {
@@ -247,13 +274,7 @@ func TestFieldSelectorQueries(t *testing.T) {
 			continue
 		}
 
-		f.fieldResolver, err = SelectorFieldResolver(&goodTestModel{})
-		if err != nil {
-			t.Errorf("%v: error %v (%#v)\n", k8s, err, err)
-			continue
-		}
-
-		set1, err := f.Tokenize(ctx, f.selector)
+		set1, err := f.Tokenize(ctx, selectorParserSession{selector: f.selector, resolver: resolver})
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", k8s, err, err)
 			continue
@@ -276,7 +297,7 @@ func TestFieldSelectorQueries(t *testing.T) {
 			t.Errorf("%v: error %v (%#v)\n", test, err, err)
 			continue
 		}
-		_, _, err = f.Parse(context.Background(), &goodTestModel{})
+		_, _, err = f.Parse(context.Background(), resolver)
 		if err == nil {
 			t.Errorf("%v: did not get expected error\n", test)
 		}
@@ -305,20 +326,20 @@ func TestFieldSelectorMap(t *testing.T) {
 		},
 	}
 
+	resolver, err := SelectorFieldResolver(&goodTestModel{})
+	if err != nil {
+		t.Errorf("error %v (%#v)\n", err, err)
+		return
+	}
+
 	for _, op := range testCases {
-		fr, err := NewFieldSelectorFromMap(op.Input, false)
+		fr, err := NewFieldSelectorFromMap(op.Input)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", op, err, err)
 			continue
 		}
 
-		fr.fieldResolver, err = SelectorFieldResolver(&goodTestModel{})
-		if err != nil {
-			t.Errorf("error %v (%#v)\n", err, err)
-			return
-		}
-
-		set1, err := fr.Tokenize(ctx, fr.selector)
+		set1, err := fr.Tokenize(ctx, selectorParserSession{selector: fr.selector, resolver: resolver})
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", op, err, err)
 			continue

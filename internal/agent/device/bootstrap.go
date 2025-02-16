@@ -12,10 +12,10 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
+	"github.com/samber/lo"
 )
 
 const (
@@ -74,7 +74,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		versionInfo.GitCommit,
 	)
 
-	if err := b.ensureSpecFiles(); err != nil {
+	if err := b.ensureSpecFiles(ctx); err != nil {
 		return err
 	}
 
@@ -90,7 +90,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		infoMsg := fmt.Sprintf("Bootstrap failed: %v", err)
 		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 			Status: v1alpha1.DeviceSummaryStatusError,
-			Info:   util.StrToPtr(infoMsg),
+			Info:   lo.ToPtr(infoMsg),
 		}))
 		if updateErr != nil {
 			b.log.Warnf("Failed setting status: %v", updateErr)
@@ -130,17 +130,9 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 }
 
 func (b *Bootstrap) updateStatus(ctx context.Context) {
-	updateFns := []status.UpdateStatusFn{
-		status.SetConfig(v1alpha1.DeviceConfigStatus{
-			RenderedVersion: b.specManager.RenderedVersion(spec.Current),
-		}),
-		status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-			Status: v1alpha1.DeviceSummaryStatusOnline,
-			Info:   util.StrToPtr(BootstrapComplete),
-		}),
-	}
-
-	_, updateErr := b.statusManager.Update(ctx, updateFns...)
+	_, updateErr := b.statusManager.Update(ctx, status.SetConfig(v1alpha1.DeviceConfigStatus{
+		RenderedVersion: b.specManager.RenderedVersion(spec.Current),
+	}))
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)
 	}
@@ -164,7 +156,7 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 	}
 }
 
-func (b *Bootstrap) ensureSpecFiles() error {
+func (b *Bootstrap) ensureSpecFiles(ctx context.Context) error {
 	if b.lifecycle.IsInitialized() {
 		// it is unexpected to have a missing spec files when the device is
 		// enrolled. reset the spec files to empty if they are missing to allow
@@ -175,7 +167,7 @@ func (b *Bootstrap) ensureSpecFiles() error {
 		}
 	} else {
 		b.log.Info("Device is not enrolled, initializing spec files")
-		if err := b.specManager.Initialize(); err != nil {
+		if err := b.specManager.Initialize(ctx); err != nil {
 			return fmt.Errorf("initializing spec files: %w", err)
 		}
 	}
@@ -225,8 +217,8 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	b.log.Warnf("Booted OS image (%s) does not match the desired OS image (%s)", bootedOS, desiredOS)
 
 	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-		Status: v1alpha1.DeviceSummaryStatusDegraded,
-		Info:   util.StrToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedOS, desiredOS)),
+		Status: v1alpha1.DeviceSummaryStatusError,
+		Info:   lo.ToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedOS, desiredOS)),
 	}))
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)
@@ -244,7 +236,8 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	}
 
 	b.log.Warn("Starting spec rollback")
-	if err := b.specManager.Rollback(); err != nil {
+	// rollback and set the version to failed
+	if err := b.specManager.Rollback(ctx, spec.WithSetFailed()); err != nil {
 		return fmt.Errorf("failed spec rollback: %w", err)
 	}
 	b.log.Info("Spec rollback complete, resuming bootstrap")

@@ -48,6 +48,7 @@ const (
 	DeviceUpdating                    ConditionType = "Updating"
 	EnrollmentRequestApproved         ConditionType = "Approved"
 	FleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
+	FleetRolloutInProgress            ConditionType = "RolloutInProgress"
 	FleetValid                        ConditionType = "Valid"
 	RepositoryAccessible              ConditionType = "Accessible"
 	ResourceSyncAccessible            ConditionType = "Accessible"
@@ -153,14 +154,19 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
+// Defines values for RolloutStrategy.
+const (
+	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
+)
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
-// ApplicationSpec defines model for ApplicationSpec.
-type ApplicationSpec struct {
+// ApplicationProviderSpec defines model for ApplicationProviderSpec.
+type ApplicationProviderSpec struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
@@ -208,6 +214,9 @@ type Batch_Limit struct {
 type BatchSequence struct {
 	// Sequence A list of batch definitions.
 	Sequence *[]Batch `json:"sequence,omitempty"`
+
+	// Strategy The strategy of choice for device selection in rollout policy.
+	Strategy RolloutStrategy `json:"strategy"`
 }
 
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
@@ -224,7 +233,7 @@ type CertificateSigningRequest struct {
 	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec.
 	Spec CertificateSigningRequestSpec `json:"spec"`
 
-	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 	Status *CertificateSigningRequestStatus `json:"status,omitempty"`
 }
 
@@ -267,7 +276,7 @@ type CertificateSigningRequestSpec struct {
 	Username *string `json:"username,omitempty"`
 }
 
-// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 type CertificateSigningRequestStatus struct {
 	// Certificate The issued signed certificate, immutable once populated.
 	Certificate *[]byte `json:"certificate,omitempty"`
@@ -373,17 +382,17 @@ type DeviceApplicationsSummaryStatus struct {
 
 // DeviceConfigStatus Current status of the device config.
 type DeviceConfigStatus struct {
-	// RenderedVersion Version of the device rendered config.
+	// RenderedVersion Rendered version of the device config.
 	RenderedVersion string `json:"renderedVersion"`
 }
 
 // DeviceConsole DeviceConsole represents the console connection information.
 type DeviceConsole struct {
-	// GRPCEndpoint The gRPC endpoint for the console connection.
-	GRPCEndpoint string `json:"gRPCEndpoint"`
-
 	// SessionID The session ID for the console connection.
 	SessionID string `json:"sessionID"`
+
+	// SessionMetadata Additional session metadata in the form of key=value pairs, can be used to initialize the type of terminal, console to be used, etc.
+	SessionMetadata string `json:"sessionMetadata"`
 }
 
 // DeviceDecommission Metadata about a device decommissioning request.
@@ -395,14 +404,8 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
-// DeviceIntegrityStatus Status of device integrity.
+// DeviceIntegrityStatus Summary status of the integrity of the device.
 type DeviceIntegrityStatus struct {
-	// Summary Summary status of the integrity of the device.
-	Summary DeviceIntegrityStatusSummary `json:"summary"`
-}
-
-// DeviceIntegrityStatusSummary Summary status of the integrity of the device.
-type DeviceIntegrityStatusSummary struct {
 	// Info Human readable information about the last integrity transition.
 	Info *string `json:"info,omitempty"`
 
@@ -412,6 +415,9 @@ type DeviceIntegrityStatusSummary struct {
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
+
+// DeviceLabelList A list of distinct labels, where each item is formatted as "key=value".
+type DeviceLabelList = []string
 
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
@@ -478,11 +484,14 @@ type DeviceResourceStatusType string
 
 // DeviceSpec DeviceSpec describes a device.
 type DeviceSpec struct {
-	// Applications List of applications.
-	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+	// Applications List of application providers.
+	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
@@ -517,7 +526,7 @@ type DeviceStatus struct {
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
 
-	// Integrity Status of device integrity.
+	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
 
 	// LastSeen The last time the device was seen by the service.
@@ -556,6 +565,9 @@ type DeviceSummaryStatusType string
 
 // DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
 type DeviceSystemInfo struct {
+	// AgentVersion The Agent version.
+	AgentVersion string `json:"agentVersion"`
+
 	// Architecture The Architecture reported by the device.
 	Architecture string `json:"architecture"`
 
@@ -617,9 +629,9 @@ type DiskResourceMonitorSpec struct {
 	SamplingInterval string `json:"samplingInterval"`
 }
 
-// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
-type DisruptionAllowance struct {
-	// GroupBy List of label keys to perform grouping for the disruption allowance.
+// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
+type DisruptionBudget struct {
+	// GroupBy List of label keys to perform grouping for the disruption budget.
 	GroupBy *[]string `json:"groupBy,omitempty"`
 
 	// MaxUnavailable The minimum number of required available devices during rollout.
@@ -661,11 +673,20 @@ type EnrollmentRequestApproval struct {
 	// Approved Indicates whether the request has been approved.
 	Approved bool `json:"approved"`
 
+	// Labels A set of labels to apply to the device.
+	Labels *map[string]string `json:"labels,omitempty"`
+}
+
+// EnrollmentRequestApprovalStatus defines model for EnrollmentRequestApprovalStatus.
+type EnrollmentRequestApprovalStatus struct {
+	// Approved Indicates whether the request has been approved.
+	Approved bool `json:"approved"`
+
 	// ApprovedAt The time at which the request was approved.
-	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
+	ApprovedAt time.Time `json:"approvedAt"`
 
 	// ApprovedBy The name of the approver.
-	ApprovedBy *string `json:"approvedBy,omitempty"`
+	ApprovedBy string `json:"approvedBy"`
 
 	// Labels A set of labels to apply to the device.
 	Labels *map[string]string `json:"labels,omitempty"`
@@ -700,8 +721,8 @@ type EnrollmentRequestSpec struct {
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
 type EnrollmentRequestStatus struct {
-	// Approval EnrollmentRequestApproval contains information about the approval of a device enrollment request.
-	Approval *EnrollmentRequestApproval `json:"approval,omitempty"`
+	// Approval EnrollmentRequestApprovalStatus represents information about the status of a device enrollment request approval.
+	Approval *EnrollmentRequestApprovalStatus `json:"approval,omitempty"`
 
 	// Certificate The PEM-encoded signed certificate.
 	Certificate *string `json:"certificate,omitempty"`
@@ -738,12 +759,6 @@ type EnrollmentServiceService struct {
 
 	// Server Server is the address of the Flight Control enrollment service (https://hostname:port).
 	Server string `json:"server"`
-}
-
-// Error defines model for Error.
-type Error struct {
-	// Message Error message.
-	Message string `json:"message"`
 }
 
 // FileOperation defines model for FileOperation.
@@ -1085,49 +1100,6 @@ type PatchRequestOp string
 // Percentage Percentage is the string format representing percentage string.
 type Percentage = string
 
-// RenderedApplicationSpec defines model for RenderedApplicationSpec.
-type RenderedApplicationSpec struct {
-	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
-	EnvVars *map[string]string `json:"envVars,omitempty"`
-
-	// Name An application name.
-	Name  *string `json:"name,omitempty"`
-	union json.RawMessage
-}
-
-// RenderedDeviceSpec RenderedDeviceSpec describes the rendered and self-contained specification of a Device.
-type RenderedDeviceSpec struct {
-	// Applications The list of applications to deploy.
-	Applications *[]RenderedApplicationSpec `json:"applications,omitempty"`
-
-	// Config The configuration to apply, in Ignition format.
-	Config *string `json:"config,omitempty"`
-
-	// Console DeviceConsole represents the console connection information.
-	Console *DeviceConsole `json:"console,omitempty"`
-
-	// Decommission Metadata about a device decommissioning request.
-	Decommission *DeviceDecommission `json:"decommission,omitempty"`
-
-	// Os DeviceOsSpec describes the target OS for the device.
-	Os *DeviceOsSpec `json:"os,omitempty"`
-
-	// RenderedVersion Version of the rendered device spec.
-	RenderedVersion string `json:"renderedVersion"`
-
-	// Resources Array of resource monitor configurations.
-	Resources *[]ResourceMonitor `json:"resources,omitempty"`
-
-	// Systemd The systemd services to monitor.
-	Systemd *struct {
-		// MatchPatterns A list of match patterns.
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"systemd,omitempty"`
-
-	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
-	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
-}
-
 // RepoSpecType RepoSpecType is the type of the repository.
 type RepoSpecType string
 
@@ -1269,9 +1241,7 @@ type ResourceSyncStatus struct {
 
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
-	// Strategy The rollout strategy to use.
-	Strategy string `json:"strategy"`
-	union    json.RawMessage
+	union json.RawMessage
 }
 
 // RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
@@ -1282,12 +1252,15 @@ type RolloutPolicy struct {
 	// DeviceSelection Describes how to select devices for rollout.
 	DeviceSelection *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
 
-	// DisruptionAllowance DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
-	DisruptionAllowance *DisruptionAllowance `json:"disruptionAllowance,omitempty"`
+	// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
+	DisruptionBudget *DisruptionBudget `json:"disruptionBudget,omitempty"`
 
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
+
+// RolloutStrategy The strategy of choice for device selection in rollout policy.
+type RolloutStrategy string
 
 // SshConfig Configuration for SSH transport.
 type SshConfig struct {
@@ -1315,14 +1288,23 @@ type SshRepoSpec struct {
 
 // Status Status is a return value for calls that don't return other objects.
 type Status struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Code Suggested HTTP return code for this status, 0 if not set.
+	Code int32 `json:"code"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
 	// Message A human-readable description of the status of this operation.
-	Message *string `json:"message,omitempty"`
+	Message string `json:"message"`
 
 	// Reason A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
-	Reason *string `json:"reason,omitempty"`
+	Reason string `json:"reason"`
 
 	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
-	Status *string `json:"status,omitempty"`
+	Status string `json:"status"`
 }
 
 // TemplateVersion TemplateVersion represents a version of a template.
@@ -1366,14 +1348,17 @@ type TemplateVersionSpec struct {
 
 // TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
-	// Applications List of applications.
-	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+	// Applications List of application providers.
+	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
 
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
@@ -1415,6 +1400,12 @@ type UpdateSchedule struct {
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
+// Version defines model for Version.
+type Version struct {
+	// Version Git version of the service.
+	Version string `json:"version"`
+}
+
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
 	// Authentication The authentication token to validate.
@@ -1454,8 +1445,8 @@ type ListDevicesParams struct {
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
-// GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
-type GetRenderedDeviceSpecParams struct {
+// GetRenderedDeviceParams defines parameters for GetRenderedDevice.
+type GetRenderedDeviceParams struct {
 	// KnownRenderedVersion The last known renderedVersion.
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
@@ -1495,8 +1486,8 @@ type ListFleetsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// AddDevicesCount Include the number of devices in each fleet.
-	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
+	// AddDevicesSummary Include a summary of the devices in the fleet.
+	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
@@ -1631,22 +1622,22 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
 
-// AsImageApplicationProvider returns the union data inside the ApplicationSpec as a ImageApplicationProvider
-func (t ApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
+// AsImageApplicationProvider returns the union data inside the ApplicationProviderSpec as a ImageApplicationProvider
+func (t ApplicationProviderSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
 	var body ImageApplicationProvider
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromImageApplicationProvider overwrites any union data inside the ApplicationSpec as the provided ImageApplicationProvider
-func (t *ApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+// FromImageApplicationProvider overwrites any union data inside the ApplicationProviderSpec as the provided ImageApplicationProvider
+func (t *ApplicationProviderSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeImageApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided ImageApplicationProvider
-func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+// MergeImageApplicationProvider performs a merge with any union data inside the ApplicationProviderSpec, using the provided ImageApplicationProvider
+func (t *ApplicationProviderSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1657,7 +1648,7 @@ func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvid
 	return err
 }
 
-func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	if err != nil {
 		return nil, err
@@ -1687,7 +1678,7 @@ func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
 	return b, err
 }
 
-func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+func (t *ApplicationProviderSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	if err != nil {
 		return err
@@ -2037,90 +2028,6 @@ func (t *HookCondition) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsImageApplicationProvider returns the union data inside the RenderedApplicationSpec as a ImageApplicationProvider
-func (t RenderedApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
-	var body ImageApplicationProvider
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromImageApplicationProvider overwrites any union data inside the RenderedApplicationSpec as the provided ImageApplicationProvider
-func (t *RenderedApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeImageApplicationProvider performs a merge with any union data inside the RenderedApplicationSpec, using the provided ImageApplicationProvider
-func (t *RenderedApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t RenderedApplicationSpec) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if t.EnvVars != nil {
-		object["envVars"], err = json.Marshal(t.EnvVars)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
-		}
-	}
-
-	if t.Name != nil {
-		object["name"], err = json.Marshal(t.Name)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'name': %w", err)
-		}
-	}
-	b, err = json.Marshal(object)
-	return b, err
-}
-
-func (t *RenderedApplicationSpec) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["envVars"]; found {
-		err = json.Unmarshal(raw, &t.EnvVars)
-		if err != nil {
-			return fmt.Errorf("error reading 'envVars': %w", err)
-		}
-	}
-
-	if raw, found := object["name"]; found {
-		err = json.Unmarshal(raw, &t.Name)
-		if err != nil {
-			return fmt.Errorf("error reading 'name': %w", err)
-		}
-	}
-
-	return err
-}
-
 // AsGenericRepoSpec returns the union data inside the RepositorySpec as a GenericRepoSpec
 func (t RepositorySpec) AsGenericRepoSpec() (GenericRepoSpec, error) {
 	var body GenericRepoSpec
@@ -2337,8 +2244,7 @@ func (t RolloutDeviceSelection) AsBatchSequence() (BatchSequence, error) {
 
 // FromBatchSequence overwrites any union data inside the RolloutDeviceSelection as the provided BatchSequence
 func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
-	t.Strategy = "BatchSequence"
-
+	v.Strategy = "BatchSequence"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -2346,8 +2252,7 @@ func (t *RolloutDeviceSelection) FromBatchSequence(v BatchSequence) error {
 
 // MergeBatchSequence performs a merge with any union data inside the RolloutDeviceSelection, using the provided BatchSequence
 func (t *RolloutDeviceSelection) MergeBatchSequence(v BatchSequence) error {
-	t.Strategy = "BatchSequence"
-
+	v.Strategy = "BatchSequence"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -2381,43 +2286,10 @@ func (t RolloutDeviceSelection) ValueByDiscriminator() (interface{}, error) {
 
 func (t RolloutDeviceSelection) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	object["strategy"], err = json.Marshal(t.Strategy)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'strategy': %w", err)
-	}
-
-	b, err = json.Marshal(object)
 	return b, err
 }
 
 func (t *RolloutDeviceSelection) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["strategy"]; found {
-		err = json.Unmarshal(raw, &t.Strategy)
-		if err != nil {
-			return fmt.Errorf("error reading 'strategy': %w", err)
-		}
-	}
-
 	return err
 }

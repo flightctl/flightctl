@@ -21,6 +21,8 @@ const (
 	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
+	// MinSyncInterval is the minimum interval allowed for the spec fetch and status update
+	MinSyncInterval = util.Duration(2 * time.Second)
 	// DefaultConfigDir is the default directory where the device's configuration is stored
 	DefaultConfigDir = "/etc/flightctl"
 	// DefaultConfigFile is the default path to the agent's configuration file
@@ -78,7 +80,7 @@ type Config struct {
 	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
 	DefaultLabels map[string]string `json:"default-labels,omitempty"`
 
-	reader fileio.Reader
+	readWriter fileio.ReadWriter
 }
 
 type EnrollmentService struct {
@@ -114,7 +116,7 @@ func NewDefault() *Config {
 		ManagementService:    ManagementService{Config: *client.NewDefault()},
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
-		reader:               fileio.NewReader(),
+		readWriter:           fileio.NewReadWriter(),
 		LogLevel:             logrus.InfoLevel.String(),
 		DefaultLabels:        make(map[string]string),
 	}
@@ -124,7 +126,7 @@ func NewDefault() *Config {
 		c.testRootDir = filepath.Clean(value)
 	}
 
-	c.reader = fileio.NewReadWriter(fileio.WithTestRootDir(c.testRootDir))
+	c.readWriter = fileio.NewReadWriter(fileio.WithTestRootDir(c.testRootDir))
 
 	return c
 }
@@ -174,12 +176,16 @@ func (cfg *Config) Complete() error {
 	return nil
 }
 
-// Validate checks that the required fields are set and that the paths exist.
+// Validate checks that the required fields are set and ensures that the paths exist.
 func (cfg *Config) Validate() error {
 	if err := cfg.EnrollmentService.Validate(); err != nil {
 		return err
 	}
 	if err := cfg.ManagementService.Validate(); err != nil {
+		return err
+	}
+
+	if err := cfg.validateSyncIntervals(); err != nil {
 		return err
 	}
 
@@ -197,12 +203,16 @@ func (cfg *Config) Validate() error {
 			return fmt.Errorf("%s is required", field.name)
 		}
 		if field.checkPath {
-			exists, err := cfg.reader.PathExists(field.value)
+			exists, err := cfg.readWriter.PathExists(field.value)
 			if err != nil {
 				return fmt.Errorf("%s: %w", field.name, err)
 			}
 			if !exists {
-				return fmt.Errorf("%s does not exist: %s", field.name, field.value)
+				// ensure required paths exist
+				klog.Infof("Creating missing required directory: %s", field.value)
+				if err := cfg.readWriter.MkdirAll(field.value, fileio.DefaultDirectoryPermissions); err != nil {
+					return fmt.Errorf("creating %s: %w", field.name, err)
+				}
 			}
 		}
 	}
@@ -212,7 +222,7 @@ func (cfg *Config) Validate() error {
 
 // ParseConfigFile reads the config file and unmarshals it into the Config struct
 func (cfg *Config) ParseConfigFile(cfgFile string) error {
-	contents, err := cfg.reader.ReadFile(cfgFile)
+	contents, err := cfg.readWriter.ReadFile(cfgFile)
 	if err != nil {
 		return fmt.Errorf("reading config file: %w", err)
 	}
@@ -230,4 +240,14 @@ func (cfg *Config) String() string {
 		return "<error>"
 	}
 	return string(contents)
+}
+
+func (cfg *Config) validateSyncIntervals() error {
+	if cfg.SpecFetchInterval < MinSyncInterval {
+		return fmt.Errorf("minimum spec fetch interval is %s have %s", MinSyncInterval, cfg.SpecFetchInterval)
+	}
+	if cfg.StatusUpdateInterval < MinSyncInterval {
+		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
+	}
+	return nil
 }

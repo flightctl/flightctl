@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -35,7 +36,7 @@ import (
 //
 // In addition, we have the cases where the user deleted all fleets or devices in an org
 
-func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+func fleetSelectorMatching(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	logic := FleetSelectorMatchingLogic{
 		callbackManager: callbackManager,
 		log:             log,
@@ -47,17 +48,17 @@ func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, 
 	var err error
 
 	switch {
-	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == api.FleetKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdate && resourceRef.Kind == api.FleetKind:
 		err = logic.FleetSelectorUpdatedNoOverlapping(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.FleetKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.FleetKind:
 		err = logic.HandleOrgwideUpdate(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.FleetKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.FleetKind:
 		err = logic.HandleDeleteAllFleets(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdate && resourceRef.Kind == api.DeviceKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdate && resourceRef.Kind == api.DeviceKind:
 		err = logic.CompareFleetsAndSetDeviceOwner(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.DeviceKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdateOverlap && resourceRef.Kind == api.DeviceKind:
 		err = logic.HandleOrgwideUpdate(ctx)
-	case resourceRef.Op == FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.DeviceKind:
+	case resourceRef.Op == tasks_client.FleetSelectorMatchOpDeleteAll && resourceRef.Kind == api.DeviceKind:
 		err = logic.HandleDeleteAllDevices(ctx)
 	default:
 		err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
@@ -70,15 +71,15 @@ func fleetSelectorMatching(ctx context.Context, resourceRef *ResourceReference, 
 }
 
 type FleetSelectorMatchingLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	fleetStore      store.Fleet
 	devStore        store.Device
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 	itemsPerPage    int
 }
 
-func NewFleetSelectorMatchingLogic(callbackManager CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetSelectorMatchingLogic {
+func NewFleetSelectorMatchingLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef tasks_client.ResourceReference) FleetSelectorMatchingLogic {
 	return FleetSelectorMatchingLogic{
 		callbackManager: callbackManager,
 		log:             log,
@@ -117,7 +118,7 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 	}
 
 	// Create a new LabelSelector from the fleet's match labels.
-	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet), false)
+	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet))
 	if err != nil {
 		return err
 	}
@@ -239,7 +240,7 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 
 func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx context.Context) error {
 	fs, err := selector.NewFieldSelectorFromMap(
-		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)}, false)
+		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, f.resourceRef.Name)})
 	if err != nil {
 		return err
 	}
@@ -253,14 +254,26 @@ func (f FleetSelectorMatchingLogic) removeOwnerFromDevicesOwnedByFleet(ctx conte
 
 func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.Context, fleet *api.Fleet) error {
 	// Create a new LabelSelector from the fleet's match labels.
-	ls, err := selector.NewLabelSelectorFromMap(getMatchLabelsSafe(fleet), true)
+	labelsMap := getMatchLabelsSafe(fleet)
+
+	// Build the keyset-based selector string
+	var keys, values []string
+	for k, v := range labelsMap {
+		keys = append(keys, k)
+		values = append(values, v)
+	}
+
+	// Construct the selector string using the keyset.
+	// This selector matches objects whose labels do not match the specified key-value pairs as a whole.
+	// For example, the selector "(k1,k2) != (v1,v2)" matches objects that do not have both k1=v1 and k2=v2 together.
+	ls, err := selector.NewLabelSelector(fmt.Sprintf("(%s) != (%s)", strings.Join(keys, ","), strings.Join(values, ",")))
 	if err != nil {
 		return err
 	}
 
 	// Construct the FieldSelector to match devices owned by the fleet.
 	fs, err := selector.NewFieldSelectorFromMap(
-		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)}, false)
+		map[string]string{"metadata.owner": *util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name)})
 	if err != nil {
 		return err
 	}
@@ -629,6 +642,12 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllFleets(ctx context.Context) e
 
 // Update a device's owner, which in effect updates the fleet (may require rollout to the device)
 func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, device *api.Device, newOwnerFleet string) error {
+	// do not update decommissioning devices
+	if device.Spec != nil && device.Spec.Decommissioning != nil {
+		f.log.Debugf("SKipping update of device owner for decommissioned device: %s", device.Metadata.Name)
+		return nil
+	}
+
 	fieldsToNil := []string{}
 	newOwnerRef := util.SetResourceOwner(api.FleetKind, newOwnerFleet)
 	if len(newOwnerFleet) == 0 {
@@ -638,7 +657,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
 	device.Metadata.Owner = newOwnerRef
-	_, err := f.devStore.Update(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, f.callbackManager.DeviceUpdatedCallback)
+	_, err := f.devStore.Update(ctx, f.resourceRef.OrgID, device, fieldsToNil, false, nil, f.callbackManager.DeviceUpdatedCallback)
 	return err
 }
 

@@ -9,7 +9,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -102,20 +101,12 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 
 // (DELETE /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, request server.DeleteCertificateSigningRequestsRequestObject) (server.DeleteCertificateSigningRequestsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteCertificateSigningRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteCertificateSigningRequests403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
-	err = h.store.CertificateSigningRequest().DeleteAll(ctx, orgId)
+	err := h.store.CertificateSigningRequest().DeleteAll(ctx, orgId)
 	switch err {
 	case nil:
-		return server.DeleteCertificateSigningRequests200JSONResponse{}, nil
+		return server.DeleteCertificateSigningRequests200JSONResponse(api.StatusOK()), nil
 	default:
 		return nil, err
 	}
@@ -123,32 +114,24 @@ func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context, r
 
 // (GET /api/v1/certificatesigningrequests)
 func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, request server.ListCertificateSigningRequestsRequestObject) (server.ListCertificateSigningRequestsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListCertificateSigningRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ListCertificateSigningRequests403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	cont, err := store.ParseContinueString(request.Params.Continue)
 	if err != nil {
-		return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+		return server.ListCertificateSigningRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))), nil
 	}
 
 	var fieldSelector *selector.FieldSelector
 	if request.Params.FieldSelector != nil {
 		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+			return server.ListCertificateSigningRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))), nil
 		}
 	}
 
 	var labelSelector *selector.LabelSelector
 	if request.Params.LabelSelector != nil {
 		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+			return server.ListCertificateSigningRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))), nil
 		}
 	}
 
@@ -162,7 +145,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 		listParams.Limit = store.MaxRecordsPerListRequest
 	}
 	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListCertificateSigningRequests400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
+		return server.ListCertificateSigningRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))), nil
 	}
 
 	result, err := h.store.CertificateSigningRequest().List(ctx, orgId, listParams)
@@ -174,7 +157,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListCertificateSigningRequests400JSONResponse{Message: se.Error()}, nil
+		return server.ListCertificateSigningRequests400JSONResponse(api.StatusBadRequest(se.Error())), nil
 	default:
 		return nil, err
 	}
@@ -184,31 +167,22 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, req
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, request server.CreateCertificateSigningRequestRequestObject) (server.CreateCertificateSigningRequestResponseObject, error) {
 	orgId := store.NullOrgId
 
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "create")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.CreateCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.CreateCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
-	}
-
 	// don't set fields that are managed by the service
 	request.Body.Status = nil
 	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateCertificateSigningRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.CreateCertificateSigningRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 
 	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
-		return server.CreateCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
-		return server.CreateCertificateSigningRequest409JSONResponse{Message: err.Error()}, nil
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
+		return server.CreateCertificateSigningRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
+	case errors.Is(err, flterrors.ErrDuplicateName):
+		return server.CreateCertificateSigningRequest409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	default:
 		return nil, err
 	}
@@ -225,22 +199,14 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, re
 
 // (DELETE /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, request server.DeleteCertificateSigningRequestRequestObject) (server.DeleteCertificateSigningRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
-	err = h.store.CertificateSigningRequest().Delete(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	err := h.store.CertificateSigningRequest().Delete(ctx, orgId, request.Name)
+	switch {
+	case err == nil:
 		return server.DeleteCertificateSigningRequest200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.DeleteCertificateSigningRequest404JSONResponse{}, nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.DeleteCertificateSigningRequest404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -248,22 +214,14 @@ func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, re
 
 // (GET /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) ReadCertificateSigningRequest(ctx context.Context, request server.ReadCertificateSigningRequestRequestObject) (server.ReadCertificateSigningRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	result, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReadCertificateSigningRequest200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
-		return server.ReadCertificateSigningRequest404JSONResponse{}, nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.ReadCertificateSigningRequest404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -271,23 +229,15 @@ func (h *ServiceHandler) ReadCertificateSigningRequest(ctx context.Context, requ
 
 // (PATCH /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, request server.PatchCertificateSigningRequestRequestObject) (server.PatchCertificateSigningRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "patch")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.PatchCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.PatchCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	currentObj, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
-			return server.PatchCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
-			return server.PatchCertificateSigningRequest404JSONResponse{}, nil
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
+			return server.PatchCertificateSigningRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
+		case errors.Is(err, flterrors.ErrResourceNotFound):
+			return server.PatchCertificateSigningRequest404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", request.Name)), nil
 		default:
 			return nil, err
 		}
@@ -296,35 +246,35 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 	newObj := &api.CertificateSigningRequest{}
 	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/certificatesigningrequests/"+request.Name)
 	if err != nil {
-		return server.PatchCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
+		return server.PatchCertificateSigningRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
 	}
 
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchCertificateSigningRequest400JSONResponse{Message: "metadata.name is immutable"}, nil
+		return server.PatchCertificateSigningRequest400JSONResponse(api.StatusBadRequest("metadata.name is immutable")), nil
 	}
 	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchCertificateSigningRequest400JSONResponse{Message: "apiVersion is immutable"}, nil
+		return server.PatchCertificateSigningRequest400JSONResponse(api.StatusBadRequest("apiVersion is immutable")), nil
 	}
 	if currentObj.Kind != newObj.Kind {
-		return server.PatchCertificateSigningRequest400JSONResponse{Message: "kind is immutable"}, nil
+		return server.PatchCertificateSigningRequest400JSONResponse(api.StatusBadRequest("kind is immutable")), nil
 	}
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchCertificateSigningRequest400JSONResponse{Message: "status is immutable"}, nil
+		return server.PatchCertificateSigningRequest400JSONResponse(api.StatusBadRequest("status is immutable")), nil
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
 	result, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
-		return server.PatchCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.PatchCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
-		return server.PatchCertificateSigningRequest409JSONResponse{}, nil
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
+		return server.PatchCertificateSigningRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.PatchCertificateSigningRequest404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", request.Name)), nil
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
+		return server.PatchCertificateSigningRequest409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	default:
 		return nil, err
 	}
@@ -341,14 +291,6 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, req
 
 // (PUT /api/v1/certificatesigningrequests/{name})
 func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, request server.ReplaceCertificateSigningRequestRequestObject) (server.ReplaceCertificateSigningRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceCertificateSigningRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceCertificateSigningRequest403JSONResponse{Message: Forbidden}, nil
-	}
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
@@ -356,24 +298,24 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
 	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.ReplaceCertificateSigningRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+		return server.ReplaceCertificateSigningRequest400JSONResponse(api.StatusBadRequest("resource name specified in metadata does not match name in path")), nil
 	}
 
 	result, created, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, request.Body)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceIsNil:
-		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
-		return server.ReplaceCertificateSigningRequest400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.ReplaceCertificateSigningRequest404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
-		return server.ReplaceCertificateSigningRequest409JSONResponse{}, nil
+	case errors.Is(err, flterrors.ErrResourceIsNil):
+		return server.ReplaceCertificateSigningRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
+	case errors.Is(err, flterrors.ErrResourceNameIsNil):
+		return server.ReplaceCertificateSigningRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.ReplaceCertificateSigningRequest404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", request.Name)), nil
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
+		return server.ReplaceCertificateSigningRequest409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	default:
 		return nil, err
 	}
@@ -397,52 +339,43 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, r
 func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Context, request server.UpdateCertificateSigningRequestApprovalRequestObject) (server.UpdateCertificateSigningRequestApprovalResponseObject, error) {
 	orgId := store.NullOrgId
 
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "certificatesigningrequests/approval", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.UpdateCertificateSigningRequestApproval503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.UpdateCertificateSigningRequestApproval403JSONResponse{Message: Forbidden}, nil
-	}
-
 	newCSR := request.Body
 	common.NilOutManagedObjectMetaProperties(&newCSR.Metadata)
 	if errs := newCSR.Validate(); len(errs) > 0 {
-		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 	if request.Name != *newCSR.Metadata.Name {
-		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse(api.StatusBadRequest("resource name specified in metadata does not match name in path")), nil
 	}
 	if newCSR.Status == nil {
-		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: "status is required"}, nil
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse(api.StatusBadRequest("status is required")), nil
 	}
 	allowedConditionTypes := []api.ConditionType{api.CertificateSigningRequestApproved, api.CertificateSigningRequestDenied, api.CertificateSigningRequestFailed}
 	trueConditions := allowedConditionTypes
 	exclusiveConditions := []api.ConditionType{api.CertificateSigningRequestApproved, api.CertificateSigningRequestDenied}
 	errs := api.ValidateConditions(newCSR.Status.Conditions, allowedConditionTypes, trueConditions, exclusiveConditions)
 	if len(errs) > 0 {
-		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 
 	oldCSR, err := h.store.CertificateSigningRequest().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
-		return server.UpdateCertificateSigningRequestApproval400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.UpdateCertificateSigningRequestApproval404JSONResponse{}, nil
+	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
+		return server.UpdateCertificateSigningRequestApproval400JSONResponse(api.StatusBadRequest(err.Error())), nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.UpdateCertificateSigningRequestApproval404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", request.Name)), nil
 	default:
 		return nil, err
 	}
 
 	// do not approve a denied request, or recreate a cert for an already-approved request
 	if api.IsStatusConditionTrue(oldCSR.Status.Conditions, api.CertificateSigningRequestDenied) {
-		return server.UpdateCertificateSigningRequestApproval409JSONResponse{Message: "The request has already been denied"}, nil
+		return server.UpdateCertificateSigningRequestApproval409JSONResponse(api.StatusConflict("The request has already been denied")), nil
 	}
 	if api.IsStatusConditionTrue(oldCSR.Status.Conditions, api.CertificateSigningRequestApproved) && oldCSR.Status.Certificate != nil && len(*oldCSR.Status.Certificate) > 0 {
-		return server.UpdateCertificateSigningRequestApproval409JSONResponse{Message: "The request has already been approved and the certificate issued"}, nil
+		return server.UpdateCertificateSigningRequestApproval409JSONResponse(api.StatusConflict("The request has already been approved and the certificate issued")), nil
 	}
 
 	populateConditionTimestamps(newCSR, oldCSR)
@@ -454,13 +387,13 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	newCSR.Status.Conditions = newConditions
 
 	result, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, newCSR)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		break
-	case flterrors.ErrResourceNotFound:
-		return server.UpdateCertificateSigningRequestApproval404JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
-		return server.UpdateCertificateSigningRequestApproval409JSONResponse{Message: err.Error()}, nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.UpdateCertificateSigningRequestApproval404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", request.Name)), nil
+	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
+		return server.UpdateCertificateSigningRequestApproval409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	default:
 		return nil, err
 	}

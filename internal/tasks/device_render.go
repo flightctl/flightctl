@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
@@ -13,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -20,9 +22,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func deviceRender(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
+func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
 	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, kvStore, *resourceRef)
-	if resourceRef.Op == DeviceRenderOpUpdate {
+	if resourceRef.Op == tasks_client.DeviceRenderOpUpdate {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
 			log.Errorf("failed rendering device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
@@ -36,25 +38,23 @@ func deviceRender(ctx context.Context, resourceRef *ResourceReference, store sto
 }
 
 type DeviceRenderLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 	ownerFleet      *string
 	templateVersion *string
 	deviceConfig    *[]api.ConfigProviderSpec
-	applications    *[]api.ApplicationSpec
+	applications    *[]api.ApplicationProviderSpec
 }
 
-func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef ResourceReference) DeviceRenderLogic {
+func NewDeviceRenderLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef tasks_client.ResourceReference) DeviceRenderLogic {
 	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, kvStore: kvStore, resourceRef: resourceRef}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
-	t.log.Infof("Rendering device %s/%s", t.resourceRef.OrgID, t.resourceRef.Name)
-
 	device, err := t.store.Device().Get(ctx, t.resourceRef.OrgID, t.resourceRef.Name)
 	if err != nil {
 		return fmt.Errorf("failed getting device %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
@@ -73,17 +73,24 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 		t.ownerFleet = &owner
 
-		if device.Metadata.Annotations == nil {
+		annotations := lo.FromPtr(device.Metadata.Annotations)
+		tvString, exists := util.GetFromMap(annotations, api.DeviceAnnotationTemplateVersion)
+		if !exists {
 			return fmt.Errorf("device has no templateversion annotation")
 		}
-		tvString := (*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
 		t.templateVersion = &tvString
+		renderedTemplateVersion, exists := annotations[api.DeviceAnnotationRenderedTemplateVersion]
+		if exists && tvString == renderedTemplateVersion {
+			// Skipping since this template version was already rendered
+			return nil
+		}
 	}
 
+	// TODO: remove ignition
 	ignitionConfig, referencedRepos, renderErr := t.renderConfig(ctx)
-	renderedConfig, err := json.Marshal(ignitionConfig)
+	renderedConfig, err := ignitionConfigToRenderedConfig(ignitionConfig)
 	if err != nil {
-		return fmt.Errorf("failed marshalling configuration: %w", err)
+		return fmt.Errorf("failed converting ignition config to rendered config: %w", err)
 	}
 
 	// Set the many-to-many relationship with the repos (we do this even if the render failed so that we will
@@ -135,7 +142,7 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 	}
 
 	var invalidApplications []string
-	var renderedApplications []api.RenderedApplicationSpec
+	var renderedApplications []api.ApplicationProviderSpec
 	var firstError error
 
 	for i := range *t.applications {
@@ -241,7 +248,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *ap
 	}
 }
 
-func renderApplication(_ context.Context, app *api.ApplicationSpec) (*string, *api.RenderedApplicationSpec, error) {
+func renderApplication(_ context.Context, app *api.ApplicationProviderSpec) (*string, *api.ApplicationProviderSpec, error) {
 	appType, err := app.Type()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed getting application type: %w", err)
@@ -254,14 +261,14 @@ func renderApplication(_ context.Context, app *api.ApplicationSpec) (*string, *a
 	}
 }
 
-func renderImageApplicationProvider(app *api.ApplicationSpec) (*string, *api.RenderedApplicationSpec, error) {
+func renderImageApplicationProvider(app *api.ApplicationProviderSpec) (*string, *api.ApplicationProviderSpec, error) {
 	imageProvider, err := app.AsImageApplicationProvider()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting application as ImageApplicationProvider: %w", ErrUnknownApplicationType, err)
 	}
 
-	appName := util.FromPtr(app.Name)
-	renderedApp := api.RenderedApplicationSpec{
+	appName := lo.FromPtr(app.Name)
+	renderedApp := api.ApplicationProviderSpec{
 		Name:    app.Name,
 		EnvVars: app.EnvVars,
 	}
@@ -597,4 +604,65 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 	wrapper.ChangeMountPath(mountPath)
 	ignToReturn := wrapper.AsIgnitionConfig()
 	return &ignToReturn, nil
+}
+
+// TODO: this is temporary, ignition will be removed in the future
+// ignitionConfigToRenderedConfig converts an ignition config to rendered config bytes
+func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byte, error) {
+	emptyConfig := []byte("[]")
+
+	if ignition == nil || len(ignition.Storage.Files) == 0 {
+		return emptyConfig, nil
+	}
+
+	var files []api.FileSpec
+	for _, file := range ignition.Storage.Files {
+		content := lo.FromPtr(file.Contents.Source)
+		encoding := api.Plain
+
+		// parse encoding
+		if strings.HasPrefix(content, "data:") {
+			encoding = api.Base64
+			if commaIndex := strings.Index(content, ","); commaIndex != -1 {
+				content = content[commaIndex+1:]
+			}
+		}
+
+		group := lo.FromPtr(file.Group.Name)
+		if file.Group.ID != nil {
+			group = strconv.Itoa(*file.Group.ID)
+		}
+
+		user := lo.FromPtr(file.User.Name)
+		if file.User.ID != nil {
+			user = strconv.Itoa(*file.User.ID)
+		}
+
+		fileSpec := api.FileSpec{
+			Content:         content,
+			ContentEncoding: &encoding,
+			Path:            file.Path,
+			User:            &user,
+			Group:           &group,
+			Mode:            file.Mode,
+		}
+
+		files = append(files, fileSpec)
+	}
+
+	// convert all files to a single inline config provider
+	provider := api.ConfigProviderSpec{}
+	err := provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{
+		Inline: files,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("converting files to inline config provider: %w", err)
+	}
+	providers := &[]api.ConfigProviderSpec{provider}
+	renderedConfig, err := json.Marshal(providers)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling rendered config: %w", err)
+	}
+
+	return renderedConfig, nil
 }

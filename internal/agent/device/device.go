@@ -21,10 +21,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
-	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/lthibault/jitterbug"
+	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -44,11 +43,11 @@ type Agent struct {
 	configController       *config.Controller
 	resourceController     *resource.Controller
 	consoleController      *console.ConsoleController
-	bootcClient            container.BootcClient
+	osClient               os.Client
 	podmanClient           *client.Podman
 
-	fetchSpecInterval   util.Duration
-	fetchStatusInterval util.Duration
+	fetchSpecInterval    util.Duration
+	statusUpdateInterval util.Duration
 
 	once     sync.Once
 	cancelFn context.CancelFunc
@@ -65,7 +64,7 @@ func NewAgent(
 	appManager applications.Manager,
 	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
-	fetchStatusInterval util.Duration,
+	statusUpdateInterval util.Duration,
 	hookManager hook.Manager,
 	osManager os.Manager,
 	policyManager policy.Manager,
@@ -74,7 +73,7 @@ func NewAgent(
 	configController *config.Controller,
 	resourceController *resource.Controller,
 	consoleController *console.ConsoleController,
-	bootcClient container.BootcClient,
+	osClient os.Client,
 	podmanClient *client.Podman,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
@@ -91,12 +90,12 @@ func NewAgent(
 		appManager:             appManager,
 		systemdManager:         systemdManager,
 		fetchSpecInterval:      fetchSpecInterval,
-		fetchStatusInterval:    fetchStatusInterval,
+		statusUpdateInterval:   statusUpdateInterval,
 		applicationsController: applicationsController,
 		configController:       configController,
 		resourceController:     resourceController,
 		consoleController:      consoleController,
-		bootcClient:            bootcClient,
+		osClient:               osClient,
 		podmanClient:           podmanClient,
 		cancelFn:               func() {},
 		backoff:                backoff,
@@ -106,23 +105,15 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	ctx, a.cancelFn = context.WithCancel(ctx)
+	// orchestrates periodic fetching of device specs and pushing status updates
+	engine := NewEngine(
+		a.fetchSpecInterval,
+		a.syncDeviceSpec,
+		a.statusUpdateInterval,
+		a.statusUpdate,
+	)
 
-	specTicker := jitterbug.New(time.Duration(a.fetchSpecInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer specTicker.Stop()
-	statusTicker := jitterbug.New(time.Duration(a.fetchStatusInterval), &jitterbug.Norm{Stdev: 30 * time.Millisecond, Mean: 0})
-	defer statusTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-specTicker.C:
-			a.syncSpec(ctx, a.syncSpecFn)
-		case <-statusTicker.C:
-			a.pushStatus(ctx)
-		}
-	}
+	return engine.Run(ctx)
 }
 
 // Stop ensures that the device agent stops reconciling during graceful shutdown.
@@ -135,14 +126,14 @@ func (a *Agent) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) error {
 	// to ensure that the agent is able correct for an invalid policy, it is reconciled first.
 	// the new policy will go into affect on the next sync.
-	if err := a.policyManager.Sync(ctx, desired); err != nil {
+	if err := a.policyManager.Sync(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("policy: %w", err)
 	}
 
-	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.RenderedVersion); err != nil {
+	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
 		return fmt.Errorf("download policy: %w", err)
 	}
 
@@ -154,7 +145,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStatePreparing),
-			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.RenderedVersion),
+			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
@@ -165,7 +156,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 		return fmt.Errorf("before update: %w", err)
 	}
 
-	if err := a.specManager.CheckPolicy(ctx, policy.Update, desired.RenderedVersion); err != nil {
+	if err := a.specManager.CheckPolicy(ctx, policy.Update, desired.Version()); err != nil {
 		return fmt.Errorf("update policy: %w", err)
 	}
 
@@ -177,7 +168,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStateReadyToUpdate),
-			Message: fmt.Sprintf("The device is ready to apply update to renderedVersion: %s", desired.RenderedVersion),
+			Message: fmt.Sprintf("The device is ready to apply update to renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
@@ -189,14 +180,14 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.RenderedDev
 		return fmt.Errorf("sync device: %w", err)
 	}
 
-	if err := a.afterUpdate(ctx, current, desired); err != nil {
+	if err := a.afterUpdate(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("after update: %w", err)
 	}
 
 	return nil
 }
 
-func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error) {
+func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	startTime := time.Now()
 	a.log.Debug("Starting sync of device spec")
 	defer func() {
@@ -214,52 +205,83 @@ func (a *Agent) syncSpec(ctx context.Context, syncFn func(ctx context.Context, d
 		return
 	}
 
-	if err := syncFn(ctx, desired); err != nil {
-		// if context is canceled return to exit the sync loop
-		if errors.Is(err, context.Canceled) {
-			return
-		}
-		a.handleSyncError(ctx, desired, err)
+	current, err := a.specManager.Read(spec.Current)
+	if err != nil {
+		a.log.Errorf("Failed to get current spec: %v", err)
 		return
 	}
 
-	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-		Status: v1alpha1.DeviceSummaryStatusOnline,
-		Info:   nil,
-	}))
-	if updateErr != nil {
-		a.log.Errorf("Updating device status: %v", updateErr)
-	}
-}
+	if syncErr := a.sync(ctx, current, desired); syncErr != nil {
+		// if context is canceled return to exit the sync loop
+		if errors.Is(syncErr, context.Canceled) {
+			return
+		}
 
-func (a *Agent) syncSpecFn(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	current, err := a.specManager.Read(spec.Current)
-	if err != nil {
-		return err
-	}
+		if !a.specManager.IsUpgrading() {
+			a.log.Errorf("Steady state is no longer in sync: %v", syncErr)
+			return
+		}
 
-	if err := a.sync(ctx, current, desired); err != nil {
-		return err
+		if !errors.IsRetryable(syncErr) {
+			a.log.Errorf("Marking template version %v as failed: %v", desired.Version(), syncErr)
+			if err := a.specManager.SetUpgradeFailed(desired.Version()); err != nil {
+				a.log.Errorf("Failed to set upgrade failed: %v", err)
+			}
+		}
+
+		if err := a.rollbackDevice(ctx, current, desired); err != nil {
+			a.log.Warnf("Rollback did not complete cleanly: %v", err)
+			return
+		}
+
+		a.handleSyncError(ctx, desired, syncErr)
+		return
 	}
 
 	// reconciliation is a success, upgrade the current spec
 	if err := a.specManager.Upgrade(ctx); err != nil {
-		return err
+		a.log.Errorf("Failed to upgrade spec: %v", err)
+		return
 	}
 
 	if err := a.updatedStatus(ctx, desired); err != nil {
 		a.log.Warnf("Failed updating status: %v", err)
 	}
+}
 
+func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.Device) error {
+	a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
+	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceUpdating,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.UpdateStateRollingBack),
+		Message: "The device is rolling back to the previous renderedVersion: " + current.Version(),
+	})
+	if updateErr != nil {
+		a.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
+	if err := a.specManager.Rollback(ctx); err != nil {
+		return err
+	}
+
+	// note: we are explicitly reversing the order of the current and desired to
+	// ensure a clean rollback state.
+	if err := a.sync(ctx, desired, current); err != nil {
+		// log error and continue to ensure the device is in a consistent state
+		a.log.Errorf("Failed to sync rollback spec: %v", err)
+	}
+
+	a.log.Warnf("Rolled back to previous renderedVersion: %s", current.Version())
 	return nil
 }
 
-func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.Device) error {
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.DeviceUpdating,
 		Status:  v1alpha1.ConditionStatusFalse,
 		Reason:  string(v1alpha1.UpdateStateUpdated),
-		Message: fmt.Sprintf("Updated to desired renderedVersion: %s", desired.RenderedVersion),
+		Message: fmt.Sprintf("Updated to desired renderedVersion: %s", desired.Version()),
 	})
 	if updateErr != nil {
 		a.log.Warnf("Failed setting status: %v", updateErr)
@@ -267,19 +289,19 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDev
 
 	updateFns := []status.UpdateStatusFn{
 		status.SetConfig(v1alpha1.DeviceConfigStatus{
-			RenderedVersion: desired.RenderedVersion,
+			RenderedVersion: desired.Version(),
 		}),
 	}
 
-	if desired.Os != nil {
-		bootcStatus, err := a.bootcClient.Status(ctx)
+	if desired.Spec.Os != nil {
+		osStatus, err := a.osClient.Status(ctx)
 		if err != nil {
 			return err
 		}
 
 		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOsStatus{
-			Image:       desired.Os.Image,
-			ImageDigest: bootcStatus.GetBootedImageDigest(),
+			Image:       desired.Spec.Os.Image,
+			ImageDigest: osStatus.GetBootedImageDigest(),
 		}))
 	}
 
@@ -291,7 +313,7 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.RenderedDev
 	return nil
 }
 
-func (a *Agent) pushStatus(ctx context.Context) {
+func (a *Agent) statusUpdate(ctx context.Context) {
 	startTime := time.Now()
 	a.log.Debug("Started collecting device status")
 	defer func() {
@@ -312,105 +334,62 @@ func (a *Agent) pushStatus(ctx context.Context) {
 	}
 }
 
-func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Device) error {
 	if a.specManager.IsOSUpdate() {
-		if err := a.osManager.BeforeUpdate(ctx, current, desired); err != nil {
+		if err := a.osManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
 			return fmt.Errorf("os: %w", err)
 		}
 	}
 
-	if err := a.beforeUpdateApplications(ctx, current, desired); err != nil {
+	if err := a.appManager.BeforeUpdate(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("applications: %w", err)
 	}
 
-	if err := a.hookManager.OnBeforeUpdating(ctx, current, desired); err != nil {
+	if err := a.hookManager.OnBeforeUpdating(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("hooks: %w", err)
 	}
 
 	return nil
 }
 
-func (a *Agent) beforeUpdateApplications(ctx context.Context, _, desired *v1alpha1.RenderedDeviceSpec) error {
-	if desired.Applications == nil {
-		a.log.Debug("No applications to pre-check")
-		return nil
-	}
-	a.log.Debug("Pre-checking applications dependencies")
-	defer a.log.Debug("Finished pre-checking application dependencies")
-
-	// ensure dependencies for image based application manifests
-	imageProviders, err := applications.ImageProvidersFromSpec(desired)
-	if err != nil {
-		return fmt.Errorf("%w: parsing image providers: %w", errors.ErrNoRetry, err)
-	}
-
-	for _, imageProvider := range imageProviders {
-		// pull the image if it does not exist. it is possible that the image
-		// tag such as latest in which case it will be pulled later. but we
-		// don't want to require calling out the network on every sync.
-		if a.podmanClient.ImageExists(ctx, imageProvider.Image) {
-			a.log.Debugf("Image %q already exists", imageProvider.Image)
-			continue
-		}
-
-		providerImage := imageProvider.Image
-		resp, err := a.podmanClient.Pull(ctx, providerImage, client.WithRetry())
-		if err != nil {
-			a.log.Warnf("Failed to pull image %q: %v", providerImage, err)
-			return err
-		}
-		a.log.Debugf("Pulled image %q: %s", providerImage, resp)
-
-		addType, err := applications.TypeFromImage(ctx, a.podmanClient, providerImage)
-		if err != nil {
-			return fmt.Errorf("%w: getting application type: %w", errors.ErrNoRetry, err)
-		}
-		if err := applications.EnsureDependenciesFromType(addType); err != nil {
-			return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
-		}
-	}
-
-	return nil
-}
-
-func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Device) error {
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 			Type:    v1alpha1.DeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStateApplyingUpdate),
-			Message: fmt.Sprintf("The device is applying renderedVersion: %s", desired.RenderedVersion),
+			Message: fmt.Sprintf("The device is applying renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
 		}
 	}
 
-	if err := a.consoleController.Sync(ctx, desired); err != nil {
+	if err := a.consoleController.Sync(ctx, desired.Spec); err != nil {
 		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
 
-	if err := a.applicationsController.Sync(ctx, current, desired); err != nil {
+	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("applications: %w", err)
 	}
 
-	if err := a.hookManager.Sync(current, desired); err != nil {
+	if err := a.hookManager.Sync(current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("hooks: %w", err)
 	}
 
-	if err := a.configController.Sync(ctx, current, desired); err != nil {
+	if err := a.configController.Sync(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	if err := a.resourceController.Sync(ctx, desired); err != nil {
+	if err := a.resourceController.Sync(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("resources: %w", err)
 	}
 
-	if err := a.systemdControllerSync(ctx, desired); err != nil {
+	if err := a.systemdControllerSync(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("systemd: %w", err)
 	}
 
-	if err := a.lifecycleManager.Sync(ctx, current, desired); err != nil {
+	if err := a.lifecycleManager.Sync(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("lifecycle: %w", err)
 	}
 
@@ -420,10 +399,10 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Rende
 	return nil
 }
 
-func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.DeviceSpec) error {
 	var matchPatterns []string
 	if desired.Systemd != nil {
-		matchPatterns = util.FromPtr(desired.Systemd.MatchPatterns)
+		matchPatterns = lo.FromPtr(desired.Systemd.MatchPatterns)
 	}
 
 	if err := a.systemdManager.EnsurePatterns(matchPatterns); err != nil {
@@ -433,7 +412,7 @@ func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.Rende
 	return nil
 }
 
-func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	a.log.Debug("Executing after update actions")
 	defer a.log.Debug("Finished executing after update actions")
 
@@ -476,7 +455,7 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.Rend
 	return nil
 }
 
-func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	if desired.Os == nil {
 		a.log.Debug("No OS image to update")
 		return nil
@@ -503,7 +482,7 @@ func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.RenderedDev
 	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", image)
 	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
 		Status: v1alpha1.DeviceSummaryStatusRebooting,
-		Info:   util.StrToPtr(infoMsg),
+		Info:   lo.ToPtr(infoMsg),
 	}))
 	if updateErr != nil {
 		a.log.Warnf("Failed setting status: %v", updateErr)
@@ -522,33 +501,29 @@ func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.RenderedDev
 	return a.osManager.Reboot(ctx, desired)
 }
 
-func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec, syncErr error) {
-	version := desired.RenderedVersion
+func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, syncErr error) {
+	version := desired.Version()
 	statusUpdate := v1alpha1.DeviceSummaryStatus{}
 	conditionUpdate := v1alpha1.Condition{
 		Type: v1alpha1.DeviceUpdating,
 	}
 
 	if !errors.IsRetryable(syncErr) {
-		a.log.Errorf("Marking template version %v as failed: %v", version, syncErr)
-
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusError
-		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
+		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
 
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
-
-		a.specManager.SetUpgradeFailed()
-		a.log.Error(util.FromPtr(statusUpdate.Info))
+		a.log.Error(lo.FromPtr(statusUpdate.Info))
 	} else {
 		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
-		statusUpdate.Info = util.StrToPtr(fmt.Sprintf("Failed to sync device: %v", syncErr))
+		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Failed to sync device: Retrying: %v", syncErr))
 
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateApplyingUpdate)
 		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)
 		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
-		a.log.Warn(util.FromPtr(statusUpdate.Info))
+		a.log.Warn(lo.FromPtr(statusUpdate.Info))
 	}
 
 	if _, err := a.statusManager.Update(ctx, status.SetDeviceSummary(statusUpdate)); err != nil {

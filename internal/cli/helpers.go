@@ -89,7 +89,7 @@ func fullname(kind string) string {
 
 func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCode int) error {
 	if statusCode != expectedStatusCode {
-		var responseError api.Error
+		var responseError api.Status
 		err := json.Unmarshal(responseBody, &responseError)
 		if err != nil {
 			return err
@@ -140,4 +140,8 @@ func responseField[T any](response interface{}, name string) (T, error) {
 	}
 
 	return fieldValue, nil
+}
+
+func strIsEmpty(str string) bool {
+	return len(str) == 0
 }

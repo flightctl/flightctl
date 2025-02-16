@@ -1,0 +1,71 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.21 as builder
+WORKDIR /app
+COPY ./api api
+COPY ./cmd cmd
+COPY ./deploy deploy
+COPY ./hack hack
+COPY ./internal internal
+COPY ./go.* ./
+COPY ./pkg pkg
+COPY ./test test
+COPY ./Makefile .
+# make sure that version extraction works
+COPY .git .git
+
+USER 0
+RUN make multiarch-build-cli
+
+FROM registry.access.redhat.com/ubi9/ubi as certs
+RUN dnf install --nodocs -y nginx && dnf clean all
+
+
+ENV USER_UID=1001 \
+    USER_NAME=server \
+    HOME=/home/server \
+    NGINX_CONF_PATH=/etc/nginx/nginx.conf
+
+COPY packaging/containers/cli-artifacts/nginx.conf ${NGINX_CONF_PATH}
+
+USER root
+
+RUN mkdir -p ${HOME} && \
+    chown ${USER_UID}:0 ${HOME} && \
+    chmod ug+rwx ${HOME} && \
+    sed '/^\s*listen\s*\[::\]:8080/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv4 && \
+    sed '/^\s*listen\s*8080/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv6 && \
+    chmod a+rwx ${NGINX_CONF_PATH} && \
+    chmod a+rwx ${NGINX_CONF_PATH}.ipv* && \
+    chmod -R a+rwx /var/lib/nginx && \
+    chown -R ${USER_UID}:0 /root && \
+    chown -R ${USER_UID}:0 /var/lib/nginx && \
+    chmod -R a+rwx /var/log/nginx && \
+    chown -R ${USER_UID}:0 /var/log/nginx && \
+    chmod -R a+rwx /var/run && \
+    chown -R ${USER_UID}:0 /var/run
+
+USER ${USER_UID}
+
+WORKDIR ${HOME}/src
+
+COPY --from=builder /app/bin/clis/archives/ ./
+
+LABEL io.k8s.display-name="Flight Control CLI multiarch artifacts with server" \
+      io.k8s.description="Flight Control is a service for declarative management of fleets of edge devices and their workloads." \
+      io.openshift.tags="flightctl,cli-artifacts"
+
+
+EXPOSE 8080
+
+ENTRYPOINT if [[ -d "/proc/sys/net/ipv4" && -d "/proc/sys/net/ipv6" ]]; \
+    then \
+    nginx -g "daemon off;"; \
+    elif [[ -d "/proc/sys/net/ipv4" ]]; \
+    then \
+    nginx -c /etc/nginx/nginx.conf.ipv4 -g "daemon off;"; \
+    elif [[ -d "/proc/sys/net/ipv6" ]]; \
+    then \
+    nginx -c /etc/nginx/nginx.conf.ipv6 -g "daemon off;"; \
+    else \
+    echo "unable to identify IP configuration"; \
+    exit -1; \
+    fi

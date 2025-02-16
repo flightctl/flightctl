@@ -2,7 +2,6 @@ package os
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -12,49 +11,49 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-type Manager interface {
-	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error
-	AfterUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
-	Reboot(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
+type Client interface {
+	// Status retrieves the current OS status.
+	Status(ctx context.Context) (*Status, error)
+	// Switch prepares the system to switch to the specified OS image.
+	Switch(ctx context.Context, image string) error
+	// Apply applies the OS changes, potentially triggering a reboot.
+	Apply(ctx context.Context) error
+}
 
+type Manager interface {
+	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error
+	AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error
 	status.Exporter
 }
 
-func NewManager(log *log.PrefixLogger, bootcClient container.BootcClient, podmanClient *client.Podman) Manager {
+// NewManager creates a new os manager.
+func NewManager(log *log.PrefixLogger, client Client, podmanClient *client.Podman) Manager {
 	return &manager{
-		bootcClient:  bootcClient,
+		client:       client,
 		podmanClient: podmanClient,
 		log:          log,
 	}
 }
 
 type manager struct {
-	bootcClient  container.BootcClient
+	client       Client
 	podmanClient *client.Podman
 	log          *log.PrefixLogger
 }
 
-func (m *manager) Initialize() error {
-	return nil
-}
-
 func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	bootcInfo, err := m.bootcClient.Status(ctx)
+	bootcInfo, err := m.client.Status(ctx)
 	if err != nil {
 		return err
 	}
 
-	osImage := bootcInfo.GetBootedImage()
-	if osImage == "" {
-		return fmt.Errorf("getting booted os image: %w", err)
-	}
-
-	status.Os.Image = osImage
+	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
 	return nil
 }
 
-func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
 	}
@@ -72,14 +71,18 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.R
 	return nil
 }
 
-func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
 	}
 	osImage := desired.Os.Image
-	return m.bootcClient.Switch(ctx, osImage)
+	return m.client.Switch(ctx, osImage)
 }
 
-func (m *manager) Reboot(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	return m.bootcClient.Apply(ctx)
+func (m *manager) Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+	return m.client.Apply(ctx)
+}
+
+type Status struct {
+	container.BootcHost
 }

@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 type MonitorType string
@@ -135,36 +137,69 @@ func (m *ResourceManager) ResetAlertDefaults() error {
 	return nil
 }
 
+// Status returns the device status based on the resource monitors and for the device summary.
 func (m *ResourceManager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
 	alerts := m.Alerts()
-	errs := []error{}
 
-	// disk
-	diskStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(DiskMonitorType, alerts.DiskUsage)
-	if alertMsg != "" {
-		errs = append(errs, errors.New(alertMsg))
+	hasCriticalOrErrorResource := false
+	hasDegradedResource := false
+	criticalResourceTypes := []string{}
+	degradedResourceTypes := []string{}
+
+	// define monitor types and alerts
+	resourceMonitors := map[string]struct {
+		alerts      []v1alpha1.ResourceAlertRule
+		setStatusFn func(v1alpha1.DeviceResourceStatusType)
+	}{
+		DiskMonitorType: {
+			alerts: alerts.DiskUsage,
+			setStatusFn: func(resourceStatus v1alpha1.DeviceResourceStatusType) {
+				status.Resources.Disk = resourceStatus
+			},
+		},
+		CPUMonitorType: {
+			alerts: alerts.CPUUsage,
+			setStatusFn: func(resourceStatus v1alpha1.DeviceResourceStatusType) {
+				status.Resources.Cpu = resourceStatus
+			},
+		},
+		MemoryMonitorType: {
+			alerts: alerts.MemoryUsage,
+			setStatusFn: func(resourceStatus v1alpha1.DeviceResourceStatusType) {
+				status.Resources.Memory = resourceStatus
+			},
+		},
 	}
-	status.Resources.Disk = diskStatus
 
-	// cpu
-	cpuStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(CPUMonitorType, alerts.CPUUsage)
-	if alertMsg != "" {
-		errs = append(errs, errors.New(alertMsg))
+	// set the status for each monitor type
+	for monitorType, monitor := range resourceMonitors {
+		resourceStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(monitorType, monitor.alerts)
+		if alertMsg != "" {
+			m.log.Warn(alertMsg)
+		}
+
+		switch resourceStatus {
+		case v1alpha1.DeviceResourceStatusCritical, v1alpha1.DeviceResourceStatusError:
+			hasCriticalOrErrorResource = true
+			criticalResourceTypes = append(criticalResourceTypes, monitorType)
+		case v1alpha1.DeviceResourceStatusWarning:
+			hasDegradedResource = true
+			degradedResourceTypes = append(degradedResourceTypes, monitorType)
+		}
+
+		monitor.setStatusFn(resourceStatus)
 	}
-	status.Resources.Cpu = cpuStatus
 
-	// memory
-	memoryStatus, alertMsg := getHighestSeverityResourceStatusFromAlerts(MemoryMonitorType, alerts.MemoryUsage)
-	if alertMsg != "" {
-		errs = append(errs, errors.New(alertMsg))
-	}
-	status.Resources.Memory = memoryStatus
-
-	// the alertMsg is a message that gets bubbled up to the summary.info status field
-	// if an alert is present.  these messages are not errors specifically but
-	// for now the presence of an error sets the device status to degraded.
-	if len(errs) > 0 {
-		return errors.Join(errs...)
+	// ensure status proper reflects in the device summary
+	if hasCriticalOrErrorResource {
+		status.Summary.Status = v1alpha1.DeviceSummaryStatusError
+		status.Summary.Info = lo.ToPtr(fmt.Sprintf("Critical resource alert: %s", strings.Join(criticalResourceTypes, ", ")))
+	} else if hasDegradedResource {
+		status.Summary.Status = v1alpha1.DeviceSummaryStatusDegraded
+		status.Summary.Info = lo.ToPtr(fmt.Sprintf("Degraded resource alert: %s", strings.Join(degradedResourceTypes, ", ")))
+	} else {
+		status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
+		status.Summary.Info = nil
 	}
 
 	return nil

@@ -102,8 +102,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		Steps:    6,
 	}
 
-	// create bootc client
-	bootcClient := client.NewBootc(a.log, executer)
+	// create os client
+	osClient := os.NewClient(a.log, executer)
 
 	// create podman client
 	podmanClient := client.NewPodman(a.log, executer, backoff)
@@ -128,7 +128,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.DataDir,
 		policyManager,
 		deviceReadWriter,
-		bootcClient,
+		osClient,
 		backoff,
 		a.log,
 	)
@@ -142,7 +142,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
 	// create application manager
-	applicationManager := applications.NewManager(a.log, executer, podmanClient, systemClient)
+	applicationManager := applications.NewManager(
+		a.log,
+		deviceReadWriter,
+		executer,
+		podmanClient,
+		systemClient,
+	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationManager.Stop)
@@ -151,7 +157,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	systemdManager := systemd.NewManager(a.log, systemdClient)
 
 	// create os manager
-	osManager := os.NewManager(a.log, bootcClient, podmanClient)
+	osManager := os.NewManager(a.log, osClient, podmanClient)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -165,10 +171,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceName,
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		a.config.ManagementService.GetClientCertificatePath(),
+		a.config.ManagementService.GetClientKeyPath(),
 		deviceReadWriter,
 		enrollmentClient,
 		csr,
 		a.config.DefaultLabels,
+		statusManager,
+		systemdClient,
 		backoff,
 		a.log,
 	)
@@ -249,7 +258,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		configController,
 		resourceController,
 		consoleController,
-		bootcClient,
+		osClient,
 		podmanClient,
 		backoff,
 		a.log,

@@ -11,7 +11,6 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -140,13 +139,13 @@ var _ = Describe("Device Agent behavior", func() {
 				dev := enrollAndWaitForDevice(h, approval)
 
 				waitForFile("/var/lib/flightctl/certs/agent.crt", *dev.Metadata.Name, h.TestDirPath, nil, nil)
-				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This system is managed by flightctl."), util.IntToPtr(0o0600))
-				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This text is encoded."), util.IntToPtr(0o1775))
+				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, lo.ToPtr("This system is managed by flightctl."), lo.ToPtr(0o0600))
+				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, lo.ToPtr("This text is encoded."), lo.ToPtr(0o1775))
 
 				for key, value := range secrets {
 					value := value
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
-					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, util.IntToPtr(0644))
+					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, lo.ToPtr(0644))
 				}
 			})
 		})
@@ -174,6 +173,13 @@ var _ = Describe("Device Agent behavior", func() {
 	})
 })
 
+func assertRestResponse(expectedCode int, resp *http.Response, body []byte) {
+	if resp.StatusCode != expectedCode {
+		fmt.Printf("REST call returned %d: %s\n", resp.StatusCode, body)
+	}
+	Expect(resp.StatusCode).To(Equal(expectedCode))
+}
+
 func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.EnrollmentRequestApproval) *v1alpha1.Device {
 	deviceName := ""
 	Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
@@ -182,19 +188,22 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.Enrollmen
 	// verify that the device is created
 	dev, err := h.Client.ReadDeviceWithResponse(h.Context, deviceName)
 	Expect(err).ToNot(HaveOccurred())
+	assertRestResponse(200, dev.HTTPResponse, dev.Body)
 	return dev.JSON200
 }
 
 func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
 	Expect(approval).NotTo(BeNil())
 	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
-	_, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, deviceName, *approval)
+	resp, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, deviceName, *approval)
 	Expect(err).ToNot(HaveOccurred())
+	assertRestResponse(200, resp.HTTPResponse, resp.Body)
 }
 
 func getEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
 	listResp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1alpha1.ListEnrollmentRequestsParams{})
 	Expect(err).ToNot(HaveOccurred())
+	assertRestResponse(200, listResp.HTTPResponse, listResp.Body)
 
 	if len(listResp.JSON200.Items) == 0 {
 		return false
@@ -249,10 +258,6 @@ func waitForFile(path, devName, testDirPath string, contents *string, mode *int)
 		filemode, err := safecast.ToUint32(*mode)
 		Expect(err).To(BeNil())
 		Expect(fileInfo.Mode().Perm()).To(Equal(os.FileMode(filemode).Perm()))
-		fmt.Printf("FILE: %s, MODE: %d\n", path, *mode)
-		fmt.Printf("MODE1: %d\n", *mode&0o1000)
-		fmt.Printf("MODE2: %d\n", *mode&0o2000)
-		fmt.Printf("MODE4: %d\n", *mode&0o4000)
 		if *mode&0o1000 != 0 {
 			Expect(fileInfo.Mode() & os.ModeSticky).ToNot(Equal(0))
 		}

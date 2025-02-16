@@ -10,12 +10,13 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,14 +24,14 @@ func createEnrollmentRequests(numEnrollmentRequests int, ctx context.Context, st
 	for i := 1; i <= numEnrollmentRequests; i++ {
 		resource := api.EnrollmentRequest{
 			Metadata: api.ObjectMeta{
-				Name:   util.StrToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
+				Name:   lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
 				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
 			},
 			Spec: api.EnrollmentRequestSpec{
 				Csr: "csr string",
 			},
 			Status: &api.EnrollmentRequestStatus{
-				Certificate: util.StrToPtr("cert"),
+				Certificate: lo.ToPtr("cert"),
 			},
 		}
 
@@ -163,7 +164,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		It("List with paging", func() {
 			listParams := store.ListParams{
 				Limit:         1000,
-				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"}, false)}
+				LabelSelector: selector.NewLabelSelectorFromMapOrDie(map[string]string{"key": "value-1"})}
 			enrollmentrequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(enrollmentrequests.Items)).To(Equal(1))
@@ -173,7 +174,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		It("CreateOrUpdateEnrollmentRequest create mode", func() {
 			enrollmentrequest := api.EnrollmentRequest{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("newresourcename"),
+					Name: lo.ToPtr("newresourcename"),
 				},
 				Spec: api.EnrollmentRequestSpec{
 					Csr: "csr string",
@@ -183,7 +184,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
-			Expect(er.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(er.Spec.Csr).To(Equal("csr string"))
 			Expect(er.Status.Conditions).ToNot(BeNil())
@@ -193,25 +194,25 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		It("CreateOrUpdateEnrollmentRequest update mode", func() {
 			enrollmentrequest := api.EnrollmentRequest{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("myenrollmentrequest-1"),
+					Name: lo.ToPtr("myenrollmentrequest-1"),
 				},
 				Spec: api.EnrollmentRequestSpec{
 					Csr: "new csr string",
 				},
 				Status: &api.EnrollmentRequestStatus{
-					Certificate: util.StrToPtr("bogus-cert"),
+					Certificate: lo.ToPtr("bogus-cert"),
 				},
 			}
 			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
-			Expect(er.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(er.Spec.Csr).To(Equal("new csr string"))
 
 			er, err = storeInst.EnrollmentRequest().Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(er.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
+			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(er.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(er.Spec.Csr).To(Equal("new csr string"))
 			Expect(er.Status.Certificate).ToNot(BeNil())
@@ -228,7 +229,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			}
 			enrollmentrequest := api.EnrollmentRequest{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("myenrollmentrequest-1"),
+					Name: lo.ToPtr("myenrollmentrequest-1"),
 				},
 				Spec: api.EnrollmentRequestSpec{
 					Csr: "different csr string",
@@ -241,7 +242,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := storeInst.EnrollmentRequest().Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(dev.ApiVersion).To(Equal(api.EnrollmentRequestAPIVersion))
+			Expect(dev.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
 			Expect(dev.Kind).To(Equal(api.EnrollmentRequestKind))
 			Expect(dev.Spec.Csr).To(Equal("csr string"))
 			Expect(dev.Status.Conditions).ToNot(BeNil())

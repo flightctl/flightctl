@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -19,10 +20,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func resourceSyncParams(t *testing.T) (CallbackManager, store.Store, logrus.FieldLogger) {
+func resourceSyncParams(t *testing.T) (tasks_client.CallbackManager, store.Store, logrus.FieldLogger) {
 	ctrl := gomock.NewController(t)
 	l := flightlog.InitLogs()
-	return NewCallbackManager(queues.NewMockPublisher(ctrl), l), nil, l
+	return tasks_client.NewCallbackManager(queues.NewMockPublisher(ctrl), l), nil, l
 }
 
 func TestIsValidFile_invalid(t *testing.T) {
@@ -47,13 +48,13 @@ func TestFleetDelta(t *testing.T) {
 	ownedFleets := []api.Fleet{
 		{
 			Metadata: api.ObjectMeta{
-				Name:  util.StrToPtr("fleet-1"),
+				Name:  lo.ToPtr("fleet-1"),
 				Owner: owner,
 			},
 		},
 		{
 			Metadata: api.ObjectMeta{
-				Name:  util.StrToPtr("fleet-2"),
+				Name:  lo.ToPtr("fleet-2"),
 				Owner: owner,
 			},
 		},
@@ -76,7 +77,7 @@ func TestParseAndValidate_already_in_sync(t *testing.T) {
 
 	// Patch the status so we are already in sync
 	rs.Status.Data.ObservedCommit = &gitRepoCommit
-	rs.Status.Data.ObservedGeneration = util.Int64ToPtr(1)
+	rs.Status.Data.ObservedGeneration = lo.ToPtr(int64(1))
 
 	// Already in sync with hash
 	rm, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
@@ -249,8 +250,8 @@ func TestParseFleet_multiple(t *testing.T) {
 func testResourceSync() model.ResourceSync {
 	return model.ResourceSync{
 		Resource: model.Resource{
-			Generation: util.Int64ToPtr(1),
-			Name:       *util.StrToPtr("rs"),
+			Generation: lo.ToPtr(int64(1)),
+			Name:       *lo.ToPtr("rs"),
 		},
 		Spec: &model.JSONField[api.ResourceSyncSpec]{
 			Data: api.ResourceSyncSpec{

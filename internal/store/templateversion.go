@@ -2,42 +2,49 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
-	"errors"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type TemplateVersion interface {
-	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
-	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
-	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
-	GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
 	InitialMigration() error
+
+	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error)
+	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error)
+	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
+	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
+
+	GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error
 }
 
 type TemplateVersionStore struct {
-	db  *gorm.DB
-	log logrus.FieldLogger
+	db           *gorm.DB
+	log          logrus.FieldLogger
+	genericStore *GenericStore[*model.TemplateVersion, model.TemplateVersion, api.TemplateVersion, api.TemplateVersionList]
 }
 
-type TemplateVersionStoreCallback func(tv *model.TemplateVersion)
+type TemplateVersionStoreCallback func(uuid.UUID, *api.TemplateVersion, *api.TemplateVersion)
 
 // Make sure we conform to TemplateVersion interface
 var _ TemplateVersion = (*TemplateVersionStore)(nil)
 
 func NewTemplateVersion(db *gorm.DB, log logrus.FieldLogger) TemplateVersion {
-	return &TemplateVersionStore{db: db, log: log}
+	genericStore := NewGenericStore[*model.TemplateVersion, model.TemplateVersion, api.TemplateVersion, api.TemplateVersionList](
+		db,
+		log,
+		model.NewTemplateVersionFromApiResource,
+		(*model.TemplateVersion).ToApiResource,
+		model.TemplateVersionsToApiResource,
+	)
+	return &TemplateVersionStore{db: db, log: log, genericStore: genericStore}
 }
 
 func (s *TemplateVersionStore) InitialMigration() error {
@@ -75,75 +82,25 @@ func (s *TemplateVersionStore) InitialMigration() error {
 }
 
 func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error) {
-	if resource == nil {
-		return nil, flterrors.ErrResourceIsNil
-	}
+	return s.genericStore.Create(ctx, orgId, resource, callback)
+}
 
-	templateVersion, err := model.NewTemplateVersionFromApiResource(resource)
-	if err != nil {
-		return nil, err
+func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error) {
+	templateVersion := model.TemplateVersion{
+		OrgID:     orgId,
+		FleetName: fleet,
+		Name:      name,
 	}
-	templateVersion.OrgID = orgId
-	templateVersion.Generation = lo.ToPtr[int64](1)
-	templateVersion.ResourceVersion = lo.ToPtr[int64](1)
-
-	if err = s.db.Create(templateVersion).Error; err != nil {
-		return nil, ErrorFromGormError(err)
+	result := s.db.First(&templateVersion)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
 	}
-	callback(templateVersion)
-	return lo.ToPtr(templateVersion.ToApiResource()), err
+	apiTemplateVersion, _ := templateVersion.ToApiResource()
+	return apiTemplateVersion, nil
 }
 
 func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error) {
-	var templateVersions model.TemplateVersionList
-	var nextContinue *string
-	var numRemaining *int64
-
-	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitParamOutOfBounds
-	}
-
-	query, err := ListQuery(&templateVersions).Build(ctx, s.db, orgId, listParams)
-	if err != nil {
-		return nil, err
-	}
-
-	if listParams.Limit > 0 {
-		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
-	}
-	result := query.Find(&templateVersions)
-
-	// If we got more than the user requested, remove one record and calculate "continue"
-	if listParams.Limit > 0 && len(templateVersions) > listParams.Limit {
-		nextContinueStruct := Continue{
-			Name:    templateVersions[len(templateVersions)-1].Name,
-			Version: CurrentContinueVersion,
-		}
-		templateVersions = templateVersions[:len(templateVersions)-1]
-
-		var numRemainingVal int64
-		if listParams.Continue != nil {
-			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
-			if numRemainingVal < 1 {
-				numRemainingVal = 1
-			}
-		} else {
-			countQuery, err := ListQuery(&templateVersions).Build(ctx, s.db, orgId, listParams)
-			if err != nil {
-				return nil, err
-			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
-		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
-		nextContinue = &contStr
-		numRemaining = &numRemainingVal
-	}
-
-	apiTemplateVersionList := templateVersions.ToApiResource(nextContinue, numRemaining)
-	return &apiTemplateVersionList, ErrorFromGormError(result.Error)
+	return s.genericStore.List(ctx, orgId, listParams)
 }
 
 func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
@@ -152,8 +109,12 @@ func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, f
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
-	apiResource := templateVersion.ToApiResource()
-	return &apiResource, nil
+	apiResource, _ := templateVersion.ToApiResource()
+	return apiResource, nil
+}
+
+func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error {
+	return s.genericStore.Delete(ctx, model.TemplateVersion{OrgID: orgId, Name: name, FleetName: fleet}, nil)
 }
 
 func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error {
@@ -167,33 +128,6 @@ func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, f
 	}
 
 	result := whereQuery.Delete(&condition)
-	return ErrorFromGormError(result.Error)
-}
-
-func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error) {
-	templateVersion := model.TemplateVersion{
-		OrgID:     orgId,
-		FleetName: fleet,
-		Name:      name,
-	}
-	result := s.db.First(&templateVersion)
-	if result.Error != nil {
-		return nil, ErrorFromGormError(result.Error)
-	}
-	apiTemplateVersion := templateVersion.ToApiResource()
-	return &apiTemplateVersion, nil
-}
-
-func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error {
-	condition := model.TemplateVersion{
-		OrgID:     orgId,
-		FleetName: fleet,
-		Name:      name,
-	}
-	result := s.db.Unscoped().Delete(&condition)
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return nil
-	}
 	return ErrorFromGormError(result.Error)
 }
 
@@ -224,8 +158,9 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 		return ErrorFromGormError(result.Error)
 	}
 
-	if valid != nil && *valid {
-		callback(&templateVersion)
+	if valid != nil && *valid && callback != nil {
+		apiResource, _ := templateVersion.ToApiResource()
+		callback(orgId, nil, apiResource)
 	}
 	return nil
 }

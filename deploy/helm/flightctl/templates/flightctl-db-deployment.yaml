@@ -24,17 +24,32 @@ spec:
       containers:
         - env:
             - name: PGPASSWORD
-              value: {{ .Values.db.password }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: password
             - name: POSTGRESQL_DATABASE
               value: flightctl
             - name: POSTGRESQL_MASTER_PASSWORD
-              value: {{ .Values.db.masterPassword }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterPassword
             - name: POSTGRESQL_MASTER_USER
-              value: {{ .Values.db.masterUser }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterUser
             - name: POSTGRESQL_PASSWORD
-              value: {{ .Values.db.userPassword }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: userPassword
             - name: POSTGRESQL_USER
-              value: {{ .Values.db.user }}
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: user
             - name: POSTGRESQL_MAX_CONNECTIONS
               value: {{ .Values.db.maxConnections | quote }}
           image: {{ .Values.db.image.image }}:{{ .Values.db.image.tag }}
@@ -53,9 +68,6 @@ spec:
             requests:
               cpu: {{ .Values.db.resources.requests.cpu}}
               memory: {{ .Values.db.resources.requests.memory}}
-            limits:
-              cpu: {{ .Values.db.resources.limits.cpu}}
-              memory: {{ .Values.db.resources.limits.memory}}
       restartPolicy: Always
       volumes:
         - name: flightctl-db

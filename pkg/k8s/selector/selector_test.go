@@ -57,6 +57,10 @@ func TestSelectorParse(t *testing.T) {
 		"x>=1",
 		"x>=1,z<=5",
 		"x>=2024-10-24T10:00:00Z",
+		"(x,z)<(1,5)",
+		"(x,y)=(a,b)",
+		"(x,y)=(a,)",
+		"(x,y)=(,)",
 	}
 	testBadStrings := []string{
 		"x=a||y=b",
@@ -64,6 +68,11 @@ func TestSelectorParse(t *testing.T) {
 		"!x=a",
 		"x<a",
 		"x<2024-10-24T10:00:00",
+		"(x,y=(a,)",
+		"(x,y)=()",
+		"(x,y)=a",
+		"(x,y)=",
+		"(x)=(a",
 	}
 	for _, test := range testGoodStrings {
 		lq, err := Parse(test)
@@ -170,6 +179,26 @@ func TestSelectorMatches(t *testing.T) {
 	expectNoMatch(t, "foo=blah", labelset)
 	expectNoMatch(t, "baz=bar", labelset)
 	expectNoMatch(t, "foo=bar,foobar=bar,baz=blah", labelset)
+
+	// keyset
+	expectMatch(t, "(x,y) in ((z,w),(z1,w1))", k8sLabels.Set{"x": "z", "y": "w"})
+	expectMatch(t, "(x,y)", k8sLabels.Set{"x": "z", "y": "w"})
+	expectMatch(t, "!(x,y)", k8sLabels.Set{"x": "z", "yy": "w"})
+	expectNoMatch(t, "!x,!y", k8sLabels.Set{"x": "z", "yy": "w"})
+	expectMatch(t, "(x,y)=(z,w)", k8sLabels.Set{"x": "z", "y": "w"})
+	expectMatch(t, "(x)=(z)", k8sLabels.Set{"x": "z", "y": "w"})
+	expectMatch(t, "(x,y)!=(z,w)", k8sLabels.Set{"x": "z", "y": "ww"})
+	expectMatch(t, "(x,a)!=(z,w)", k8sLabels.Set{"x": "z", "y": "w"})
+	expectNoMatch(t, "x!=z,y!=w", k8sLabels.Set{"x": "z", "y": "ww"})
+	expectMatch(t, "(x,y) in ((z,w))", k8sLabels.Set{"x": "z", "y": "w"})
+	expectMatch(t, "(x,y) in ((z,w),(z1,w1))", k8sLabels.Set{"x": "z", "y": "w"})
+	expectMatch(t, "(x,y) notin ((z,w))", k8sLabels.Set{"x": "z", "y": "ww"})
+	expectMatch(t, "(x,y) notin ((z,w),(z1,w1))", k8sLabels.Set{"x": "z", "y": "w1"})
+	expectMatch(t, "(x,y) contains (z,w)", k8sLabels.Set{"x": "azb", "y": "awb"})
+	expectMatch(t, "(x,y) notcontains (z,w)", k8sLabels.Set{"x": "azb", "y": "aab"})
+	expectNoMatch(t, "x notcontains z, y notcontains w", k8sLabels.Set{"x": "azb", "y": "aab"})
+	expectMatch(t, "(x,y) < (3,2)", k8sLabels.Set{"x": "3", "y": "1"})
+	expectNoMatch(t, "x < 3, y < 2", k8sLabels.Set{"x": "3", "y": "1"})
 }
 
 func expectMatchDirect(t *testing.T, selector, ls k8sLabels.Set) {
@@ -382,7 +411,7 @@ func TestRequirementConstructor(t *testing.T) {
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    "values",
-					BadValue: []string{},
+					BadValue: makeTuples(),
 				},
 			},
 		},
@@ -394,7 +423,7 @@ func TestRequirementConstructor(t *testing.T) {
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    "values",
-					BadValue: []string{},
+					BadValue: makeTuples(),
 				},
 			},
 		},
@@ -416,7 +445,7 @@ func TestRequirementConstructor(t *testing.T) {
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    "values",
-					BadValue: []string{"bar", "foo"},
+					BadValue: makeTuples("bar", "foo"),
 				},
 			},
 		},
@@ -436,7 +465,7 @@ func TestRequirementConstructor(t *testing.T) {
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    "values",
-					BadValue: []string{"foo"},
+					BadValue: makeTuples("foo"),
 				},
 			},
 		},
@@ -467,7 +496,7 @@ func TestRequirementConstructor(t *testing.T) {
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    "values",
-					BadValue: []string{},
+					BadValue: makeTuples(),
 				},
 			},
 		},
@@ -551,7 +580,7 @@ func TestRequirementConstructor(t *testing.T) {
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    "values",
-					BadValue: []string{"bar", "foo"},
+					BadValue: makeTuples("bar", "foo"),
 				},
 			},
 		},
@@ -563,13 +592,17 @@ func TestRequirementConstructor(t *testing.T) {
 				&field.Error{
 					Type:     field.ErrorTypeInvalid,
 					Field:    "values",
-					BadValue: []string{"bar", "foo"},
+					BadValue: makeTuples("bar", "foo"),
 				},
 			},
 		},
 	}
 	for _, rc := range requirementConstructorTests {
-		_, err := NewRequirement(rc.Key, rc.Op, rc.Vals.List())
+		values := make([]Tuple, 0, rc.Vals.Len())
+		for _, v := range rc.Vals.List() {
+			values = append(values, tuple(v))
+		}
+		_, err := NewRequirement(tuple(rc.Key), rc.Op, values)
 		if diff := cmp.Diff(rc.WantErr.ToAggregate(), err, ignoreDetail); diff != "" {
 			t.Errorf("NewRequirement test %v returned unexpected error (-want,+got):\n%s", rc.Key, diff)
 		}
@@ -585,40 +618,52 @@ func TestToString(t *testing.T) {
 	}{
 
 		{&internalSelector{
-			getRequirement("x", selection.In, sets.NewString("abc", "def"), t),
-			getRequirement("y", selection.NotIn, sets.NewString("jkl"), t),
-			getRequirement("z", selection.Exists, nil, t)},
+			getRequirement(tuple("x"), selection.In, makeTuples("abc", "def"), t),
+			getRequirement(tuple("y"), selection.NotIn, makeTuples("jkl"), t),
+			getRequirement(tuple("z"), selection.Exists, nil, t)},
 			"x in (abc,def),y notin (jkl),z", true},
 		{&internalSelector{
-			getRequirement("x", selection.NotIn, sets.NewString("abc", "def"), t),
-			getRequirement("y", selection.NotEquals, sets.NewString("jkl"), t),
-			getRequirement("z", selection.DoesNotExist, nil, t)},
+			getRequirement(tuple("x"), selection.NotIn, makeTuples("abc", "def"), t),
+			getRequirement(tuple("y"), selection.NotEquals, makeTuples("jkl"), t),
+			getRequirement(tuple("z"), selection.DoesNotExist, nil, t)},
 			"x notin (abc,def),y!=jkl,!z", true},
 		{&internalSelector{
-			getRequirement("x", selection.In, sets.NewString("abc", "def"), t),
+			getRequirement(tuple("x"), selection.In, makeTuples("abc", "def"), t),
 			req}, // adding empty req for the trailing ','
 			"x in (abc,def),", false},
 		{&internalSelector{
-			getRequirement("x", selection.NotIn, sets.NewString("abc"), t),
-			getRequirement("y", selection.In, sets.NewString("jkl", "mno"), t),
-			getRequirement("z", selection.NotIn, sets.NewString(""), t)},
+			getRequirement(tuple("x"), selection.NotIn, makeTuples("abc"), t),
+			getRequirement(tuple("y"), selection.In, makeTuples("jkl", "mno"), t),
+			getRequirement(tuple("z"), selection.NotIn, makeTuples(""), t)},
 			"x notin (abc),y in (jkl,mno),z notin ()", true},
 		{&internalSelector{
-			getRequirement("x", selection.Equals, sets.NewString("abc"), t),
-			getRequirement("y", selection.DoubleEquals, sets.NewString("jkl"), t),
-			getRequirement("z", selection.NotEquals, sets.NewString("a"), t),
-			getRequirement("z", selection.Exists, nil, t)},
+			getRequirement(tuple("x"), selection.Equals, makeTuples("abc"), t),
+			getRequirement(tuple("y"), selection.DoubleEquals, makeTuples("jkl"), t),
+			getRequirement(tuple("z"), selection.NotEquals, makeTuples("a"), t),
+			getRequirement(tuple("z"), selection.Exists, nil, t)},
 			"x=abc,y==jkl,z!=a,z", true},
 		{&internalSelector{
-			getRequirement("x", selection.GreaterThan, sets.NewString("2"), t),
-			getRequirement("y", selection.LessThan, sets.NewString("8"), t),
-			getRequirement("z", selection.Exists, nil, t)},
+			getRequirement(tuple("x"), selection.GreaterThan, makeTuples("2"), t),
+			getRequirement(tuple("y"), selection.LessThan, makeTuples("8"), t),
+			getRequirement(tuple("z"), selection.Exists, nil, t)},
 			"x>2,y<8,z", true},
 		{&internalSelector{
-			getRequirement("x", selection.Contains, sets.NewString("2"), t),
-			getRequirement("y", selection.NotContains, sets.NewString("8"), t),
-			getRequirement("z", selection.Exists, nil, t)},
+			getRequirement(tuple("x"), selection.Contains, makeTuples("2"), t),
+			getRequirement(tuple("y"), selection.NotContains, makeTuples("8"), t),
+			getRequirement(tuple("z"), selection.Exists, nil, t)},
 			"x contains 2,y notcontains 8,z", true},
+		{&internalSelector{
+			getRequirement(tuple("x"), selection.Equals, makeTuples("2"), t),
+			getRequirement(tuple("y"), selection.NotContains, makeTuples("8"), t),
+			getRequirement(tuple("z", "w"), selection.Exists, nil, t)},
+			"x=2,y notcontains 8,(z,w)", true},
+		{&internalSelector{
+			getRequirement(tuple("x", "y"), selection.Equals, []Tuple{tuple("2", "8")}, t),
+			getRequirement(tuple("z", "w"), selection.DoesNotExist, nil, t)},
+			"(x,y)=(2,8),!(z,w)", true},
+		{&internalSelector{
+			getRequirement(tuple("x", "y"), selection.In, []Tuple{tuple("2", "8"), tuple("3", "9")}, t)},
+			"(x,y) in ((2,8),(3,9))", true},
 	}
 	for _, ts := range toStringTests {
 		if out := ts.In.String(); out == "" && ts.Valid {
@@ -640,33 +685,39 @@ func TestRequirementSelectorMatching(t *testing.T) {
 			req,
 		}, false},
 		{k8sLabels.Set{"x": "foo", "y": "baz"}, &internalSelector{
-			getRequirement("x", selection.In, sets.NewString("foo"), t),
-			getRequirement("y", selection.NotIn, sets.NewString("alpha"), t),
+			getRequirement(tuple("x"), selection.In, makeTuples("foo"), t),
+			getRequirement(tuple("y"), selection.NotIn, makeTuples("alpha"), t),
 		}, true},
 		{k8sLabels.Set{"x": "foo", "y": "baz"}, &internalSelector{
-			getRequirement("x", selection.In, sets.NewString("foo"), t),
-			getRequirement("y", selection.In, sets.NewString("alpha"), t),
+			getRequirement(tuple("x"), selection.In, makeTuples("foo"), t),
+			getRequirement(tuple("y"), selection.In, makeTuples("alpha"), t),
 		}, false},
 		{k8sLabels.Set{"y": ""}, &internalSelector{
-			getRequirement("x", selection.NotIn, sets.NewString(""), t),
-			getRequirement("y", selection.Exists, nil, t),
+			getRequirement(tuple("x"), selection.NotIn, makeTuples(""), t),
+			getRequirement(tuple("y"), selection.Exists, nil, t),
 		}, true},
 		{k8sLabels.Set{"y": ""}, &internalSelector{
-			getRequirement("x", selection.DoesNotExist, nil, t),
-			getRequirement("y", selection.Exists, nil, t),
+			getRequirement(tuple("x"), selection.DoesNotExist, nil, t),
+			getRequirement(tuple("y"), selection.Exists, nil, t),
 		}, true},
 		{k8sLabels.Set{"y": ""}, &internalSelector{
-			getRequirement("x", selection.NotIn, sets.NewString(""), t),
-			getRequirement("y", selection.DoesNotExist, nil, t),
+			getRequirement(tuple("x"), selection.NotIn, makeTuples(""), t),
+			getRequirement(tuple("y"), selection.DoesNotExist, nil, t),
 		}, false},
 		{k8sLabels.Set{"y": "baz"}, &internalSelector{
-			getRequirement("x", selection.In, sets.NewString(""), t),
+			getRequirement(tuple("x"), selection.In, makeTuples(""), t),
 		}, false},
 		{k8sLabels.Set{"z": "2"}, &internalSelector{
-			getRequirement("z", selection.GreaterThan, sets.NewString("1"), t),
+			getRequirement(tuple("z"), selection.GreaterThan, makeTuples("1"), t),
 		}, true},
 		{k8sLabels.Set{"z": "v2"}, &internalSelector{
-			getRequirement("z", selection.GreaterThan, sets.NewString("1"), t),
+			getRequirement(tuple("z"), selection.GreaterThan, makeTuples("1"), t),
+		}, false},
+		{k8sLabels.Set{"x": "v1", "y": "v2"}, &internalSelector{
+			getRequirement(tuple("x", "y"), selection.NotEquals, []Tuple{tuple("v1", "v3")}, t),
+		}, true},
+		{k8sLabels.Set{"x": "v1", "y": "v2"}, &internalSelector{
+			getRequirement(tuple("x", "y"), selection.NotEquals, []Tuple{tuple("v1", "v2")}, t),
 		}, false},
 	}
 	for _, lsm := range labelSelectorMatchingTests {
@@ -685,81 +736,92 @@ func TestSetSelectorParser(t *testing.T) {
 	}{
 		{"", NewSelector(), true, true},
 		{"\rx", internalSelector{
-			getRequirement("x", selection.Exists, nil, t),
+			getRequirement(tuple("x"), selection.Exists, nil, t),
 		}, true, true},
 		{"this-is-a-dns.domain.com/key-with-dash", internalSelector{
-			getRequirement("this-is-a-dns.domain.com/key-with-dash", selection.Exists, nil, t),
+			getRequirement(tuple("this-is-a-dns.domain.com/key-with-dash"), selection.Exists, nil, t),
 		}, true, true},
 		{"this-is-another-dns.domain.com/key-with-dash in (so,what)", internalSelector{
-			getRequirement("this-is-another-dns.domain.com/key-with-dash", selection.In, sets.NewString("so", "what"), t),
+			getRequirement(tuple("this-is-another-dns.domain.com/key-with-dash"), selection.In, makeTuples("so", "what"), t),
 		}, true, true},
 		{"0.1.2.domain/99 notin (10.10.100.1, tick.tack.clock)", internalSelector{
-			getRequirement("0.1.2.domain/99", selection.NotIn, sets.NewString("10.10.100.1", "tick.tack.clock"), t),
+			getRequirement(tuple("0.1.2.domain/99"), selection.NotIn, makeTuples("10.10.100.1", "tick.tack.clock"), t),
 		}, true, true},
 		{"foo  in	 (abc)", internalSelector{
-			getRequirement("foo", selection.In, sets.NewString("abc"), t),
+			getRequirement(tuple("foo"), selection.In, makeTuples("abc"), t),
 		}, true, true},
 		{"x notin\n (abc)", internalSelector{
-			getRequirement("x", selection.NotIn, sets.NewString("abc"), t),
+			getRequirement(tuple("x"), selection.NotIn, makeTuples("abc"), t),
 		}, true, true},
 		{"x  notin	\t	(abc,def)", internalSelector{
-			getRequirement("x", selection.NotIn, sets.NewString("abc", "def"), t),
+			getRequirement(tuple("x"), selection.NotIn, makeTuples("abc", "def"), t),
 		}, true, true},
 		{"x in (abc,def)", internalSelector{
-			getRequirement("x", selection.In, sets.NewString("abc", "def"), t),
+			getRequirement(tuple("x"), selection.In, makeTuples("abc", "def"), t),
 		}, true, true},
 		{"x in (abc,)", internalSelector{
-			getRequirement("x", selection.In, sets.NewString("abc", ""), t),
+			getRequirement(tuple("x"), selection.In, makeTuples("abc", ""), t),
 		}, true, true},
 		{"x in ()", internalSelector{
-			getRequirement("x", selection.In, sets.NewString(""), t),
+			getRequirement(tuple("x"), selection.In, makeTuples(""), t),
 		}, true, true},
 		{"x notin (abc,,def),bar,z in (),w", internalSelector{
-			getRequirement("bar", selection.Exists, nil, t),
-			getRequirement("w", selection.Exists, nil, t),
-			getRequirement("x", selection.NotIn, sets.NewString("abc", "", "def"), t),
-			getRequirement("z", selection.In, sets.NewString(""), t),
+			getRequirement(tuple("bar"), selection.Exists, nil, t),
+			getRequirement(tuple("w"), selection.Exists, nil, t),
+			getRequirement(tuple("x"), selection.NotIn, makeTuples("abc", "", "def"), t),
+			getRequirement(tuple("z"), selection.In, makeTuples(""), t),
 		}, true, true},
 		{"x,y in (a)", internalSelector{
-			getRequirement("y", selection.In, sets.NewString("a"), t),
-			getRequirement("x", selection.Exists, nil, t),
+			getRequirement(tuple("y"), selection.In, makeTuples("a"), t),
+			getRequirement(tuple("x"), selection.Exists, nil, t),
 		}, false, true},
 		{"x=a", internalSelector{
-			getRequirement("x", selection.Equals, sets.NewString("a"), t),
+			getRequirement(tuple("x"), selection.Equals, makeTuples("a"), t),
 		}, true, true},
 		{"x>1", internalSelector{
-			getRequirement("x", selection.GreaterThan, sets.NewString("1"), t),
+			getRequirement(tuple("x"), selection.GreaterThan, makeTuples("1"), t),
 		}, true, true},
 		{"x<7", internalSelector{
-			getRequirement("x", selection.LessThan, sets.NewString("7"), t),
+			getRequirement(tuple("x"), selection.LessThan, makeTuples("7"), t),
 		}, true, true},
 		{"x=a,y!=b", internalSelector{
-			getRequirement("x", selection.Equals, sets.NewString("a"), t),
-			getRequirement("y", selection.NotEquals, sets.NewString("b"), t),
+			getRequirement(tuple("x"), selection.Equals, makeTuples("a"), t),
+			getRequirement(tuple("y"), selection.NotEquals, makeTuples("b"), t),
 		}, true, true},
 		{"x=a,y!=b,z in (h,i,j)", internalSelector{
-			getRequirement("x", selection.Equals, sets.NewString("a"), t),
-			getRequirement("y", selection.NotEquals, sets.NewString("b"), t),
-			getRequirement("z", selection.In, sets.NewString("h", "i", "j"), t),
+			getRequirement(tuple("x"), selection.Equals, makeTuples("a"), t),
+			getRequirement(tuple("y"), selection.NotEquals, makeTuples("b"), t),
+			getRequirement(tuple("z"), selection.In, makeTuples("h", "i", "j"), t),
 		}, true, true},
 		{"x=a||y=b", internalSelector{}, false, false},
 		{"x,,y", nil, true, false},
 		{",x,y", nil, true, false},
 		{"x nott in (y)", nil, true, false},
 		{"x notin ( )", internalSelector{
-			getRequirement("x", selection.NotIn, sets.NewString(""), t),
+			getRequirement(tuple("x"), selection.NotIn, makeTuples(""), t),
 		}, true, true},
 		{"x notin (, a)", internalSelector{
-			getRequirement("x", selection.NotIn, sets.NewString("", "a"), t),
+			getRequirement(tuple("x"), selection.NotIn, makeTuples("", "a"), t),
 		}, true, true},
 		{"a in (xyz),", nil, true, false},
 		{"a in (xyz)b notin ()", nil, true, false},
 		{"a ", internalSelector{
-			getRequirement("a", selection.Exists, nil, t),
+			getRequirement(tuple("a"), selection.Exists, nil, t),
 		}, true, true},
 		{"a in (x,y,notin, z,in)", internalSelector{
-			getRequirement("a", selection.In, sets.NewString("in", "notin", "x", "y", "z"), t),
+			getRequirement(tuple("a"), selection.In, makeTuples("x", "y", "notin", "z", "in"), t),
 		}, true, true}, // operator 'in' inside list of identifiers
+		{"(x,y) != (a,b)", internalSelector{
+			getRequirement(tuple("x", "y"), selection.NotEquals, []Tuple{tuple("a", "b")}, t),
+		}, false, true},
+		{"(x,y) == (a,b)", internalSelector{
+			getRequirement(tuple("x", "y"), selection.DoubleEquals, []Tuple{tuple("a", "b")}, t),
+		}, true, true},
+		{"(x) == (a)", internalSelector{
+			getRequirement(tuple("x"), selection.DoubleEquals, []Tuple{tuple("a")}, t),
+		}, true, true},
+		{"(x) == (a,b)", nil, false, false},
+		{"(x,y) == (a)", nil, false, false},
 		{"a in (xyz abc)", nil, false, false}, // no comma
 		{"a notin(", nil, true, false},        // bad formed
 		{"a (", nil, false, false},            // cpar
@@ -777,8 +839,16 @@ func TestSetSelectorParser(t *testing.T) {
 	}
 }
 
-func getRequirement(key string, op selection.Operator, vals sets.String, t *testing.T) Requirement {
-	req, err := NewRequirement(key, op, vals.List())
+func makeTuples(elements ...string) []Tuple {
+	tuples := make([]Tuple, 0, len(elements))
+	for _, e := range elements {
+		tuples = append(tuples, tuple(e))
+	}
+	return tuples
+}
+
+func getRequirement(key Tuple, op selection.Operator, vals []Tuple, t *testing.T) Requirement {
+	req, err := NewRequirement(key, op, vals)
 	if err != nil {
 		t.Errorf("NewRequirement(%v, %v, %v) resulted in error:%v", key, op, vals, err)
 		return Requirement{}
@@ -801,22 +871,26 @@ func TestAdd(t *testing.T) {
 			"key",
 			selection.In,
 			[]string{"value"},
-			internalSelector{Requirement{"key", selection.In, []string{"value"}}},
+			internalSelector{Requirement{tuple("key"), selection.In, makeTuples("value")}},
 		},
 		{
 			"keyEqualsOperator",
-			internalSelector{Requirement{"key", selection.In, []string{"value"}}},
+			internalSelector{Requirement{tuple("key"), selection.In, makeTuples("value")}},
 			"key2",
 			selection.Equals,
 			[]string{"value2"},
 			internalSelector{
-				Requirement{"key", selection.In, []string{"value"}},
-				Requirement{"key2", selection.Equals, []string{"value2"}},
+				Requirement{tuple("key"), selection.In, makeTuples("value")},
+				Requirement{tuple("key2"), selection.Equals, makeTuples("value2")},
 			},
 		},
 	}
 	for _, ts := range testCases {
-		req, err := NewRequirement(ts.key, ts.operator, ts.values)
+		vals := make([]Tuple, 0, len(ts.values))
+		for _, v := range ts.values {
+			vals = append(vals, tuple(v))
+		}
+		req, err := NewRequirement(tuple(ts.key), ts.operator, vals)
 		if err != nil {
 			t.Errorf("%s - Unable to create labels.Requirement", ts.name)
 		}
@@ -824,50 +898,6 @@ func TestAdd(t *testing.T) {
 		if !reflect.DeepEqual(ts.sel, ts.refSelector) {
 			t.Errorf("%s - Expected %v found %v", ts.name, ts.refSelector, ts.sel)
 		}
-	}
-}
-
-func TestSafeSort(t *testing.T) {
-	tests := []struct {
-		name   string
-		in     []string
-		inCopy []string
-		want   []string
-	}{
-		{
-			name:   "nil strings",
-			in:     nil,
-			inCopy: nil,
-			want:   nil,
-		},
-		{
-			name:   "ordered strings",
-			in:     []string{"bar", "foo"},
-			inCopy: []string{"bar", "foo"},
-			want:   []string{"bar", "foo"},
-		},
-		{
-			name:   "unordered strings",
-			in:     []string{"foo", "bar"},
-			inCopy: []string{"foo", "bar"},
-			want:   []string{"bar", "foo"},
-		},
-		{
-			name:   "duplicated strings",
-			in:     []string{"foo", "bar", "foo", "bar"},
-			inCopy: []string{"foo", "bar", "foo", "bar"},
-			want:   []string{"bar", "bar", "foo", "foo"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := safeSort(tt.in); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("safeSort() = %v, want %v", got, tt.want)
-			}
-			if !reflect.DeepEqual(tt.in, tt.inCopy) {
-				t.Errorf("after safeSort(), input = %v, want %v", tt.in, tt.inCopy)
-			}
-		})
 	}
 }
 
@@ -953,14 +983,14 @@ func TestRequiresExactMatch(t *testing.T) {
 	}{
 		{
 			name:          "keyInOperatorExactMatch",
-			sel:           internalSelector{Requirement{"key", selection.In, []string{"value"}}},
+			sel:           internalSelector{Requirement{tuple("key"), selection.In, makeTuples("value")}},
 			label:         "key",
 			expectedFound: true,
 			expectedValue: "value",
 		},
 		{
 			name:          "keyInOperatorNotExactMatch",
-			sel:           internalSelector{Requirement{"key", selection.In, []string{"value", "value2"}}},
+			sel:           internalSelector{Requirement{tuple("key"), selection.In, makeTuples("value", "value2")}},
 			label:         "key",
 			expectedFound: false,
 			expectedValue: "",
@@ -968,8 +998,8 @@ func TestRequiresExactMatch(t *testing.T) {
 		{
 			name: "keyInOperatorNotExactMatch",
 			sel: internalSelector{
-				Requirement{"key", selection.In, []string{"value", "value1"}},
-				Requirement{"key2", selection.In, []string{"value2"}},
+				Requirement{tuple("key"), selection.In, makeTuples("value", "value1")},
+				Requirement{tuple("key2"), selection.In, makeTuples("value2")},
 			},
 			label:         "key2",
 			expectedFound: true,
@@ -977,21 +1007,21 @@ func TestRequiresExactMatch(t *testing.T) {
 		},
 		{
 			name:          "keyEqualOperatorExactMatch",
-			sel:           internalSelector{Requirement{"key", selection.Equals, []string{"value"}}},
+			sel:           internalSelector{Requirement{tuple("key"), selection.Equals, makeTuples("value")}},
 			label:         "key",
 			expectedFound: true,
 			expectedValue: "value",
 		},
 		{
 			name:          "keyDoubleEqualOperatorExactMatch",
-			sel:           internalSelector{Requirement{"key", selection.DoubleEquals, []string{"value"}}},
+			sel:           internalSelector{Requirement{tuple("key"), selection.DoubleEquals, makeTuples("value")}},
 			label:         "key",
 			expectedFound: true,
 			expectedValue: "value",
 		},
 		{
 			name:          "keyNotEqualOperatorExactMatch",
-			sel:           internalSelector{Requirement{"key", selection.NotEquals, []string{"value"}}},
+			sel:           internalSelector{Requirement{tuple("key"), selection.NotEquals, makeTuples("value")}},
 			label:         "key",
 			expectedFound: false,
 			expectedValue: "",
@@ -999,12 +1029,21 @@ func TestRequiresExactMatch(t *testing.T) {
 		{
 			name: "keyEqualOperatorExactMatchFirst",
 			sel: internalSelector{
-				Requirement{"key", selection.In, []string{"value"}},
-				Requirement{"key2", selection.In, []string{"value2"}},
+				Requirement{tuple("key"), selection.In, makeTuples("value")},
+				Requirement{tuple("key2"), selection.In, makeTuples("value2")},
 			},
 			label:         "key",
 			expectedFound: true,
 			expectedValue: "value",
+		},
+		{
+			name: "keysetEqualOperatorExactMatch",
+			sel: internalSelector{
+				Requirement{tuple("k1", "k2"), selection.Equals, []Tuple{tuple("v1", "v2")}},
+			},
+			label:         "k1",
+			expectedFound: true,
+			expectedValue: "v1",
 		},
 	}
 	for _, ts := range testCases {
@@ -1033,9 +1072,9 @@ func TestValidatedSelectorFromSet(t *testing.T) {
 			input: k8sLabels.Set{"key": "val"},
 			expectedSelector: internalSelector{
 				Requirement{
-					key:       "key",
+					key:       tuple("key"),
 					operator:  selection.Equals,
-					strValues: []string{"val"},
+					strValues: makeTuples("val"),
 				},
 			},
 		},
@@ -1069,11 +1108,11 @@ func TestValidatedSelectorFromSet(t *testing.T) {
 
 func BenchmarkRequirementString(b *testing.B) {
 	r := Requirement{
-		key:      "environment",
+		key:      tuple("environment"),
 		operator: selection.NotIn,
-		strValues: []string{
+		strValues: makeTuples(
 			"dev",
-		},
+		),
 	}
 
 	b.ReportAllocs()
@@ -1094,56 +1133,56 @@ func TestRequirementEqual(t *testing.T) {
 		{
 			name: "same requirements should be equal",
 			x: &Requirement{
-				key:       "key",
+				key:       tuple("key"),
 				operator:  selection.Equals,
-				strValues: []string{"foo", "bar"},
+				strValues: makeTuples("foo", "bar"),
 			},
 			y: &Requirement{
-				key:       "key",
+				key:       tuple("key"),
 				operator:  selection.Equals,
-				strValues: []string{"foo", "bar"},
+				strValues: makeTuples("foo", "bar"),
 			},
 			want: true,
 		},
 		{
 			name: "requirements with different keys should not be equal",
 			x: &Requirement{
-				key:       "key1",
+				key:       tuple("key1"),
 				operator:  selection.Equals,
-				strValues: []string{"foo", "bar"},
+				strValues: makeTuples("foo", "bar"),
 			},
 			y: &Requirement{
-				key:       "key2",
+				key:       tuple("key2"),
 				operator:  selection.Equals,
-				strValues: []string{"foo", "bar"},
+				strValues: makeTuples("foo", "bar"),
 			},
 			want: false,
 		},
 		{
 			name: "requirements with different operators should not be equal",
 			x: &Requirement{
-				key:       "key",
+				key:       tuple("key"),
 				operator:  selection.Equals,
-				strValues: []string{"foo", "bar"},
+				strValues: makeTuples("foo", "bar"),
 			},
 			y: &Requirement{
-				key:       "key",
+				key:       tuple("key"),
 				operator:  selection.In,
-				strValues: []string{"foo", "bar"},
+				strValues: makeTuples("foo", "bar"),
 			},
 			want: false,
 		},
 		{
 			name: "requirements with different values should not be equal",
 			x: &Requirement{
-				key:       "key",
+				key:       tuple("key"),
 				operator:  selection.Equals,
-				strValues: []string{"foo", "bar"},
+				strValues: makeTuples("foo", "bar"),
 			},
 			y: &Requirement{
-				key:       "key",
+				key:       tuple("key"),
 				operator:  selection.Equals,
-				strValues: []string{"foobar"},
+				strValues: makeTuples("foobar"),
 			},
 			want: false,
 		},

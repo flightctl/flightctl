@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
@@ -42,7 +44,7 @@ var _ = Describe("FleetRollout", func() {
 		dbName          string
 		numDevices      int
 		fleetName       string
-		callbackManager tasks.CallbackManager
+		callbackManager tasks_client.CallbackManager
 		mockPublisher   *queues.MockPublisher
 		ctrl            *gomock.Controller
 	)
@@ -59,7 +61,7 @@ var _ = Describe("FleetRollout", func() {
 		fleetName = "myfleet"
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks.NewCallbackManager(mockPublisher, log)
+		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
 		mockPublisher.EXPECT().Publish(gomock.Any()).AnyTimes()
 	})
 
@@ -71,13 +73,12 @@ var _ = Describe("FleetRollout", func() {
 	When("the fleet is valid", func() {
 		It("its devices are rolled out successfully", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-			testutil.CreateTestDevices(ctx, numDevices, deviceStore, orgId, util.StrToPtr("Fleet/myfleet"), true)
+			testutil.CreateTestDevices(ctx, numDevices, deviceStore, orgId, lo.ToPtr("Fleet/myfleet"), true)
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
 			logic.SetItemsPerPage(2)
 
 			// First update
@@ -107,13 +108,12 @@ var _ = Describe("FleetRollout", func() {
 
 		It("a new device is rolled out correctly", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", lo.ToPtr("Fleet/myfleet"), nil, nil)
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			logic.SetItemsPerPage(2)
 
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
@@ -155,7 +155,7 @@ var _ = Describe("FleetRollout", func() {
 				}
 				httpConfig.HttpRef.Repository = "http-repo"
 				httpConfig.HttpRef.FilePath = "/var/http-path-{{ index .metadata.labels \"key\" }}"
-				httpConfig.HttpRef.Suffix = util.StrToPtr("/http-suffix")
+				httpConfig.HttpRef.Suffix = lo.ToPtr("/http-suffix")
 			})
 
 			It("its devices are rolled out successfully", func() {
@@ -176,18 +176,17 @@ var _ = Describe("FleetRollout", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				// Add devices to the fleet
-				testutil.CreateTestDevices(ctx, numDevices, deviceStore, orgId, util.StrToPtr("Fleet/myfleet"), false)
+				testutil.CreateTestDevices(ctx, numDevices, deviceStore, orgId, lo.ToPtr("Fleet/myfleet"), false)
 				fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-				Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 				devices, err := deviceStore.List(ctx, orgId, store.ListParams{})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(len(devices.Items)).To(Equal(numDevices))
 
 				// Roll out the devices and check their configs
-				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
+				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
 				err = logic.RolloutFleet(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				for i := 1; i <= numDevices; i++ {
@@ -215,7 +214,7 @@ var _ = Describe("FleetRollout", func() {
 							httpSpec, err := configItem.AsHttpConfigProviderSpec()
 							Expect(err).ToNot(HaveOccurred())
 							Expect(httpSpec.HttpRef.FilePath).To(Equal(fmt.Sprintf("/var/http-path-value-%d", i)))
-							Expect(httpSpec.HttpRef.Suffix).To(Equal(util.StrToPtr("/http-suffix")))
+							Expect(httpSpec.HttpRef.Suffix).To(Equal(lo.ToPtr("/http-suffix")))
 						default:
 							Expect("").To(Equal("unexpected discriminator"))
 						}
@@ -242,14 +241,13 @@ var _ = Describe("FleetRollout", func() {
 
 				// Add a device to the fleet
 				labels := map[string]string{"key": "some-value", "otherkey": "other-value", "version": "2"}
-				testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, &labels)
+				testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", lo.ToPtr("Fleet/myfleet"), nil, &labels)
 				fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-				Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
 				// Roll out to the single device
-				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 				err = logic.RolloutDevice(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
@@ -283,13 +281,12 @@ var _ = Describe("FleetRollout", func() {
 	When("a resourceversion race occurs while rolling out a device", func() {
 		It("fails if the owner changed", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", lo.ToPtr("Fleet/myfleet"), nil, nil)
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -302,9 +299,9 @@ var _ = Describe("FleetRollout", func() {
 				raceCalled = true
 				otherupdate := api.Device{
 					Metadata: api.ObjectMeta{
-						Name:            util.StrToPtr("mydevice-1"),
+						Name:            lo.ToPtr("mydevice-1"),
 						Owner:           util.SetResourceOwner(api.FleetKind, "some-other-owner"),
-						ResourceVersion: util.StrToPtr("0"),
+						ResourceVersion: lo.ToPtr("0"),
 					},
 					Spec:   &api.DeviceSpec{},
 					Status: &api.DeviceStatus{},
@@ -327,13 +324,12 @@ var _ = Describe("FleetRollout", func() {
 
 		It("succeeds if the owner does not change", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, nil, nil)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", util.StrToPtr("Fleet/myfleet"), nil, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice-1", lo.ToPtr("Fleet/myfleet"), nil, nil)
 			fleet, err := fleetStore.Get(ctx, orgId, fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
-			Expect(*fleet.Spec.Template.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -346,8 +342,8 @@ var _ = Describe("FleetRollout", func() {
 				raceCalled = true
 				otherupdate := api.Device{
 					Metadata: api.ObjectMeta{
-						Name:            util.StrToPtr("mydevice-1"),
-						ResourceVersion: util.StrToPtr("0"),
+						Name:            lo.ToPtr("mydevice-1"),
+						ResourceVersion: lo.ToPtr("0"),
 					},
 					Spec:   &api.DeviceSpec{},
 					Status: &api.DeviceStatus{},

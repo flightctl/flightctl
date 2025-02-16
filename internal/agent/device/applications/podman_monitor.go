@@ -16,9 +16,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 // PodmanInspect represents the overall structure of podman inspect output
@@ -50,12 +50,13 @@ type PodmanContainerConfig struct {
 }
 
 type PodmanEvent struct {
-	ID         string            `json:"ID"`
-	Image      string            `json:"Image"`
-	Name       string            `json:"Name"`
-	Status     string            `json:"Status"`
-	Type       string            `json:"Type"`
-	Attributes map[string]string `json:"Attributes"`
+	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
+	ID                string            `json:"ID"`
+	Image             string            `json:"Image"`
+	Name              string            `json:"Name"`
+	Status            string            `json:"Status"`
+	Type              string            `json:"Type"`
+	Attributes        map[string]string `json:"Attributes"`
 }
 
 type PodmanMonitor struct {
@@ -91,7 +92,8 @@ func (m *PodmanMonitor) Run(ctx context.Context) error {
 	ctx, m.cancelFn = context.WithCancel(ctx)
 
 	// list of podman events to listen for
-	events := []string{"init", "start", "die", "sync", "remove", "exited"}
+	events := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
+	m.log.Debugf("Replaying podman events since boot time: %s", m.bootTime)
 	m.cmd = m.client.EventsSinceCmd(ctx, events, m.bootTime)
 
 	stdoutPipe, err := m.cmd.StdoutPipe()
@@ -361,7 +363,7 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 			unstarted = append(unstarted, app.Name())
 			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
 				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
-				summary.Info = util.StrToPtr("Not started: " + strings.Join(unstarted, ", "))
+				summary.Info = lo.ToPtr("Not started: " + strings.Join(unstarted, ", "))
 			}
 		default:
 			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary.Status))
@@ -462,6 +464,7 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	}
 
 	// add new container
+	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddContainer(Container{
 		ID:       event.ID,
 		Image:    event.Image,

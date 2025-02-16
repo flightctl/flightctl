@@ -14,6 +14,6 @@ const (
 )
 
 type Manager interface {
-	Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
+	Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error
 	IsReady(ctx context.Context, policyType Type) bool
 }

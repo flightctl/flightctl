@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 )
 
 // IsDisconnected() is true if the device never updated status or its last status update is older than disconnectTimeout.
@@ -22,7 +23,7 @@ func (d *Device) IsManagedBy(f *Fleet) bool {
 	if f == nil || !d.IsManaged() {
 		return false
 	}
-	return f.Metadata.Name == util.StrToPtr(strings.TrimPrefix("Fleet/", *d.Metadata.Owner))
+	return lo.FromPtr(f.Metadata.Name) == strings.TrimPrefix(lo.FromPtr(d.Metadata.Owner), "Fleet/")
 }
 
 // IsUpdating() is true if the device's agent reports that it is updating.
@@ -74,22 +75,44 @@ func (d *Device) IsUpdatedToFleetSpec(f *Fleet) bool {
 	if !ok {
 		return false
 	}
-	deviceTemplateVersion, ok := (*d.Metadata.Annotations)[FleetAnnotationTemplateVersion]
+	deviceTemplateVersion, ok := (*d.Metadata.Annotations)[DeviceAnnotationRenderedTemplateVersion]
 	if !ok {
 		return false
 	}
 	return d.IsUpdatedToDeviceSpec() && deviceTemplateVersion == fleetTemplateVersion
 }
 
-// IsDecommissioning() is true if the device has added a DeviceDecommissioning ConditionType to its Conditions.
-func (d *Device) IsDecommissioning() bool {
-	if d.Status == nil || d.Status.Conditions == nil {
-		return false
+func (d *Device) Version() string {
+	if d == nil || d.Metadata.Annotations == nil {
+		return ""
 	}
+	deviceVersion, ok := (*d.Metadata.Annotations)[DeviceAnnotationRenderedVersion]
+	if !ok {
+		return ""
+	}
+	return deviceVersion
+}
 
-	decommissioningCondition := FindStatusCondition(d.Status.Conditions, DeviceDecommissioning)
-	if decommissioningCondition == nil {
-		return false
+// IsDecomStarted() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Started' Reason.
+func (c *Condition) IsDecomStarted() bool {
+	if c.Type == DeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateStarted) {
+		return true
 	}
-	return decommissioningCondition.Status == ConditionStatusTrue
+	return false
+}
+
+// IsDecomComplete() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Complete' Reason.
+func (c *Condition) IsDecomComplete() bool {
+	if c.Type == DeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateComplete) {
+		return true
+	}
+	return false
+}
+
+// IsDecomError() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Error' Reason.
+func (c *Condition) IsDecomError() bool {
+	if c.Type == DeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateError) {
+		return true
+	}
+	return false
 }

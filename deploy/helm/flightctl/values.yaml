@@ -26,6 +26,7 @@
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
 ## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
+## @param global.generateSecrets Generate secrets when deploying FCTL. This should be set to false if you want to provide your own secrets or when upgrading FCTL to avoid overriding the existing secrets
 
 global:
   target: "standalone" # standalone, acm
@@ -64,6 +65,7 @@ global:
   gatewayPorts:
     tls: 443
     http: 80
+  generateSecrets: true
 
 
 ## @section Component specific parameters
@@ -72,25 +74,18 @@ global:
 
 db:
   image:
-    image: quay.io/sclorg/postgresql-12-c8s
+    image: quay.io/sclorg/postgresql-16-c9s
     tag: latest
     pullPolicy: Always
-  password: adminpass
-  masterPassword: adminpass
   masterUser: admin
   user: demouser
-  userPassword: demopass
   maxConnections: 200
   storage:
     size: "60Gi"
-  ## @param db.resources the request/limit resource requests for the DB deployment pod
   resources:
     requests:
       cpu: "512m"
       memory: "512Mi"
-    limits:
-      cpu: "2000m"
-      memory: "2Gi"
 
 kv:
   enabled: true

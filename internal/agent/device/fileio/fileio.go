@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"os"
 
-	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 )
 
 const (
@@ -29,7 +29,8 @@ type Writer interface {
 	RemoveAll(path string) error
 	MkdirAll(path string, perm fs.FileMode) error
 	CopyFile(src, dst string) error
-	CreateManagedFile(file ign3types.File) (ManagedFile, error)
+	CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error)
+	OverwriteAndWipe(file string) error
 }
 
 type Reader interface {
@@ -100,4 +101,9 @@ func WithGid(gid int) FileOption {
 	return func(o *fileOptions) {
 		o.gid = gid
 	}
+}
+
+// IsNotExist returns a boolean indicating whether the error is known to report that a file or directory does not exist.
+func IsNotExist(err error) bool {
+	return os.IsNotExist(err)
 }

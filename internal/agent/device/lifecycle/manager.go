@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -32,11 +33,14 @@ type LifecycleManager struct {
 	deviceName           string
 	enrollmentUIEndpoint string
 	managementCertPath   string
+	managementKeyPath    string
 	deviceReadWriter     fileio.ReadWriter
 
 	enrollmentClient client.Enrollment
 	defaultLabels    map[string]string
 	enrollmentCSR    []byte
+	statusManager    status.Manager
+	systemdClient    *client.Systemd
 
 	backoff wait.Backoff
 	log     *log.PrefixLogger
@@ -47,10 +51,13 @@ func NewManager(
 	deviceName string,
 	enrollmentUIEndpoint string,
 	managementCertPath string,
+	managementKeyPath string,
 	deviceReadWriter fileio.ReadWriter,
 	enrollmentClient client.Enrollment,
 	enrollmentCSR []byte,
 	defaultLabels map[string]string,
+	statusManager status.Manager,
+	systemdClient *client.Systemd,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *LifecycleManager {
@@ -59,11 +66,14 @@ func NewManager(
 		deviceName:           deviceName,
 		enrollmentUIEndpoint: enrollmentUIEndpoint,
 		managementCertPath:   managementCertPath,
+		managementKeyPath:    managementKeyPath,
 		deviceReadWriter:     deviceReadWriter,
 		enrollmentClient:     enrollmentClient,
 		enrollmentCSR:        enrollmentCSR,
 		defaultLabels:        defaultLabels,
 		backoff:              backoff,
+		statusManager:        statusManager,
+		systemdClient:        systemdClient,
 	}
 }
 
@@ -91,13 +101,120 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 	return m.writeManagementBanner()
 }
 
-func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
-	// TODO: implement
+func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+	// this controller currently does not implement a sync operation
 	return nil
 }
 
-func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
-	// TODO: implement
+func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+	var errs []error
+	if current.Decommissioning == nil && desired.Decommissioning != nil {
+		m.log.Warn("Detected decommissioning request from flightctl service")
+		m.log.Warn("Updating Condition to decommissioning started")
+		if err := m.updateWithStartedCondition(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to update status with decommission started Condition: %w", err))
+			m.log.Warn("Unable to update Condition to decommissioning started")
+		}
+
+		// TODO: add support for additional decommissioning target types.
+		// these are the steps that will take places between Started and Completed status
+
+		if len(errs) == 0 {
+			m.log.Warn("No errors during decommissioning prior to wiping key and cert; updating Condition to decommissioning completed")
+			if err := m.updateWithCompletedCondition(ctx); err != nil {
+				errs = append(errs, fmt.Errorf("failed to update status with decommission completed Condition: %w", err))
+				m.log.Warn("Unable to update Condition to decommissioning completed")
+			}
+		} else {
+			m.log.Warn("Errors encountered during decommissioning; updating Condition to decommission error")
+			if err := m.updateWithErrorCondition(ctx, errs); err != nil {
+				errs = append(errs, fmt.Errorf("failed to update status with decommission errored Condition: %w", err))
+				m.log.Warn("Unable to update Condition to decommissioning error")
+			}
+		}
+
+		// after this point the device will no longer be able to communicate with the management service
+		m.log.Warn("Preparing to wipe agent certificate and keys and reboot")
+		if err := m.wipeAndReboot(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error {
+	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceDecommissioning,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.DecommissionStateStarted),
+		Message: "The device has started decommissioning",
+	})
+	if updateErr != nil {
+		m.log.Warnf("Failed setting status: %v", updateErr)
+		return fmt.Errorf("failed to update decommission started status: %w", updateErr)
+	}
+	return nil
+}
+
+func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) error {
+	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceDecommissioning,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.DecommissionStateComplete),
+		Message: "The device has completed decommissioning and will wipe its management certificate",
+	})
+	if updateErr != nil {
+		m.log.Warnf("Failed setting status: %v", updateErr)
+		return fmt.Errorf("failed to update decommission completed status: %w", updateErr)
+	}
+	return nil
+}
+
+func (m *LifecycleManager) updateWithErrorCondition(ctx context.Context, errs []error) error {
+	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.DeviceDecommissioning,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.DecommissionStateError),
+		Message: fmt.Sprintf("The device has encountered one or more errors during decommissioning: %v", errors.Join(errs...)),
+	})
+	if updateErr != nil {
+		m.log.Warnf("Failed setting status: %v", updateErr)
+		return fmt.Errorf("failed to update decommission errored status: %w", updateErr)
+	}
+	return nil
+}
+
+// point of no return - wipes management cert and keys
+func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
+	var errs []error
+	err := m.deviceReadWriter.OverwriteAndWipe(m.managementCertPath)
+	if err != nil {
+		m.log.Errorf("Failed to remove management certificate at %s: %v", m.managementCertPath, err)
+		errs = append(errs, fmt.Errorf("failed to remove management certificate: %w", err))
+	}
+
+	err = m.deviceReadWriter.OverwriteAndWipe(m.managementKeyPath)
+	if err != nil {
+		m.log.Errorf("Failed to remove management key at %s: %v", m.managementKeyPath, err)
+		errs = append(errs, fmt.Errorf("failed to remove management key: %w", err))
+	}
+
+	// Clear sensitive data ahead of time in case reboot fails
+	m.deviceName = ""
+	m.enrollmentUIEndpoint = ""
+	m.enrollmentClient = nil
+	m.enrollmentCSR = nil
+
+	// TODO: incorporate before-reboot hooks
+	if err = m.systemdClient.Reboot(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to initiate system reboot: %w", err))
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 	return nil
 }
 

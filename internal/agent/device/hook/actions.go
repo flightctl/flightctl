@@ -4,14 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
-	reflect "reflect"
+	"os/exec"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
 
-	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -59,19 +61,19 @@ var (
 type actionContext struct {
 	hook            api.DeviceLifecycleHookType
 	systemRebooted  bool
-	createdFiles    map[string]ignv3types.File
-	updatedFiles    map[string]ignv3types.File
-	removedFiles    map[string]ignv3types.File
+	createdFiles    map[string]v1alpha1.FileSpec
+	updatedFiles    map[string]v1alpha1.FileSpec
+	removedFiles    map[string]v1alpha1.FileSpec
 	commandLineVars map[CommandLineVarKey]string
 }
 
-func newActionContext(hook api.DeviceLifecycleHookType, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec, systemRebooted bool) *actionContext {
+func newActionContext(hook api.DeviceLifecycleHookType, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) *actionContext {
 	actionContext := &actionContext{
 		hook:            hook,
 		systemRebooted:  systemRebooted,
-		createdFiles:    make(map[string]ignv3types.File),
-		updatedFiles:    make(map[string]ignv3types.File),
-		removedFiles:    make(map[string]ignv3types.File),
+		createdFiles:    make(map[string]v1alpha1.FileSpec),
+		updatedFiles:    make(map[string]v1alpha1.FileSpec),
+		removedFiles:    make(map[string]v1alpha1.FileSpec),
 		commandLineVars: make(map[CommandLineVarKey]string),
 	}
 	resetCommandLineVars(actionContext)
@@ -88,36 +90,23 @@ func resetCommandLineVars(actionCtx *actionContext) {
 	}
 }
 
-func computeFileDiff(actionCtx *actionContext, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec) {
-	currentFileList := []ignv3types.File{}
-	desiredFileList := []ignv3types.File{}
+func computeFileDiff(actionCtx *actionContext, current *api.DeviceSpec, desired *api.DeviceSpec) {
+	currentFileList, _ := config.ProviderSpecToFiles(current.Config)
+	desiredFileList, _ := config.ProviderSpecToFiles(desired.Config)
 
-	if current != nil && current.Config != nil {
-		currentIgnition, err := config.ParseAndConvertConfigFromStr(*current.Config)
-		if err == nil {
-			currentFileList = append(currentFileList, currentIgnition.Storage.Files...)
-		}
-	}
-	if desired != nil && desired.Config != nil {
-		desiredIgnition, err := config.ParseAndConvertConfigFromStr(*desired.Config)
-		if err == nil {
-			desiredFileList = append(desiredFileList, desiredIgnition.Storage.Files...)
-		}
-	}
-
-	currentFileMap := make(map[string]ignv3types.File)
+	currentFileMap := make(map[string]v1alpha1.FileSpec)
 	for _, f := range currentFileList {
 		currentFileMap[f.Path] = f
 	}
 	for _, f := range desiredFileList {
 		if content, ok := currentFileMap[f.Path]; !ok {
-			actionCtx.createdFiles[f.Path] = ignv3types.File{}
+			actionCtx.createdFiles[f.Path] = v1alpha1.FileSpec{}
 		} else if !reflect.DeepEqual(f, content) {
-			actionCtx.updatedFiles[f.Path] = ignv3types.File{}
+			actionCtx.updatedFiles[f.Path] = v1alpha1.FileSpec{}
 		}
 	}
 
-	desiredFileMap := make(map[string]ignv3types.File)
+	desiredFileMap := make(map[string]v1alpha1.FileSpec)
 	for _, f := range desiredFileList {
 		desiredFileMap[f.Path] = f
 	}
@@ -180,6 +169,7 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
 		return fmt.Errorf("%s (exit code %d)", stderr, exitCode)
 	}
+	log.Infof("Hook %s executed %q without error", actionCtx.hook, commandLine)
 
 	return nil
 }
@@ -249,4 +239,54 @@ func replaceTokens(s string, tokens map[CommandLineVarKey]string) string {
 		s = re.ReplaceAllString(s, tokens[key])
 	}
 	return s
+}
+
+func checkActionDependency(action api.HookAction) error {
+	actionType, err := action.Type()
+	if err != nil {
+		return err
+	}
+
+	switch actionType {
+	case api.HookActionTypeRun:
+		runAction, err := action.AsHookActionRun()
+		if err != nil {
+			return err
+		}
+		return checkRunActionDependency(runAction)
+	default:
+		return fmt.Errorf("unknown hook action type %q", actionType)
+	}
+}
+
+// checkRunActionDependency checks if the first executable in the run action is available
+func checkRunActionDependency(action api.HookActionRun) error {
+	parts := strings.Fields(action.Run)
+	for _, part := range parts {
+		// skip if ENV var prefix
+		if strings.Contains(part, "=") {
+			continue
+		}
+
+		_, err := exec.LookPath(part)
+		if err != nil {
+			if errors.Is(err, exec.ErrNotFound) {
+				return fmt.Errorf("%w: %s", err, part)
+			} else if pathErr, ok := err.(*os.PathError); ok {
+				return fmt.Errorf("%w: %s", pathErr.Err, part)
+			} else {
+				return err
+			}
+		}
+
+		// TODO: run can include multiple commands, for now we only verify the
+		// first
+		return nil
+	}
+
+	if len(parts) == 0 {
+		return fmt.Errorf("%w: no executable: %s", errors.ErrRunActionInvalid, action.Run)
+	}
+
+	return nil
 }
