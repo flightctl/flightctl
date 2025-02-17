@@ -201,7 +201,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	headerVal := "Bearer " + token
-	res, err := c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authentication: &headerVal})
+	res, err := c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
 	if err != nil {
 		return fmt.Errorf("validating token: %w", err)
 	}

@@ -1408,8 +1408,8 @@ type Version struct {
 
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
-	// Authentication The authentication token to validate.
-	Authentication *string `json:"Authentication,omitempty"`
+	// Authorization The authentication token to validate.
+	Authorization *string `json:"Authorization,omitempty"`
 }
 
 // ListCertificateSigningRequestsParams defines parameters for ListCertificateSigningRequests.

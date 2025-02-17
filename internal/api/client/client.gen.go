@@ -1467,15 +1467,15 @@ func NewAuthValidateRequest(server string, params *AuthValidateParams) (*http.Re
 
 	if params != nil {
 
-		if params.Authentication != nil {
+		if params.Authorization != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "Authentication", runtime.ParamLocationHeader, *params.Authentication)
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "Authorization", runtime.ParamLocationHeader, *params.Authorization)
 			if err != nil {
 				return nil, err
 			}
 
-			req.Header.Set("Authentication", headerParam0)
+			req.Header.Set("Authorization", headerParam0)
 		}
 
 	}
