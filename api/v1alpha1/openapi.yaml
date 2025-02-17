@@ -78,7 +78,7 @@ paths:
       description: Validate an authentication token.
       operationId: authValidate
       parameters:
-        - name: Authentication
+        - name: Authorization
           in: header
           description: The authentication token to validate.
           schema:
