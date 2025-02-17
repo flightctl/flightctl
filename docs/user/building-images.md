@@ -46,17 +46,17 @@ When the Flight Control agent starts, it expects to find its configuration in `/
 * the X.509 client certificate and key to connect with (enrollment certificate),
 * optionally, any further agent configuration (see [Configuring the Flight Control Agent](configuring-agent.md)).
 
-You have multiple options how and when to provision the enrollment endpoint and certificate to the device:
+You can provision the enrollment endpoint and certificate to the device in the following ways:
 
-* You can build the OS image including enrollment endpoint and certificate (*"early binding"*).
+* **Early binding:** You can build an OS image that includes both the enrollment endpoint and certificate.
 
   Devices using this image can automatically connect to "their" Flight Control service to request enrollment, without depending on any provisioning infrastructure. On the other hand, devices are bound to a specific service and owner. They also share the same, typically long-lived X.509 client certificate for connecting to the enrollment service.
 
-* You can build the OS image without enrollment endpoint and certificate, but inject these at provisioning-time (*"late binding"*).
+* **Late binding:** You can build an OS image without enrollment endpoint and certificate and instead inject both at provisioning-time.
 
-  Devices using this image are not bound to a single owner or service and can have device-specific, short-lived X.509 client certificates for connecting to the enrollment service. However, this requires the presence of virtualization or bare metal provisioning infrastructure that can request device-specific enrollment endpoints and certificates from Flight Control and inject these using mechanisms like [cloud-init](https://cloud-init.io/), [Ignition](https://coreos.github.io/ignition/supported-platforms/), or [kickstart](https://anaconda-installer.readthedocs.io/en/latest/kickstart.html).
+  Devices using this image are not bound to a single owner or service and can have device-specific, short-lived X.509 client certificates for connecting to the enrollment service. However, late binding requires virtualization or bare metal provisioning infrastructure that can request device-specific enrollment endpoints and certificates from Flight Control and inject them into the provisioned device using mechanisms such as [cloud-init](https://cloud-init.io/), [Ignition](https://coreos.github.io/ignition/supported-platforms/), or [kickstart](https://anaconda-installer.readthedocs.io/en/latest/kickstart.html).
 
-* You can build the OS image including the agent configuration including the enrollment endpoint, but inject the enrollment certificate at provisioning-time.
+* **Other:** You can build an OS image including only the agent configuration and enrollment endpoint, but inject the enrollment certificate at provisioning-time.
 
 > [!NOTE]
 > The enrollment certificate is only used to secure the network connection for submitting an enrollment request. It is not involved in the actual verification or approval of the enrollment request. It is also no longer used with enrolled devices, as these rely on device-specific management certificates instead.
@@ -175,7 +175,7 @@ Once `bootc-image-builder` completes, you can find the disk image under `$(pwd)/
 
 Refer to `bootc-image-builder`'s [list of image types](https://github.com/osbuild/bootc-image-builder?tab=readme-ov-file#-image-types) for other supported types.
 
-### Signing and Publishing the OS Disk Image (bootc)
+### Signing and Publishing the OS Disk Image
 
 Optionally, you can compress, sign, and publish your disk image to your OCI registry, too. This helps unify hosting and distribution. Using manifest lists, you can even keep matching bootc and disk images together:
 
