@@ -101,14 +101,14 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 	return m.writeManagementBanner()
 }
 
-func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	// this controller currently does not implement a sync operation
 	return nil
 }
 
-func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	var errs []error
-	if current.Decommission == nil && desired.Decommission != nil {
+	if current.Decommissioning == nil && desired.Decommissioning != nil {
 		m.log.Warn("Detected decommissioning request from flightctl service")
 		m.log.Warn("Updating Condition to decommissioning started")
 		if err := m.updateWithStartedCondition(ctx); err != nil {

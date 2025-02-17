@@ -7,12 +7,12 @@ import (
 	"syscall"
 
 	"github.com/ccoveille/go-safecast"
-	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
 type managedFile struct {
-	ign3types.File
+	file     v1alpha1.FileSpec
 	exists   bool
 	size     int64
 	perms    os.FileMode
@@ -22,9 +22,9 @@ type managedFile struct {
 	writer   Writer
 }
 
-func newManagedFile(f ign3types.File, writer Writer) (ManagedFile, error) {
+func newManagedFile(f v1alpha1.FileSpec, writer Writer) (ManagedFile, error) {
 	mf := &managedFile{
-		File:   f,
+		file:   f,
 		writer: writer,
 	}
 	if err := mf.initExistingFileMetadata(); err != nil {
@@ -55,18 +55,18 @@ func (m *managedFile) decodeFile() error {
 	if m.contents != nil {
 		return nil
 	}
-	contents, err := decodeIgnitionFileContents(m.Contents.Source, m.Contents.Compression)
+	contents, err := decodeFileContents(m.file.Content, m.file.ContentEncoding)
 	if err != nil {
 		return err
 	}
 	m.contents = contents
 
-	m.uid, m.gid, err = getFileOwnership(m.File)
+	m.uid, m.gid, err = getFileOwnership(m.file)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve file ownership for file %q: %w", m.Path(), err)
 	}
 
-	m.perms, err = intToFileMode(m.Mode)
+	m.perms, err = intToFileMode(m.file.Mode)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve file permissions for file %q: %w", m.Path(), err)
 	}
@@ -119,7 +119,7 @@ func (m *managedFile) isUpToDate() (bool, error) {
 }
 
 func (m *managedFile) Path() string {
-	return m.File.Path
+	return m.file.Path
 }
 
 func (m *managedFile) Exists() (bool, error) {
@@ -147,13 +147,13 @@ func (m *managedFile) Write() error {
 		return err
 	}
 
-	mode, err := intToFileMode(m.Mode)
+	mode, err := intToFileMode(m.file.Mode)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve file permissions for file %q: %w", m.Path(), err)
 	}
 
 	// set chown if file information is provided
-	uid, gid, err := getFileOwnership(m.File)
+	uid, gid, err := getFileOwnership(m.file)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve file ownership for file %q: %w", m.Path(), err)
 	}

@@ -270,24 +270,25 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 }
 
-func GetRenderedDeviceSpec(ctx context.Context, st store.Store, _ logrus.FieldLogger, request server.GetRenderedDeviceSpecRequestObject, consoleGrpcEndpoint string) (server.GetRenderedDeviceSpecResponseObject, error) {
+func GetRenderedDevice(ctx context.Context, st store.Store, log logrus.FieldLogger, request server.GetRenderedDeviceRequestObject, consoleGrpcEndpoint string) (server.GetRenderedDeviceResponseObject, error) {
 	orgId := store.NullOrgId
 
 	result, err := st.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownRenderedVersion, consoleGrpcEndpoint)
+
 	switch {
 	case err == nil:
 		if result == nil {
-			return server.GetRenderedDeviceSpec204Response{}, nil
+			return server.GetRenderedDevice204Response{}, nil
 		}
-		return server.GetRenderedDeviceSpec200JSONResponse(*result), nil
+		return server.GetRenderedDevice200JSONResponse(*result), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.GetRenderedDeviceSpec404JSONResponse(api.StatusResourceNotFound("Device", request.Name)), nil
+		return server.GetRenderedDevice404JSONResponse(api.StatusResourceNotFound("Device", request.Name)), nil
 	case errors.Is(err, flterrors.ErrResourceOwnerIsNil):
-		return server.GetRenderedDeviceSpec409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
+		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	case errors.Is(err, flterrors.ErrTemplateVersionIsNil):
-		return server.GetRenderedDeviceSpec409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
+		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	case errors.Is(err, flterrors.ErrInvalidTemplateVersion):
-		return server.GetRenderedDeviceSpec409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
+		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	default:
 		return nil, err
 	}

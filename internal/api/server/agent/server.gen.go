@@ -20,7 +20,7 @@ import (
 type ServerInterface interface {
 
 	// (GET /api/v1/devices/{name}/rendered)
-	GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams)
+	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
@@ -37,7 +37,7 @@ type ServerInterface interface {
 type Unimplemented struct{}
 
 // (GET /api/v1/devices/{name}/rendered)
-func (_ Unimplemented) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams) {
+func (_ Unimplemented) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -65,8 +65,8 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
-// GetRenderedDeviceSpec operation middleware
-func (siw *ServerInterfaceWrapper) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request) {
+// GetRenderedDevice operation middleware
+func (siw *ServerInterfaceWrapper) GetRenderedDevice(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var err error
@@ -81,7 +81,7 @@ func (siw *ServerInterfaceWrapper) GetRenderedDeviceSpec(w http.ResponseWriter, 
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetRenderedDeviceSpecParams
+	var params GetRenderedDeviceParams
 
 	// ------------- Optional query parameter "knownRenderedVersion" -------------
 
@@ -92,7 +92,7 @@ func (siw *ServerInterfaceWrapper) GetRenderedDeviceSpec(w http.ResponseWriter, 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetRenderedDeviceSpec(w, r, name, params)
+		siw.Handler.GetRenderedDevice(w, r, name, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -283,7 +283,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDeviceSpec)
+		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReplaceDeviceStatus)
@@ -298,53 +298,53 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	return r
 }
 
-type GetRenderedDeviceSpecRequestObject struct {
+type GetRenderedDeviceRequestObject struct {
 	Name   string `json:"name"`
-	Params GetRenderedDeviceSpecParams
+	Params GetRenderedDeviceParams
 }
 
-type GetRenderedDeviceSpecResponseObject interface {
-	VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error
+type GetRenderedDeviceResponseObject interface {
+	VisitGetRenderedDeviceResponse(w http.ResponseWriter) error
 }
 
-type GetRenderedDeviceSpec200JSONResponse externalRef0.RenderedDeviceSpec
+type GetRenderedDevice200JSONResponse externalRef0.Device
 
-func (response GetRenderedDeviceSpec200JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice200JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetRenderedDeviceSpec204Response struct {
+type GetRenderedDevice204Response struct {
 }
 
-func (response GetRenderedDeviceSpec204Response) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice204Response) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
 }
 
-type GetRenderedDeviceSpec401JSONResponse externalRef0.Status
+type GetRenderedDevice401JSONResponse externalRef0.Status
 
-func (response GetRenderedDeviceSpec401JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice401JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetRenderedDeviceSpec404JSONResponse externalRef0.Status
+type GetRenderedDevice404JSONResponse externalRef0.Status
 
-func (response GetRenderedDeviceSpec404JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice404JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetRenderedDeviceSpec409JSONResponse externalRef0.Status
+type GetRenderedDevice409JSONResponse externalRef0.Status
 
-func (response GetRenderedDeviceSpec409JSONResponse) VisitGetRenderedDeviceSpecResponse(w http.ResponseWriter) error {
+func (response GetRenderedDevice409JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
 
@@ -515,7 +515,7 @@ func (response ReadEnrollmentRequest503JSONResponse) VisitReadEnrollmentRequestR
 type StrictServerInterface interface {
 
 	// (GET /api/v1/devices/{name}/rendered)
-	GetRenderedDeviceSpec(ctx context.Context, request GetRenderedDeviceSpecRequestObject) (GetRenderedDeviceSpecResponseObject, error)
+	GetRenderedDevice(ctx context.Context, request GetRenderedDeviceRequestObject) (GetRenderedDeviceResponseObject, error)
 
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(ctx context.Context, request ReplaceDeviceStatusRequestObject) (ReplaceDeviceStatusResponseObject, error)
@@ -556,26 +556,26 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
-// GetRenderedDeviceSpec operation middleware
-func (sh *strictHandler) GetRenderedDeviceSpec(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceSpecParams) {
-	var request GetRenderedDeviceSpecRequestObject
+// GetRenderedDevice operation middleware
+func (sh *strictHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
+	var request GetRenderedDeviceRequestObject
 
 	request.Name = name
 	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetRenderedDeviceSpec(ctx, request.(GetRenderedDeviceSpecRequestObject))
+		return sh.ssi.GetRenderedDevice(ctx, request.(GetRenderedDeviceRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetRenderedDeviceSpec")
+		handler = middleware(handler, "GetRenderedDevice")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetRenderedDeviceSpecResponseObject); ok {
-		if err := validResponse.VisitGetRenderedDeviceSpecResponse(w); err != nil {
+	} else if validResponse, ok := response.(GetRenderedDeviceResponseObject); ok {
+		if err := validResponse.VisitGetRenderedDeviceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

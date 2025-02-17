@@ -47,6 +47,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	if r.UpdatePolicy != nil {
 		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
 	}
+	if r.Consoles != nil {
+		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
+	}
 	if r.Os != nil {
 		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
 		allErrs = append(allErrs, paramErrs...)
@@ -636,7 +639,7 @@ func validateSshConfig(config *SshConfig) []error {
 	return errs
 }
 
-func (a ApplicationSpec) Validate() []error {
+func (a ApplicationProviderSpec) Validate() []error {
 	allErrs := []error{}
 	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
 	// name must be between 1 and 253 characters and start with a letter or number.
@@ -646,7 +649,7 @@ func (a ApplicationSpec) Validate() []error {
 	return allErrs
 }
 
-func validateApplications(apps []ApplicationSpec) []error {
+func validateApplications(apps []ApplicationProviderSpec) []error {
 	allErrs := []error{}
 	seenName := make(map[string]struct{})
 	for _, app := range apps {
@@ -672,7 +675,7 @@ func validateApplications(apps []ApplicationSpec) []error {
 	return allErrs
 }
 
-func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) []error {
+func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProviderType) []error {
 	var errs []error
 	switch appType {
 	case ImageApplicationProviderType:
@@ -694,7 +697,7 @@ func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) [
 	return errs
 }
 
-func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, error) {
+func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderType, error) {
 	providerType, err := app.Type()
 	if err != nil {
 		return "", fmt.Errorf("application type error: %w", err)
@@ -708,7 +711,7 @@ func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, erro
 	}
 }
 
-func getAppName(app ApplicationSpec, appType ApplicationProviderType) (string, error) {
+func getAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (string, error) {
 	switch appType {
 	case ImageApplicationProviderType:
 		provider, err := app.AsImageApplicationProvider()

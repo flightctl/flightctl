@@ -107,7 +107,7 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // AfterUpdate mocks base method.
-func (m *MockManager) AfterUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *MockManager) AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AfterUpdate", ctx, desired)
 	ret0, _ := ret[0].(error)
@@ -121,7 +121,7 @@ func (mr *MockManagerMockRecorder) AfterUpdate(ctx, desired any) *gomock.Call {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *MockManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, current, desired)
 	ret0, _ := ret[0].(error)
@@ -135,7 +135,7 @@ func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, current, desired any) *gomo
 }
 
 // Reboot mocks base method.
-func (m *MockManager) Reboot(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *MockManager) Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Reboot", ctx, desired)
 	ret0, _ := ret[0].(error)
