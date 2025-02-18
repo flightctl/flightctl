@@ -6,7 +6,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/go-chi/chi/v5"
 	"github.com/sirupsen/logrus"
 )
@@ -15,7 +15,7 @@ type ServiceHandler struct {
 	store           store.Store
 	ca              *crypto.CA
 	log             logrus.FieldLogger
-	callbackManager tasks.CallbackManager
+	callbackManager tasks_client.CallbackManager
 	kvStore         kvstore.KVStore
 	agentEndpoint   string
 	uiUrl           string
@@ -31,7 +31,7 @@ type WebsocketHandler struct {
 // Make sure we conform to servers Service interface
 var _ server.Service = (*ServiceHandler)(nil)
 
-func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CA, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CA, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
 	return &ServiceHandler{
 		store:           store,
 		ca:              ca,

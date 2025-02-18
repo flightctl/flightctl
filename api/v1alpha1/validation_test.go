@@ -3,8 +3,8 @@ package v1alpha1
 import (
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/robfig/cron/v3"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,7 +114,7 @@ func TestValidateUpdateScheduleCron(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
 				At:       tt.schedule,
-				TimeZone: util.StrToPtr("America/New_York"),
+				TimeZone: lo.ToPtr("America/New_York"),
 			}
 
 			errs := schedule.Validate()
@@ -186,7 +186,7 @@ func TestValidateUpdateScheduleTimeZone(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
 				At:       "* * * * *",
-				TimeZone: util.StrToPtr(tt.timeZone),
+				TimeZone: lo.ToPtr(tt.timeZone),
 			}
 
 			errs := schedule.Validate()

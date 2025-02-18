@@ -13,7 +13,7 @@ import (
 	fs "io/fs"
 	reflect "reflect"
 
-	types "github.com/coreos/ignition/v2/config/v3_4/types"
+	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -136,7 +136,7 @@ func (mr *MockWriterMockRecorder) CopyFile(src, dst any) *gomock.Call {
 }
 
 // CreateManagedFile mocks base method.
-func (m *MockWriter) CreateManagedFile(file types.File) (ManagedFile, error) {
+func (m *MockWriter) CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateManagedFile", file)
 	ret0, _ := ret[0].(ManagedFile)
@@ -383,7 +383,7 @@ func (mr *MockReadWriterMockRecorder) CopyFile(src, dst any) *gomock.Call {
 }
 
 // CreateManagedFile mocks base method.
-func (m *MockReadWriter) CreateManagedFile(file types.File) (ManagedFile, error) {
+func (m *MockReadWriter) CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateManagedFile", file)
 	ret0, _ := ret[0].(ManagedFile)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -105,12 +106,7 @@ func (c ConfigProviderSpec) Type() (ConfigProviderType, error) {
 }
 
 // Type returns the type of the application provider.
-func (a ApplicationSpec) Type() (ApplicationProviderType, error) {
-	return getApplicationType(a.union)
-}
-
-// Type returns the type of the application provider.
-func (a RenderedApplicationSpec) Type() (ApplicationProviderType, error) {
+func (a ApplicationProviderSpec) Type() (ApplicationProviderType, error) {
 	return getApplicationType(a.union)
 }
 
@@ -125,6 +121,21 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 	}
 
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
+}
+
+func PercentageAsInt(p Percentage) (int, error) {
+	index := strings.Index(p, "%")
+	if index <= 0 || index != len(p)-1 {
+		return 0, fmt.Errorf("%s is not in percentage format", p)
+	}
+	percentage, err := strconv.ParseInt(p[:index], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse percentage value: %w", err)
+	}
+	if percentage < 0 || percentage > 100 {
+		return 0, fmt.Errorf("percentage must be between 0 and 100, got %d", percentage)
+	}
+	return int(percentage), nil
 }
 
 func configsAreEqual(c1, c2 *[]ConfigProviderSpec) bool {
@@ -188,8 +199,8 @@ func configsAreEqual(c1, c2 *[]ConfigProviderSpec) bool {
 	})
 }
 
-func applicationsAreEqual(c1, c2 *[]ApplicationSpec) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ApplicationSpec, item2 ApplicationSpec) bool {
+func applicationsAreEqual(c1, c2 *[]ApplicationProviderSpec) bool {
+	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ApplicationProviderSpec, item2 ApplicationProviderSpec) bool {
 		type1, err := item1.Type()
 		if err != nil {
 			return false
@@ -256,6 +267,11 @@ func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
 
 	// Check Resources
 	if !resourcesAreEqual(d1.Resources, d2.Resources) {
+		return false
+	}
+
+	// Check Decommission
+	if !reflect.DeepEqual(d1.Decommissioning, d2.Decommissioning) {
 		return false
 	}
 
@@ -394,4 +410,13 @@ func (e MatchExpression) String() string {
 		return ""
 	}
 	return sb.String()
+}
+
+// GetConsoles returns the list of DeviceConsole objects, or an empty list if the field is nil.
+func (rd DeviceSpec) GetConsoles() []DeviceConsole {
+	if rd.Consoles == nil {
+		return []DeviceConsole{}
+	} else {
+		return *rd.Consoles
+	}
 }

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -55,6 +56,10 @@ func NewCertificateSigningRequestFromApiResource(resource *api.CertificateSignin
 	}, nil
 }
 
+func CertificateSigningRequestAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.CertificateSigningRequestAPIVersion)
+}
+
 func (csr *CertificateSigningRequest) ToApiResource(opts ...APIResourceOption) (*api.CertificateSigningRequest, error) {
 	if csr == nil {
 		return &api.CertificateSigningRequest{}, nil
@@ -71,11 +76,11 @@ func (csr *CertificateSigningRequest) ToApiResource(opts ...APIResourceOption) (
 	}
 
 	return &api.CertificateSigningRequest{
-		ApiVersion: api.CertificateSigningRequestAPI,
+		ApiVersion: CertificateSigningRequestAPIVersion(),
 		Kind:       api.CertificateSigningRequestKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(csr.Name),
-			CreationTimestamp: util.TimeToPtr(csr.CreatedAt.UTC()),
+			Name:              lo.ToPtr(csr.Name),
+			CreationTimestamp: lo.ToPtr(csr.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(csr.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(csr.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(csr.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(csr.ResourceVersion), 10)), nil),
@@ -92,7 +97,7 @@ func CertificateSigningRequestsToApiResource(csrs []CertificateSigningRequest, c
 		certificateSigningRequestList[i] = *apiResource
 	}
 	ret := api.CertificateSigningRequestList{
-		ApiVersion: api.CertificateSigningRequestAPI,
+		ApiVersion: CertificateSigningRequestAPIVersion(),
 		Kind:       api.CertificateSigningRequestListKind,
 		Items:      certificateSigningRequestList,
 		Metadata:   api.ListMeta{},

@@ -29,10 +29,10 @@ const (
 var _ Manager = (*manager)(nil)
 
 type Manager interface {
-	Sync(current, desired *api.RenderedDeviceSpec) error
+	Sync(current, desired *api.DeviceSpec) error
 
-	OnBeforeUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec) error
-	OnAfterUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec, systemRebooted bool) error
+	OnBeforeUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec) error
+	OnAfterUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) error
 	OnBeforeRebooting(ctx context.Context) error
 	OnAfterRebooting(ctx context.Context) error
 }
@@ -51,16 +51,16 @@ func NewManager(reader fileio.Reader, exec executer.Executer, log *log.PrefixLog
 	}
 }
 
-func (m *manager) Sync(currentPtr, desiredPtr *api.RenderedDeviceSpec) error {
+func (m *manager) Sync(currentPtr, desiredPtr *api.DeviceSpec) error {
 	return nil
 }
 
-func (m *manager) OnBeforeUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec) error {
+func (m *manager) OnBeforeUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec) error {
 	actionCtx := newActionContext(api.DeviceLifecycleHookBeforeUpdating, current, desired, false)
 	return m.loadAndExecuteActions(ctx, actionCtx)
 }
 
-func (m *manager) OnAfterUpdating(ctx context.Context, current *api.RenderedDeviceSpec, desired *api.RenderedDeviceSpec, systemRebooted bool) error {
+func (m *manager) OnAfterUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) error {
 	actionCtx := newActionContext(api.DeviceLifecycleHookAfterUpdating, current, desired, systemRebooted)
 	return m.loadAndExecuteActions(ctx, actionCtx)
 }
@@ -139,6 +139,10 @@ func (m *manager) loadActions(actionsMap map[string][]api.HookAction, actionFile
 
 func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, actionCtx *actionContext) error {
 	for i, action := range actions {
+		if err := checkActionDependency(action); err != nil {
+			m.log.Debugf("Skipping %s hook action #%d: dependencies not met: %v", actionCtx.hook, i+1, err)
+			continue
+		}
 		if action.If != nil {
 			conditionsMet := true
 			for j, condition := range *action.If {
@@ -148,7 +152,7 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 					return fmt.Errorf("failed to check %s hook action #%d condition #%d: %w", actionCtx.hook, i+1, j+1, err)
 				}
 				if !conditionMet {
-					m.log.Debugf("skipping %s hook action #%d condition #%d: condition not met", actionCtx.hook, i+1, j+1)
+					m.log.Debugf("Skipping %s hook action #%d condition #%d: condition not met", actionCtx.hook, i+1, j+1)
 					conditionsMet = false
 					break
 				}

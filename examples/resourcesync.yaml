@@ -1,4 +1,4 @@
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: ResourceSync
 metadata:
   name: default-sync

@@ -2,14 +2,13 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
-	"github.com/coreos/ignition/v2/config/shared/errors"
-	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -17,10 +16,11 @@ import (
 func TestSync(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
-		name    string
-		current *v1alpha1.RenderedDeviceSpec
-		desired *v1alpha1.RenderedDeviceSpec
-		wantErr error
+		name       string
+		current    *v1alpha1.DeviceSpec
+		desired    *v1alpha1.DeviceSpec
+		setupMocks func(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, f string)
+		wantErr    error
 		// files which are created via the sync operation
 		createdFiles []string
 		// files which are removed via the sync operation
@@ -28,34 +28,28 @@ func TestSync(t *testing.T) {
 	}{
 		{
 			name:    "no desired config",
-			current: &v1alpha1.RenderedDeviceSpec{},
-			desired: &v1alpha1.RenderedDeviceSpec{},
-		},
-		{
-			name: "desired config is invalid",
-			current: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(`{"ignition":{"version":"3.4.0"}}`),
-			},
-			desired: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr("invalid"),
-			},
-			wantErr: errors.ErrInvalid,
+			current: &v1alpha1.DeviceSpec{},
+			desired: &v1alpha1.DeviceSpec{},
 		},
 		{
 			name: "desired config is valid current is nil",
-			current: &v1alpha1.RenderedDeviceSpec{
+			current: &v1alpha1.DeviceSpec{
 				Config: nil,
 			},
-			desired: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(`{"ignition":{"version":"3.4.0"}}`),
+			desired: &v1alpha1.DeviceSpec{
+				Config: testConfigProvider(require, 2),
+			},
+			createdFiles: []string{
+				"/etc/example/file1.txt",
+				"/etc/example/file2.txt",
 			},
 		},
 		{
 			name: "current config is valid desired is nil",
-			current: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(ignitionConfigCurrent),
+			current: &v1alpha1.DeviceSpec{
+				Config: testConfigProvider(require, 3),
 			},
-			desired: &v1alpha1.RenderedDeviceSpec{},
+			desired: &v1alpha1.DeviceSpec{},
 			removedFiles: []string{
 				"/etc/example/file1.txt",
 				"/etc/example/file2.txt",
@@ -64,11 +58,11 @@ func TestSync(t *testing.T) {
 		},
 		{
 			name: "validate removal of files",
-			current: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(ignitionConfigCurrent),
+			current: &v1alpha1.DeviceSpec{
+				Config: testConfigProvider(require, 3),
 			},
-			desired: &v1alpha1.RenderedDeviceSpec{
-				Config: util.StrToPtr(ignitionConfigDesired),
+			desired: &v1alpha1.DeviceSpec{
+				Config: testConfigProvider(require, 2),
 			},
 			createdFiles: []string{
 				"/etc/example/file1.txt",
@@ -114,17 +108,17 @@ func TestComputeRemoval(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name     string
-		current  []ignv3types.File
-		desired  []ignv3types.File
+		current  []v1alpha1.FileSpec
+		desired  []v1alpha1.FileSpec
 		expected []string
 	}{
 		{
 			name: "no desired files",
-			current: []ignv3types.File{
-				{Node: ignv3types.Node{Path: "/etc/example/file1.txt"}},
-				{Node: ignv3types.Node{Path: "/etc/example/file2.txt"}},
+			current: []v1alpha1.FileSpec{
+				{Path: "/etc/example/file1.txt"},
+				{Path: "/etc/example/file2.txt"},
 			},
-			desired: []ignv3types.File{},
+			desired: []v1alpha1.FileSpec{},
 			expected: []string{
 				"/etc/example/file1.txt",
 				"/etc/example/file2.txt",
@@ -132,23 +126,23 @@ func TestComputeRemoval(t *testing.T) {
 		},
 		{
 			name:    "no current files",
-			current: []ignv3types.File{},
-			desired: []ignv3types.File{
-				{Node: ignv3types.Node{Path: "/etc/example/file1.txt"}},
-				{Node: ignv3types.Node{Path: "/etc/example/file2.txt"}},
+			current: []v1alpha1.FileSpec{},
+			desired: []v1alpha1.FileSpec{
+				{Path: "/etc/example/file1.txt"},
+				{Path: "/etc/example/file2.txt"},
 			},
 			expected: []string{},
 		},
 		{
 			name: "remove diff",
-			current: []ignv3types.File{
-				{Node: ignv3types.Node{Path: "/etc/example/file1.txt"}},
-				{Node: ignv3types.Node{Path: "/etc/example/file2.txt"}},
-				{Node: ignv3types.Node{Path: "/etc/example/file3.txt"}},
+			current: []v1alpha1.FileSpec{
+				{Path: "/etc/example/file1.txt"},
+				{Path: "/etc/example/file2.txt"},
+				{Path: "/etc/example/file3.txt"},
 			},
-			desired: []ignv3types.File{
-				{Node: ignv3types.Node{Path: "/etc/example/file1.txt"}},
-				{Node: ignv3types.Node{Path: "/etc/example/file3.txt"}},
+			desired: []v1alpha1.FileSpec{
+				{Path: "/etc/example/file1.txt"},
+				{Path: "/etc/example/file3.txt"},
 			},
 			expected: []string{
 				"/etc/example/file2.txt",
@@ -156,8 +150,8 @@ func TestComputeRemoval(t *testing.T) {
 		},
 		{
 			name:     "no files",
-			current:  []ignv3types.File{},
-			desired:  []ignv3types.File{},
+			current:  []v1alpha1.FileSpec{},
+			desired:  []v1alpha1.FileSpec{},
 			expected: []string{},
 		},
 	}
@@ -169,7 +163,7 @@ func TestComputeRemoval(t *testing.T) {
 	}
 }
 
-func expectCreateFile(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, f string) {
+func expectCreateFile(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, _ string) {
 	mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile, nil)
 	mockManagedFile.EXPECT().IsUpToDate().Return(false, nil)
 	mockManagedFile.EXPECT().Exists().Return(false, nil)
@@ -180,57 +174,20 @@ func expectRemoveFile(mockWriter *fileio.MockWriter, f string) {
 	mockWriter.EXPECT().RemoveFile(f).Return(nil)
 }
 
-var ignitionConfigCurrent = `{
-  "ignition": {
-    "version": "3.1.0"
-  },
-  "storage": {
-    "files": [
-      {
-        "path": "/etc/example/file1.txt",
-        "contents": {
-          "source": "data:,File%201%20contents"
-        },
-        "mode": 420
-      },
-      {
-        "path": "/etc/example/file2.txt",
-        "contents": {
-          "source": "data:,File%202%20contents"
-        },
-        "mode": 420
-      },
-      {
-        "path": "/etc/example/file3.txt",
-        "contents": {
-          "source": "data:,File%203%20contents"
-        },
-        "mode": 420
-      }
-    ]
-  }
-}`
+func testConfigProvider(require *require.Assertions, fileCount int) *[]v1alpha1.ConfigProviderSpec {
+	var provider v1alpha1.ConfigProviderSpec
+	files := make([]v1alpha1.FileSpec, 0, fileCount)
 
-var ignitionConfigDesired = `{
-  "ignition": {
-    "version": "3.1.0"
-  },
-  "storage": {
-    "files": [
-      {
-        "path": "/etc/example/file1.txt",
-        "contents": {
-          "source": "data:,File%201%20contents"
-        },
-        "mode": 420
-      },
-      {
-        "path": "/etc/example/file2.txt",
-        "contents": {
-          "source": "data:,File%202%20contents"
-        },
-        "mode": 420
-      }
-    ]
-  }
-}`
+	for i := 0; i < fileCount; i++ {
+		files = append(files, v1alpha1.FileSpec{ // Appending new elements
+			Path:    fmt.Sprintf("/etc/example/file%d.txt", i+1),
+			Content: fmt.Sprintf("File %d contents", i+1),
+			Mode:    lo.ToPtr(0o420),
+		})
+	}
+
+	err := provider.FromInlineConfigProviderSpec(v1alpha1.InlineConfigProviderSpec{Inline: files})
+	require.NoError(err)
+
+	return &[]v1alpha1.ConfigProviderSpec{provider}
+}

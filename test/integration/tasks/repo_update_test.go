@@ -8,7 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -37,7 +37,7 @@ func (r *resourceReferenceMatcher) Matches(param any) bool {
 	if !ok {
 		return false
 	}
-	var reference tasks.ResourceReference
+	var reference tasks_client.ResourceReference
 	if err := json.Unmarshal(b, &reference); err != nil {
 		return false
 	}
@@ -59,7 +59,7 @@ var _ = Describe("RepoUpdate", func() {
 		storeInst       store.Store
 		cfg             *config.Config
 		dbName          string
-		callbackManager tasks.CallbackManager
+		callbackManager tasks_client.CallbackManager
 		ctrl            *gomock.Controller
 		mockPublisher   *queues.MockPublisher
 	)
@@ -71,7 +71,7 @@ var _ = Describe("RepoUpdate", func() {
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks.NewCallbackManager(mockPublisher, log)
+		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
 
 		// Create 2 git config items, each to a different repo
 		err := testutil.CreateRepositories(ctx, 2, storeInst, orgId)
@@ -117,13 +117,13 @@ var _ = Describe("RepoUpdate", func() {
 
 		// Create fleet1 referencing repo1, fleet2 referencing repo2
 		fleet1 := api.Fleet{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet1")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet1")},
 			Spec:     api.FleetSpec{},
 		}
 		fleet1.Spec.Template.Spec = api.DeviceSpec{Config: &config1}
 
 		fleet2 := api.Fleet{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet2")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("fleet2")},
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
@@ -139,14 +139,14 @@ var _ = Describe("RepoUpdate", func() {
 
 		// Create device1 referencing repo1, device2 referencing repo2
 		device1 := api.Device{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("device1")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("device1")},
 			Spec: &api.DeviceSpec{
 				Config: &config1,
 			},
 		}
 
 		device2 := api.Device{
-			Metadata: api.ObjectMeta{Name: util.StrToPtr("device2")},
+			Metadata: api.ObjectMeta{Name: lo.ToPtr("device2")},
 			Spec: &api.DeviceSpec{
 				Config: &config2,
 			},
@@ -170,10 +170,10 @@ var _ = Describe("RepoUpdate", func() {
 
 	When("a Repository definition is updated", func() {
 		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: api.RepositoryKind}
+			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "fleet1")).Times(1)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "device1")).Times(1)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.FleetValidateTask, "fleet1")).Times(1)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "device1")).Times(1)
 			err := logic.HandleRepositoryUpdate(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -182,10 +182,10 @@ var _ = Describe("RepoUpdate", func() {
 
 	When("all Repository definitions are deleted", func() {
 		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks.ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}
+			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.FleetValidateTask, "")).Times(2)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks.DeviceRenderTask, "")).Times(2)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.FleetValidateTask, "")).Times(2)
+			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "")).Times(2)
 			err := logic.HandleAllRepositoriesDeleted(ctx, log)
 			Expect(err).ToNot(HaveOccurred())
 

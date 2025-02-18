@@ -24,7 +24,7 @@ With these variables defined, create a Repository resource manifest file `acm-re
 
 ```console
 cat <<- EOF > acm-registration-repo.yaml
-  apiVersion: v1alpha1
+  apiVersion: flightctl.io/v1alpha1
   kind: Repository
   metadata:
     name: acm-registration
@@ -49,7 +49,7 @@ flightctl apply -f acm-registration-repo.yaml
 To enable auto-registration in a fleet, add configuration items to the fleet's device template as shown in the following example:
 
 ```console
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
   name: fleet-acm

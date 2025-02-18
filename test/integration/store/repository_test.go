@@ -9,12 +9,12 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -186,7 +186,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("newresourcename"),
+					Name: lo.ToPtr("newresourcename"),
 				},
 				Spec:   spec,
 				Status: nil,
@@ -195,7 +195,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
-			Expect(repo.ApiVersion).To(Equal(api.RepositoryAPIVersion))
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
@@ -213,7 +213,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("myrepository-1"),
+					Name: lo.ToPtr("myrepository-1"),
 				},
 				Spec:   spec,
 				Status: nil,
@@ -222,7 +222,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(false))
-			Expect(repo.ApiVersion).To(Equal(api.RepositoryAPIVersion))
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
@@ -240,7 +240,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
 				Metadata: api.ObjectMeta{
-					Name: util.StrToPtr("nilspec"),
+					Name: lo.ToPtr("nilspec"),
 				},
 				Spec:   spec,
 				Status: nil,
@@ -249,7 +249,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
-			Expect(repo.ApiVersion).To(Equal(api.RepositoryAPIVersion))
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 			repoSpec, err := repo.Spec.AsGenericRepoSpec()
 			Expect(err).ToNot(HaveOccurred())

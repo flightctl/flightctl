@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
+	"github.com/google/uuid"
 	k8sLabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -228,7 +229,9 @@ func NewRequirement(key Tuple, op selection.Operator, vals []Tuple, opts ...fiel
 			for j := range vals[i] {
 				if _, err := strconv.ParseInt(vals[i][j], 10, 64); err != nil {
 					if _, err := time.Parse(time.RFC3339, vals[i][j]); err != nil {
-						allErrs = append(allErrs, field.Invalid(valuePath.Index(i), vals[i][j], "for 'Gt', 'Lt', 'Gte', and 'Lte' operators, the value must be a number or a valid time in RFC3339 format"))
+						if _, err := uuid.Parse(vals[i][j]); err != nil {
+							allErrs = append(allErrs, field.Invalid(valuePath.Index(i), vals[i][j], "for 'Gt', 'Lt', 'Gte', and 'Lte' operators, the value must be a number or a valid time in RFC3339 format"))
+						}
 					}
 				}
 			}

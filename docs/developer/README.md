@@ -32,7 +32,7 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql
 image with:
 ```
-export PGSQL_IMAGE=registry.redhat.io/rhel8/postgresql-12
+export PGSQL_IMAGE=registry.redhat.io/rhel9/postgresql-16
 podman login registry.redhat.io
 ```
 
@@ -112,6 +112,13 @@ If you created individual devices you need to clean them one by one:
 make clean-agent-vm VMNAME=flightctl-device-1
 make clean-agent-vm VMNAME=flightctl-device-2
 make clean-agent-vm VMNAME=flightctl-device-3
+```
+
+To quickly create agent instances for testing/development in a containerized environment. This is particularly useful for testing lightweight agent deployments without setting up VMs.
+
+```
+make agent-container
+make clean-agent-container
 ```
 
 Use the **[devicesimulator](devicesimulator.md)** to simulate load from devices

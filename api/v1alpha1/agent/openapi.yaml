@@ -50,19 +50,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/devices/{name}/rendered:
     #$ref: '../openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
     # this is buggy and generates invalid references, see:
@@ -70,12 +70,12 @@ paths:
     get:
       tags:
         - device
-      description: Get the rendered, self-contained device specification for a Device resource.
-      operationId: getRenderedDeviceSpec
+      description: Get the rendered device resource.
+      operationId: getRenderedDevice
       parameters:
         - name: name
           in: path
-          description: The name of the Device resource to get the rendered device specification for.
+          description: The name of the Device to get the rendered specification for.
           required: true
           schema:
             type: string
@@ -91,7 +91,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/RenderedDeviceSpec'
+                $ref: '../openapi.yaml#/components/schemas/Device'
         "204":
           description: No content
           content: {}
@@ -100,19 +100,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
     get:
@@ -139,25 +139,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests:
     post:
       tags:
@@ -182,28 +182,28 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'

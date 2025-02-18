@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 )
@@ -28,16 +29,16 @@ func (h *ServiceHandler) AuthValidate(ctx context.Context, request server.AuthVa
 	if _, ok := authn.(auth.NilAuth); ok {
 		return server.AuthValidate418Response{}, nil
 	}
-	if request.Params.Authentication == nil {
+	if request.Params.Authorization == nil {
 		return server.AuthValidate401Response{}, nil
 	}
-	token, ok := auth.ParseAuthHeader(*request.Params.Authentication)
+	token, ok := auth.ParseAuthHeader(*request.Params.Authorization)
 	if !ok {
 		return server.AuthValidate401Response{}, nil
 	}
 	valid, err := authn.ValidateToken(ctx, token)
 	if err != nil {
-		return server.AuthValidate500JSONResponse{Message: err.Error()}, nil
+		return server.AuthValidate500JSONResponse(api.StatusInternalServerError(err.Error())), nil
 	}
 	if !valid {
 		return server.AuthValidate401Response{}, nil

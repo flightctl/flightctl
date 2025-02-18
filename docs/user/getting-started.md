@@ -166,7 +166,7 @@ $ FC_CLI_BINARY=flightctl-linux-amd64
 Download the `flightctl` binary to your machine:
 
 ```console
-$ curl -LO https://github.com/flightctl/flightctl/releases/download/latest/${FC_CLI_BINARY}
+$ curl -LO https://github.com/flightctl/flightctl/releases/latest/download/${FC_CLI_BINARY}
 
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
@@ -253,13 +253,13 @@ Next, we will use [Podman](https://github.com/containers/podman) to build a [boo
 Retrieve the agent configuration with enrollment credentials by running:
 
 ```console
-flightctl certificate request --signer=enrollment --expiration=365d --output=embedded > config.yaml
+flightctl certificate request --signer=enrollment --expiration=365d --output=embedded > agentconfig.yaml
 ```
 
-The returned `config.yaml` should look similar to this:
+The returned `agentconfig.yaml` should look similar to this:
 
 ```console
-$ cat config.yaml
+$ cat agentconfig.yaml
 enrollment-service:
   service:
     server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
@@ -373,4 +373,4 @@ NAME                                                  OWNER   SYSTEM  UPDATED   
 
 ## Where to go from here
 
-Now that you have a Flight Control-managed device, refer to [Managing Devices](managing-devices.yaml) and [Managing Fleets](managing-fleets.yaml) for how to configure and update individual or fleets of devices.
+Now that you have a Flight Control-managed device, refer to [Managing Devices](managing-devices.md) and [Managing Fleets](managing-fleets.md) for how to configure and update individual or fleets of devices.

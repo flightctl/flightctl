@@ -16,10 +16,10 @@ ARG RPM_PACKAGE=flightctl-agent
 COPY bin/e2e-certs/pki/CA/ca.pem /etc/pki/ca-trust/source/anchors/
 RUN update-ca-trust
 
-COPY bin/rpm/flightctl-agent-*.rpm /tmp/
+COPY bin/rpm/flightctl-*.rpm /tmp/
 
 RUN if [[ -z $RPM_COPR ]]; then \
-        dnf install -y /tmp/flightctl-agent-*.rpm ; \
+        dnf install -y /tmp/flightctl-agent-*.rpm /tmp/flightctl-selinux-*.rpm ; \
     else \
         dnf copr -y enable ${RPM_COPR} &&  \
         dnf install -y ${RPM_PACKAGE}; \
@@ -29,6 +29,8 @@ RUN if [[ -z $RPM_COPR ]]; then \
 
 RUN dnf install -y epel-release epel-next-release
 RUN dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    dnf install -y firewalld && \
+    systemctl enable firewalld.service && \
     systemctl enable podman.service
 
 

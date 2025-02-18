@@ -1,15 +1,14 @@
 [Unit]
-Description=FlightCtl Periodic service
+Description=Flight Control Periodic service
 After=flightctl-db.service
 Requires=flightctl-db.service
 
 [Container]
 ContainerName=flightctl-periodic
-Image=quay.io/flightctl/flightctl-periodic:latest
+Image=quay.io/flightctl/flightctl-periodic:0.4.0
 Network=flightctl.network
 Environment=HOME=/root
-
-Volume=/etc/containers/systemd/flightctl-periodic/flightctl-periodic-config/config.yaml:/root/.flightctl/config.yaml
+Volume=%h/.config/flightctl/flightctl-periodic-config/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Restart=always

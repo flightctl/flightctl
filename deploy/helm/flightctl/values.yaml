@@ -74,7 +74,7 @@ global:
 
 db:
   image:
-    image: quay.io/sclorg/postgresql-12-c8s
+    image: quay.io/sclorg/postgresql-16-c9s
     tag: latest
     pullPolicy: Always
   masterUser: admin

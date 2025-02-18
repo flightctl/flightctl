@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/robfig/cron/v3"
+	"github.com/samber/lo"
 )
 
 type manager struct {
@@ -27,7 +27,7 @@ func NewManager(log *log.PrefixLogger) Manager {
 	}
 }
 
-func (m *manager) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -106,7 +106,7 @@ func newSchedule(policyType Type) *schedule {
 func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1alpha1.UpdateSchedule) error {
 	// parse time zone
 	if updateSchedule.TimeZone != nil {
-		loc, err := time.LoadLocation(util.FromPtr(updateSchedule.TimeZone))
+		loc, err := time.LoadLocation(lo.FromPtr(updateSchedule.TimeZone))
 		if err != nil {
 			return fmt.Errorf("invalid time zone: %w", err)
 		}

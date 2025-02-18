@@ -11,7 +11,6 @@ import (
 	"text/template/parse"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
@@ -47,6 +46,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
 	if r.UpdatePolicy != nil {
 		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
+	}
+	if r.Consoles != nil {
+		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
 	}
 	if r.Os != nil {
 		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
@@ -323,7 +325,7 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
 			// Can ignore errors because we just validated it in the previous line
 			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
-			_, paramErrs = validateParametersInString(util.StrToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
+			_, paramErrs = validateParametersInString(lo.ToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
 		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
@@ -384,25 +386,107 @@ func (r CertificateSigningRequest) Validate() []error {
 	return allErrs
 }
 
+func (b *Batch_Limit) Validate() []error {
+	if b == nil {
+		return nil
+	}
+	intVal, err := b.AsBatchLimit1()
+	if err == nil {
+		if intVal <= 0 {
+			return []error{errors.New("absolute limit value must be positive integer")}
+		}
+		return nil
+	}
+	p, err := b.AsPercentage()
+	if err != nil {
+		return []error{fmt.Errorf("limit must either an integer value or a percentage: %w", err)}
+	}
+	if err = validatePercentage(p); err != nil {
+		return []error{err}
+	}
+	return nil
+}
+
+func (b *Batch) Validate() []error {
+	var errs []error
+	if b == nil {
+		return []error{errors.New("a batch in a batch sequence must not be null")}
+	}
+	errs = append(errs, b.Selector.Validate()...)
+	errs = append(errs, b.Limit.Validate()...)
+	if b.SuccessThreshold != nil {
+		if err := validatePercentage(*b.SuccessThreshold); err != nil {
+			errs = append(errs, fmt.Errorf("batch success threshold: %w", err))
+		}
+	}
+	return errs
+}
+
+func (b BatchSequence) Validate() []error {
+	var errs []error
+	for _, batch := range lo.FromPtr(b.Sequence) {
+		errs = append(errs, batch.Validate()...)
+	}
+	return errs
+}
+
+func (r *RolloutDeviceSelection) Validate() []error {
+	var errs []error
+	if r == nil {
+		return nil
+	}
+	i, err := r.ValueByDiscriminator()
+	if err != nil {
+		errs = append(errs, err)
+	} else {
+		switch v := i.(type) {
+		case BatchSequence:
+			errs = append(errs, v.Validate()...)
+		}
+	}
+	return errs
+}
+
+func (d *DisruptionBudget) Validate() []error {
+	var errs []error
+	if d == nil {
+		return nil
+	}
+	if d.MinAvailable == nil && d.MaxUnavailable == nil {
+		errs = append(errs, errors.New("at least one of [MinAvailable, MaxUnavailable] must be defined in disruption budget"))
+	}
+	groupBy := lo.FromPtr(d.GroupBy)
+	if len(groupBy) != len(lo.Uniq(groupBy)) {
+		errs = append(errs, errors.New("groupBy items must be unique"))
+	}
+	return errs
+}
+
+func (r *RolloutPolicy) Validate() []error {
+	var errs []error
+	if r == nil {
+		return nil
+	}
+	if r.DeviceSelection == nil && r.DisruptionBudget == nil {
+		errs = append(errs, errors.New("at least one of [DeviceSelection, DisruptionBudget] must be defined"))
+	}
+	errs = append(errs, r.DeviceSelection.Validate()...)
+	errs = append(errs, r.DisruptionBudget.Validate()...)
+	if r.SuccessThreshold != nil {
+		if err := validatePercentage(*r.SuccessThreshold); err != nil {
+			errs = append(errs, fmt.Errorf("rollout policy success threshold: %w", err))
+		}
+	}
+	return errs
+}
+
 func (r Fleet) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 	allErrs = append(allErrs, r.Spec.Selector.Validate()...)
-	if r.Spec.RolloutPolicy != nil {
-		i, err := r.Spec.RolloutPolicy.DeviceSelection.ValueByDiscriminator()
-		if err != nil {
-			allErrs = append(allErrs, err)
-		} else {
-			switch v := i.(type) {
-			case BatchSequence:
-				for _, b := range lo.FromPtr(v.Sequence) {
-					allErrs = append(allErrs, b.Selector.Validate()...)
-				}
-			}
-		}
-	}
+	allErrs = append(allErrs, r.Spec.RolloutPolicy.Validate()...)
 
 	// Validate the Device spec settings
 	allErrs = append(allErrs, r.Spec.Template.Spec.Validate(true)...)
@@ -429,7 +513,7 @@ func (u DeviceUpdatePolicySpec) Validate() []error {
 func (u UpdateSchedule) Validate() []error {
 	var allErrs []error
 	if u.TimeZone != nil {
-		if err := validateTimeZone(util.FromPtr(u.TimeZone)); err != nil {
+		if err := validateTimeZone(lo.FromPtr(u.TimeZone)); err != nil {
 			allErrs = append(allErrs, err...)
 		}
 	}
@@ -555,7 +639,7 @@ func validateSshConfig(config *SshConfig) []error {
 	return errs
 }
 
-func (a ApplicationSpec) Validate() []error {
+func (a ApplicationProviderSpec) Validate() []error {
 	allErrs := []error{}
 	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
 	// name must be between 1 and 253 characters and start with a letter or number.
@@ -565,7 +649,7 @@ func (a ApplicationSpec) Validate() []error {
 	return allErrs
 }
 
-func validateApplications(apps []ApplicationSpec) []error {
+func validateApplications(apps []ApplicationProviderSpec) []error {
 	allErrs := []error{}
 	seenName := make(map[string]struct{})
 	for _, app := range apps {
@@ -591,7 +675,7 @@ func validateApplications(apps []ApplicationSpec) []error {
 	return allErrs
 }
 
-func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) []error {
+func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProviderType) []error {
 	var errs []error
 	switch appType {
 	case ImageApplicationProviderType:
@@ -613,7 +697,7 @@ func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) [
 	return errs
 }
 
-func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, error) {
+func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderType, error) {
 	providerType, err := app.Type()
 	if err != nil {
 		return "", fmt.Errorf("application type error: %w", err)
@@ -627,7 +711,7 @@ func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, erro
 	}
 }
 
-func getAppName(app ApplicationSpec, appType ApplicationProviderType) (string, error) {
+func getAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (string, error) {
 	switch appType {
 	case ImageApplicationProviderType:
 		provider, err := app.AsImageApplicationProvider()
@@ -756,7 +840,7 @@ func validateParametersInString(s *string, path string, fleetTemplate bool) (boo
 	// strings, so an empty map is fine.
 	dev := &Device{
 		Metadata: ObjectMeta{
-			Name:   util.StrToPtr("name"),
+			Name:   lo.ToPtr("name"),
 			Labels: &map[string]string{},
 		},
 	}
@@ -791,4 +875,16 @@ func ValidateConditions(conditions []Condition, allowedConditions, trueCondition
 		allErrs = append(allErrs, fmt.Errorf("only one of %v may be set", exclusiveConditions))
 	}
 	return allErrs
+}
+
+func validatePercentage(p Percentage) error {
+	pattern := `^(100|[1-9]?[0-9])%$`
+	matched, err := regexp.MatchString(pattern, p)
+	if err != nil {
+		return fmt.Errorf("failed to match percentage %s: %w", p, err)
+	}
+	if !matched {
+		return fmt.Errorf("'%s' doesn't match percentage pattern '%s'", p, pattern)
+	}
+	return nil
 }

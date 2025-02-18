@@ -6,7 +6,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -40,13 +39,12 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			// Get the next expected rendered version
-			newRenderedVersion, err := harness.GetNextDeviceRenderedVersion(deviceId)
+			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(newRenderedVersion).ToNot(BeNil())
 
 			// Get the application url in the local registryand create the application config
-			extIP = util.GetExtIP()
-			sleepAppImage := fmt.Sprintf("%s:5000/sleep-app:v1", extIP)
+			extIP = harness.RegistryEndpoint()
+			sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
 			var applicationConfig = v1alpha1.ImageApplicationProvider{
 				Image: sleepAppImage,
 			}
@@ -55,11 +53,11 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 				// Create applicationSpec.
-				var applicationSpec v1alpha1.ApplicationSpec
+				var applicationSpec v1alpha1.ApplicationProviderSpec
 				err := applicationSpec.FromImageApplicationProvider(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationSpec{applicationSpec}
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{applicationSpec}
 				logrus.Infof("Updating %s with application %s", deviceId, sleepAppImage)
 			})
 
@@ -97,9 +95,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			}
 
 			// Get the next expected rendered version before the update
-			newRenderedVersion, err = harness.GetNextDeviceRenderedVersion(deviceId)
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(newRenderedVersion).ToNot(BeNil())
 
 			applicationVars := map[string]string{
 				"FFO":      "FFO",
@@ -110,13 +107,13 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 				// Create applicationSpec.
-				var updateApplicationSpec v1alpha1.ApplicationSpec
+				var updateApplicationSpec v1alpha1.ApplicationProviderSpec
 				err := updateApplicationSpec.FromImageApplicationProvider(updateApplicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
 				updateApplicationSpec.EnvVars = &applicationVars
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationSpec{updateApplicationSpec}
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{updateApplicationSpec}
 				logrus.Infof("Updating %s with application %s", deviceId, updateImage)
 			})
 
@@ -141,16 +138,15 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("SIMPLE"))
 
-			newRenderedVersion, err = harness.GetNextDeviceRenderedVersion(deviceId)
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(newRenderedVersion).ToNot(BeNil())
 
 			By("Delete the application from the fleet configuration")
 			logrus.Infof("Removing all the applications from %s", deviceId)
 
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationSpec{}
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
 				logrus.Infof("Updating %s removing application %s", deviceId, updateImage)
 			})
 

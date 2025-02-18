@@ -8,8 +8,11 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/rollout/device_selection"
+	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/pkg/thread"
 	"github.com/sirupsen/logrus"
@@ -42,11 +45,11 @@ func (s *Server) Run() error {
 	}
 	defer provider.Stop()
 
-	publisher, err := tasks.TaskQueuePublisher(provider)
+	publisher, err := tasks_client.TaskQueuePublisher(provider)
 	if err != nil {
 		return err
 	}
-	callbackManager := tasks.NewCallbackManager(publisher, s.log)
+	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 
 	// repository tester
 	repoTester := tasks.NewRepoTester(s.log, s.store)
@@ -68,6 +71,23 @@ func (s *Server) Run() error {
 		s.log.WithField("pkg", "device-disconnected"), "Device disconnected", tasks.DeviceDisconnectedPollingInterval, deviceDisconnected.Poll)
 	deviceDisconnectedThread.Start()
 	defer deviceDisconnectedThread.Stop()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Rollout device selection
+	rolloutDeviceSelection := device_selection.NewReconciler(s.store, callbackManager, s.log)
+	rolloutDeviceSelectionThread := thread.New(
+		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, func() { rolloutDeviceSelection.Reconcile(ctx) })
+	rolloutDeviceSelectionThread.Start()
+	defer rolloutDeviceSelectionThread.Stop()
+
+	// Rollout disruption budget
+	disruptionBudget := disruption_budget.NewReconciler(s.store, callbackManager, s.log)
+	disruptionBudgetThread := thread.New(
+		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, func() { disruptionBudget.Reconcile(ctx) })
+	disruptionBudgetThread.Start()
+	defer disruptionBudgetThread.Stop()
 
 	sigShutdown := make(chan os.Signal, 1)
 

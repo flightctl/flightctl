@@ -1,10 +1,10 @@
 package spec
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -12,10 +12,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
-	"golang.org/x/net/context"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -30,7 +29,7 @@ type manager struct {
 
 	deviceReadWriter fileio.ReadWriter
 	managementClient client.Management
-	bootcClient      container.BootcClient
+	osClient         os.Client
 
 	cache *cache
 	queue PriorityQueue
@@ -48,7 +47,7 @@ func NewManager(
 	dataDir string,
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
-	bootcClient container.BootcClient,
+	osClient os.Client,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) Manager {
@@ -66,7 +65,7 @@ func NewManager(
 		desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
 		rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
 		deviceReadWriter: deviceReadWriter,
-		bootcClient:      bootcClient,
+		osClient:         osClient,
 		backoff:          backoff,
 		cache:            newCache(log),
 		queue:            queue,
@@ -74,19 +73,21 @@ func NewManager(
 	}
 }
 
-func (s *manager) Initialize() error {
+func (s *manager) Initialize(ctx context.Context) error {
 	// current
-	if err := s.write(Current, initRenderedDeviceSpec); err != nil {
+	if err := s.write(Current, newVersionedDevice("0")); err != nil {
 		return err
 	}
 	// desired
-	if err := s.write(Desired, initRenderedDeviceSpec); err != nil {
+	if err := s.write(Desired, newVersionedDevice("0")); err != nil {
 		return err
 	}
 	// rollback
-	if err := s.write(Rollback, initRenderedDeviceSpec); err != nil {
+	if err := s.write(Rollback, newVersionedDevice("0")); err != nil {
 		return err
 	}
+	// reconcile the initial spec even though its empty
+	s.queue.Add(ctx, newVersionedDevice("0"))
 	return nil
 }
 
@@ -99,7 +100,7 @@ func (s *manager) Ensure() error {
 
 		if !exists {
 			s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
-			if err := s.write(specType, initRenderedDeviceSpec); err != nil {
+			if err := s.write(specType, newVersionedDevice("0")); err != nil {
 				return err
 			}
 		}
@@ -135,7 +136,11 @@ func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	if desired.Os == nil || desired.Os.Image == "" {
+	if desired.Spec == nil {
+		return false, fmt.Errorf("%w: desired spec is nil", errors.ErrInvalidSpec)
+	}
+
+	if desired.Spec.Os == nil || desired.Spec.Os.Image == "" {
 		return false, nil
 	}
 
@@ -144,11 +149,11 @@ func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	if rollback.Os == nil || rollback.Os.Image == "" {
+	if rollback.Spec.Os == nil || rollback.Spec.Os.Image == "" {
 		return false, nil
 	}
 
-	bootcStatus, err := s.bootcClient.Status(ctx)
+	osStatus, err := s.osClient.Status(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -157,12 +162,12 @@ func (s *manager) IsRollingBack(ctx context.Context) (bool, error) {
 	// 1. There is no staged OS image, indicating that no update is in progress.
 	// 2. The currently booted OS image matches the rollback image.
 	// 3. The booted image does not match the desired OS image.
-	if bootcStatus.GetStagedImage() != "" {
+	if osStatus.GetStagedImage() != "" {
 		return false, nil
 	}
 
-	bootedOSImage := bootcStatus.GetBootedImage()
-	return bootedOSImage == rollback.Os.Image && bootedOSImage != desired.Os.Image, nil
+	bootedOSImage := osStatus.GetBootedImage()
+	return bootedOSImage == rollback.Spec.Os.Image && bootedOSImage != desired.Spec.Os.Image, nil
 }
 
 func (s *manager) Upgrade(ctx context.Context) error {
@@ -186,16 +191,26 @@ func (s *manager) Upgrade(ctx context.Context) error {
 			return err
 		}
 
-		s.log.Infof("Spec reconciliation complete: current version %s", desired.RenderedVersion)
+		s.log.Infof("Spec reconciliation complete: current version %s", desired.Version())
 	}
 
-	// remove desired spec from the queue
-	s.queue.Remove(s.cache.getRenderedVersion(Desired))
+	// remove reconciled desired spec from the queue
+	version, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+	if err != nil {
+		return err
+	}
+	s.queue.Remove(version)
+
 	return nil
 }
 
-func (s *manager) SetUpgradeFailed() {
-	s.queue.SetFailed(s.cache.getRenderedVersion(Desired))
+func (s *manager) SetUpgradeFailed(version string) error {
+	versionInt, err := stringToInt64(version)
+	if err != nil {
+		return err
+	}
+	s.queue.SetFailed(versionInt)
+	return nil
 }
 
 func (s *manager) IsUpgrading() bool {
@@ -211,21 +226,21 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 	// it is possible that the current rendered spec does not have an OS image.
 	// In this case, we need to get the booted image from bootc.
 	var currentOSImage string
-	if current.Os == nil || current.Os.Image == "" {
-		bootcStatus, err := s.bootcClient.Status(ctx)
+	if current.Spec.Os == nil || current.Spec.Os.Image == "" {
+		osStatus, err := s.osClient.Status(ctx)
 		if err != nil {
 			return err
 		}
-		currentOSImage = bootcStatus.GetBootedImage()
+		currentOSImage = osStatus.GetBootedImage()
 	} else {
-		currentOSImage = current.Os.Image
+		currentOSImage = current.Spec.Os.Image
 	}
 
 	// rollback is a basic copy of the current rendered spec
 	// which contains the rendered version and the OS image.
-	rollback := &v1alpha1.RenderedDeviceSpec{
-		RenderedVersion: current.RenderedVersion,
-		Os:              &v1alpha1.DeviceOsSpec{Image: currentOSImage},
+	rollback := newVersionedDevice(current.Version())
+	rollback.Spec = &v1alpha1.DeviceSpec{
+		Os: &v1alpha1.DeviceOsSpec{Image: currentOSImage},
 	}
 
 	if err := s.write(Rollback, rollback); err != nil {
@@ -235,19 +250,31 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 }
 
 func (s *manager) ClearRollback() error {
-	return s.write(Rollback, initRenderedDeviceSpec)
+	return s.write(Rollback, newVersionedDevice(""))
 }
 
-func (s *manager) Rollback() error {
-	desiredRenderedVersion := s.cache.getRenderedVersion(Desired)
+func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
+	cfg := &rollbackConfig{}
 
-	// set the desired spec as failed
-	s.queue.SetFailed(desiredRenderedVersion)
+	// apply opts
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	if cfg.setFailed {
+		version, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+		if err != nil {
+			return err
+		}
+		// set the desired spec as failed
+
+		s.queue.SetFailed(version)
+	}
 
 	// copy the current rendered spec to the desired rendered spec
 	// this will reconcile the device with the desired "rollback" state
 	if err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath); err != nil {
-		return fmt.Errorf("%w: copy %q to %q", errors.ErrCopySpec, s.currentPath, s.desiredPath)
+		return fmt.Errorf("%w: copy %q to %q: %w", errors.ErrCopySpec, s.currentPath, s.desiredPath, err)
 	}
 
 	// update cache
@@ -255,16 +282,20 @@ func (s *manager) Rollback() error {
 	if err != nil {
 		return err
 	}
+
+	// add the desired spec back to the queue to ensure reconciliation
+	s.queue.Add(ctx, desired)
+
 	s.cache.update(Desired, desired)
 	return nil
 }
 
-func (s *manager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) {
+func (s *manager) Read(specType Type) (*v1alpha1.Device, error) {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return nil, err
 	}
-	spec, err := readRenderedSpecFromFile(s.deviceReadWriter, filePath)
+	spec, err := readDeviceFromFile(s.deviceReadWriter, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", specType, err)
 	}
@@ -282,12 +313,15 @@ func (s *manager) OSVersion(specType Type) string {
 	return s.cache.getOSVersion(specType)
 }
 
-func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error) {
-	renderedVersion := s.getRenderedVersion()
-	newDesired := &v1alpha1.RenderedDeviceSpec{}
+func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error) {
+	renderedVersion, err := s.getRenderedVersion()
+	if err != nil {
+		return nil, false, err
+	}
+	newDesired := &v1alpha1.Device{}
 
 	startTime := time.Now()
-	err := wait.ExponentialBackoff(s.backoff, func() (bool, error) {
+	err = wait.ExponentialBackoff(s.backoff, func() (bool, error) {
 		return s.getRenderedFromManagementAPIWithRetry(ctx, renderedVersion, newDesired)
 	})
 
@@ -309,20 +343,20 @@ func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec,
 			s.log.Errorf("Received non-retryable error from management service: %v", err)
 			return nil, false, err
 		}
-		s.log.Debugf("Requeuing current desired spec from disk version: %s", desired.RenderedVersion)
+		s.log.Debugf("Requeuing current desired spec from disk version: %s", desired.Version())
 		s.queue.Add(ctx, desired)
 	} else {
-		s.log.Debugf("New template version received from management service: %s", newDesired.RenderedVersion)
+		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
 		s.queue.Add(ctx, newDesired)
 	}
 
-	return s.getSpecFromQueue(ctx)
+	return s.getDeviceFromQueue(ctx)
 }
 
-// getSpecFromQueue retrieves the next desired spec to reconcile.  Returns true
+// getDeviceFromQueue retrieves the next desired device to reconcile.  Returns true
 // to signal requeue if no spec is available. If the spec is newer than the
 // current desired version it will be written to disk.
-func (s *manager) getSpecFromQueue(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool,
+func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, bool,
 	error) {
 	desired, exists := s.queue.Next(ctx)
 	if !exists {
@@ -331,8 +365,8 @@ func (s *manager) getSpecFromQueue(ctx context.Context) (*v1alpha1.RenderedDevic
 	}
 
 	// if this is a new version ensure we persist it to disk
-	if desired.RenderedVersion != s.cache.getRenderedVersion(Desired) {
-		s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.RenderedVersion)
+	if desired.Version() != s.cache.getRenderedVersion(Desired) {
+		s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
 		if err := s.write(Desired, desired); err != nil {
 			return nil, false, err
 		}
@@ -350,22 +384,22 @@ func (s *manager) IsOSUpdate() bool {
 }
 
 func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
-	bootc, err := s.bootcClient.Status(ctx)
+	osStatus, err := s.osClient.Status(ctx)
 	if err != nil {
 		return "", false, fmt.Errorf("%w: %w", errors.ErrGettingBootcStatus, err)
 	}
-	bootedOSImage := bootc.GetBootedImage()
+	bootedOSImage := osStatus.GetBootedImage()
 
 	desired, err := s.Read(Desired)
 	if err != nil {
 		return "", false, err
 	}
 
-	if desired.Os == nil {
+	if desired.Spec.Os == nil {
 		return bootedOSImage, false, nil
 	}
 
-	return bootedOSImage, desired.Os.Image == bootc.GetBootedImage(), nil
+	return bootedOSImage, desired.Spec.Os.Image == osStatus.GetBootedImage(), nil
 }
 
 func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
@@ -377,18 +411,18 @@ func (s *manager) CheckPolicy(ctx context.Context, policyType policy.Type, versi
 	return s.queue.CheckPolicy(ctx, policyType, version)
 }
 
-func (s *manager) write(specType Type, spec *v1alpha1.RenderedDeviceSpec) error {
+func (s *manager) write(specType Type, device *v1alpha1.Device) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return err
 	}
 
-	err = writeRenderedToFile(s.deviceReadWriter, spec, filePath)
+	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", specType, err)
 	}
 
-	s.cache.update(specType, spec)
+	s.cache.update(specType, device)
 
 	return nil
 }
@@ -408,12 +442,16 @@ func (s *manager) exists(specType Type) (bool, error) {
 // getRenderedVersion returns the next rendered version to reconcile. If the
 // desired rendered version is marked as failed it will return the next version
 // to make progress.
-func (s *manager) getRenderedVersion() string {
+func (s *manager) getRenderedVersion() (string, error) {
 	desiredRenderedVersion := s.cache.getRenderedVersion(Desired)
-	if s.queue.IsFailed(desiredRenderedVersion) {
-		return desiredRenderedVersion
+	version, err := stringToInt64(desiredRenderedVersion)
+	if err != nil {
+		return "", err
 	}
-	return s.cache.getRenderedVersion(Current)
+	if s.queue.IsFailed(version) {
+		return desiredRenderedVersion, nil
+	}
+	return s.cache.getRenderedVersion(Current), nil
 }
 
 func (s *manager) pathFromType(specType Type) (string, error) {
@@ -434,14 +472,14 @@ func (s *manager) pathFromType(specType Type) (string, error) {
 func (m *manager) getRenderedFromManagementAPIWithRetry(
 	ctx context.Context,
 	renderedVersion string,
-	rendered *v1alpha1.RenderedDeviceSpec,
+	rendered *v1alpha1.Device,
 ) (bool, error) {
-	params := &v1alpha1.GetRenderedDeviceSpecParams{}
+	params := &v1alpha1.GetRenderedDeviceParams{}
 	if renderedVersion != "" {
 		params.KnownRenderedVersion = &renderedVersion
 	}
 
-	resp, statusCode, err := m.managementClient.GetRenderedDeviceSpec(ctx, m.deviceName, params)
+	resp, statusCode, err := m.managementClient.GetRenderedDevice(ctx, m.deviceName, params)
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", errors.ErrGettingDeviceSpec, err)
 	}
@@ -465,14 +503,14 @@ func (m *manager) getRenderedFromManagementAPIWithRetry(
 	}
 }
 
-func readRenderedSpecFromFile(
+func readDeviceFromFile(
 	reader fileio.Reader,
 	filePath string,
-) (*v1alpha1.RenderedDeviceSpec, error) {
-	var current v1alpha1.RenderedDeviceSpec
+) (*v1alpha1.Device, error) {
+	var current v1alpha1.Device
 	renderedBytes, err := reader.ReadFile(filePath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if fileio.IsNotExist(err) {
 			// if the file does not exist, this means it has been removed/corrupted
 			return nil, fmt.Errorf("%w: reading %q: %w", errors.ErrMissingRenderedSpec, filePath, err)
 		}
@@ -487,17 +525,30 @@ func readRenderedSpecFromFile(
 	return &current, nil
 }
 
-func writeRenderedToFile(writer fileio.Writer, rendered *v1alpha1.RenderedDeviceSpec, filePath string) error {
-	renderedBytes, err := json.Marshal(rendered)
+func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath string) error {
+	deviceBytes, err := json.Marshal(device)
 	if err != nil {
 		return err
 	}
-	if err := writer.WriteFile(filePath, renderedBytes, fileio.DefaultFilePermissions); err != nil {
+	if err := writer.WriteFile(filePath, deviceBytes, fileio.DefaultFilePermissions); err != nil {
 		return fmt.Errorf("%w: writing to %q: %w", errors.ErrWritingRenderedSpec, filePath, err)
 	}
 	return nil
 }
 
-func IsUpgrading(current *v1alpha1.RenderedDeviceSpec, desired *v1alpha1.RenderedDeviceSpec) bool {
-	return current.RenderedVersion != desired.RenderedVersion
+func IsUpgrading(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+	return current.Version() != desired.Version()
+}
+
+type rollbackConfig struct {
+	setFailed bool
+}
+
+type RollbackOption func(*rollbackConfig)
+
+// WithSetFailed enables setting the desired spec as failed.
+func WithSetFailed() RollbackOption {
+	return func(cfg *rollbackConfig) {
+		cfg.setFailed = true
+	}
 }

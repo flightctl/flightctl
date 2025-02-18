@@ -22,8 +22,10 @@ flowchart TD
     DevsDeleted[(All devices deleted)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
     DevLabelsUpdated[(Device labels updated)] --> FleetSelectorMatchTask[[FleetSelectorMatchTask]]
     DevSpecUpdated[(Device spec updated)] --> DeviceRenderTask[[DeviceRenderTask]]
+    DisruptionBudgetReconciler[(Disruption budget reconciler)] --> DeviceRenderTask
     DevConfigSourceUpdated[(Device config source updated)] --> DeviceRenderTask[[DeviceRenderTask]]
     TemplateVersionCreated[(TemplateVersion created)] --> FleetRolloutTask[[FleetRolloutTask]]
+    DeviceSelectionReconciler[(Device selection reconciler)] --> FleetRolloutTask
     DevLabelsUpdated --> FleetRolloutTask
     DevOwnerUpdated[(Device owner updated)] --> FleetRolloutTask
 
@@ -37,4 +39,6 @@ flowchart TD
 ## Periodic tasks
 
 1. Try to access each repository and update its Status.
-1. Check if each ResourceSync is up-to-date, and update resources if necessary.
+2. Check if each ResourceSync is up-to-date, and update resources if necessary.
+3. Perform device selection for fleet rollout according to the batches defined in the rollout policy
+4. Send devices to rendering according to the disruption budget defined in the rollout policy

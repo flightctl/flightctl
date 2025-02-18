@@ -12,8 +12,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 type Controller struct {
@@ -37,7 +37,7 @@ func NewController(
 	}
 }
 
-func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	c.log.Debug("Syncing device applications")
 	defer c.log.Debug("Finished syncing device applications")
 
@@ -146,7 +146,7 @@ func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v
 }
 
 // parseApps parses applications from a rendered device spec.
-func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.RenderedDeviceSpec) (*applications, error) {
+func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.DeviceSpec) (*applications, error) {
 	var apps applications
 	if spec.Applications == nil {
 		return &apps, nil
@@ -162,7 +162,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert application to image provider: %w", err)
 			}
-			name := util.FromPtr(appSpec.Name)
+			name := lo.FromPtr(appSpec.Name)
 			if name == "" {
 				name = provider.Image
 			}
@@ -178,7 +178,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Render
 				&provider,
 				appType,
 			)
-			application.SetEnvVars(util.FromPtr(appSpec.EnvVars))
+			application.SetEnvVars(lo.FromPtr(appSpec.EnvVars))
 			apps.images = append(apps.images, application)
 		default:
 			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, providerType)

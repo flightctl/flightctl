@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -24,19 +26,23 @@ type Device interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.DeviceLabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
-
+	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
+	UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error
+	MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error
+	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]CompletionCount, error)
+	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
-	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error)
+	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
-
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
 
@@ -69,7 +75,7 @@ func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c IntegrationTest
 }
 
 func (s *DeviceStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.Device{}); err != nil {
+	if err := s.db.AutoMigrate(&model.Device{}, &model.DeviceLabel{}); err != nil {
 		return err
 	}
 
@@ -147,6 +153,64 @@ func (s *DeviceStore) InitialMigration() error {
 		}
 	}
 
+	// Create indexes for device_labels (Partial Matching Support)
+	if !s.db.Migrator().HasIndex(&model.DeviceLabel{}, "idx_device_labels_partial") {
+		if s.db.Dialector.Name() == "postgres" {
+			// Enable pg_trgm extension for partial matching
+			if err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
+				return err
+			}
+			// Create GIN index for partial match searches
+			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	// Ensure trigger is created for INSERT & UPDATE (labels JSONB changes)
+	if s.db.Dialector.Name() == "postgres" {
+		triggerSQL := `
+		DROP TRIGGER IF EXISTS device_labels_insert ON devices;
+		DROP TRIGGER IF EXISTS device_labels_update ON devices;
+	
+		CREATE OR REPLACE FUNCTION sync_device_labels()
+		RETURNS TRIGGER AS $$
+		DECLARE
+			label RECORD;
+		BEGIN
+			IF TG_OP = 'UPDATE' THEN
+				DELETE FROM device_labels
+				WHERE org_id = OLD.org_id AND device_name = OLD.name
+				AND label_key NOT IN (SELECT jsonb_object_keys(NEW.labels));
+			END IF;
+	
+			FOR label IN SELECT * FROM jsonb_each_text(NEW.labels)
+			LOOP
+				INSERT INTO device_labels (org_id, device_name, label_key, label_value)
+				VALUES (NEW.org_id, NEW.name, label.key, label.value)
+				ON CONFLICT (org_id, device_name, label_key) DO UPDATE
+				SET label_value = EXCLUDED.label_value;
+			END LOOP;
+	
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+	
+		CREATE TRIGGER device_labels_insert
+		AFTER INSERT ON devices
+		FOR EACH ROW
+		EXECUTE FUNCTION sync_device_labels();
+	
+		CREATE TRIGGER device_labels_update
+		AFTER UPDATE OF labels ON devices
+		FOR EACH ROW
+		WHEN (OLD.labels IS DISTINCT FROM NEW.labels)
+		EXECUTE FUNCTION sync_device_labels();
+		`
+		if err := s.db.Exec(triggerSQL).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -170,6 +234,42 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
+func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.DeviceLabelList, error) {
+	var labels []model.DeviceLabel
+
+	if listParams.Limit < 0 {
+		return nil, flterrors.ErrLimitParamOutOfBounds
+	}
+
+	resolver, err := selector.NewCompositeSelectorResolver(&model.Device{}, &model.DeviceLabel{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create selector resolver: %w", err)
+	}
+
+	query, err := ListQuery(model.Device{}, WithSelectorResolver(resolver)).BuildNoOrder(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
+	query = query.Select("DISTINCT device_labels.label_key, device_labels.label_value").
+		Joins("JOIN device_labels ON devices.org_id = device_labels.org_id AND devices.name = device_labels.device_name")
+
+	if listParams.Limit > 0 {
+		query = query.Limit(listParams.Limit)
+	}
+
+	if err := query.Find(&labels).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	labelStrings := make([]string, len(labels))
+	for i, label := range labels {
+		labelStrings[i] = fmt.Sprintf("%s=%s", label.LabelKey, label.LabelValue)
+	}
+
+	return labelStrings, nil
+}
+
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error {
 	return s.genericStore.Delete(
 		ctx,
@@ -180,6 +280,175 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 
 func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
 	return s.genericStore.DeleteAll(ctx, orgId, callback)
+}
+
+func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return 0, err
+	}
+	var devicesCount int64
+	if err := query.Count(&devicesCount).Error; err != nil {
+		return 0, ErrorFromGormError(err)
+	}
+	return devicesCount, nil
+}
+
+type CompletionCount struct {
+	Count               int64
+	SameRenderedVersion bool
+	SameTemplateVersion bool
+	UpdatingReason      api.UpdateState
+	UpdateTimedOut      bool
+}
+
+// CompletionCounts is used for finding if a rollout batch is complete or to set the success percentage of the batch.
+// The result is a count of devices grouped by some fields:
+// - rendered_template_version: taken from the annotation 'device-controller/renderedTemplateVersion'
+// - summary_status: taken from the field 'status.summary.status'
+// - updating_reason: it is the reason field from a condition having type 'Updating'
+// - same_rendered_version: it is the result of comparison for equality between the annotation 'device-controller/renderedVersion' and the field 'status.config.renderedVersion'
+// - update_timed_out: it is a boolean value indicating if the update of the device has been timed out
+func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]CompletionCount, error) {
+	var (
+		results            []CompletionCount
+		updateTimeoutValue any
+	)
+
+	if updateTimeout != nil {
+		updateTimeoutValue = gorm.Expr("render_timestamp < ?", time.Now().Add(-(*updateTimeout)))
+	} else {
+		updateTimeoutValue = gorm.Expr("false")
+	}
+	err := s.db.Raw(fmt.Sprintf(`select count(*) as count, 
+                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version, 
+                                 elem ->> 'reason' as updating_reason,
+                                 annotations->>'%s' = ? as same_template_version, 
+								 ? as update_timed_out
+                          from devices d LEFT JOIN LATERAL (
+                            SELECT elem
+						    FROM jsonb_array_elements(d.status->'conditions') AS elem
+						    WHERE elem->>'type' = 'Updating'
+						    LIMIT 1
+							) subquery ON TRUE 
+						     where
+						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null 
+						        group by same_rendered_version, updating_reason, same_template_version, update_timed_out`,
+		api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationSelectedForRollout),
+		templateVersion,
+		updateTimeoutValue,
+		orgId,
+		owner,
+		gorm.Expr("?")).Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
+}
+
+func (s *DeviceStore) unmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) (bool, error) {
+	err := s.db.Model(&model.Device{}).Where("org_id = ? and owner = ? and annotations ? ?",
+		orgId, util.ResourceOwner(api.FleetKind, fleetName), gorm.Expr("?"), api.DeviceAnnotationSelectedForRollout).Updates(map[string]any{
+		"annotations":      gorm.Expr("annotations - ?", api.DeviceAnnotationSelectedForRollout),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	}).Error
+	err = ErrorFromGormError(err)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	return false, nil
+}
+
+// UnmarkRolloutSelection unmarks all previously marked devices for rollout in a fleet
+func (s *DeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error {
+	return retryUpdate(func() (bool, error) {
+		return s.unmarkRolloutSelection(ctx, orgId, fleetName)
+	})
+}
+
+func (s *DeviceStore) markRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) (bool, error) {
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return false, err
+	}
+	if limit != nil {
+		query = query.Limit(*limit)
+		query = s.db.Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId,
+			query.Select("name"))
+	}
+	err = query.Updates(map[string]any{
+		"annotations":      gorm.Expr(fmt.Sprintf(`jsonb_set(COALESCE(annotations, '{}'::jsonb), '{%s}', '""')`, api.DeviceAnnotationSelectedForRollout)),
+		"resource_version": gorm.Expr("resource_version + 1")}).Error
+	err = ErrorFromGormError(err)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	return false, nil
+}
+
+// MarkRolloutSelection marks all devices that can be filtered by the list params.  If limit is provided then the number of marked devices
+// will not be greater than the provided limit.
+func (s *DeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error {
+	return retryUpdate(func() (bool, error) {
+		return s.markRolloutSelection(ctx, orgId, listParams, limit)
+	})
+}
+
+// Labels may contain characters that are not allowed to be part of a valid postgres field name.  This function
+// transforms a label to a valid postgres symbol
+func labelKeyToSymbol(labelKey string) string {
+	var builder strings.Builder
+	for _, c := range labelKey {
+		switch c {
+		case '.':
+			builder.WriteString("_dot_")
+		case '-':
+			builder.WriteString("_dash_")
+		case '/':
+			builder.WriteString("_slash_")
+		default:
+			builder.WriteRune(c)
+		}
+	}
+	return builder.String()
+}
+
+// CountByLabels is used for rollout policy disruption budget to provide device count values grouped by the label values.
+func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error) {
+	query, err := ListQuery(&model.Device{}).BuildNoOrder(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+
+	selectList := lo.RepeatBy(len(groupBy), func(_ int) string { return "labels ->> ? as ?" })
+	countByCondition := "count(case when ? then 1 end) as ?"
+	selectList = append(selectList,
+		"count(*) as total",
+		countByCondition,
+		countByCondition)
+
+	labelSymbols := lo.Map(groupBy, func(s string, _ int) string { return labelKeyToSymbol(s) })
+
+	args := lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(s) }))
+	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown'"), gorm.Expr("connected"))
+	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> ?, '')",
+		api.DeviceAnnotationRenderedVersion), gorm.Expr("busy_connected"))
+
+	query.Select(strings.Join(selectList, ","), args...)
+	for _, g := range labelSymbols {
+		query = query.Group(g)
+	}
+	var results []map[string]any
+	err = query.Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	ret := lo.Map(results, func(m map[string]any, _ int) map[string]any {
+		return lo.SliceToMap(append(groupBy, "total", "connected", "busy_connected"), func(s string) (string, any) {
+			return s, m[labelKeyToSymbol(s)]
+		})
+	})
+	return ret, nil
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
@@ -307,6 +576,9 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 	}
 
 	existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+	if lo.HasKey(existingAnnotations, api.DeviceAnnotationTemplateVersion) {
+		existingAnnotations[api.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[api.DeviceAnnotationTemplateVersion]
+	}
 
 	renderedApplicationsJSON := renderedApplications
 	if strings.TrimSpace(renderedApplications) == "" {
@@ -318,6 +590,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 		"rendered_config":       &renderedConfig,
 		"rendered_applications": &renderedApplicationsJSON,
 		"resource_version":      gorm.Expr("resource_version + 1"),
+		"render_timestamp":      time.Now(),
 	})
 
 	err = ErrorFromGormError(result.Error)
@@ -351,49 +624,16 @@ func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name,
 	})
 }
 
-func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.RenderedDeviceSpec, error) {
-	device := model.Device{
+func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error) {
+	deviceModel := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.First(&device)
+	result := s.db.First(&deviceModel)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
 
-	annotations := util.EnsureMap(device.Annotations)
-	renderedVersion, ok := annotations[api.DeviceAnnotationRenderedVersion]
-	if !ok {
-		return nil, flterrors.ErrNoRenderedVersion
-	}
-
-	var console *api.DeviceConsole
-
-	if val, ok := annotations[api.DeviceAnnotationConsole]; ok {
-		console = &api.DeviceConsole{
-			GRPCEndpoint: consoleGrpcEndpoint,
-			SessionID:    val,
-		}
-	}
-
-	// if we have a console request we ignore the rendered version
-	// TODO: bump the rendered version instead?
-	if console == nil && knownRenderedVersion != nil && renderedVersion == *knownRenderedVersion {
-		return nil, nil
-	}
-
-	renderedConfig := api.RenderedDeviceSpec{
-		RenderedVersion: renderedVersion,
-		Config:          device.RenderedConfig,
-		Os:              device.Spec.Data.Os,
-		Systemd:         device.Spec.Data.Systemd,
-		Resources:       device.Spec.Data.Resources,
-		Console:         console,
-		Applications:    device.RenderedApplications.Data,
-		UpdatePolicy:    device.Spec.Data.UpdatePolicy,
-		Decommission:    device.Spec.Data.Decommissioning,
-	}
-
-	return &renderedConfig, nil
+	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
 }
 
 func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditions []api.Condition) (retry bool, err error) {

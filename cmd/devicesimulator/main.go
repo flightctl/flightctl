@@ -239,7 +239,7 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 			log.Warnf("No enrollment id found in banner file %s", bannerFileData)
 			return false, nil
 		}
-		_, err = serviceClient.ApproveEnrollmentRequestWithResponse(
+		resp, err := serviceClient.ApproveEnrollmentRequestWithResponse(
 			ctx,
 			enrollmentId,
 			v1alpha1.EnrollmentRequestApproval{
@@ -249,6 +249,9 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 		if err != nil {
 			log.Errorf("Error approving device %s enrollment: %v", enrollmentId, err)
 			return false, nil
+		}
+		if resp.HTTPResponse != nil {
+			_ = resp.HTTPResponse.Body.Close()
 		}
 		log.Infof("Approved device enrollment %s", enrollmentId)
 		return true, nil

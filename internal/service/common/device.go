@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -30,10 +31,10 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLo
 
 	device := request.Body
 	if errs := validateDeviceStatus(device); len(errs) > 0 {
-		return server.ReplaceDeviceStatus400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
 	}
 	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceDeviceStatus400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+		return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest("resource name specified in metadata does not match name in path")), nil
 	}
 	device.Status.LastSeen = time.Now()
 
@@ -41,28 +42,32 @@ func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLo
 	// that the agent does not provide or only have an outdated knowledge of
 	oldDevice, err := st.Device().Get(ctx, orgId, request.Name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
-			return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
-			return server.ReplaceDeviceStatus400JSONResponse{}, nil
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
+			return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest(err.Error())), nil
+		case errors.Is(err, flterrors.ErrResourceNotFound):
+			return server.ReplaceDeviceStatus404JSONResponse(api.StatusResourceNotFound("Device", request.Name)), nil
 		default:
 			return nil, err
 		}
+	}
+	// do not overwrite valid service-side lifecycle status with placeholder device-side status
+	if device.Status.Lifecycle.Status == api.DeviceLifecycleStatusUnknown {
+		device.Status.Lifecycle.Status = oldDevice.Status.Lifecycle.Status
 	}
 	oldDevice.Status = device.Status
 	UpdateServiceSideStatus(ctx, st, log, orgId, oldDevice)
 
 	result, err := st.Device().UpdateStatus(ctx, orgId, oldDevice)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil:
-		return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
-		return server.ReplaceDeviceStatus400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.ReplaceDeviceStatus404JSONResponse{}, nil
+	case errors.Is(err, flterrors.ErrResourceIsNil):
+		return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest(err.Error())), nil
+	case errors.Is(err, flterrors.ErrResourceNameIsNil):
+		return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest(err.Error())), nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.ReplaceDeviceStatus404JSONResponse(api.StatusResourceNotFound("Device", request.Name)), nil
 	default:
 		return nil, err
 	}
@@ -95,12 +100,12 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	lastDeviceStatus := device.Status.Summary.Status
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.Summary.Status = api.DeviceSummaryStatusUnknown
-		device.Status.Summary.Info = util.StrToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
+		device.Status.Summary.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		return device.Status.Summary.Status != lastDeviceStatus
 	}
 	if device.IsRebooting() {
 		device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
-		device.Status.Summary.Info = util.StrToPtr(DeviceStatusInfoRebooting)
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoRebooting)
 		return device.Status.Summary.Status != lastDeviceStatus
 	}
 
@@ -128,28 +133,48 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	switch {
 	case len(resourceErrors) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusError
-		device.Status.Summary.Info = util.StrToPtr(strings.Join(resourceErrors, ", "))
+		device.Status.Summary.Info = lo.ToPtr(strings.Join(resourceErrors, ", "))
 	case len(resourceDegradations) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
-		device.Status.Summary.Info = util.StrToPtr(strings.Join(resourceDegradations, ", "))
+		device.Status.Summary.Info = lo.ToPtr(strings.Join(resourceDegradations, ", "))
 	default:
 		device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-		device.Status.Summary.Info = util.StrToPtr(DeviceStatusInfoHealthy)
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoHealthy)
 	}
 	return device.Status.Summary.Status != lastDeviceStatus
 }
 
 func updateServerSideLifecycleStatus(device *api.Device) bool {
 	lastLifecycleStatus := device.Status.Lifecycle.Status
+	lastLifecycleInfo := device.Status.Lifecycle.Info
 
-	if device.IsDecommissioning() {
+	// check device-reported Conditions to see if lifecycle status needs update
+	condition := api.FindStatusCondition(device.Status.Conditions, api.DeviceDecommissioning)
+	if condition == nil {
+		return false
+	}
+
+	if condition.IsDecomError() {
 		device.Status.Lifecycle = api.DeviceLifecycleStatus{
-			Info:   util.StrToPtr("Device has acknowledged decommissioning request"),
-			Status: api.DeviceLifecycleStatusDecommissioning,
+			Info:   lo.ToPtr("Device has errored while decommissioning"),
+			Status: api.DeviceLifecycleStatusDecommissioned,
 		}
 	}
 
-	return device.Status.Lifecycle.Status != lastLifecycleStatus
+	if condition.IsDecomComplete() {
+		device.Status.Lifecycle = api.DeviceLifecycleStatus{
+			Info:   lo.ToPtr("Device has completed decommissioning"),
+			Status: api.DeviceLifecycleStatusDecommissioned,
+		}
+	}
+
+	if condition.IsDecomStarted() {
+		device.Status.Lifecycle = api.DeviceLifecycleStatus{
+			Info:   lo.ToPtr("Device has acknowledged decommissioning request"),
+			Status: api.DeviceLifecycleStatusDecommissioning,
+		}
+	}
+	return device.Status.Lifecycle.Status != lastLifecycleStatus && device.Status.Lifecycle.Info != lastLifecycleInfo
 }
 
 func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, log logrus.FieldLogger, orgId uuid.UUID, device *api.Device) bool {
@@ -157,20 +182,20 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 	if device.IsUpdating() {
 		if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
-			device.Status.Updated.Info = util.StrToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s) and had an update in progress at that time.", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
+			device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s) and had an update in progress at that time.", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		} else {
 			var agentInfoMessage string
 			if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.DeviceUpdating); updateCondition != nil {
 				agentInfoMessage = updateCondition.Message
 			}
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
-			device.Status.Updated.Info = util.StrToPtr(util.DefaultString(agentInfoMessage, "The device is updating to the latest device spec."))
+			device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "The device is updating to the latest device spec."))
 		}
 		return device.Status.Updated.Status != lastUpdateStatus
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
-		device.Status.Updated.Info = util.StrToPtr("There is a newer device spec for this device.")
+		device.Status.Updated.Info = lo.ToPtr("There is a newer device spec for this device.")
 		return device.Status.Updated.Status != lastUpdateStatus
 	}
 	if device.IsManaged() {
@@ -179,14 +204,14 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 			log.Errorf("Failed to determine owner for device %q: %v", *device.Metadata.Name, err)
 			return false
 		}
-		f, err := st.Fleet().Get(ctx, orgId, fleetName, store.WithSummary(false))
+		f, err := st.Fleet().Get(ctx, orgId, fleetName, store.GetWithDeviceSummary(false))
 		if err != nil {
 			log.Errorf("Failed to get fleet for device %q: %v", *device.Metadata.Name, err)
 			return false
 		}
 		if device.IsUpdatedToFleetSpec(f) {
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-			device.Status.Updated.Info = util.StrToPtr("The device has been updated to the fleet's latest device spec.")
+			device.Status.Updated.Info = lo.ToPtr("The device has been updated to the fleet's latest device spec.")
 		} else {
 			device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
 			errorMessage := "The device has not yet been scheduled for update to the fleet's latest device spec."
@@ -196,11 +221,11 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 					errorMessage = fmt.Sprintf("The device could not be updated to the fleet's latest device spec: %s", lastRolloutError)
 				}
 			}
-			device.Status.Updated.Info = util.StrToPtr(errorMessage)
+			device.Status.Updated.Info = lo.ToPtr(errorMessage)
 		}
 	} else {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-		device.Status.Updated.Info = util.StrToPtr("The device has been updated to the latest device spec.")
+		device.Status.Updated.Info = lo.ToPtr("The device has been updated to the latest device spec.")
 	}
 	return device.Status.Updated.Status != lastUpdateStatus
 }
@@ -209,12 +234,12 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 	lastApplicationSummaryStatus := device.Status.ApplicationsSummary.Status
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusUnknown
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 	}
-	if device.IsRebooting() {
+	if device.IsRebooting() && len(device.Status.Applications) > 0 {
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(DeviceStatusInfoRebooting)
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(DeviceStatusInfoRebooting)
 		return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 	}
 
@@ -231,38 +256,39 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 	switch {
 	case len(device.Status.Applications) == 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(ApplicationStatusInfoUndefined)
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(ApplicationStatusInfoUndefined)
 	case len(appErrors) > 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(strings.Join(appErrors, ", "))
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(strings.Join(appErrors, ", "))
 	case len(appDegradations) > 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(strings.Join(appDegradations, ", "))
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(strings.Join(appDegradations, ", "))
 	default:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-		device.Status.ApplicationsSummary.Info = util.StrToPtr(ApplicationStatusInfoHealthy)
+		device.Status.ApplicationsSummary.Info = lo.ToPtr(ApplicationStatusInfoHealthy)
 	}
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 }
 
-func GetRenderedDeviceSpec(ctx context.Context, st store.Store, _ logrus.FieldLogger, request server.GetRenderedDeviceSpecRequestObject, consoleGrpcEndpoint string) (server.GetRenderedDeviceSpecResponseObject, error) {
+func GetRenderedDevice(ctx context.Context, st store.Store, log logrus.FieldLogger, request server.GetRenderedDeviceRequestObject, consoleGrpcEndpoint string) (server.GetRenderedDeviceResponseObject, error) {
 	orgId := store.NullOrgId
 
 	result, err := st.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownRenderedVersion, consoleGrpcEndpoint)
-	switch err {
-	case nil:
+
+	switch {
+	case err == nil:
 		if result == nil {
-			return server.GetRenderedDeviceSpec204Response{}, nil
+			return server.GetRenderedDevice204Response{}, nil
 		}
-		return server.GetRenderedDeviceSpec200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
-		return server.GetRenderedDeviceSpec404JSONResponse{}, nil
-	case flterrors.ErrResourceOwnerIsNil:
-		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrTemplateVersionIsNil:
-		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrInvalidTemplateVersion:
-		return server.GetRenderedDeviceSpec409JSONResponse{Message: err.Error()}, nil
+		return server.GetRenderedDevice200JSONResponse(*result), nil
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return server.GetRenderedDevice404JSONResponse(api.StatusResourceNotFound("Device", request.Name)), nil
+	case errors.Is(err, flterrors.ErrResourceOwnerIsNil):
+		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
+	case errors.Is(err, flterrors.ErrTemplateVersionIsNil):
+		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
+	case errors.Is(err, flterrors.ErrInvalidTemplateVersion):
+		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
 	default:
 		return nil, err
 	}

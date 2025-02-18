@@ -345,3 +345,31 @@ func (c *TLSCertificateConfig) GetPEMBytes() ([]byte, []byte, error) {
 
 	return certBytes, keyBytes, nil
 }
+
+// CanReadCertAndKey checks if both the certificate and key files exist and are readable.
+// Returns true if both files are accessible, false if neither exists, and an error if one is missing.
+func CanReadCertAndKey(certPath, keyPath string) (bool, error) {
+	certExists := isFileReadable(certPath)
+	keyExists := isFileReadable(keyPath)
+
+	switch {
+	case !certExists && !keyExists:
+		return false, nil
+	case !certExists:
+		return false, fmt.Errorf("certificate file missing or unreadable: %s (certificate and key must be provided as a pair)", certPath)
+	case !keyExists:
+		return false, fmt.Errorf("key file missing or unreadable: %s (certificate and key must be provided as a pair)", keyPath)
+	default:
+		return true, nil
+	}
+}
+
+// isFileReadable checks if the given file path exists and is readable.
+func isFileReadable(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return true
+}

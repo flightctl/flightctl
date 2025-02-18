@@ -3,18 +3,25 @@ package v1alpha1
 import "time"
 
 const (
-	CertificateSigningRequestAPI      = "v1alpha1"
-	CertificateSigningRequestKind     = "CertificateSigningRequest"
-	CertificateSigningRequestListKind = "CertificateSigningRequestList"
+	APIGroup = "flightctl.io"
+
+	CertificateSigningRequestAPIVersion = "v1alpha1"
+	CertificateSigningRequestKind       = "CertificateSigningRequest"
+	CertificateSigningRequestListKind   = "CertificateSigningRequestList"
 
 	DeviceAPIVersion = "v1alpha1"
 	DeviceKind       = "Device"
 	DeviceListKind   = "DeviceList"
 
-	DeviceAnnotationConsole          = "device-controller/console"
-	DeviceAnnotationRenderedVersion  = "device-controller/renderedVersion"
-	DeviceAnnotationTemplateVersion  = "fleet-controller/templateVersion"
-	DeviceAnnotationLastRolloutError = "fleet-controller/lastRolloutError"
+	DeviceAnnotationConsole         = "device-controller/console"
+	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	// This annotation is populated after a device was rolled out by the fleet-rollout task
+	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	// This annotation is populated after a device was rendered by the device-render task
+	DeviceAnnotationRenderedTemplateVersion = "fleet-controller/renderedTemplateVersion"
+	// When this annotation is present, it means that the device has been selected for rollout in a batch
+	DeviceAnnotationSelectedForRollout = "fleet-controller/selectedForRollout"
+	DeviceAnnotationLastRolloutError   = "fleet-controller/lastRolloutError"
 
 	// TODO: make configurable
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
@@ -29,6 +36,19 @@ const (
 	FleetListKind   = "FleetList"
 
 	FleetAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	// The last template version that has been processed by device selection reconciler.  It is used for new rollout detection
+	FleetAnnotationDeployingTemplateVersion = "fleet-controller/deployingTemplateVersion"
+	// The index to the current batch.  Contains an integer
+	FleetAnnotationBatchNumber = "fleet-controller/batchNumber"
+	// Indicates if the current batch has been approved
+	FleetAnnotationRolloutApproved = "fleet-controller/rolloutApproved"
+	// What is the active approval method: If automatic then it is based in the last batch success percentage.  Otherwise
+	// it requires manual approval
+	FleetAnnotationRolloutApprovalMethod = "fleet-controller/rolloutApprovalMethod"
+	// A report specifying the completion report of the last batch
+	FleetAnnotationLastBatchCompletionReport = "fleet-controller/lastBatchCompletionReport"
+	// A frozen digest of device selection definition during rollout
+	FleetAnnotationDeviceSelectionConfigDigest = "fleet-controller/deviceSelectionConfigDigest"
 
 	RepositoryAPIVersion = "v1alpha1"
 	RepositoryKind       = "Repository"
@@ -89,4 +109,15 @@ const (
 	DecommissionStateComplete DecommissionState = "Completed"
 	// The agent has encoutered an error while decommissioning.
 	DecommissionStateError DecommissionState = "Error"
+)
+
+const (
+	// No rollout is currently active
+	RolloutInactiveReason = "Inactive"
+	// Rollout is in progress
+	RolloutActiveReason = "Active"
+	// Rollout is suspended
+	RolloutSuspendedReason = "Suspended"
+	// Rollout is pending on user approval
+	RolloutWaitingReason = "Waiting"
 )

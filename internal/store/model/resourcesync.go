@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -55,6 +56,10 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, 
 	}, nil
 }
 
+func ResourceSyncAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.ResourceSyncAPIVersion)
+}
+
 func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceSync, error) {
 	if rs == nil {
 		return &api.ResourceSync{}, nil
@@ -71,11 +76,11 @@ func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceS
 	}
 
 	return &api.ResourceSync{
-		ApiVersion: api.ResourceSyncAPIVersion,
+		ApiVersion: ResourceSyncAPIVersion(),
 		Kind:       api.ResourceSyncKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(rs.Name),
-			CreationTimestamp: util.TimeToPtr(rs.CreatedAt.UTC()),
+			Name:              lo.ToPtr(rs.Name),
+			CreationTimestamp: lo.ToPtr(rs.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(rs.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(rs.Resource.Annotations)),
 			Generation:        rs.Generation,
@@ -93,7 +98,7 @@ func ResourceSyncsToApiResource(rss []ResourceSync, cont *string, numRemaining *
 		resourceSyncList[i] = *apiResource
 	}
 	ret := api.ResourceSyncList{
-		ApiVersion: api.ResourceSyncAPIVersion,
+		ApiVersion: ResourceSyncAPIVersion(),
 		Kind:       api.ResourceSyncListKind,
 		Items:      resourceSyncList,
 		Metadata:   api.ListMeta{},

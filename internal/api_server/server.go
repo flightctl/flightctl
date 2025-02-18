@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -19,8 +21,9 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
@@ -69,9 +72,63 @@ func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
 	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
 }
 
+// If we got back multiple errors of the format:
+// Error at "/path/to/invalid/input": ...
+// then we don't want to return all of them because it will be too
+// much information for the user. We assume that the error for the
+// longest path will contain the most relevant error, so return only
+// that one.
+var pathRegex = regexp.MustCompile(`Error at \"/(.*)\":`)
+
+func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
+	if len(errs) == 0 {
+		return http.StatusInternalServerError, nil
+	}
+
+	// Regex to extract the path inside quotes after "Error at "
+	allMatchFormat := true
+	var longestPathError error
+	var longestPathErrorIndex int
+	shortErrorMessages := make([]string, 0, len(errs))
+	longestPathLength := -1
+
+	for i, e := range errs {
+		errMsg := e.Error()
+		shortErr := strings.SplitN(errMsg, "\n", 2)[0] // Take everything until the first newline
+		shortErrorMessages = append(shortErrorMessages, strings.TrimSpace(shortErr))
+
+		matches := pathRegex.FindStringSubmatch(errMsg)
+		if len(matches) < 2 {
+			allMatchFormat = false
+			break
+		}
+
+		// Extract the path and count the number of slashes
+		path := matches[1]
+		slashCount := strings.Count(path, "/")
+		if slashCount > longestPathLength {
+			longestPathError = e
+			longestPathErrorIndex = i
+			longestPathLength = slashCount
+		}
+	}
+
+	if allMatchFormat && longestPathErrorIndex >= 0 {
+		shortErrorMessages = append(shortErrorMessages[:longestPathErrorIndex], shortErrorMessages[longestPathErrorIndex+1:]...)
+		response := fmt.Errorf("%d API errors found. The most relevant is likely:\n%s\nOther errors found were:\n%s",
+			len(errs),
+			longestPathError.Error(),
+			strings.Join(shortErrorMessages, "\n"))
+		return http.StatusBadRequest, response
+	}
+
+	// Default to returning the original errors
+	return http.StatusBadRequest, errs
+}
+
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := tasks.TaskQueuePublisher(s.provider)
+	publisher, err := tasks_client.TaskQueuePublisher(s.provider)
 	if err != nil {
 		return err
 	}
@@ -79,7 +136,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	callbackManager := tasks.NewCallbackManager(publisher, s.log)
+	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 
 	s.log.Println("Initializing API server")
 	swagger, err := api.GetSwagger()
@@ -90,12 +147,13 @@ func (s *Server) Run(ctx context.Context) error {
 	swagger.Servers = nil
 
 	oapiOpts := oapimiddleware.Options{
-		ErrorHandler: oapiErrorHandler,
+		ErrorHandler:      oapiErrorHandler,
+		MultiErrorHandler: oapiMultiErrorHandler,
 	}
 
 	authMiddleware, err := auth.CreateAuthMiddleware(s.cfg, s.log)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed creating Auth Middleware: %w", err)
 	}
 
 	router := chi.NewRouter()
@@ -109,9 +167,10 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.Logger,
 		middleware.Recoverer,
 		authMiddleware,
+		auth.CreatePermissionsMiddleware(s.log),
 	)
 
-	// a group is a new mux copy, with it's own copy of the middleware stack
+	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service
 	router.Group(func(r chi.Router) {
 		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
