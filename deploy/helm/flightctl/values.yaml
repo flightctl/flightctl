@@ -75,7 +75,7 @@ global:
 db:
   image:
     image: quay.io/sclorg/postgresql-16-c9s
-    tag: latest
+    tag: 20250214
     pullPolicy: Always
   masterUser: admin
   user: demouser
@@ -124,3 +124,8 @@ ui:
   enabled: true
   api:
     insecureSkipTlsVerify: true
+secretsJob:
+  image:
+    image: quay.io/openshift/origin-cli
+    tag: 4.20.0
+    pullPolicy: Always
