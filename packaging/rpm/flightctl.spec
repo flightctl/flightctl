@@ -77,7 +77,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 
     SOURCE_GIT_TAG=$(echo %{version} | tr '~' '-')\
     SOURCE_GIT_TREE_STATE=clean \
-    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'-g' '{print $2}') \
+    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'[-~]g' '{print $2}') \
     SOURCE_GIT_TAG_NO_V=%{version} \
     make build-cli build-agent
 
