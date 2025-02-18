@@ -129,6 +129,8 @@ YAML
 openshift
 acm
 namespaces
+USB
+quay.io.
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
