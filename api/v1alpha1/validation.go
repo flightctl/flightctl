@@ -379,7 +379,6 @@ func (r CertificateSigningRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-	allErrs = append(allErrs, validation.ValidateCSRUsages(r.Spec.Usages)...)
 	allErrs = append(allErrs, validation.ValidateExpirationSeconds(r.Spec.ExpirationSeconds)...)
 	allErrs = append(allErrs, validation.ValidateSignerName(r.Spec.SignerName)...)
 	allErrs = append(allErrs, validation.ValidateCSR(r.Spec.Request)...)

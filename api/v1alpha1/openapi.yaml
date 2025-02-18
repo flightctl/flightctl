@@ -4910,16 +4910,11 @@ components:
           format: byte
           type: string
         signerName:
-          description: Indicates the requested signer, and is a qualified name.
+          description: Indicates the requested signer, and is a qualified name. Supported values are "enrollment" and "ca".
           type: string
         uid:
           description: UID of the user that created the CSR, populated by the API server on creation and immutable.
           type: string
-        usages:
-          description: Usages specifies a set of key usages requested in the issued certificate.
-          items:
-            type: string
-          type: array
         username:
           description: Name of the user that created the CSR, populated by the API server on creation and immutable.
           type: string

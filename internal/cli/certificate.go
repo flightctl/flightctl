@@ -307,7 +307,6 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 			ExpirationSeconds: &expirationSeconds,
 			Request:           csrPEM,
 			SignerName:        o.SignerName,
-			Usages:            &[]string{"clientAuth", "CA:false"},
 		},
 	}
 	csrResourceJSON, err := json.Marshal(csrResource)
