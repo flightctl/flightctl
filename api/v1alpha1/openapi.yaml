@@ -73,6 +73,10 @@ paths:
                 $ref: '#/components/schemas/AuthConfig'
         "418":
           description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/auth/validate:
     get:
       tags:
@@ -88,10 +92,22 @@ paths:
       responses:
         "200":
           description: Token valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Token invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "418":
           description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "500":
           description: InternalServerError
           content:
@@ -103,7 +119,7 @@ paths:
       tags:
         - resourcesync
       description: List ResourceSync resources.
-      operationId: listResourceSync
+      operationId: listResourceSyncs
       parameters:
         - name: continue
           in: query
@@ -242,7 +258,7 @@ paths:
       tags:
         - resourcesync
       description: Get a ResourceSync resource.
-      operationId: readResourceSync
+      operationId: getResourceSync
       parameters:
         - name: name
           in: path
@@ -427,7 +443,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceSync'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -596,7 +612,7 @@ paths:
       tags:
         - repository
       description: Get a Repository resource.
-      operationId: readRepository
+      operationId: getRepository
       parameters:
         - name: name
           in: path
@@ -720,7 +736,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Repository'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -956,7 +972,7 @@ paths:
       tags:
         - device
       description: Get a Device resource.
-      operationId: readDevice
+      operationId: getDevice
       parameters:
         - name: name
           in: path
@@ -1080,7 +1096,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -1171,7 +1187,7 @@ paths:
       tags:
         - device
       description: Get the status of a Device resource.
-      operationId: readDeviceStatus
+      operationId: getDeviceStatus
       parameters:
         - name: name
           in: path
@@ -1629,7 +1645,7 @@ paths:
       tags:
         - enrollmentrequest
       description: Get an EnrollmentRequest resource.
-      operationId: readEnrollmentRequest
+      operationId: getEnrollmentRequest
       parameters:
         - name: name
           in: path
@@ -1814,7 +1830,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -1844,7 +1860,7 @@ paths:
       tags:
         - enrollmentrequest
       description: Get the status of an EnrollmentRequest resource.
-      operationId: readEnrollmentRequestStatus
+      operationId: getEnrollmentRequestStatus
       parameters:
         - name: name
           in: path
@@ -2254,7 +2270,7 @@ paths:
       tags:
         - certificatesigningrequest
       description: read the specified certificateSigningRequest
-      operationId: readCertificateSigningRequest
+      operationId: getCertificateSigningRequest
       parameters:
         - name: name
           in: path
@@ -2379,7 +2395,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -2616,7 +2632,7 @@ paths:
       tags:
         - fleet
       description: Get a Fleet resource.
-      operationId: readFleet
+      operationId: getFleet
       parameters:
         - name: name
           in: path
@@ -2807,7 +2823,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -2837,7 +2853,7 @@ paths:
       tags:
         - fleet
       description: read status of the specified Fleet
-      operationId: readFleetStatus
+      operationId: getFleetStatus
       parameters:
         - name: name
           in: path
@@ -3089,7 +3105,7 @@ paths:
       tags:
         - fleet
       description: read the specified template version
-      operationId: readTemplateVersion
+      operationId: getTemplateVersion
       parameters:
         - name: fleet
           in: path
@@ -3158,7 +3174,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TemplateVersion'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
