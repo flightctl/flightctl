@@ -682,9 +682,8 @@ func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProvide
 
 		if provider.Image == "" && app.Name == nil {
 			errs = append(errs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
-		} else if app.Name != nil {
-			errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
 		}
+		errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
 	default:
 		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
 	}
