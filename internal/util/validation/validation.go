@@ -213,34 +213,6 @@ func ValidateBearerToken(token *string, path string) []error {
 	return asErrors(errs)
 }
 
-func ValidateCSRUsages(u *[]string) []error {
-	errs := field.ErrorList{}
-	requiredAllOf := map[string]struct{}{
-		"clientAuth": {},
-		"CA:false":   {},
-	}
-	notAllowed := map[string]struct{}{}
-
-	for _, usage := range *u {
-		if _, exists := notAllowed[usage]; exists {
-			err := fmt.Sprintf("usage not allowed: %s\n", usage)
-			errs = append(errs, field.Invalid(fieldPathFor("spec.usages"), u, err))
-		}
-		delete(requiredAllOf, usage)
-	}
-
-	l := len(requiredAllOf)
-	if l > 0 {
-		required := make([]string, l)
-		for k := range requiredAllOf {
-			required = append(required, k+", ")
-		}
-		err := fmt.Sprintf("required usages must be present in request: %s\n", required)
-		errs = append(errs, field.Invalid(fieldPathFor("spec.usages"), u, err))
-	}
-	return asErrors(errs)
-}
-
 // Currently every request is sent to the only signer, named "ca" and defined in cmd/flightctl-api/main.go
 func ValidateSignerName(s string) []error {
 	errs := field.ErrorList{}
@@ -254,7 +226,11 @@ func ValidateSignerName(s string) []error {
 		return nil
 	}
 
-	errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, "must specify a valid signer"))
+	msg := "must specify a valid signer: "
+	for k := range validSigners {
+		msg += k
+	}
+	errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, msg))
 	return asErrors(errs)
 }
 
