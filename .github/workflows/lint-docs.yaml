@@ -8,30 +8,40 @@ on:
   pull_request:
 
 jobs:
-  lint-docs:
-    runs-on: "ubuntu-24.04"
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_changed: ${{ steps.filter.outputs.exists }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - uses: dorny/paths-filter@v3
+      - name: Check file changes
         id: filter
+        uses: yumemi-inc/path-filter@v2
         with:
-          filters: |
-            docs:
-              - '.spelling'
-              - 'README.md'
-              - 'docs/**'
+          patterns: |
+            '.spelling'
+            'README.md'
+            'docs/**'
+
+  lint-docs:
+    needs: check-changes
+    if: ${{ needs.check-changes.outputs.docs_changed == 'true' }}
+    runs-on: "ubuntu-24.04"
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Running Markdown Linter
-        if: ${{ steps.filter.outputs.docs == 'true' }}
         run: make lint-docs
 
       - name: Running Spellchecker
-        if: ${{ steps.filter.outputs.docs == 'true' }}
         run: make spellcheck-docs
 
       - name: Verifying diagrams have source embedded
-        if: ${{ steps.filter.outputs.docs == 'true' }}
         run: make lint-diagrams
