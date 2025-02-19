@@ -2,18 +2,14 @@ package common
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -25,60 +21,6 @@ const (
 	DeviceStatusInfoHealthy        = "All system resources healthy."
 	DeviceStatusInfoRebooting      = "The device is rebooting."
 )
-
-func ReplaceDeviceStatus(ctx context.Context, st store.Store, log logrus.FieldLogger, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
-	orgId := store.NullOrgId
-
-	device := request.Body
-	if errs := validateDeviceStatus(device); len(errs) > 0 {
-		return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
-	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest("resource name specified in metadata does not match name in path")), nil
-	}
-	device.Status.LastSeen = time.Now()
-
-	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
-	// that the agent does not provide or only have an outdated knowledge of
-	oldDevice, err := st.Device().Get(ctx, orgId, request.Name)
-	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest(err.Error())), nil
-		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.ReplaceDeviceStatus404JSONResponse(api.StatusResourceNotFound("Device", request.Name)), nil
-		default:
-			return nil, err
-		}
-	}
-	// do not overwrite valid service-side lifecycle status with placeholder device-side status
-	if device.Status.Lifecycle.Status == api.DeviceLifecycleStatusUnknown {
-		device.Status.Lifecycle.Status = oldDevice.Status.Lifecycle.Status
-	}
-	oldDevice.Status = device.Status
-	UpdateServiceSideStatus(ctx, st, log, orgId, oldDevice)
-
-	result, err := st.Device().UpdateStatus(ctx, orgId, oldDevice)
-	switch {
-	case err == nil:
-		return server.ReplaceDeviceStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil):
-		return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest(err.Error())), nil
-	case errors.Is(err, flterrors.ErrResourceNameIsNil):
-		return server.ReplaceDeviceStatus400JSONResponse(api.StatusBadRequest(err.Error())), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceDeviceStatus404JSONResponse(api.StatusResourceNotFound("Device", request.Name)), nil
-	default:
-		return nil, err
-	}
-}
-
-func validateDeviceStatus(d *api.Device) []error {
-	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateResourceName(d.Metadata.Name)...)
-	// TODO: implement validation of agent's status updates
-	return allErrs
-}
 
 func UpdateServiceSideStatus(ctx context.Context, st store.Store, log logrus.FieldLogger, orgId uuid.UUID, device *api.Device) bool {
 	if device == nil {
@@ -268,28 +210,4 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 		device.Status.ApplicationsSummary.Info = lo.ToPtr(ApplicationStatusInfoHealthy)
 	}
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
-}
-
-func GetRenderedDevice(ctx context.Context, st store.Store, log logrus.FieldLogger, request server.GetRenderedDeviceRequestObject, consoleGrpcEndpoint string) (server.GetRenderedDeviceResponseObject, error) {
-	orgId := store.NullOrgId
-
-	result, err := st.Device().GetRendered(ctx, orgId, request.Name, request.Params.KnownRenderedVersion, consoleGrpcEndpoint)
-
-	switch {
-	case err == nil:
-		if result == nil {
-			return server.GetRenderedDevice204Response{}, nil
-		}
-		return server.GetRenderedDevice200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.GetRenderedDevice404JSONResponse(api.StatusResourceNotFound("Device", request.Name)), nil
-	case errors.Is(err, flterrors.ErrResourceOwnerIsNil):
-		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
-	case errors.Is(err, flterrors.ErrTemplateVersionIsNil):
-		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
-	case errors.Is(err, flterrors.ErrInvalidTemplateVersion):
-		return server.GetRenderedDevice409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
-	default:
-		return nil, err
-	}
 }

@@ -1,4 +1,4 @@
-package service
+package transport
 
 import (
 	"errors"

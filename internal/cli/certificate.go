@@ -319,7 +319,7 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 }
 
 func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) (*api.CertificateSigningRequest, error) {
-	response, err := c.ReadCertificateSigningRequestWithResponse(ctx, name)
+	response, err := c.GetCertificateSigningRequestWithResponse(ctx, name)
 	if err != nil {
 		return nil, err
 	}

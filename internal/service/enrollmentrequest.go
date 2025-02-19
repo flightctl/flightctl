@@ -7,13 +7,9 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
@@ -23,7 +19,7 @@ import (
 
 const ClientCertExpiryDays = 365
 
-func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApprovalStatus) error {
+func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
@@ -51,9 +47,9 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 	if err != nil {
 		return err
 	}
-	enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
+	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 		Certificate: lo.ToPtr(string(certData)),
-		Conditions:  []v1alpha1.Condition{},
+		Conditions:  []api.Condition{},
 		Approval:    approval,
 	}
 
@@ -67,21 +63,30 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		}
 	}
 
-	condition := v1alpha1.Condition{
-		Type:    v1alpha1.EnrollmentRequestApproved,
-		Status:  v1alpha1.ConditionStatusTrue,
+	condition := api.Condition{
+		Type:    api.EnrollmentRequestApproved,
+		Status:  api.ConditionStatusTrue,
 		Reason:  "ManuallyApproved",
 		Message: "Approved by " + approval.ApprovedBy,
 	}
-	v1alpha1.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
+	api.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
 	return nil
 }
 
-func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
-	status := v1alpha1.NewDeviceStatus()
-	status.Lifecycle = v1alpha1.DeviceLifecycleStatus{Status: "Enrolled"}
-	apiResource := &v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
+func AddStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
+	if enrollmentRequest.Status == nil {
+		enrollmentRequest.Status = &api.EnrollmentRequestStatus{
+			Certificate: nil,
+			Conditions:  []api.Condition{},
+		}
+	}
+}
+
+func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
+	status := api.NewDeviceStatus()
+	status.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
+	apiResource := &api.Device{
+		Metadata: api.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
 		},
 		Status: &status,
@@ -96,226 +101,177 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	return err
 }
 
-// (POST /api/v1/enrollmentrequests)
-func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
-	return common.CreateEnrollmentRequest(ctx, h.store, request)
-}
-
-// (GET /api/v1/enrollmentrequests)
-func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request server.ListEnrollmentRequestsRequestObject) (server.ListEnrollmentRequestsResponseObject, error) {
+func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
 
-	cont, err := store.ParseContinueString(request.Params.Continue)
+	// don't set fields that are managed by the service
+	er.Status = nil
+	NilOutManagedObjectMetaProperties(&er.Metadata)
+
+	if errs := er.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	AddStatusIfNeeded(&er)
+
+	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er)
+	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
+}
+
+func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.ListEnrollmentRequestsParams) (*api.EnrollmentRequestList, api.Status) {
+	orgId := store.NullOrgId
+
+	cont, err := store.ParseContinueString(params.Continue)
 	if err != nil {
-		return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))), nil
+		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
 	}
 
 	var fieldSelector *selector.FieldSelector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))), nil
+	if params.FieldSelector != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*params.FieldSelector); err != nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
 		}
 	}
 
 	var labelSelector *selector.LabelSelector
-	if request.Params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))), nil
+	if params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*params.LabelSelector); err != nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))
 		}
 	}
 
 	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Limit:         int(swag.Int32Value(params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
 		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
-	}
-	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))), nil
+	} else if listParams.Limit > store.MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))
+	} else if listParams.Limit < 0 {
+		return nil, api.StatusBadRequest("limit cannot be negative")
 	}
 
 	result, err := h.store.EnrollmentRequest().List(ctx, orgId, listParams)
 	if err == nil {
-		return server.ListEnrollmentRequests200JSONResponse(*result), nil
+		return result, api.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListEnrollmentRequests400JSONResponse(api.StatusBadRequest(se.Error())), nil
+		return nil, api.StatusBadRequest(se.Error())
 	default:
-		return nil, err
+		return nil, api.StatusInternalServerError(err.Error())
 	}
 }
 
-// (DELETE /api/v1/enrollmentrequests)
-func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request server.DeleteEnrollmentRequestsRequestObject) (server.DeleteEnrollmentRequestsResponseObject, error) {
+func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context) api.Status {
 	orgId := store.NullOrgId
 
 	err := h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
-	switch err {
-	case nil:
-		return server.DeleteEnrollmentRequests200JSONResponse(api.StatusOK()), nil
-	default:
-		return nil, err
-	}
+	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, nil)
 }
 
-// (GET /api/v1/enrollmentrequests/{name})
-func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
-	return common.ReadEnrollmentRequest(ctx, h.store, request)
-}
-
-// (PUT /api/v1/enrollmentrequests/{name})
-func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
+func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
 
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceEnrollmentRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
-	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceEnrollmentRequest400JSONResponse(api.StatusBadRequest("resource name specified in metadata does not match name in path")), nil
-	}
-
-	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
-		return nil, err
-	}
-
-	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, request.Body)
-	switch {
-	case err == nil:
-		if created {
-			return server.ReplaceEnrollmentRequest201JSONResponse(*result), nil
-		} else {
-			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
-		}
-	case errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.ReplaceEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
-	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.ReplaceEnrollmentRequest409JSONResponse(api.StatusConflict("")), nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (PATCH /api/v1/enrollmentrequests/{name})
+func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
+	orgId := store.NullOrgId
+
+	if errs := er.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	if name != *er.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	AddStatusIfNeeded(&er)
+
+	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er)
+	return result, StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
+}
+
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request server.PatchEnrollmentRequestRequestObject) (server.PatchEnrollmentRequestResponseObject, error) {
+func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string, patch api.PatchRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
 
-	currentObj, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
+	currentObj, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
 	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
-		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.PatchEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
-		default:
-			return nil, err
-		}
+		return nil, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 	}
 
-	newObj := &v1alpha1.EnrollmentRequest{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/enrollmentrequests/"+request.Name)
+	newObj := &api.EnrollmentRequest{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/enrollmentrequests/"+name)
 	if err != nil {
-		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
+		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	if errs := newObj.Validate(); len(errs) > 0 {
-		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest("metadata.name is immutable")), nil
+		return nil, api.StatusBadRequest("metadata.name is immutable")
 	}
 	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest("apiVersion is immutable")), nil
+		return nil, api.StatusBadRequest("apiVersion is immutable")
 	}
 	if currentObj.Kind != newObj.Kind {
-		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest("kind is immutable")), nil
+		return nil, api.StatusBadRequest("kind is immutable")
 	}
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest("status is immutable")), nil
+		return nil, api.StatusBadRequest("status is immutable")
 	}
 
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
 	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj)
-	switch {
-	case err == nil:
-		return server.PatchEnrollmentRequest200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.PatchEnrollmentRequest400JSONResponse(api.StatusBadRequest(err.Error())), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.PatchEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
-	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict), errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed):
-		return server.PatchEnrollmentRequest409JSONResponse(api.StatusConflict("")), nil
-	default:
-		return nil, err
-	}
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (DELETE /api/v1/enrollmentrequests/{name})
-func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
+func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	err := h.store.EnrollmentRequest().Delete(ctx, orgId, request.Name)
-	switch {
-	case err == nil:
-		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
-	default:
-		return nil, err
-	}
+	err := h.store.EnrollmentRequest().Delete(ctx, orgId, name)
+	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (GET /api/v1/enrollmentrequests/{name}/status)
-func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
+func (h *ServiceHandler) GetEnrollmentRequestStatus(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch {
-	case err == nil:
-		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadEnrollmentRequestStatus404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (POST /api/v1/enrollmentrequests/{name}/approval)
-func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request server.ApproveEnrollmentRequestRequestObject) (server.ApproveEnrollmentRequestResponseObject, error) {
+func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name string, approval api.EnrollmentRequestApproval) (*api.EnrollmentRequestApprovalStatus, api.Status) {
 	orgId := store.NullOrgId
 
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ApproveEnrollmentRequest400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
+	if errs := approval.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch {
-	default:
-		return nil, err
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ApproveEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
-	case err == nil:
+	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 	}
+
+	approvalStatusToReturn := enrollmentReq.Status.Approval
 
 	// if the enrollment request was already approved we should not try to approve it one more time
-	if request.Body.Approved {
-		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.EnrollmentRequestApproved) {
-			return server.ApproveEnrollmentRequest400JSONResponse(api.StatusBadRequest("Enrollment request is already approved")), nil
+	if approval.Approved {
+		if api.IsStatusConditionTrue(enrollmentReq.Status.Conditions, api.EnrollmentRequestApproved) {
+			return nil, api.StatusBadRequest("Enrollment request is already approved")
 		}
 
 		identity, err := authcommon.GetIdentity(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve user identity while approving enrollment request: %w", err)
+			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
 		}
 
 		approvedBy := "unknown"
@@ -323,53 +279,32 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 			approvedBy = identity.Username
 		}
 
-		approvalStatus := v1alpha1.EnrollmentRequestApprovalStatus{
-			Approved:   request.Body.Approved,
-			Labels:     request.Body.Labels,
+		approvalStatus := api.EnrollmentRequestApprovalStatus{
+			Approved:   approval.Approved,
+			Labels:     approval.Labels,
 			ApprovedAt: time.Now(),
 			ApprovedBy: approvedBy,
 		}
+		approvalStatusToReturn = &approvalStatus
 
 		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
-			return server.ApproveEnrollmentRequest400JSONResponse(api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))), nil
+			return nil, api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			return nil, fmt.Errorf("error creating device from enrollment request: %v", err.Error())
+			return nil, api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
 		}
 	}
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
-	switch {
-	case err == nil:
-		return server.ApproveEnrollmentRequest200JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ApproveEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
-	default:
-		return nil, err
-	}
+	return approvalStatusToReturn, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (PUT /api/v1/enrollmentrequests/{name}/status)
-func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, request server.ReplaceEnrollmentRequestStatusRequestObject) (server.ReplaceEnrollmentRequestStatusResponseObject, error) {
+func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
 
-	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
-		return nil, err
-	}
+	AddStatusIfNeeded(&er)
 
-	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, request.Body)
-	switch {
-	case err == nil:
-		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceEnrollmentRequestStatus404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
-	default:
-		return nil, err
-	}
-}
-
-// (PATCH /api/v1/enrollmentrequests/{name}/status)
-func (h *ServiceHandler) PatchEnrollmentRequestStatus(ctx context.Context, request server.PatchEnrollmentRequestStatusRequestObject) (server.PatchEnrollmentRequestStatusResponseObject, error) {
-	return nil, fmt.Errorf("not yet implemented")
+	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }

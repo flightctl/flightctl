@@ -41,14 +41,14 @@ func dispatchTasks(store store.Store, callbackManager tasks_client.CallbackManag
 }
 
 func LaunchConsumers(ctx context.Context,
-	provider queues.Provider,
+	queuesProvider queues.Provider,
 	store store.Store,
 	callbackManager tasks_client.CallbackManager,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,
 	numConsumers, threadsPerConsumer int) error {
 	for i := 0; i != numConsumers; i++ {
-		consumer, err := provider.NewConsumer(consts.TaskQueue)
+		consumer, err := queuesProvider.NewConsumer(consts.TaskQueue)
 		if err != nil {
 			return err
 		}
