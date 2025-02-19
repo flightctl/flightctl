@@ -22,9 +22,9 @@ type Config struct {
 	UI       *uiConfig       `yaml:"ui,omitempty"`
 
 	// Set by flags
-	ConfigDir      string
-	UserConfigDir  string
-	SystemdUnitDir string
+	ConfigDirectory      string
+	UserConfigDirectory  string
+	SystemdUnitDirectory string
 }
 
 type globalConfig struct {
@@ -87,13 +87,15 @@ var services = []string{
 }
 
 func main() {
-	var configDir, systemdUnitDir, userConfigDir string
+	var configDirectory, systemdUnitDirectory, userConfigDirectory string
 
+	// TODO should this also call systemd to spin up services (can be an arg)
+	// or be renamed generator
 	var rootCmd = &cobra.Command{
 		Use:   "install",
-		Short: "Install the flightctl database container",
+		Short: "Install the flightctl quadlet files based on supplied config",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := run(configDir, systemdUnitDir, userConfigDir)
+			err := run(configDirectory, systemdUnitDirectory, userConfigDirectory)
 			if err != nil {
 				return err
 			}
@@ -101,33 +103,25 @@ func main() {
 		},
 	}
 
-	rootCmd.Flags().StringVarP(&configDir, "config-dir", "c", "/etc/flightctl", "Configuration directory")
-	rootCmd.Flags().StringVarP(&systemdUnitDir, "systemd-unit-dir", "s", "~/.config/containers/systemd", "Writable systemd directory")
-	rootCmd.Flags().StringVarP(&userConfigDir, "user-config-dir", "u", "~/.config/flightctl", "Writable config directory")
+	rootCmd.Flags().StringVarP(&configDirectory, "config-dir", "c", "/etc/flightctl", "Configuration directory")
+	rootCmd.Flags().StringVarP(&systemdUnitDirectory, "systemd-unit-dir", "s", "~/.config/containers/systemd", "Writable systemd directory")
+	rootCmd.Flags().StringVarP(&userConfigDirectory, "user-config-dir", "u", "~/.config/flightctl", "Writable config directory")
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println("Error executing command:", err)
 		os.Exit(1)
 	}
 }
 
-func run(configDir string, systemdUnitDir string, userConfigDir string) error {
-	// Read configuration YAML files
-	configPath := filepath.Join(configDir, "config.yaml")
-	data, err := os.ReadFile(configPath)
+func run(configDirectory string, systemdUnitDirectory string, userConfigDirectory string) error {
+	config, err := loadConfig(configDirectory)
 	if err != nil {
-		return fmt.Errorf("error reading config file: %v", err)
+		return err
 	}
 
-	// Parse YAML into struct
-	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return fmt.Errorf("error parsing config file: %v", err)
-	}
-
-	// Set config dir
-	config.ConfigDir = configDir
-	config.UserConfigDir = userConfigDir
-	config.SystemdUnitDir = systemdUnitDir
+	// Set config directories from flags
+	config.ConfigDirectory = configDirectory
+	config.SystemdUnitDirectory = systemdUnitDirectory
+	config.UserConfigDirectory = userConfigDirectory
 
 	// Handle each service
 	for _, service := range services {
@@ -137,7 +131,7 @@ func run(configDir string, systemdUnitDir string, userConfigDir string) error {
 	}
 
 	// Move top level files like the .network and .slice files
-	err = ensureFiles(config.ConfigDir, config.SystemdUnitDir, config)
+	err = ensureFiles(config.ConfigDirectory, config.SystemdUnitDirectory, config)
 	if err != nil {
 		return fmt.Errorf("error moving top level static files: %v", err)
 	}
@@ -146,19 +140,35 @@ func run(configDir string, systemdUnitDir string, userConfigDir string) error {
 	return nil
 }
 
+func loadConfig(configDirectory string) (Config, error) {
+	configPath := filepath.Join(configDirectory, "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return Config{}, fmt.Errorf("error reading config file: %v", err)
+	}
+
+	// Parse YAML into struct
+	var config Config
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return Config{}, fmt.Errorf("error parsing config file: %v", err)
+	}
+
+	return config, nil
+}
+
 func ensureServiceFiles(serviceName string, config Config) error {
-	serviceBasePath := filepath.Join(config.ConfigDir, serviceName)
+	serviceBasePath := filepath.Join(config.ConfigDirectory, serviceName)
 	serviceConfigPath := filepath.Join(serviceBasePath, fmt.Sprintf("%s-config", serviceName))
 
 	// Write systemd unit files
-	err := ensureFiles(serviceBasePath, config.SystemdUnitDir, config)
+	err := ensureFiles(serviceBasePath, config.SystemdUnitDirectory, config)
 	if err != nil {
 		return fmt.Errorf("error writing systemd unit files for %s: %v", serviceName, err)
 	}
 
 	// Write config files if they exist
 	if _, err := os.Stat(serviceConfigPath); !os.IsNotExist(err) {
-		err = ensureFiles(serviceConfigPath, config.UserConfigDir, config)
+		err = ensureFiles(serviceConfigPath, config.UserConfigDirectory, config)
 		if err != nil {
 			return fmt.Errorf("error writing config files for %s: %v", serviceName, err)
 		}
@@ -220,7 +230,8 @@ func writeTemplate(fileName string, sourceDir string, writePath string, config C
 		return err
 	}
 	outputFilePath := filepath.Join(writePath, fileName)
-	outputFilePath = outputFilePath[:len(outputFilePath)-len(".template")] // Remove .template extension
+	// Remove .template extension
+	outputFilePath = outputFilePath[:len(outputFilePath)-len(".template")]
 
 	if err := os.WriteFile(outputFilePath, output.Bytes(), 0644); err != nil {
 		return fmt.Errorf("error writing output file %s: %v", outputFilePath, err)

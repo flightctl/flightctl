@@ -16,7 +16,7 @@ PublishPort={{.Global.Ports.API}}:3443
 PublishPort={{.Global.Ports.Agent}}:7443
 PublishPort={{.Global.Ports.GRPC}}:7444
 Volume=flightctl-api-certs:/root/.flightctl/certs
-Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:ro
+Volume={{.UserConfigDirectory}}/config.yaml:/root/.flightctl/config.yaml:ro
 
 [Service]
 Slice=flightctl.slice

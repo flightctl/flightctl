@@ -8,7 +8,7 @@ ContainerName=flightctl-periodic
 Image={{.Periodic.Image.Image}}
 Network=flightctl.network
 Environment=HOME=/root
-Volume={{.UserConfigDir}}/config.yaml:/root/.flightctl/config.yaml:ro
+Volume={{.UserConfigDirectory}}/config.yaml:/root/.flightctl/config.yaml:ro
 
 [Service]
 Restart=always
