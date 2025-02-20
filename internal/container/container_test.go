@@ -69,7 +69,7 @@ func TestIsOsImageReconciled(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			testHost := &BootcHost{}
 			testHost.Status.Booted.Image.Image.Image = testCase.bootedImage
-			testSpec := &v1alpha1.RenderedDeviceSpec{Os: testCase.desiredOs}
+			testSpec := &v1alpha1.DeviceSpec{Os: testCase.desiredOs}
 
 			reconciled, err := IsOsImageReconciled(testHost, testSpec)
 

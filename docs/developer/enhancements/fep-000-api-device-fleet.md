@@ -144,7 +144,7 @@ The proposed changes include:
 Complete representation of the proposed device:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   name: fab9839018890a88b898b980f8f809f8e8ac333761977d987a777a777a987ccce
@@ -382,7 +382,7 @@ This endpoint provides read/write access to fleets.
 Full example of fleet:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
   creationTimestamp: "2024-04-30T14:06:17Z"

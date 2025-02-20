@@ -1,19 +1,29 @@
 # Troubleshooting
 
-## Viewing a Device's Effective Target Configuration
+## Verifying the effective device specification received by the device agent
 
-The device manifest returned by the `flightctl get device` command still only contains references to external configuration and secret objects. Only when the device agent queries the service, the service will replace the references with the actual configuration and secret data. While this better protects potentially sensitive data, it also makes troubleshooting faulty configurations hard. This is why a user can be authorized to query the effective configuration as rendered by the service to the agent.
-
-To query that configuration, use the following command.
+When viewing a device resource using the command
 
 ```console
-flightctl get device/${device_name} --rendered | jq
+flightctl get device/${device_name} -o yaml
 ```
 
-## Generate Device Log Bundle
+the output contains the device specification as specified by the user or the fleet controller based on the fleet's device template. That specification may contain references to configuration or secrets stored on external systems, such a Git or a Kubernetes cluster.
 
-The device includes a script which will generate a bundle of logs necessary to debug the agent. Run the command below on the device and include the tarball in the bug report. Note: This depends on an SSH connection to extract the tarball.
+Only when the device agent queries the service, the service replaces these references with the actual configuration and secret data. While this better protects potentially sensitive data, it also makes troubleshooting faulty configurations hard.
+
+Users with the `GetRenderedDevice` permission can run the following command to view the effective configuration as rendered by the service to the device agent:
+
+```console
+flightctl get device/${device_name} -o yaml --rendered
+```
+
+## Generating a device log bundle
+
+The device includes a script that generates a bundle of logs necessary to debug the agent. Run the command below on the device:
 
 ```console
 sudo flightctl-must-gather
 ```
+
+The output is a tarball named `must-gather-$timestamp.tgz`, whereby `$timestamp` is the current date and time. Include this tarball in the bug report.

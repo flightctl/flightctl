@@ -68,12 +68,17 @@ func newPriorityQueue(
 	}
 }
 
-func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpec) {
+func (m *queueManager) Add(ctx context.Context, device *v1alpha1.Device) {
 	if ctx.Err() != nil {
 		return
 	}
 
-	item, err := newItem(spec)
+	if device.Spec == nil {
+		m.log.Errorf("Skipping device with nil spec: %s", device.Version())
+		return
+	}
+
+	item, err := newItem(device)
 	if err != nil {
 		m.log.Errorf("Failed to create queue item: %v", err)
 		return
@@ -103,7 +108,7 @@ func (m *queueManager) Remove(version int64) {
 	m.queue.Remove(version)
 }
 
-func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool) {
+func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	if ctx.Err() != nil {
 		return nil, false
 	}
@@ -336,12 +341,12 @@ func (q *queue) Remove(version int64) {
 
 type Item struct {
 	Version int64
-	Spec    *v1alpha1.RenderedDeviceSpec
+	Spec    *v1alpha1.Device
 }
 
 // newItem creates a new queue item.
-func newItem(data *v1alpha1.RenderedDeviceSpec) (*Item, error) {
-	version, err := stringToInt64(data.RenderedVersion)
+func newItem(data *v1alpha1.Device) (*Item, error) {
+	version, err := stringToInt64(data.Version())
 	if err != nil {
 		return nil, err
 	}

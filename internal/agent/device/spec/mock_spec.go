@@ -115,10 +115,10 @@ func (mr *MockManagerMockRecorder) Ensure() *gomock.Call {
 }
 
 // GetDesired mocks base method.
-func (m *MockManager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error) {
+func (m *MockManager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDesired", ctx)
-	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
+	ret0, _ := ret[0].(*v1alpha1.Device)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -202,10 +202,10 @@ func (mr *MockManagerMockRecorder) OSVersion(specType any) *gomock.Call {
 }
 
 // Read mocks base method.
-func (m *MockManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) {
+func (m *MockManager) Read(specType Type) (*v1alpha1.Device, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Read", specType)
-	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
+	ret0, _ := ret[0].(*v1alpha1.Device)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -327,7 +327,7 @@ func (m *MockPriorityQueue) EXPECT() *MockPriorityQueueMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockPriorityQueue) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpec) {
+func (m *MockPriorityQueue) Add(ctx context.Context, spec *v1alpha1.Device) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Add", ctx, spec)
 }
@@ -367,10 +367,10 @@ func (mr *MockPriorityQueueMockRecorder) IsFailed(version any) *gomock.Call {
 }
 
 // Next mocks base method.
-func (m *MockPriorityQueue) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool) {
+func (m *MockPriorityQueue) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Next", ctx)
-	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
+	ret0, _ := ret[0].(*v1alpha1.Device)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }

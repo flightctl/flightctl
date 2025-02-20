@@ -165,12 +165,12 @@ type ApplicationEnvVars struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
-// ApplicationSpec defines model for ApplicationSpec.
-type ApplicationSpec struct {
+// ApplicationProviderSpec defines model for ApplicationProviderSpec.
+type ApplicationProviderSpec struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
-	// Name The name of the application must be between 1 and 253 characters and start with a letter or number.
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name  *string `json:"name,omitempty"`
 	union json.RawMessage
 }
@@ -382,7 +382,7 @@ type DeviceApplicationsSummaryStatus struct {
 
 // DeviceConfigStatus Current status of the device config.
 type DeviceConfigStatus struct {
-	// RenderedVersion Version of the device rendered config.
+	// RenderedVersion Rendered version of the device config.
 	RenderedVersion string `json:"renderedVersion"`
 }
 
@@ -484,11 +484,14 @@ type DeviceResourceStatusType string
 
 // DeviceSpec DeviceSpec describes a device.
 type DeviceSpec struct {
-	// Applications List of applications.
-	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+	// Applications List of application providers.
+	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
@@ -1097,49 +1100,6 @@ type PatchRequestOp string
 // Percentage Percentage is the string format representing percentage string.
 type Percentage = string
 
-// RenderedApplicationSpec defines model for RenderedApplicationSpec.
-type RenderedApplicationSpec struct {
-	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
-	EnvVars *map[string]string `json:"envVars,omitempty"`
-
-	// Name An application name.
-	Name  *string `json:"name,omitempty"`
-	union json.RawMessage
-}
-
-// RenderedDeviceSpec RenderedDeviceSpec describes the rendered and self-contained specification of a Device.
-type RenderedDeviceSpec struct {
-	// Applications The list of applications to deploy.
-	Applications *[]RenderedApplicationSpec `json:"applications,omitempty"`
-
-	// Config The configuration to apply, in Ignition format.
-	Config *string `json:"config,omitempty"`
-
-	// Consoles The list of active console sessions.
-	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
-
-	// Decommission Metadata about a device decommissioning request.
-	Decommission *DeviceDecommission `json:"decommission,omitempty"`
-
-	// Os DeviceOsSpec describes the target OS for the device.
-	Os *DeviceOsSpec `json:"os,omitempty"`
-
-	// RenderedVersion Version of the rendered device spec.
-	RenderedVersion string `json:"renderedVersion"`
-
-	// Resources Array of resource monitor configurations.
-	Resources *[]ResourceMonitor `json:"resources,omitempty"`
-
-	// Systemd The systemd services to monitor.
-	Systemd *struct {
-		// MatchPatterns A list of match patterns.
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"systemd,omitempty"`
-
-	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
-	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
-}
-
 // RepoSpecType RepoSpecType is the type of the repository.
 type RepoSpecType string
 
@@ -1388,14 +1348,17 @@ type TemplateVersionSpec struct {
 
 // TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
-	// Applications List of applications.
-	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+	// Applications List of application providers.
+	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
 
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
@@ -1445,8 +1408,8 @@ type Version struct {
 
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
-	// Authentication The authentication token to validate.
-	Authentication *string `json:"Authentication,omitempty"`
+	// Authorization The authentication token to validate.
+	Authorization *string `json:"Authorization,omitempty"`
 }
 
 // ListCertificateSigningRequestsParams defines parameters for ListCertificateSigningRequests.
@@ -1482,8 +1445,8 @@ type ListDevicesParams struct {
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
-// GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
-type GetRenderedDeviceSpecParams struct {
+// GetRenderedDeviceParams defines parameters for GetRenderedDevice.
+type GetRenderedDeviceParams struct {
 	// KnownRenderedVersion The last known renderedVersion.
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
@@ -1659,22 +1622,22 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
 
-// AsImageApplicationProvider returns the union data inside the ApplicationSpec as a ImageApplicationProvider
-func (t ApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
+// AsImageApplicationProvider returns the union data inside the ApplicationProviderSpec as a ImageApplicationProvider
+func (t ApplicationProviderSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
 	var body ImageApplicationProvider
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromImageApplicationProvider overwrites any union data inside the ApplicationSpec as the provided ImageApplicationProvider
-func (t *ApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+// FromImageApplicationProvider overwrites any union data inside the ApplicationProviderSpec as the provided ImageApplicationProvider
+func (t *ApplicationProviderSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeImageApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided ImageApplicationProvider
-func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+// MergeImageApplicationProvider performs a merge with any union data inside the ApplicationProviderSpec, using the provided ImageApplicationProvider
+func (t *ApplicationProviderSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1685,7 +1648,7 @@ func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvid
 	return err
 }
 
-func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	if err != nil {
 		return nil, err
@@ -1715,7 +1678,7 @@ func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
 	return b, err
 }
 
-func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+func (t *ApplicationProviderSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	if err != nil {
 		return err
@@ -2062,90 +2025,6 @@ func (t HookCondition) MarshalJSON() ([]byte, error) {
 
 func (t *HookCondition) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsImageApplicationProvider returns the union data inside the RenderedApplicationSpec as a ImageApplicationProvider
-func (t RenderedApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
-	var body ImageApplicationProvider
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromImageApplicationProvider overwrites any union data inside the RenderedApplicationSpec as the provided ImageApplicationProvider
-func (t *RenderedApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeImageApplicationProvider performs a merge with any union data inside the RenderedApplicationSpec, using the provided ImageApplicationProvider
-func (t *RenderedApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t RenderedApplicationSpec) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if t.EnvVars != nil {
-		object["envVars"], err = json.Marshal(t.EnvVars)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
-		}
-	}
-
-	if t.Name != nil {
-		object["name"], err = json.Marshal(t.Name)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'name': %w", err)
-		}
-	}
-	b, err = json.Marshal(object)
-	return b, err
-}
-
-func (t *RenderedApplicationSpec) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["envVars"]; found {
-		err = json.Unmarshal(raw, &t.EnvVars)
-		if err != nil {
-			return fmt.Errorf("error reading 'envVars': %w", err)
-		}
-	}
-
-	if raw, found := object["name"]; found {
-		err = json.Unmarshal(raw, &t.Name)
-		if err != nil {
-			return fmt.Errorf("error reading 'name': %w", err)
-		}
-	}
-
 	return err
 }
 

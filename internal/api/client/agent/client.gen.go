@@ -91,8 +91,8 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
-	// GetRenderedDeviceSpec request
-	GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetRenderedDevice request
+	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReplaceDeviceStatusWithBody request with any body
 	ReplaceDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -108,8 +108,8 @@ type ClientInterface interface {
 	ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-func (c *Client) GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetRenderedDeviceSpecRequest(c.Server, name, params)
+func (c *Client) GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRenderedDeviceRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +180,8 @@ func (c *Client) ReadEnrollmentRequest(ctx context.Context, name string, reqEdit
 	return c.Client.Do(req)
 }
 
-// NewGetRenderedDeviceSpecRequest generates requests for GetRenderedDeviceSpec
-func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRenderedDeviceSpecParams) (*http.Request, error) {
+// NewGetRenderedDeviceRequest generates requests for GetRenderedDevice
+func NewGetRenderedDeviceRequest(server string, name string, params *GetRenderedDeviceParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -400,8 +400,8 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
-	// GetRenderedDeviceSpecWithResponse request
-	GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error)
+	// GetRenderedDeviceWithResponse request
+	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
 
 	// ReplaceDeviceStatusWithBodyWithResponse request with any body
 	ReplaceDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
@@ -417,17 +417,17 @@ type ClientWithResponsesInterface interface {
 	ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error)
 }
 
-type GetRenderedDeviceSpecResponse struct {
+type GetRenderedDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.RenderedDeviceSpec
+	JSON200      *externalRef0.Device
 	JSON401      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON409      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
-func (r GetRenderedDeviceSpecResponse) Status() string {
+func (r GetRenderedDeviceResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -435,7 +435,7 @@ func (r GetRenderedDeviceSpecResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetRenderedDeviceSpecResponse) StatusCode() int {
+func (r GetRenderedDeviceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -520,13 +520,13 @@ func (r ReadEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-// GetRenderedDeviceSpecWithResponse request returning *GetRenderedDeviceSpecResponse
-func (c *ClientWithResponses) GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error) {
-	rsp, err := c.GetRenderedDeviceSpec(ctx, name, params, reqEditors...)
+// GetRenderedDeviceWithResponse request returning *GetRenderedDeviceResponse
+func (c *ClientWithResponses) GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error) {
+	rsp, err := c.GetRenderedDevice(ctx, name, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetRenderedDeviceSpecResponse(rsp)
+	return ParseGetRenderedDeviceResponse(rsp)
 }
 
 // ReplaceDeviceStatusWithBodyWithResponse request with arbitrary body returning *ReplaceDeviceStatusResponse
@@ -572,22 +572,22 @@ func (c *ClientWithResponses) ReadEnrollmentRequestWithResponse(ctx context.Cont
 	return ParseReadEnrollmentRequestResponse(rsp)
 }
 
-// ParseGetRenderedDeviceSpecResponse parses an HTTP response from a GetRenderedDeviceSpecWithResponse call
-func ParseGetRenderedDeviceSpecResponse(rsp *http.Response) (*GetRenderedDeviceSpecResponse, error) {
+// ParseGetRenderedDeviceResponse parses an HTTP response from a GetRenderedDeviceWithResponse call
+func ParseGetRenderedDeviceResponse(rsp *http.Response) (*GetRenderedDeviceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetRenderedDeviceSpecResponse{
+	response := &GetRenderedDeviceResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.RenderedDeviceSpec
+		var dest externalRef0.Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

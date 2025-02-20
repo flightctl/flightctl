@@ -160,8 +160,8 @@ type ClientInterface interface {
 
 	DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetRenderedDeviceSpec request
-	GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetRenderedDevice request
+	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReadDeviceStatus request
 	ReadDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -646,8 +646,8 @@ func (c *Client) DecommissionDevice(ctx context.Context, name string, body Decom
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetRenderedDeviceSpecRequest(c.Server, name, params)
+func (c *Client) GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRenderedDeviceRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1467,15 +1467,15 @@ func NewAuthValidateRequest(server string, params *AuthValidateParams) (*http.Re
 
 	if params != nil {
 
-		if params.Authentication != nil {
+		if params.Authorization != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "Authentication", runtime.ParamLocationHeader, *params.Authentication)
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "Authorization", runtime.ParamLocationHeader, *params.Authorization)
 			if err != nil {
 				return nil, err
 			}
 
-			req.Header.Set("Authentication", headerParam0)
+			req.Header.Set("Authorization", headerParam0)
 		}
 
 	}
@@ -2245,8 +2245,8 @@ func NewDecommissionDeviceRequestWithBody(server string, name string, contentTyp
 	return req, nil
 }
 
-// NewGetRenderedDeviceSpecRequest generates requests for GetRenderedDeviceSpec
-func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRenderedDeviceSpecParams) (*http.Request, error) {
+// NewGetRenderedDeviceRequest generates requests for GetRenderedDevice
+func NewGetRenderedDeviceRequest(server string, name string, params *GetRenderedDeviceParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4483,8 +4483,8 @@ type ClientWithResponsesInterface interface {
 
 	DecommissionDeviceWithResponse(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
 
-	// GetRenderedDeviceSpecWithResponse request
-	GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error)
+	// GetRenderedDeviceWithResponse request
+	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
 
 	// ReadDeviceStatusWithResponse request
 	ReadDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceStatusResponse, error)
@@ -5130,10 +5130,10 @@ func (r DecommissionDeviceResponse) StatusCode() int {
 	return 0
 }
 
-type GetRenderedDeviceSpecResponse struct {
+type GetRenderedDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *RenderedDeviceSpec
+	JSON200      *Device
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -5142,7 +5142,7 @@ type GetRenderedDeviceSpecResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r GetRenderedDeviceSpecResponse) Status() string {
+func (r GetRenderedDeviceResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5150,7 +5150,7 @@ func (r GetRenderedDeviceSpecResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetRenderedDeviceSpecResponse) StatusCode() int {
+func (r GetRenderedDeviceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6551,13 +6551,13 @@ func (c *ClientWithResponses) DecommissionDeviceWithResponse(ctx context.Context
 	return ParseDecommissionDeviceResponse(rsp)
 }
 
-// GetRenderedDeviceSpecWithResponse request returning *GetRenderedDeviceSpecResponse
-func (c *ClientWithResponses) GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error) {
-	rsp, err := c.GetRenderedDeviceSpec(ctx, name, params, reqEditors...)
+// GetRenderedDeviceWithResponse request returning *GetRenderedDeviceResponse
+func (c *ClientWithResponses) GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error) {
+	rsp, err := c.GetRenderedDevice(ctx, name, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetRenderedDeviceSpecResponse(rsp)
+	return ParseGetRenderedDeviceResponse(rsp)
 }
 
 // ReadDeviceStatusWithResponse request returning *ReadDeviceStatusResponse
@@ -8115,22 +8115,22 @@ func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceRes
 	return response, nil
 }
 
-// ParseGetRenderedDeviceSpecResponse parses an HTTP response from a GetRenderedDeviceSpecWithResponse call
-func ParseGetRenderedDeviceSpecResponse(rsp *http.Response) (*GetRenderedDeviceSpecResponse, error) {
+// ParseGetRenderedDeviceResponse parses an HTTP response from a GetRenderedDeviceWithResponse call
+func ParseGetRenderedDeviceResponse(rsp *http.Response) (*GetRenderedDeviceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetRenderedDeviceSpecResponse{
+	response := &GetRenderedDeviceResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest RenderedDeviceSpec
+		var dest Device
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

@@ -19,10 +19,6 @@ import (
 const (
 	maxBase64CertificateLength = 20 * 1024 * 1024
 	maxInlineConfigLength      = 1024 * 1024
-	// MaxDNSNameLength defines the maximum length of a DNS-1123 compliant name,
-	// as specified by RFC 1123. It is used to validate the length of strings
-	// that must conform to DNS naming requirements.
-	MaxDNSNameLength = 253
 )
 
 var ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
@@ -46,6 +42,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
 	if r.UpdatePolicy != nil {
 		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
+	}
+	if r.Consoles != nil {
+		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
 	}
 	if r.Os != nil {
 		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
@@ -636,17 +635,16 @@ func validateSshConfig(config *SshConfig) []error {
 	return errs
 }
 
-func (a ApplicationSpec) Validate() []error {
+func (a ApplicationProviderSpec) Validate() []error {
 	allErrs := []error{}
-	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
-	// name must be between 1 and 253 characters and start with a letter or number.
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, MaxDNSNameLength, pattern, "")...)
+	// name must be 1–253 characters long, start with a letter or number, and contain no whitespace
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, validation.DNS1123MaxLength, validation.GenericNameRegexp, validation.Dns1123LabelFmt)...)
 	// envVars keys and values must be between 1 and 253 characters
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, MaxDNSNameLength, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, validation.DNS1123MaxLength, nil, "")...)
 	return allErrs
 }
 
-func validateApplications(apps []ApplicationSpec) []error {
+func validateApplications(apps []ApplicationProviderSpec) []error {
 	allErrs := []error{}
 	seenName := make(map[string]struct{})
 	for _, app := range apps {
@@ -672,7 +670,7 @@ func validateApplications(apps []ApplicationSpec) []error {
 	return allErrs
 }
 
-func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) []error {
+func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProviderType) []error {
 	var errs []error
 	switch appType {
 	case ImageApplicationProviderType:
@@ -684,9 +682,8 @@ func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) [
 
 		if provider.Image == "" && app.Name == nil {
 			errs = append(errs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
-		} else if app.Name != nil {
-			errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
 		}
+		errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
 	default:
 		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
 	}
@@ -694,7 +691,7 @@ func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) [
 	return errs
 }
 
-func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, error) {
+func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderType, error) {
 	providerType, err := app.Type()
 	if err != nil {
 		return "", fmt.Errorf("application type error: %w", err)
@@ -708,7 +705,7 @@ func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, erro
 	}
 }
 
-func getAppName(app ApplicationSpec, appType ApplicationProviderType) (string, error) {
+func getAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (string, error) {
 	switch appType {
 	case ImageApplicationProviderType:
 		provider, err := app.AsImageApplicationProvider()

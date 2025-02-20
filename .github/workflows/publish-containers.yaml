@@ -64,6 +64,10 @@ jobs:
       - name: Build helm charts
         run: |
           echo packaging "${{ needs.generate-tags.outputs.helm_tag }}"
+          if ${{ github.ref_type == 'tag'  }}; then
+            # Use release tag for UI chart too
+            sed -i 's/^appVersion:.*/appVersion: "${{ needs.generate-tags.outputs.helm_tag }}"/' ./deploy/helm/flightctl/charts/ui/Chart.yaml
+          fi
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
               --version "${{ needs.generate-tags.outputs.helm_tag }}" \

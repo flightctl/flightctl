@@ -104,7 +104,7 @@ func (mr *MockManagerMockRecorder) AfterUpdate(ctx any) *gomock.Call {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, desired)
 	ret0, _ := ret[0].(error)

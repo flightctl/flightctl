@@ -29,10 +29,10 @@ func (h *ServiceHandler) AuthValidate(ctx context.Context, request server.AuthVa
 	if _, ok := authn.(auth.NilAuth); ok {
 		return server.AuthValidate418Response{}, nil
 	}
-	if request.Params.Authentication == nil {
+	if request.Params.Authorization == nil {
 		return server.AuthValidate401Response{}, nil
 	}
-	token, ok := auth.ParseAuthHeader(*request.Params.Authentication)
+	token, ok := auth.ParseAuthHeader(*request.Params.Authorization)
 	if !ok {
 		return server.AuthValidate401Response{}, nil
 	}

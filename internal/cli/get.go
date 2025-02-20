@@ -89,7 +89,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
 	fs.StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
 	fs.StringVar(&o.FleetName, "fleetname", o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
-	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting devices).")
+	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting a single device).")
 	fs.BoolVarP(&o.Summary, "summary", "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, "summary-only", false, "Display summary information only.")
 }
@@ -97,11 +97,6 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
 		return err
-	}
-
-	// The RenderedDeviceSpec can only be printed as JSON or YAML, so default to JSON if not set
-	if o.Rendered && len(o.Output) == 0 {
-		o.Output = jsonFormat
 	}
 	return nil
 }
@@ -116,43 +111,38 @@ func (o *GetOptions) Validate(args []string) error {
 		return err
 	}
 	if len(name) > 0 && len(o.LabelSelector) > 0 {
-		return fmt.Errorf("cannot specify label selector when fetching a single resource")
+		return fmt.Errorf("cannot specify label selector when getting a single resource")
 	}
 	if len(name) > 0 && len(o.FieldSelector) > 0 {
-		return fmt.Errorf("cannot specify field selector when fetching a single resource")
+		return fmt.Errorf("cannot specify field selector when getting a single resource")
 	}
 	if o.Summary {
 		if kind != DeviceKind && kind != FleetKind {
-			return fmt.Errorf("summary can only be specified when fetching devices or fleets")
+			return fmt.Errorf("'--summary' can only be specified when getting a list of devices or fleets")
 		}
 		if kind == DeviceKind && len(name) > 0 {
-			return fmt.Errorf("cannot specify summary when fetching a single device")
+			return fmt.Errorf("cannot specify '--summary' when getting a single device")
 		}
 	}
 	if o.SummaryOnly {
 		if kind != DeviceKind {
-			return fmt.Errorf("summary-only can only be specified when fetching devices")
+			return fmt.Errorf("'--summary-only' can only be specified when getting a list of devices")
 		}
 		if len(name) > 0 {
-			return fmt.Errorf("cannot specify summary-only when fetching a single device")
+			return fmt.Errorf("cannot specify '--summary-only' when getting a single device")
 		}
 		if o.Limit > 0 || len(o.Continue) > 0 {
-			return fmt.Errorf("flags such as 'limit' and 'continue' are not supported when 'summary-only' is specified")
+			return fmt.Errorf("flags '--limit' and '--continue' are not supported when '--summary-only' is specified")
 		}
 	}
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
-		return fmt.Errorf("fleetname must be specified when fetching templateversions")
+		return fmt.Errorf("a fleet name must be specified when getting a list of templateversions")
 	}
 	if len(o.Output) > 0 && !slices.Contains(legalOutputTypes, o.Output) {
 		return fmt.Errorf("output format must be one of (%s)", strings.Join(legalOutputTypes, ", "))
 	}
-	if o.Rendered {
-		if kind != DeviceKind || len(name) == 0 {
-			return fmt.Errorf("rendered must only be specified when fetching a specific device")
-		}
-		if o.Output != jsonFormat && o.Output != yamlFormat {
-			return fmt.Errorf("rendered output must be one of (json, yaml)")
-		}
+	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
+		return fmt.Errorf("'--rendered' can only be used when getting a single device")
 	}
 	if o.Limit < 0 {
 		return fmt.Errorf("limit must be greater than 0")
@@ -176,7 +166,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	case kind == DeviceKind && len(name) > 0 && !o.Rendered:
 		response, err = c.ReadDeviceWithResponse(ctx, name)
 	case kind == DeviceKind && len(name) > 0 && o.Rendered:
-		response, err = c.GetRenderedDeviceSpecWithResponse(ctx, name, &api.GetRenderedDeviceSpecParams{})
+		response, err = c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
 	case kind == DeviceKind && len(name) == 0:
 		params := api.ListDevicesParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
@@ -328,7 +318,13 @@ func (o *GetOptions) printTable(response interface{}, kind string, name string) 
 			o.printDevicesSummaryTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Summary)
 		}
 	case kind == DeviceKind && len(name) > 0:
-		o.printDevicesTable(w, *(response.(*apiclient.ReadDeviceResponse).JSON200))
+		var device api.Device
+		if o.Rendered {
+			device = *(response.(*apiclient.GetRenderedDeviceResponse).JSON200)
+		} else {
+			device = *(response.(*apiclient.ReadDeviceResponse).JSON200)
+		}
+		o.printDevicesTable(w, device)
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		o.printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items...)
 	case kind == EnrollmentRequestKind && len(name) > 0:
@@ -537,7 +533,7 @@ func (o *GetOptions) printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs 
 }
 
 func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateSigningRequest) {
-	fmt.Fprintln(w, "NAME\tAGE\tSIGNERNAME\tUSERNAME\tREQUESTEDDURATION\tCONDITION")
+	fmt.Fprintln(w, "NAME\tAGE\tSIGNERNAME\tREQUESTOR\tREQUESTEDDURATION\tCONDITION")
 
 	for _, csr := range csrs {
 		age := NoneString
@@ -557,6 +553,9 @@ func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateS
 			condition = "Denied"
 		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestFailed) {
 			condition = "Failed"
+		}
+		if csr.Status != nil && csr.Status.Certificate != nil {
+			condition += ",Issued"
 		}
 
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
