@@ -276,6 +276,9 @@ type ClientInterface interface {
 
 	ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListLabels request
+	ListLabels(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteRepositories request
 	DeleteRepositories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1152,6 +1155,18 @@ func (c *Client) ReplaceFleetStatusWithBody(ctx context.Context, name string, co
 
 func (c *Client) ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceFleetStatusRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListLabels(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLabelsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -3691,6 +3706,99 @@ func NewReplaceFleetStatusRequestWithBody(server string, name string, contentTyp
 	return req, nil
 }
 
+// NewListLabelsRequest generates requests for ListLabels
+func NewListLabelsRequest(server string, params *ListLabelsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/labels")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "kind", runtime.ParamLocationQuery, params.Kind); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if params.LabelSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "labelSelector", runtime.ParamLocationQuery, *params.LabelSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.FieldSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "fieldSelector", runtime.ParamLocationQuery, *params.FieldSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewDeleteRepositoriesRequest generates requests for DeleteRepositories
 func NewDeleteRepositoriesRequest(server string) (*http.Request, error) {
 	var err error
@@ -4598,6 +4706,9 @@ type ClientWithResponsesInterface interface {
 	ReplaceFleetStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
 
 	ReplaceFleetStatusWithResponse(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
+
+	// ListLabelsWithResponse request
+	ListLabelsWithResponse(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*ListLabelsResponse, error)
 
 	// DeleteRepositoriesWithResponse request
 	DeleteRepositoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteRepositoriesResponse, error)
@@ -5927,6 +6038,32 @@ func (r ReplaceFleetStatusResponse) StatusCode() int {
 	return 0
 }
 
+type ListLabelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *LabelList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r ListLabelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListLabelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type DeleteRepositoriesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -6923,6 +7060,15 @@ func (c *ClientWithResponses) ReplaceFleetStatusWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseReplaceFleetStatusResponse(rsp)
+}
+
+// ListLabelsWithResponse request returning *ListLabelsResponse
+func (c *ClientWithResponses) ListLabelsWithResponse(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*ListLabelsResponse, error) {
+	rsp, err := c.ListLabels(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListLabelsResponse(rsp)
 }
 
 // DeleteRepositoriesWithResponse request returning *DeleteRepositoriesResponse
@@ -9841,6 +9987,60 @@ func ParseReplaceFleetStatusResponse(rsp *http.Response) (*ReplaceFleetStatusRes
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListLabelsResponse parses an HTTP response from a ListLabelsWithResponse call
+func ParseListLabelsResponse(rsp *http.Response) (*ListLabelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListLabelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LabelList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status

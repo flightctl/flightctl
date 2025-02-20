@@ -162,6 +162,9 @@ type ServerInterface interface {
 	// (PUT /api/v1/fleets/{name}/status)
 	ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string)
 
+	// (GET /api/v1/labels)
+	ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams)
+
 	// (DELETE /api/v1/repositories)
 	DeleteRepositories(w http.ResponseWriter, r *http.Request)
 
@@ -449,6 +452,11 @@ func (_ Unimplemented) PatchFleetStatus(w http.ResponseWriter, r *http.Request, 
 
 // (PUT /api/v1/fleets/{name}/status)
 func (_ Unimplemented) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/labels)
+func (_ Unimplemented) ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1897,6 +1905,65 @@ func (siw *ServerInterfaceWrapper) ReplaceFleetStatus(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// ListLabels operation middleware
+func (siw *ServerInterfaceWrapper) ListLabels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListLabelsParams
+
+	// ------------- Required query parameter "kind" -------------
+
+	if paramValue := r.URL.Query().Get("kind"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "kind", r.URL.Query(), &params.Kind)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListLabels(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // DeleteRepositories operation middleware
 func (siw *ServerInterfaceWrapper) DeleteRepositories(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -2540,6 +2607,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.ReplaceFleetStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/labels", wrapper.ListLabels)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/repositories", wrapper.DeleteRepositories)
@@ -5389,6 +5459,59 @@ func (response ReplaceFleetStatus503JSONResponse) VisitReplaceFleetStatusRespons
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListLabelsRequestObject struct {
+	Params ListLabelsParams
+}
+
+type ListLabelsResponseObject interface {
+	VisitListLabelsResponse(w http.ResponseWriter) error
+}
+
+type ListLabels200JSONResponse LabelList
+
+func (response ListLabels200JSONResponse) VisitListLabelsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListLabels400JSONResponse Status
+
+func (response ListLabels400JSONResponse) VisitListLabelsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListLabels401JSONResponse Status
+
+func (response ListLabels401JSONResponse) VisitListLabelsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListLabels403JSONResponse Status
+
+func (response ListLabels403JSONResponse) VisitListLabelsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListLabels503JSONResponse Status
+
+func (response ListLabels503JSONResponse) VisitListLabelsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type DeleteRepositoriesRequestObject struct {
 }
 
@@ -6403,6 +6526,9 @@ type StrictServerInterface interface {
 
 	// (PUT /api/v1/fleets/{name}/status)
 	ReplaceFleetStatus(ctx context.Context, request ReplaceFleetStatusRequestObject) (ReplaceFleetStatusResponseObject, error)
+
+	// (GET /api/v1/labels)
+	ListLabels(ctx context.Context, request ListLabelsRequestObject) (ListLabelsResponseObject, error)
 
 	// (DELETE /api/v1/repositories)
 	DeleteRepositories(ctx context.Context, request DeleteRepositoriesRequestObject) (DeleteRepositoriesResponseObject, error)
@@ -7854,6 +7980,32 @@ func (sh *strictHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceFleetStatusResponseObject); ok {
 		if err := validResponse.VisitReplaceFleetStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListLabels operation middleware
+func (sh *strictHandler) ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams) {
+	var request ListLabelsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListLabels(ctx, request.(ListLabelsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListLabels")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListLabelsResponseObject); ok {
+		if err := validResponse.VisitListLabelsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
