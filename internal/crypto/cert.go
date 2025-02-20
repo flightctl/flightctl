@@ -9,8 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
-	oscrypto "github.com/openshift/library-go/pkg/crypto"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
 // Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
@@ -33,8 +34,16 @@ func CNFromDeviceFingerprint(fingerprint string) (string, error) {
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
 
 
+type CABackend interface {
+	IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error)
+	IssueRequestedClientCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error)
+	IssueRequestedServerCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error)
+	GetCABundleX509() ([]*x509.Certificate)
+}
+
+
 type CA struct {
-	ca *CABackend
+	ca CABackend
 }
 
 func EnsureCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*CA, bool, error) {
@@ -58,7 +67,16 @@ func (caClient *CA) IssueRequestedClientCertificateAsX509(csr *x509.CertificateR
 }
 
 func (caClient *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
-	return caClient.ca.IssueRequestedClientCertificate(csr, expirySeconds)
+	x509, err := caClient.ca.IssueRequestedClientCertificateAsX509(csr, expirySeconds)
+
+	if err != nil {
+		return nil, err
+	}
+	certData, err := oscrypto.EncodeCertificates(x509)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrEncodeCert, err.Error())
+	}
+	return certData, nil
 }
 
 func (caClient *CA) IssueRequestedServerCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
@@ -66,7 +84,16 @@ func (caClient *CA) IssueRequestedServerCertificateAsX509(csr *x509.CertificateR
 }
 
 func (caClient *CA) IssueRequestedServerCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
-	return caClient.ca.IssueRequestedServerCertificate(csr, expirySeconds)
+	x509, err := caClient.ca.IssueRequestedServerCertificateAsX509(csr, expirySeconds)
+
+	if err != nil {
+		return nil, err
+	}
+	certData, err := oscrypto.EncodeCertificates(x509)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrEncodeCert, err.Error())
+	}
+	return certData, nil
 }
 
 func (caClient *CA) GetCABundle() ([]byte, error) {

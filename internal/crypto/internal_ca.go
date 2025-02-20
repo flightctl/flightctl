@@ -6,20 +6,22 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
-type CABackend struct {
+type internalCABackend struct {
 	Config *TLSCertificateConfig
 
 	SerialGenerator oscrypto.SerialGenerator
 }
 
-func (ca *CABackend) signCertificate(template *x509.Certificate, requestKey crypto.PublicKey) (*x509.Certificate, error) {
+func (ca *internalCABackend) signCertificate(template *x509.Certificate, requestKey crypto.PublicKey) (*x509.Certificate, error) {
 	// Increment and persist serial
 	serial, err := ca.SerialGenerator.Next(template)
 	if err != nil {
@@ -30,7 +32,7 @@ func (ca *CABackend) signCertificate(template *x509.Certificate, requestKey cryp
 }
 
 
-func EnsureInternalCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*CABackend, bool, error) {
+func EnsureInternalCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*internalCABackend, bool, error) {
 	if ca, err := GetCA(certFile, keyFile, serialFile); err == nil {
 		return ca, false, err
 	}
@@ -38,16 +40,16 @@ func EnsureInternalCA(certFile, keyFile, serialFile, subjectName string, expireD
 	return ca, true, err
 }
 
-func GetCA(certFile, keyFile, serialFile string) (*CABackend, error) {
+func GetCA(certFile, keyFile, serialFile string) (*internalCABackend, error) {
 	ca, err := oscrypto.GetCA(certFile, keyFile, serialFile)
 	if err != nil {
 		return nil, err
 	}
 	config := TLSCertificateConfig(*ca.Config)
-	return &CABackend{Config: &config, SerialGenerator: ca.SerialGenerator}, err
+	return &internalCABackend{Config: &config, SerialGenerator: ca.SerialGenerator}, err
 }
 
-func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryDays int) (*CABackend, error) {
+func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryDays int) (*internalCABackend, error) {
 	caConfig, err := makeSelfSignedCAConfig(
 		pkix.Name{CommonName: subjectName},
 		time.Duration(expiryDays)*24*time.Hour,
@@ -74,7 +76,7 @@ func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryD
 	}
 
 	config := TLSCertificateConfig(*caConfig)
-	return &CABackend{
+	return &internalCABackend{
 		SerialGenerator: serialGenerator,
 		Config:          &config,
 	}, nil
@@ -138,4 +140,52 @@ func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, is
 // 	return subCA, true, err
 // }
 
+func (ca *internalCABackend) IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error) {
+	now := time.Now()
+	template := &x509.Certificate{
+		Subject: csr.Subject,
+
+		Signature:          csr.Signature,
+		SignatureAlgorithm: csr.SignatureAlgorithm,
+
+		PublicKey:          csr.PublicKey,
+		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+
+		Issuer: ca.Config.Certs[0].Subject,
+
+		NotBefore:    now.Add(-1 * time.Second),
+		NotAfter:     now.Add(time.Duration(expirySeconds) * time.Second),
+		SerialNumber: big.NewInt(1),
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           usage,
+		BasicConstraintsValid: true,
+
+		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
+	}
+	if len(csr.IPAddresses) > 0 {
+		template.IPAddresses = csr.IPAddresses
+	}
+	if len(csr.DNSNames) > 0 {
+		template.DNSNames = csr.DNSNames
+	}
+
+	cert, err := ca.signCertificate(template, csr.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
+	}
+	return cert, nil
+}
+
+func (ca *internalCABackend) IssueRequestedServerCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
+	return ca.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth})
+}
+
+func (ca *internalCABackend) IssueRequestedClientCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
+	return ca.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+}
+
+func (ca *internalCABackend) GetCABundleX509() ([]*x509.Certificate) {
+	return ca.Config.Certs
+}
 
