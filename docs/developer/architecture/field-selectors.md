@@ -45,10 +45,10 @@ This is useful in cases where:
 - You rename a selector and want to support the deprecated name for backward compatibility.
 - You want to map one selector name to multiple existing selectors (e.g., nameOrAlias).
 
-#### Example: Add mapping to metadata.nameoralias selector
+#### Example: Add mapping to metadata.nameOrAlias selector
 ```go
 func (m *Device) MapSelectorName(name selector.SelectorName) []selector.SelectorName {
-	if strings.EqualFold("metadata.nameoralias", name.String()) {
+	if strings.EqualFold("metadata.nameOrAlias", name.String()) {
 		return []selector.SelectorName{
 			selector.NewSelectorName("metadata.name"),
 			selector.NewSelectorName("metadata.alias"),
@@ -58,7 +58,7 @@ func (m *Device) MapSelectorName(name selector.SelectorName) []selector.Selector
 }
 
 func (m *Device) ListSelectors() selector.SelectorNameSet {
-	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameoralias"))
+	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameOrAlias"))
 }
 ```
 

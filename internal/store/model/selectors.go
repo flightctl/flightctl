@@ -41,7 +41,7 @@ var (
 )
 
 func (m *Device) MapSelectorName(name selector.SelectorName) []selector.SelectorName {
-	if strings.EqualFold("metadata.nameoralias", name.String()) {
+	if strings.EqualFold("metadata.nameOrAlias", name.String()) {
 		return []selector.SelectorName{
 			selector.NewSelectorName("metadata.name"),
 			selector.NewSelectorName("metadata.alias"),
@@ -66,11 +66,11 @@ func (m *Device) ListSelectors() selector.SelectorNameSet {
 	for sn := range deviceStatusSelectors {
 		keys = append(keys, sn)
 	}
-	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameoralias")).Add(keys...)
+	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameOrAlias")).Add(keys...)
 }
 
 func (m *DeviceLabel) MapSelectorName(name selector.SelectorName) []selector.SelectorName {
-	if strings.EqualFold("metadata.label.keyorvalue", name.String()) {
+	if strings.EqualFold("metadata.label.keyOrValue", name.String()) {
 		return []selector.SelectorName{
 			selector.NewSelectorName("metadata.label.key"),
 			selector.NewSelectorName("metadata.label.value"),
@@ -80,7 +80,7 @@ func (m *DeviceLabel) MapSelectorName(name selector.SelectorName) []selector.Sel
 }
 
 func (m *DeviceLabel) ListSelectors() selector.SelectorNameSet {
-	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.label.keyorvalue"))
+	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.label.keyOrValue"))
 }
 
 func (m *Fleet) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
