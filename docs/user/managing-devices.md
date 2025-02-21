@@ -508,11 +508,11 @@ If you have specified a "path condition" for an action in the `afterUpdating` ho
 
 | Variable | Description |
 | -------- | ----------- |
-| `{{ Path }}` | The absolute path to the file or directory specified in the path condition. |
-| `{{ Files }}` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
-| `{{ CreatedFiles }}` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
-| `{{ UpdatedFiles }}` | A space-separated list of absolute paths of the files that were updated during the update and are covered by the path condition. |
-| `{{ RemovedFiles }}` | A space-separated list of absolute paths of the files that were removed during the update and are covered by the path condition. |
+| `${ Path }` | The absolute path to the file or directory specified in the path condition. |
+| `${ Files }` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `${ CreatedFiles }` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `${ UpdatedFiles }` | A space-separated list of absolute paths of the files that were updated during the update and are covered by the path condition. |
+| `${ RemovedFiles }` | A space-separated list of absolute paths of the files that were removed during the update and are covered by the path condition. |
 
 The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml`:
 
