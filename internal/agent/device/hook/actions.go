@@ -6,11 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -42,28 +40,14 @@ const (
 	// separated list of files backed up before removal from the system
 	// into a temporary location deleted after the action completes.
 	BackupKey CommandLineVarKey = "BackupFiles"
-
-	leftDelim     = `{{`
-	rightDelim    = `}}`
-	optWhitespace = `\s*`
-)
-
-var (
-	matchers = map[CommandLineVarKey]*regexp.Regexp{
-		PathKey:    regexp.MustCompile(leftDelim + optWhitespace + string(PathKey) + optWhitespace + rightDelim),
-		FilesKey:   regexp.MustCompile(leftDelim + optWhitespace + string(FilesKey) + optWhitespace + rightDelim),
-		CreatedKey: regexp.MustCompile(leftDelim + optWhitespace + string(CreatedKey) + optWhitespace + rightDelim),
-		UpdatedKey: regexp.MustCompile(leftDelim + optWhitespace + string(UpdatedKey) + optWhitespace + rightDelim),
-		RemovedKey: regexp.MustCompile(leftDelim + optWhitespace + string(RemovedKey) + optWhitespace + rightDelim),
-	}
 )
 
 type actionContext struct {
 	hook            api.DeviceLifecycleHookType
 	systemRebooted  bool
-	createdFiles    map[string]v1alpha1.FileSpec
-	updatedFiles    map[string]v1alpha1.FileSpec
-	removedFiles    map[string]v1alpha1.FileSpec
+	createdFiles    map[string]api.FileSpec
+	updatedFiles    map[string]api.FileSpec
+	removedFiles    map[string]api.FileSpec
 	commandLineVars map[CommandLineVarKey]string
 }
 
@@ -71,9 +55,9 @@ func newActionContext(hook api.DeviceLifecycleHookType, current *api.DeviceSpec,
 	actionContext := &actionContext{
 		hook:            hook,
 		systemRebooted:  systemRebooted,
-		createdFiles:    make(map[string]v1alpha1.FileSpec),
-		updatedFiles:    make(map[string]v1alpha1.FileSpec),
-		removedFiles:    make(map[string]v1alpha1.FileSpec),
+		createdFiles:    make(map[string]api.FileSpec),
+		updatedFiles:    make(map[string]api.FileSpec),
+		removedFiles:    make(map[string]api.FileSpec),
 		commandLineVars: make(map[CommandLineVarKey]string),
 	}
 	resetCommandLineVars(actionContext)
@@ -94,19 +78,19 @@ func computeFileDiff(actionCtx *actionContext, current *api.DeviceSpec, desired 
 	currentFileList, _ := config.ProviderSpecToFiles(current.Config)
 	desiredFileList, _ := config.ProviderSpecToFiles(desired.Config)
 
-	currentFileMap := make(map[string]v1alpha1.FileSpec)
+	currentFileMap := make(map[string]api.FileSpec)
 	for _, f := range currentFileList {
 		currentFileMap[f.Path] = f
 	}
 	for _, f := range desiredFileList {
 		if content, ok := currentFileMap[f.Path]; !ok {
-			actionCtx.createdFiles[f.Path] = v1alpha1.FileSpec{}
+			actionCtx.createdFiles[f.Path] = api.FileSpec{}
 		} else if !reflect.DeepEqual(f, content) {
-			actionCtx.updatedFiles[f.Path] = v1alpha1.FileSpec{}
+			actionCtx.updatedFiles[f.Path] = api.FileSpec{}
 		}
 	}
 
-	desiredFileMap := make(map[string]v1alpha1.FileSpec)
+	desiredFileMap := make(map[string]api.FileSpec)
 	for _, f := range desiredFileList {
 		desiredFileMap[f.Path] = f
 	}
@@ -235,10 +219,36 @@ func validateEnvVars(envVars *map[string]string) error {
 // provided values. Wrongly formatted or unknown variables are left in
 // in the string.
 func replaceTokens(s string, tokens map[CommandLineVarKey]string) string {
-	for key, re := range matchers {
-		s = re.ReplaceAllString(s, tokens[key])
+	var sb strings.Builder
+	sb.Grow(len(s))
+
+	i := 0
+	for i < len(s) {
+		// find the next placeholder
+		if i+2 < len(s) && s[i] == '$' && s[i+1] == '{' { // `${`
+			end := i + 2
+			for end < len(s) && s[end] != '}' {
+				end++
+			}
+			// ensure the placeholder is closed
+			if end < len(s) && s[end] == '}' { // `}`
+				token := s[i+2 : end]
+				trimmedToken := strings.TrimSpace(token)
+				// replace token if it exists otherwise return original
+				if val, exists := tokens[CommandLineVarKey(trimmedToken)]; exists {
+					sb.WriteString(val)
+				} else {
+					sb.WriteString("${" + token + "}")
+				}
+				i = end + 1
+				continue
+			}
+		}
+		sb.WriteByte(s[i])
+		i++
 	}
-	return s
+
+	return sb.String()
 }
 
 func checkActionDependency(action api.HookAction) error {
