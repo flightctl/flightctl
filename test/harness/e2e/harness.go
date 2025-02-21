@@ -300,37 +300,41 @@ func (h *Harness) SH(command string, args ...string) (string, error) {
 
 func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) {
 	Eventually(func(updFunction func(*v1alpha1.Device)) error {
-		response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
-		Expect(err).NotTo(HaveOccurred())
-		if response.JSON200 == nil {
-			logrus.Errorf("An error happened retrieving device: %+v", response)
-			return errors.New("device not found???")
-		}
-		device := response.JSON200
-
-		updFunction(device)
-
-		resp, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceId, *device)
-
-		// if a conflict happens (the device updated status or object since we read it) we retry
-		if resp.JSON409 != nil {
-			logrus.Warningf("conflict updating device: %s", deviceId)
-			return errors.New("conflict")
-		}
-
-		// if other type of error happens we fail
-		Expect(err).ToNot(HaveOccurred())
-
-		// response code 200 = updated, we are expecting to update... something else is unexpected
-		if resp.StatusCode() != 200 {
-			logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
-			logrus.Errorf("Unexpected http response: %s", string(resp.Body))
-		}
-		// make the test fail and stop the Eventually loop if at this point we didn't have a 200 response
-		Expect(resp.StatusCode()).Should(Equal(200))
-
-		return nil
+		return h.UpdateDevice(deviceId, updFunction)
 	}, TIMEOUT, "1s").WithArguments(updateFunction).Should(BeNil())
+}
+
+func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1alpha1.Device)) error {
+	response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
+	Expect(err).NotTo(HaveOccurred())
+	if response.JSON200 == nil {
+		logrus.Errorf("An error happened retrieving device: %+v", response)
+		return fmt.Errorf("device %s not found: %v", deviceId, response.Status())
+	}
+	device := response.JSON200
+
+	updateFunction(device)
+
+	resp, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceId, *device)
+
+	// if a conflict happens (the device updated status or object since we read it) we retry
+	if resp.JSON409 != nil {
+		logrus.Warningf("Conflict updating device %s: %+v", deviceId, resp.JSON409)
+	}
+
+	// response code 200 = updated, we are expecting to update... something else is unexpected
+	if resp.StatusCode() != 200 {
+		logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
+		logrus.Errorf("Unexpected http response: %s", string(resp.Body))
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode(), string(resp.Body))
+	}
+
+	if err != nil {
+		logrus.Errorf("Unexpected error updating device %s: %v", deviceId, err)
+		return err
+	}
+
+	return nil
 }
 
 func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
@@ -362,31 +366,6 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 		}
 		return errors.New("not updated")
 	}, timeout, "2s").Should(BeNil())
-}
-
-func (h *Harness) WaitForDeviceConfigUpdate(deviceId string, configs []v1alpha1.ConfigProviderSpec) error {
-
-	deviceRenderedVersion, err := h.PrepareNextDeviceVersion(deviceId)
-	if err != nil {
-		return fmt.Errorf("failed to parse rendered version: %w", err)
-	}
-	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-		device.Spec.Config = &configs
-		logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
-	})
-
-	logrus.Infof("Waiting for the device to pick the config")
-	err = h.WaitForDeviceNewRenderedVersion(deviceId, deviceRenderedVersion)
-
-	if err != nil {
-		return fmt.Errorf("failed to get new rendered version: %w", err)
-	}
-
-	logrus.Infof("Waiting for device %s to return to Online status", deviceId)
-	Eventually(h.GetDeviceWithStatusSummary, util.TIMEOUT, util.POLLING).WithArguments(
-		deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
-
-	return nil
 }
 
 func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
