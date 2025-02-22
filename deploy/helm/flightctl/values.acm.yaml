@@ -4,7 +4,7 @@ global:
 db:
   image:
     image: registry.redhat.io/rhel9/postgresql-16
-    tag: 1-181
+    tag: 9.5
 
 kv:
   image:
