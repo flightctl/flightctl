@@ -84,7 +84,7 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 	if u == "" {
 		u = uuid.NewString()
 	}
-	csr.Subject.CommonName = crypto.BootstrapCNFromName(u)
+	csr.Subject.CommonName = ca.BootstrapCNFromName(u)
 
 	expiry := DefaultEnrollmentCertExpirySeconds
 	if request.Spec.ExpirationSeconds != nil {

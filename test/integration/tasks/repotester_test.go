@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -45,13 +46,17 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	require := require.New(t)
 
 	testDirPath := t.TempDir()
-	ca, _, err := crypto.EnsureCA(filepath.Join(testDirPath, "ca.crt"), filepath.Join(testDirPath, "ca.key"), "", "ca", 1)
+
+	cfg := config.NewDefault()
+	cfg.CA.InternalCAConfig.CaCertValidityDays = 1
+
+	ca, _, err := crypto.EnsureCA(cfg)
 	require.NoError(err)
 
 	serverCerts, _, err := ca.EnsureServerCertificate(filepath.Join(testDirPath, "server.crt"), filepath.Join(testDirPath, "server.key"), []string{"localhost"}, 1)
 	require.NoError(err)
 
-	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), crypto.AdminCommonName, 1)
+	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), cfg.CA.AdminCommonName, 1)
 	require.NoError(err)
 
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)

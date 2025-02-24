@@ -9,15 +9,17 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
 type internalCABackend struct {
 	Config *TLSCertificateConfig
-
+	cfg *config.Config
 	SerialGenerator oscrypto.SerialGenerator
 }
 
@@ -32,11 +34,21 @@ func (ca *internalCABackend) signCertificate(template *x509.Certificate, request
 }
 
 
-func EnsureInternalCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*internalCABackend, bool, error) {
-	if ca, err := GetCA(certFile, keyFile, serialFile); err == nil {
+func EnsureInternalCA(cfg *config.Config) (*internalCABackend, bool, error) {
+
+	cacfg  := cfg.CA.InternalCAConfig
+
+	if len(cacfg.CaCertFile) == 0 {
+		cacfg.CaCertFile = filepath.Join(cfg.Service.CertStore, "ca.crt")
+	}
+	if len(cacfg.CaKeyFile) == 0 {
+		cacfg.CaKeyFile = filepath.Join(cfg.Service.CertStore, "ca.key")
+	}
+
+	if ca, err := GetCA(cacfg.CaCertFile, cacfg.CaKeyFile, cacfg.CaSerialFile); err == nil {
 		return ca, false, err
 	}
-	ca, err := MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName, expireDays)
+	ca, err := MakeSelfSignedCA(cacfg.CaCertFile, cacfg.CaKeyFile, cacfg.CaSerialFile, cacfg.SignerCertName, cacfg.CaCertValidityDays)
 	return ca, true, err
 }
 
