@@ -186,7 +186,7 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 
 // NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and enrollment certificate.
 func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
-	ca, _, err := crypto.EnsureCA(filepath.Join(cfg.Service.CertStore, "ca.crt"), filepath.Join(cfg.Service.CertStore, "ca.key"), "", "ca", caCertValidityDays)
+	ca, _, err := crypto.EnsureCA(cfg)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring CA: %w", err)
 	}

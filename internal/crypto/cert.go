@@ -8,28 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
-
-// Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
-const ClientBootstrapCommonName = "client-enrollment"
-const ClientBootstrapCommonNamePrefix = "client-enrollment-"
-const AdminCommonName = "flightctl-admin"
-const DeviceCommonNamePrefix = "device:"
-
-func BootstrapCNFromName(name string) string {
-	return ClientBootstrapCommonNamePrefix + name
-}
-
-func CNFromDeviceFingerprint(fingerprint string) (string, error) {
-	if len(fingerprint) < 16 {
-		return "", errors.New("device fingerprint must have 16 characters at least")
-	}
-	return DeviceCommonNamePrefix + fingerprint, nil
-}
 
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
 
@@ -44,11 +29,12 @@ type CABackend interface {
 
 type CA struct {
 	ca CABackend
+	Cfg *config.Config
 }
 
-func EnsureCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*CA, bool, error) {
+func EnsureCA(cfg *config.Config) (*CA, bool, error) {
 
-	caBackend, generated, err := EnsureInternalCA(certFile, keyFile, serialFile, subjectName, expireDays)
+	caBackend, generated, err := EnsureInternalCA(cfg)
 
 	if err != nil {
 		return nil, generated, err
@@ -56,9 +42,36 @@ func EnsureCA(certFile, keyFile, serialFile, subjectName string, expireDays int)
 
 	ca := &CA {
 		ca:	caBackend,
+		Cfg:	cfg,
 	}
 
 	return ca, generated, err
+}
+
+func (caClient *CA) BootstrapCNFromName(name string) string {
+
+	prefix := caClient.Cfg.CA.DeviceCommonNamePrefix
+
+	if strings.HasPrefix(name, prefix) {
+		return name
+	}
+	
+	return prefix + name
+}
+
+func (caClient *CA) CNFromDeviceFingerprint(fingerprint string) (string, error) {
+
+	prefix := caClient.Cfg.CA.DeviceCommonNamePrefix
+
+	if len(fingerprint) < 16 {
+		return "", errors.New("device fingerprint must have 16 characters at least")
+	}
+
+	if strings.HasPrefix(fingerprint, prefix) {
+		return fingerprint, nil
+	}
+
+	return prefix + fingerprint, nil
 }
 
 

@@ -37,7 +37,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
 	}
 
-	csr.Subject.CommonName, err = crypto.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
+	csr.Subject.CommonName, err = ca.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: error setting CN in CSR: %w", err)
 	}
