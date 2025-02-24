@@ -170,7 +170,7 @@ type ApplicationProviderSpec struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
-	// Name The name of the application must be between 1 and 253 characters and start with a letter or number.
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name  *string `json:"name,omitempty"`
 	union json.RawMessage
 }
