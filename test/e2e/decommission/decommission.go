@@ -34,7 +34,8 @@ var _ = Describe("CLI decommission test", func() {
 	})
 
 	Context("decommission", func() {
-		It("should decommission a device via CLI", Label("decommission", "rh-799"), func() {
+
+		It("should decommission a device via CLI", Label("decommission", "81782"), func() {
 			logrus.Infof("decommission device with id: %s", deviceId)
 
 			out, err := harness.CLI("decommission", "devices/"+deviceId)
