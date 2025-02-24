@@ -106,7 +106,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	osClient := os.NewClient(a.log, executer)
 
 	// create podman client
-	podmanClient := client.NewPodman(a.log, executer, backoff)
+	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, backoff)
 
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
@@ -157,7 +157,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	systemdManager := systemd.NewManager(a.log, systemdClient)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, podmanClient)
+	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create status manager
 	statusManager := status.NewManager(
