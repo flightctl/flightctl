@@ -10,8 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const TIMEOUT = "1m"
-const POLLING = "250ms"
+const TIMEOUT = "2m"
 
 func TestDecommission(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -45,7 +44,7 @@ var _ = Describe("CLI decommission test", func() {
 			harness.WaitForDeviceContents(deviceId, "The device has completed decommissioning and will wipe its management certificate",
 				func(device *v1alpha1.Device) bool {
 					return harness.ConditionExists(device, "DeviceDecommissioning", "True", string(v1alpha1.DecommissionStateComplete))
-				}, "2m")
+				}, TIMEOUT)
 		})
 	})
 })
