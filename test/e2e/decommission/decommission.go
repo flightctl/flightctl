@@ -35,25 +35,16 @@ var _ = Describe("CLI decommission test", func() {
 
 	Context("decommission", func() {
 		It("should decommission a device via CLI", Label("decommission", "rh-799"), func() {
+			logrus.Infof("decommission device with id: %s", deviceId)
+
 			out, err := harness.CLI("decommission", "devices/"+deviceId)
 			Expect(err).NotTo(HaveOccurred())
 			logrus.Info(out)
 			Expect(out).To(ContainSubstring("Device scheduled for decommissioning: 200 OK:"))
 			harness.WaitForDeviceContents(deviceId, "The device has completed decommissioning and will wipe its management certificate",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "DeviceDecommissioning", "True", string(v1alpha1.DecommissionStateComplete))
-				}, "10m")
+					return harness.ConditionExists(device, "DeviceDecommissioning", "True", string(v1alpha1.DecommissionStateComplete))
+				}, "2m")
 		})
 	})
 })
-
-func conditionExists(device *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
-	for _, condition := range device.Status.Conditions {
-		if string(condition.Type) == conditionType &&
-			condition.Reason == conditionReason &&
-			string(condition.Status) == conditionStatus {
-			return true
-		}
-	}
-	return false
-}

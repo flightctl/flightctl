@@ -410,6 +410,17 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 	return device, newImageReference
 }
 
+func (h *Harness) ConditionExists(device *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
+	for _, condition := range device.Status.Conditions {
+		if string(condition.Type) == conditionType &&
+			condition.Reason == conditionReason &&
+			string(condition.Status) == conditionStatus {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Harness) parseImageReference(image string) (string, string) {
 	// Split the image string by the colon to separate the repository and the tag.
 	parts := strings.Split(image, ":")
