@@ -1,0 +1,39 @@
+
+apiVersion: flightctl.io/v1alpha1
+kind: Fleet
+metadata:
+  name: default
+spec:
+  selector:
+    matchLabels:
+      fleet: default
+  template:
+    metadata:
+      labels:
+        fleet: default
+    spec:
+      os:
+        image: quay.io/redhat/rhde:9.2
+      config:
+        - name: base
+          gitRef:
+            repository: flightctl-demos
+            targetRevision: main
+            path: /demos/basic-nginx-demo/configuration/etc/microshift/manifests
+            mountPath: /etc/microshift/manifests
+        - name: motd-update
+          inline:
+            - path: "/etc/motd"
+              content: "This system is managed by flightctl."
+              mode: 0644
+      resources:
+        - monitorType: CPU
+          alertRules:
+            - severity: Warning
+              duration: 10m
+              percentage: 50
+              description: 'CPU load is above 50% for more than 10 minutes'
+          samplingInterval: 30s
+      systemd:
+        matchPatterns:
+          - chronyd.service
