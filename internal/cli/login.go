@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
@@ -85,6 +86,58 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func (o *LoginOptions) ValidateAAP(args []string) error {
+	if !strIsEmpty(o.Password) || !strIsEmpty(o.Username) {
+		return fmt.Errorf("only --token or --web options are supported for AAP Gateway auth")
+	}
+
+	if strIsEmpty(o.ClientId) {
+		return fmt.Errorf("--client-id must be specified for AAP Gateway auth")
+	}
+
+	if strIsEmpty(o.Token) && !o.Web {
+		fmt.Println("You must provide one of the following options to log in:")
+		fmt.Println("  --token=<token>")
+		fmt.Println("  --web (to log in via your browser)")
+		return fmt.Errorf("not enough options specified")
+	}
+
+	return nil
+}
+
+func (o *LoginOptions) ValidateK8s(args []string) error {
+	if strIsEmpty(o.Token) && strIsEmpty(o.Password) && strIsEmpty(o.Username) && !o.Web {
+		fmt.Println("You must provide one of the following options to log in:")
+		fmt.Println("  --token=<token>")
+		fmt.Println("  --username=<username> and --password=<password>")
+		fmt.Println("  --web (to log in via your browser)")
+		if !strIsEmpty(o.authConfig.AuthURL) {
+			oauthConfig, err := login.GetOAuth2Config(o.authConfig.AuthURL, o.AuthCAFile, o.InsecureSkipVerify)
+			if err != nil {
+				return fmt.Errorf("could not get oauth config: %w", err)
+			}
+			fmt.Print("\n\n")
+			fmt.Printf("To obtain the token, you can visit %s/request\n", oauthConfig.TokenEndpoint)
+			fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n\n", args[0])
+			fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n\n", args[0])
+		}
+		return fmt.Errorf("not enough options specified")
+	}
+
+	return nil
+}
+
+func (o *LoginOptions) ValidateOIDC(args []string) error {
+	if strIsEmpty(o.Token) && strIsEmpty(o.Password) && strIsEmpty(o.Username) && !o.Web {
+		fmt.Println("You must provide one of the following options to log in:")
+		fmt.Println("  --token=<token>")
+		fmt.Println("  --username=<username> and --password=<password>")
+		fmt.Println("  --web (to log in via your browser)")
+		return fmt.Errorf("not enough options specified")
+	}
+	return nil
+}
+
 func (o *LoginOptions) Validate(args []string) error {
 	if err := o.GlobalOptions.ValidateCmd(args); err != nil {
 		return err
@@ -115,22 +168,17 @@ func (o *LoginOptions) Validate(args []string) error {
 	}
 	o.authConfig = authConfig
 
-	if strIsEmpty(o.Token) && strIsEmpty(o.Password) && strIsEmpty(o.Username) && !o.Web {
-		fmt.Println("You must provide one of the following options to log in:")
-		fmt.Println("  --token=<token>")
-		fmt.Println("  --username=<username> and --password=<password>")
-		fmt.Print("  --web (to log in via your browser)\n\n")
-		if o.authConfig.AuthType == "k8s" && !strIsEmpty(o.authConfig.AuthURL) {
-			oauth2 := login.NewK8sOAuth2Config(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
-			oauthConfig, err := oauth2.GetOAuth2Config()
-			if err != nil {
-				return fmt.Errorf("could not get oauth config: %w", err)
-			}
-			fmt.Printf("To obtain the token, you can visit %s/request\n", oauthConfig.TokenEndpoint)
-			fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n\n", args[0])
-			fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n\n", args[0])
-		}
-		return fmt.Errorf("not enough options specified")
+	switch authConfig.AuthType {
+	case common.AuthTypeAAP:
+		err = o.ValidateAAP(args)
+	case common.AuthTypeK8s:
+		err = o.ValidateK8s(args)
+	case common.AuthTypeOIDC:
+		err = o.ValidateOIDC(args)
+	}
+
+	if err != nil {
+		return err
 	}
 
 	if !strIsEmpty(o.Token) && (!strIsEmpty(o.Username) || !strIsEmpty(o.Password) || o.Web) {
@@ -143,6 +191,11 @@ func (o *LoginOptions) Validate(args []string) error {
 
 	if (!strIsEmpty(o.Username) && strIsEmpty(o.Password)) || (strIsEmpty(o.Username) && !strIsEmpty(o.Password)) {
 		return fmt.Errorf("both --username and --password need to be provided")
+	}
+
+	if o.Token == "" && o.authConfig.AuthURL == "" {
+		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
+		return fmt.Errorf("must provide --token")
 	}
 
 	return nil
@@ -160,18 +213,14 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	token := o.Token
 
 	if token == "" {
-		if o.authConfig.AuthURL == "" {
-			fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
-			return fmt.Errorf("must provide --token")
-		}
 		var authProvider login.AuthProvider
 		switch o.authConfig.AuthType {
-		case "OIDC":
+		case common.AuthTypeOIDC:
 			if o.ClientId == "" {
 				o.ClientId = "flightctl"
 			}
 			authProvider = login.NewOIDCConfig(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
-		case "k8s":
+		case common.AuthTypeK8s:
 			if o.ClientId == "" {
 				if o.Username != "" {
 					o.ClientId = "openshift-challenging-client"
@@ -180,6 +229,8 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 				}
 			}
 			authProvider = login.NewK8sOAuth2Config(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
+		case common.AuthTypeAAP:
+			authProvider = login.NewAAPOAuth2Config(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
 		}
 
 		if authProvider == nil {

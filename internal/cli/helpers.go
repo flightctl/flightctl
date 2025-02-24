@@ -143,5 +143,5 @@ func responseField[T any](response interface{}, name string) (T, error) {
 }
 
 func strIsEmpty(str string) bool {
-	return len(str) == 0
+	return len(strings.TrimSpace(str)) == 0
 }
