@@ -229,6 +229,30 @@ spec:
 [...]
 ```
 
+### Using Image Pull Secrets
+
+If your device relies on containers from a private repository, [authentication credentials](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#configuring-container-pull-secrets_managing-users-groups-ssh-key-and-secrets-in-image-mode-for-rhel) (pull secrets) must be placed in the appropriate system paths.
+
+* **OS Image:** Uses `/etc/ostree/auth.json`
+* **Container Images:** Uses the system default for Podman, `/root/.config/containers/auth.json`
+
+#### Auth File Format
+
+The authentication file should follow this format:
+
+```json
+{
+  "auths": {
+    "registry.example.com": {
+      "auth": "base64-encoded-credentials"
+    }
+  }
+}
+```
+
+> [!NOTE]
+Authentication must exist on the device before it can be consumed.
+
 ## Managing OS Configuration
 
 With image-based Linux OSes, it is best practice to include OS-level / host configuration into the OS image for maximum consistency and repeatability. To update configuration, a new OS image should be created and devices updated to the new image.
