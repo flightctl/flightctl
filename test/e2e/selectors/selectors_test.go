@@ -2,7 +2,6 @@ package selectors
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,9 +14,9 @@ import (
 )
 
 const (
-	deviceYAMLPath  = "examples/device.yaml"
-	fleetYAMLPath   = "examples/fleet.yaml"
-	repoYAMLPath    = "examples/repository-flightctl.yaml"
+	deviceYAMLPath  = "device.yaml"
+	fleetYAMLPath   = "fleet.yaml"
+	repoYAMLPath    = "repository-flightctl.yaml"
 	unknownSelector = "unknown or unsupported selector"
 	resourceCreated = `(200 OK|201 Created)`
 	unknownFlag     = "unknown flag"
@@ -56,7 +55,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 
 	// Helper function to dynamically extract device name
 	extractDeviceName := func() string {
-		device := harness.GetDeviceByYaml(util.GetExamplesYamlPath("device.yaml"))
+		device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(deviceYAMLPath))
 		Expect(*device.Metadata.Name).ToNot(BeEmpty(), "device name should not be empty")
 		return strings.TrimSpace(*device.Metadata.Name)
 	}
@@ -70,14 +69,14 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 			})
 			By("create a complete fleet", func() {
 				_, _ = harness.CLI("delete", "fleet")
-				out, err := harness.CLI("apply", "-f", filepath.Join(util.GetTopLevelDir(), fleetYAMLPath))
+				out, err := harness.CLI("apply", "-f", util.GetTestExamplesYamlPath(fleetYAMLPath))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(out).To(MatchRegexp(resourceCreated))
 			})
 			By("create a device", func() {
 				_, _ = harness.CLI("delete", "device")
 				deviceName := extractDeviceName()
-				out, err := harness.CLI("apply", "-R", "-f", filepath.Join(util.GetTopLevelDir(), deviceYAMLPath))
+				out, err := harness.CLI("apply", "-R", "-f", util.GetTestExamplesYamlPath(deviceYAMLPath))
 				time.Sleep(30 * time.Second) // to establish fleet before adding device to it
 				Eventually(func() error {
 					_, err := harness.CLI("get", "fleet")
@@ -88,7 +87,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 				Expect(out).To(ContainSubstring(fmt.Sprintf("%s/%s", deviceYAMLPath, deviceName)))
 			})
 			By("create a complete repo", func() {
-				out, err := harness.CLI("apply", "-f", filepath.Join(util.GetTopLevelDir(), repoYAMLPath))
+				out, err := harness.CLI("apply", "-f", util.GetTestExamplesYamlPath(repoYAMLPath))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(out).To(MatchRegexp(resourceCreated))
 			})
