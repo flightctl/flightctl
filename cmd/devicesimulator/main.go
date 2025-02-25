@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -185,7 +186,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		cfg.DefaultLabels["alias"] = agentName
 		cfg.ConfigDir = agent.DefaultConfigDir
 		cfg.DataDir = agent.DefaultConfigDir
-		cfg.EnrollmentService = agent.EnrollmentService{}
+		cfg.EnrollmentService = types.EnrollmentService{}
 		cfg.EnrollmentService.Config = *client.NewDefault()
 		cfg.EnrollmentService.Config.Service = client.Service{
 			Server:               agentConfigTemplate.EnrollmentService.Config.Service.Server,
@@ -201,7 +202,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		cfg.LogPrefix = agentName
 
 		// create managementService config
-		cfg.ManagementService = agent.ManagementService{}
+		cfg.ManagementService = types.ManagementService{}
 		cfg.ManagementService.Config = *client.NewDefault()
 		cfg.ManagementService.Service = client.Service{
 			Server:               agentConfigTemplate.ManagementService.Config.Service.Server,

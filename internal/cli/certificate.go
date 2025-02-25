@@ -22,10 +22,10 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -351,7 +351,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 		return fmt.Errorf("base64 decoding CA data: %w", err)
 	}
 
-	config := &agent.Config{}
+	config := &types.AgentConfig{}
 	config.EnrollmentService.AuthInfo.ClientCertificateData = *currentCsr.Status.Certificate
 	config.EnrollmentService.AuthInfo.ClientKeyData = pemPriv
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
@@ -367,7 +367,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 }
 
 func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigResponse) error {
-	config := &agent.Config{}
+	config := &types.AgentConfig{}
 	config.EnrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
 	config.EnrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
