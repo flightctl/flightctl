@@ -6,3 +6,4 @@ metadata:
     fleet: default
     region: eu-west-1
     novalue: ""
+    alias: "defaultDevice"
