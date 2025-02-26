@@ -1,59 +1,61 @@
-name: deb packaging and PPA push
+# disabled for now since  ppa builds aren't working and non functional
 
-on:
-  push:
-    branches:
-      - main
+# name: deb packaging and PPA push
 
-jobs:
-  build_and_upload:
-    runs-on: "ubuntu-24.04"
-    steps:
-      - uses: actions/checkout@v4
+# on:
+#   push:
+#     branches:
+#       - main
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y devscripts debhelper make golang-1.21-go gpg
+# jobs:
+#   build_and_upload:
+#     runs-on: "ubuntu-24.04"
+#     steps:
+#       - uses: actions/checkout@v4
 
-      - name: Import GPG key
-        run: |
-          echo "$PPA_GPG_PRIVATE_KEY" | gpg --batch --import -
-          echo "$PPA_GPG_PUBLIC_KEY" | gpg --batch --import -
-        env:
-          PPA_GPG_PRIVATE_KEY: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
-          PPA_GPG_PUBLIC_KEY: ${{ secrets.PPA_GPG_PUBLIC_KEY }}
+#       - name: Install dependencies
+#         run: |
+#           sudo apt-get update
+#           sudo apt-get install -y devscripts debhelper make golang-1.21-go gpg
 
-      - name: Create symbolic link
-        run: ln -s packaging/debian debian
+#       - name: Import GPG key
+#         run: |
+#           echo "$PPA_GPG_PRIVATE_KEY" | gpg --batch --import -
+#           echo "$PPA_GPG_PUBLIC_KEY" | gpg --batch --import -
+#         env:
+#           PPA_GPG_PRIVATE_KEY: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
+#           PPA_GPG_PUBLIC_KEY: ${{ secrets.PPA_GPG_PUBLIC_KEY }}
 
-      - name: Update changelog
-        run: |
-          FULL_DATE=$(date '+%a, %d %b %Y %H:%M:%S %z')
-          DATE=$(date '+%Y.%m.%d.%s').$(git rev-parse --short HEAD)
-          {
-            echo "flightctl ($DATE) jammy; urgency=medium";
-            echo "";
-            echo "  * Debian ppa/deb packaging.";
-            echo "";
-            echo " -- Miguel Angel Ajo <mangelajo@gmail.com>  $FULL_DATE";
-            echo "";
-          } > debian/changelog
+#       - name: Create symbolic link
+#         run: ln -s packaging/debian debian
 
-          echo $DATE >.version
+#       - name: Update changelog
+#         run: |
+#           FULL_DATE=$(date '+%a, %d %b %Y %H:%M:%S %z')
+#           DATE=$(date '+%Y.%m.%d.%s').$(git rev-parse --short HEAD)
+#           {
+#             echo "flightctl ($DATE) jammy; urgency=medium";
+#             echo "";
+#             echo "  * Debian ppa/deb packaging.";
+#             echo "";
+#             echo " -- Miguel Angel Ajo <mangelajo@gmail.com>  $FULL_DATE";
+#             echo "";
+#           } > debian/changelog
 
-      - name: Build deb files
-        run: make deb-sources
+#           echo $DATE >.version
 
-      - name: Sign and upload the deb file
-        run: |
-          set -ex
-          echo "Configuring gpg..."
-          echo "use-agent" >> ~/.gnupg/gpg.conf
-          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
-          VERSION=$(cat .version)
-          echo "Using VERSION: $VERSION"
-          echo "Running debsign..."
-          debsign --re-sign -k mangelajo@gmail.com  "../flightctl_${VERSION}_source.changes"
-          echo "Uploading with dput..."
-          dput -f ppa:flightctl/flightctl "../flightctl_${VERSION}_source.changes"
+#       - name: Build deb files
+#         run: make deb-sources
+
+#       - name: Sign and upload the deb file
+#         run: |
+#           set -ex
+#           echo "Configuring gpg..."
+#           echo "use-agent" >> ~/.gnupg/gpg.conf
+#           echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+#           VERSION=$(cat .version)
+#           echo "Using VERSION: $VERSION"
+#           echo "Running debsign..."
+#           debsign --re-sign -k mangelajo@gmail.com  "../flightctl_${VERSION}_source.changes"
+#           echo "Uploading with dput..."
+#           dput -f ppa:flightctl/flightctl "../flightctl_${VERSION}_source.changes"

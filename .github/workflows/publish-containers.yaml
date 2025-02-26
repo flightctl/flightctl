@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - 'release-*'
     tags:
       - '*'
 
@@ -42,8 +43,15 @@ jobs:
             # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
             version=$(echo "${version#v}" | sed 's/~/-/g')
 
+            # if the branch is main, we tag the image as latest, otherwise release-0.x
+            if ${{ github.ref_name == 'main' }}; then
+              latest_tag="latest"
+            else
+              latest_tag="${{ github.ref_name }}"
+            fi
+
             # The images tags are taken from git
-            image_tags=( latest-${GITHUB_SHA} latest ${version} )
+            image_tags=( ${latest_tag}-${GITHUB_SHA} ${latest_tag} ${version} )
             echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
             echo "image_tags=${image_tags[@]}"
 
