@@ -56,7 +56,6 @@ Summary: SELinux policies for the Flight Control management agent
 BuildRequires: selinux-policy >= %{selinux_policyver}
 BuildRequires: selinux-policy-devel >= %{selinux_policyver}
 BuildArch: noarch
-Requires: flightctl-agent = %{version}
 Requires: selinux-policy >= %{selinux_policyver}
 
 %description selinux
