@@ -38,7 +38,9 @@ func NewCmdDelete() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}

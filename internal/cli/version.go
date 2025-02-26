@@ -57,7 +57,9 @@ func NewCmdVersion() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -66,6 +68,8 @@ func NewCmdVersion() *cobra.Command {
 }
 
 func (o *VersionOptions) Bind(fs *pflag.FlagSet) {
+	o.GlobalOptions.Bind(fs)
+
 	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalVersionOutputTypes, ", ")))
 }
 
