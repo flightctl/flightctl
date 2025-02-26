@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/spf13/cobra"
@@ -26,17 +29,12 @@ type VersionOptions struct {
 }
 
 const (
-	cliVersionTitle     = "flightctl CLI version"
-	serviceVersionTitle = "flightctl service version"
+	cliVersionTitle     = "Client Version"
+	serviceVersionTitle = "Server Version"
 
-	errReadingVersion = "reading service version"
-	errUnmarshalling  = "unmarshalling error"
+	errReadingVersion = "Could not read server version"
+	errUnmarshalling  = "Could not unmarshal server response"
 )
-
-type serviceVersion struct {
-	Version string `json:"version,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
 
 func DefaultVersionOptions() *VersionOptions {
 	return &VersionOptions{
@@ -87,58 +85,57 @@ func (o *VersionOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *VersionOptions) processResponse(response interface{}, err error) serviceVersion {
-	var serviceVer serviceVersion
-
+func (o *VersionOptions) processResponse(response interface{}, err error) (*api.Version, error) {
 	if err != nil {
-		return serviceVersion{Error: fmt.Errorf("%s: %w", errReadingVersion, err).Error()}
+		return nil, fmt.Errorf("%s: %w", errReadingVersion, err)
 	}
 
 	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
 	if err != nil {
-		return serviceVersion{Error: err.Error()}
+		return nil, err
 	}
 
 	responseBody, err := responseField[[]byte](response, "Body")
 	if err != nil {
-		return serviceVersion{Error: err.Error()}
+		return nil, err
 	}
 
 	if httpResponse.StatusCode != http.StatusOK {
-		return serviceVersion{Error: fmt.Errorf("%s: %d", errReadingVersion, httpResponse.StatusCode).Error()}
-	}
-	if err := json.Unmarshal(responseBody, &serviceVer); err != nil {
-		return serviceVersion{Error: fmt.Errorf("%s: %w", errUnmarshalling, err).Error()}
+		return nil, fmt.Errorf("%s (%s)", errReadingVersion, httpResponse.Status)
 	}
 
-	return serviceVer
+	var serverVersion api.Version
+	if err := json.Unmarshal(responseBody, &serverVersion); err != nil {
+		return nil, fmt.Errorf("%s: %w", errUnmarshalling, err)
+	}
+	return &serverVersion, nil
 }
 
 func (o *VersionOptions) Run(ctx context.Context, args []string) error {
-	versions := make(map[string]interface{}, 2)
-	cliVersion := version.Get()
-	var serviceVersion serviceVersion
+	clientVersion := version.Get()
+
+	var serverVersion *api.Version
 	c, err := client.NewFromConfigFile(o.ConfigFilePath)
-	if err != nil {
-		serviceVersion = o.processResponse(nil, err)
-	} else {
-		response, err := c.GetVersionWithResponse(ctx)
-		serviceVersion = o.processResponse(response, err)
+	if err == nil {
+		var response *apiclient.GetVersionResponse
+		response, err = c.GetVersionWithResponse(ctx)
+		serverVersion, err = o.processResponse(response, err)
 	}
-	versions[cliVersionTitle] = &cliVersion
-	versions[serviceVersionTitle] = &serviceVersion
+
+	versions := struct {
+		ClientVersion *version.Info `json:"clientVersion,omitempty"`
+		ServerVersion *api.Version  `json:"serverVersion,omitempty"`
+	}{
+		ClientVersion: &clientVersion,
+		ServerVersion: serverVersion,
+	}
 
 	switch o.Output {
 	case "":
-		fmt.Printf("%s: %s\n", cliVersionTitle, cliVersion.String())
-		fmt.Printf("%s: ", serviceVersionTitle)
-		if serviceVersion.Error != "" {
-			fmt.Print(serviceVersion.Error)
-		} else {
-			fmt.Print(serviceVersion.Version)
+		fmt.Printf("%s: %s\n", cliVersionTitle, versions.ClientVersion.String())
+		if versions.ServerVersion != nil {
+			fmt.Printf("%s: %s\n", serviceVersionTitle, versions.ServerVersion.Version)
 		}
-		fmt.Println()
-
 	case "yaml":
 		marshalled, err := yaml.Marshal(&versions)
 		if err != nil {
@@ -157,5 +154,9 @@ func (o *VersionOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("VersionOptions were not validated: --output=%q should have been rejected", o.Output)
 	}
 
+	// Don't treat it as error if the server cannot be reached, just print the message.
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+	}
 	return nil
 }
