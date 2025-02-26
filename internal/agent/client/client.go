@@ -11,12 +11,13 @@ import (
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/middleware"
 )
 
 // NewFromConfig returns a new Flight Control API client from the given config.
-func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, error) {
+func NewFromConfig(config *types.Config) (*client.ClientWithResponses, error) {
 	httpClient, err := baseclient.NewHTTPClientFromConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
@@ -28,13 +29,13 @@ func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, erro
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
 }
 
-func NewGRPCClientFromConfig(config *baseclient.Config) (grpc_v1.RouterServiceClient, error) {
+func NewGRPCClientFromConfig(config *types.Config) (grpc_v1.RouterServiceClient, error) {
 	return baseclient.NewGRPCClientFromConfig(config, "")
 }
 
-type Config = baseclient.Config
-type AuthInfo = baseclient.AuthInfo
-type Service = baseclient.Service
+type Config = types.Config
+type AuthInfo = types.AuthInfo
+type Service = types.Service
 
 func NewDefault() *Config {
 	return baseclient.NewDefault()

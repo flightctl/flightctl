@@ -22,10 +22,10 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -349,13 +349,13 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 		return fmt.Errorf("base64 decoding CA data: %w", err)
 	}
 
-	config := &agent.Config{}
-	config.EnrollmentService.AuthInfo.ClientCertificateData = *currentCsr.Status.Certificate
-	config.EnrollmentService.AuthInfo.ClientKeyData = pemPriv
-	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
-	config.EnrollmentService.Service.CertificateAuthorityData = cadata
-	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
-	marshalled, err := yaml.Marshal(config)
+	enrollmentService := &types.EnrollmentService{}
+	enrollmentService.AuthInfo.ClientCertificateData = *currentCsr.Status.Certificate
+	enrollmentService.AuthInfo.ClientKeyData = pemPriv
+	enrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
+	enrollmentService.Service.CertificateAuthorityData = cadata
+	enrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
+	marshalled, err := yaml.Marshal(enrollmentService)
 	if err != nil {
 		return fmt.Errorf("marshalling agent config: %w", err)
 	}
@@ -365,13 +365,13 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 }
 
 func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigResponse) error {
-	config := &agent.Config{}
-	config.EnrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
-	config.EnrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
-	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
-	config.EnrollmentService.Service.CertificateAuthority = filepath.Join(agentPath, "ca.crt")
-	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
-	marshalled, err := yaml.Marshal(config)
+	enrollmentService := &types.EnrollmentService{}
+	enrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
+	enrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
+	enrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
+	enrollmentService.Service.CertificateAuthority = filepath.Join(agentPath, "ca.crt")
+	enrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
+	marshalled, err := yaml.Marshal(enrollmentService)
 	if err != nil {
 		return fmt.Errorf("marshalling agent config: %w", err)
 	}

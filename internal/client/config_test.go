@@ -9,6 +9,7 @@ import (
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,12 +36,12 @@ func TestValidConfig(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		config Config
+		config types.Config
 	}{
-		{name: "only server", config: Config{Service: Service{Server: "https://localhost:3443"}}},
-		{name: "server with CA cert data", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthorityData: []byte(certData)}, testRootDir: testRootDir}},
-		{name: "server with absolute path to CA file", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(configDir, certsDir, certFile)}, testRootDir: testRootDir}},
-		{name: "server with relative path to CA file", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(certsDir, certFile)}, baseDir: configDir, testRootDir: testRootDir}},
+		{name: "only server", config: types.Config{Service: types.Service{Server: "https://localhost:3443"}}},
+		{name: "server with CA cert data", config: types.Config{Service: types.Service{Server: "https://localhost:3443", CertificateAuthorityData: []byte(certData)}, TestRootDir: testRootDir}},
+		{name: "server with absolute path to CA file", config: types.Config{Service: types.Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(configDir, certsDir, certFile)}, TestRootDir: testRootDir}},
+		{name: "server with relative path to CA file", config: types.Config{Service: types.Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(certsDir, certFile)}, BaseDir: configDir, TestRootDir: testRootDir}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -53,17 +54,17 @@ func TestInvalidConfig(t *testing.T) {
 	assert := assert.New(t)
 	tests := []struct {
 		name                   string
-		config                 Config
+		config                 types.Config
 		expectedErrorSubstring string
 	}{
-		{name: "no server", config: Config{}, expectedErrorSubstring: "no server found"},
-		{name: "invalid server", config: Config{Service: Service{Server: "--"}}, expectedErrorSubstring: "invalid server"},
-		{name: "conflicting ca", config: Config{Service: Service{Server: "https://localhost", CertificateAuthority: "ca", CertificateAuthorityData: []byte{0}}}, expectedErrorSubstring: "both specified"},
-		{name: "conflicting cert", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "cert", ClientCertificateData: []byte{0}}}, expectedErrorSubstring: "both specified"},
-		{name: "conflicting key", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "cert", ClientKey: "key", ClientKeyData: []byte{0}}}, expectedErrorSubstring: "both specified"},
-		{name: "unreadable ca", config: Config{Service: Service{Server: "https://localhost", CertificateAuthority: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
-		{name: "unreadable cert", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
-		{name: "unreadable key", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "cert", ClientKey: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
+		{name: "no server", config: types.Config{}, expectedErrorSubstring: "no server found"},
+		{name: "invalid server", config: types.Config{Service: types.Service{Server: "--"}}, expectedErrorSubstring: "invalid server"},
+		{name: "conflicting ca", config: types.Config{Service: types.Service{Server: "https://localhost", CertificateAuthority: "ca", CertificateAuthorityData: []byte{0}}}, expectedErrorSubstring: "both specified"},
+		{name: "conflicting cert", config: types.Config{Service: types.Service{Server: "https://localhost"}, AuthInfo: types.AuthInfo{ClientCertificate: "cert", ClientCertificateData: []byte{0}}}, expectedErrorSubstring: "both specified"},
+		{name: "conflicting key", config: types.Config{Service: types.Service{Server: "https://localhost"}, AuthInfo: types.AuthInfo{ClientCertificate: "cert", ClientKey: "key", ClientKeyData: []byte{0}}}, expectedErrorSubstring: "both specified"},
+		{name: "unreadable ca", config: types.Config{Service: types.Service{Server: "https://localhost", CertificateAuthority: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
+		{name: "unreadable cert", config: types.Config{Service: types.Service{Server: "https://localhost"}, AuthInfo: types.AuthInfo{ClientCertificate: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
+		{name: "unreadable key", config: types.Config{Service: types.Service{Server: "https://localhost"}, AuthInfo: types.AuthInfo{ClientCertificate: "cert", ClientKey: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -81,7 +82,7 @@ func TestFlattenedConfig(t *testing.T) {
 	require.NoError(os.WriteFile(filepath.Join(testRootDir, configDir, certsDir, certFile), []byte(certData), 0600))
 
 	config := NewDefault()
-	config.Service = Service{
+	config.Service = types.Service{
 		Server:               "https://localhost",
 		CertificateAuthority: filepath.Join(configDir, certsDir, certFile),
 	}

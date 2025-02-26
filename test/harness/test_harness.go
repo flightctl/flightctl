@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -143,15 +144,15 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	cfg := agent.NewDefault()
 	// TODO: remove the cert/key modifications from default, and start storing
 	// the test harness files for those in the testDir/etc/flightctl/certs path
-	cfg.EnrollmentService = agent.EnrollmentService{
+	cfg.EnrollmentService = types.EnrollmentService{
 		Config:               *client.NewDefault(),
 		EnrollmentUIEndpoint: "https://flightctl.ui/",
 	}
-	cfg.EnrollmentService.Service = client.Service{
+	cfg.EnrollmentService.Service = types.Service{
 		Server:               "https://" + serverCfg.Service.AgentEndpointAddress,
 		CertificateAuthority: "/etc/flightctl/certs/ca.crt",
 	}
-	cfg.EnrollmentService.AuthInfo = client.AuthInfo{
+	cfg.EnrollmentService.AuthInfo = types.AuthInfo{
 		ClientCertificate: "/etc/flightctl/certs/client-enrollment.crt",
 		ClientKey:         "/etc/flightctl/certs/client-enrollment.key",
 	}

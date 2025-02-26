@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -96,7 +97,7 @@ func (o *ConsoleOptions) Run(ctx context.Context, args []string) error {
 	return err
 }
 
-func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config, deviceName, token string) error {
+func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *types.Config, deviceName, token string) error {
 
 	connURL := fmt.Sprintf("%s/ws/v1/devices/%s/console", config.Service.Server, deviceName)
 	// replace https / http to wss / ws
