@@ -90,6 +90,9 @@ func TestParseApps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			log := log.NewPrefixLogger("test")
+			tmpDir := t.TempDir()
+			reader := fileio.NewReadWriter()
+			reader.SetRootdir(tmpDir)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
@@ -102,7 +105,7 @@ func TestParseApps(t *testing.T) {
 			require.NoError(err)
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0).Times(len(tc.apps))
 
-			mockPodman := client.NewPodman(log, execMock, newTestBackoff())
+			mockPodman := client.NewPodman(log, execMock, reader, newTestBackoff())
 			apps, err := parseApps(ctx, mockPodman, spec)
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)
@@ -315,7 +318,7 @@ func TestControllerSync(t *testing.T) {
 			defer ctrl.Finish()
 			mockExecuter := executer.NewMockExecuter(ctrl)
 			mockAppManager := NewMockManager(ctrl)
-			podmanClient := client.NewPodman(log, mockExecuter, newTestBackoff())
+			podmanClient := client.NewPodman(log, mockExecuter, readWriter, newTestBackoff())
 
 			controller := NewController(podmanClient, mockAppManager, readWriter, log)
 

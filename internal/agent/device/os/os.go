@@ -6,9 +6,14 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
+)
+
+const (
+	authPath = "/etc/ostree/auth.json"
 )
 
 type Client interface {
@@ -28,10 +33,11 @@ type Manager interface {
 }
 
 // NewManager creates a new os manager.
-func NewManager(log *log.PrefixLogger, client Client, podmanClient *client.Podman) Manager {
+func NewManager(log *log.PrefixLogger, client Client, reader fileio.Reader, podmanClient *client.Podman) Manager {
 	return &manager{
 		client:       client,
 		podmanClient: podmanClient,
+		reader:       reader,
 		log:          log,
 	}
 }
@@ -39,6 +45,7 @@ func NewManager(log *log.PrefixLogger, client Client, podmanClient *client.Podma
 type manager struct {
 	client       Client
 	podmanClient *client.Podman
+	reader       fileio.Reader
 	log          *log.PrefixLogger
 }
 
@@ -62,7 +69,20 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.D
 	now := time.Now()
 	m.log.Infof("Fetching OS image: %s", osImage)
 
-	_, err := m.podmanClient.Pull(ctx, osImage, client.WithRetry())
+	opts := []client.ClientOption{
+		client.WithRetry(),
+	}
+
+	exists, err := m.reader.PathExists(authPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		m.log.Infof("Using pull secret: %s", authPath)
+		opts = append(opts, client.WithPullSecret(authPath))
+	}
+
+	_, err = m.podmanClient.Pull(ctx, osImage, opts...)
 	if err != nil {
 		return err
 	}
