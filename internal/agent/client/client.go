@@ -95,12 +95,21 @@ func IsComposeAvailable() bool {
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	retry bool
+	retry          bool
+	pullSecretPath string
 }
 
 // WithRetry enables enables retry based on the backoff config provided.
 func WithRetry() ClientOption {
 	return func(opts *clientOptions) {
 		opts.retry = true
+	}
+}
+
+// WithPullSecret sets the path to the pull secret. If unset uses the default
+// path for the runtime.
+func WithPullSecret(path string) ClientOption {
+	return func(opts *clientOptions) {
+		opts.pullSecretPath = path
 	}
 }

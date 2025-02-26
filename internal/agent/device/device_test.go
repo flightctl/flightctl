@@ -161,7 +161,7 @@ func TestSync(t *testing.T) {
 				Steps: 1,
 			}
 
-			podmanClient := client.NewPodman(log, mockExec, backoff)
+			podmanClient := client.NewPodman(log, mockExec, readWriter, backoff)
 			policyManager := policy.NewManager(log)
 			consoleController := console.NewController(mockRouterService, deviceName, mockExec, log)
 			appController := applications.NewController(podmanClient, mockAppManager, readWriter, log)

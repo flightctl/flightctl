@@ -107,6 +107,9 @@ ADD config.yaml /etc/flightctl/
 > [!NOTE]
 > If you have used Podman or Docker before to build application containers, you will notice this is a regular `Containerfile`, with the only difference that the base image referenced in `FROM` is bootable container (bootc) image. That means it already contains a Linux kernel. This allows you to reuse existing standard container build tools and workflows.
 
+> [!NOTE]
+If your device relies on an OS image from a private repository, [authentication credentials](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#configuring-container-pull-secrets_managing-users-groups-ssh-key-and-secrets-in-image-mode-for-rhel) (pull secrets) must be placed in the appropriate system path `/etc/ostree/auth.json`. Authentication must exist on the device before it can be consumed.
+
 > [!IMPORTANT]
 > When using Flight Control with a RHEL 9 base image, you need to disable the default automatic updates by adding the following command to the `Containerfile`:
 >
