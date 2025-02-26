@@ -12,7 +12,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	fctlmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
@@ -151,23 +151,26 @@ func (s *Server) Run(ctx context.Context) error {
 		MultiErrorHandler: oapiMultiErrorHandler,
 	}
 
-	authMiddleware, err := auth.CreateAuthMiddleware(s.cfg, s.log)
+	err = auth.InitAuth(s.cfg, s.log)
 	if err != nil {
-		return fmt.Errorf("failed creating Auth Middleware: %w", err)
+		return fmt.Errorf("failed initializing auth: %w", err)
 	}
 
 	router := chi.NewRouter()
+
+	authMiddewares := []func(http.Handler) http.Handler{
+		auth.CreateAuthNMiddleware(s.log),
+		auth.CreateAuthZMiddleware(s.log),
+	}
 
 	// general middleware stack for all route groups
 	// request size limits should come before logging to prevent DoS attacks from filling logs
 	router.Use(
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
-		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fctlmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
-		authMiddleware,
-		auth.CreatePermissionsMiddleware(s.log),
 	)
 
 	// a group is a new mux copy, with its own copy of the middleware stack
@@ -179,16 +182,24 @@ func (s *Server) Run(ctx context.Context) error {
 			r.Use(s.metrics.ApiServerMiddleware)
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
+		r.Use(authMiddewares...)
 
 		h := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
 		server.HandlerFromMux(server.NewStrictHandler(h, nil), r)
 	})
 
-	consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, kvStore, s.log, s.consoleEndpointReg)
-	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
-	ws.RegisterRoutes(router)
+	// ws handling
+	router.Group(func(r chi.Router) {
+		r.Use(fctlmiddleware.CreateRouteExistsMiddleware(r))
+		r.Use(authMiddewares...)
 
-	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
+		consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, kvStore, s.log, s.consoleEndpointReg)
+		ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
+
+		ws.RegisterRoutes(r)
+	})
+
+	srv := fctlmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
 
 	go func() {
 		<-ctx.Done()
