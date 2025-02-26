@@ -74,6 +74,9 @@ func (o *VersionOptions) Bind(fs *pflag.FlagSet) {
 }
 
 func (o *VersionOptions) Complete(cmd *cobra.Command, args []string) error {
+	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
+		return err
+	}
 	return nil
 }
 
