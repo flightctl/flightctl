@@ -159,6 +159,11 @@ const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
 
+// Defines values for ListLabelsParamsKind.
+const (
+	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
+)
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
@@ -415,9 +420,6 @@ type DeviceIntegrityStatus struct {
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
-
-// DeviceLabelList A list of distinct labels, where each item is formatted as "key=value".
-type DeviceLabelList = []string
 
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
@@ -1016,6 +1018,9 @@ type KubernetesSecretProviderSpec struct {
 	} `json:"secretRef"`
 }
 
+// LabelList A list of distinct labels, where each item is formatted as "key=value".
+type LabelList = []string
+
 // LabelSelector A label selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. Empty/null label selectors match nothing.
 type LabelSelector struct {
 	// MatchExpressions A list of match expressions.
@@ -1510,6 +1515,24 @@ type ReadFleetParams struct {
 	// AddDevicesSummary Include a summary of the devices in the fleet.
 	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
+
+// ListLabelsParams defines parameters for ListLabels.
+type ListLabelsParams struct {
+	// Kind The type of resource to retrieve labels from.
+	Kind ListLabelsParamsKind `form:"kind" json:"kind"`
+
+	// LabelSelector A filter to retrieve labels only from resources that match the given label selector.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A filter to retrieve labels only from resources that match the given field selector.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of distinct labels to return in the response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListLabelsParamsKind defines parameters for ListLabels.
+type ListLabelsParamsKind string
 
 // ListRepositoriesParams defines parameters for ListRepositories.
 type ListRepositoriesParams struct {
