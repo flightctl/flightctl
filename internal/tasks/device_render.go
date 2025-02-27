@@ -12,8 +12,8 @@ import (
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/ignition"
@@ -22,8 +22,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(callbackManager, log, store, k8sClient, kvStore, *resourceRef)
+func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(callbackManager, log, store, serviceHandler, k8sClient, kvStore, *resourceRef)
 	if resourceRef.Op == tasks_client.DeviceRenderOpUpdate {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
@@ -41,6 +41,7 @@ type DeviceRenderLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
+	serviceHandler  *service.ServiceHandler
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
 	resourceRef     tasks_client.ResourceReference
@@ -50,8 +51,8 @@ type DeviceRenderLogic struct {
 	applications    *[]api.ApplicationProviderSpec
 }
 
-func NewDeviceRenderLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef tasks_client.ResourceReference) DeviceRenderLogic {
-	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, kvStore: kvStore, resourceRef: resourceRef}
+func NewDeviceRenderLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, serviceHandler *service.ServiceHandler, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef tasks_client.ResourceReference) DeviceRenderLogic {
+	return DeviceRenderLogic{callbackManager: callbackManager, log: log, store: store, serviceHandler: serviceHandler, k8sClient: k8sClient, kvStore: kvStore, resourceRef: resourceRef}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
@@ -285,13 +286,9 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 		return nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
-	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
+	repo, err := getRepository(ctx, t.serviceHandler, gitSpec.GitRef.Repository)
 	if err != nil {
 		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
-
-	if repo.Spec == nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
 	var ignition *config_latest_types.Config
@@ -418,12 +415,9 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
-	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository)
+	repo, err := getRepository(ctx, t.serviceHandler, httpConfigProviderSpec.HttpRef.Repository)
 	if err != nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
-	}
-	if repo.Spec == nil {
-		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
 	}
 
 	if t.ownerFleet != nil {
@@ -432,7 +426,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 			return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
 		}
 	}
-	repoURL, err := repo.Spec.Data.GetRepoURL()
+	repoURL, err := repo.Spec.GetRepoURL()
 	if err != nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
 	}
@@ -465,7 +459,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 
 	if httpData == nil {
-		httpData, err = sendHTTPrequest(repo.Spec.Data, repoURL)
+		httpData, err = sendHTTPrequest(repo.Spec, repoURL)
 		if err != nil {
 			return &httpConfigProviderSpec.Name, nil, fmt.Errorf("failed fetching data: %w", err)
 		}
@@ -493,34 +487,34 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
 }
 
-func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *model.Repository) error {
-	repoURL, err := repo.Spec.Data.GetRepoURL()
+func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *api.Repository) error {
+	repoURL, err := repo.Spec.GetRepoURL()
 	if err != nil {
-		return fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+		return fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, *repo.Metadata.Name, err)
 	}
 
 	repoKey := kvstore.RepositoryUrlKey{
 		OrgID:           t.resourceRef.OrgID,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
-		Repository:      repo.Name,
+		Repository:      *repo.Metadata.Name,
 	}
 	origRepoURL, err := t.kvStore.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
 	if err != nil {
-		return fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+		return fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, *repo.Metadata.Name, err)
 	}
 	if repoURL != string(origRepoURL) {
-		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, repo.Name)
-		err = repo.Spec.Data.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
+		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, *repo.Metadata.Name)
+		err = repo.Spec.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
 		if err != nil {
-			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.resourceRef.OrgID, repo.Name, err)
+			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.resourceRef.OrgID, *repo.Metadata.Name, err)
 		}
 	}
 
 	return nil
 }
 
-func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *model.Repository, targetRevision string, path, mountPath string) (*config_latest_types.Config, error) {
+func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *api.Repository, targetRevision string, path, mountPath string) (*config_latest_types.Config, error) {
 	// 1. Get the frozen repository URL
 	err := t.getFrozenRepositoryURL(ctx, repo)
 	if err != nil {
@@ -532,7 +526,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 		OrgID:           t.resourceRef.OrgID,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
-		Repository:      repo.Name,
+		Repository:      *repo.Metadata.Name,
 		TargetRevision:  targetRevision,
 	}
 	frozenHashBytes, err := t.kvStore.Get(ctx, gitRevisionKey.ComposeKey())
@@ -545,7 +539,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 		OrgID:           t.resourceRef.OrgID,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
-		Repository:      repo.Name,
+		Repository:      *repo.Metadata.Name,
 		TargetRevision:  targetRevision,
 		Path:            path,
 	}

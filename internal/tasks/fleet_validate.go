@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
@@ -15,8 +16,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
-	logic := NewFleetValidateLogic(callbackManager, log, store, k8sClient, *resourceRef)
+func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+	logic := NewFleetValidateLogic(callbackManager, log, store, serviceHandler, k8sClient, *resourceRef)
 	switch {
 	case resourceRef.Op == tasks_client.FleetValidateOpUpdate && resourceRef.Kind == api.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -33,13 +34,14 @@ type FleetValidateLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
+	serviceHandler  *service.ServiceHandler
 	k8sClient       k8sclient.K8SClient
 	resourceRef     tasks_client.ResourceReference
 	templateConfig  *[]api.ConfigProviderSpec
 }
 
-func NewFleetValidateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef tasks_client.ResourceReference) FleetValidateLogic {
-	return FleetValidateLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, resourceRef: resourceRef}
+func NewFleetValidateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, serviceHandler *service.ServiceHandler, k8sClient k8sclient.K8SClient, resourceRef tasks_client.ResourceReference) FleetValidateLogic {
+	return FleetValidateLogic{callbackManager: callbackManager, log: log, store: store, serviceHandler: serviceHandler, k8sClient: k8sClient, resourceRef: resourceRef}
 }
 
 func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context) error {
@@ -181,13 +183,9 @@ func (t *FleetValidateLogic) validateGitConfig(ctx context.Context, configItem *
 		return nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
-	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
+	_, err = getRepository(ctx, t.serviceHandler, gitSpec.GitRef.Repository)
 	if err != nil {
 		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
-	}
-
-	if repo.Spec == nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 	}
 
 	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
@@ -224,14 +222,11 @@ func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, con
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
-	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository)
+	repo, err := getRepository(ctx, t.serviceHandler, httpConfigProviderSpec.HttpRef.Repository)
 	if err != nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
 	}
-	if repo.Spec == nil {
-		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
-	}
-	_, err = repo.Spec.Data.GetRepoURL()
+	_, err = repo.Spec.GetRepoURL()
 	if err != nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
 	}

@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	commonauth "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -29,6 +31,7 @@ import (
 type ResourceSync struct {
 	log             logrus.FieldLogger
 	store           store.Store
+	serviceHandler  *service.ServiceHandler
 	callbackManager tasks_client.CallbackManager
 }
 
@@ -37,10 +40,11 @@ type genericResourceMap map[string]interface{}
 var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{api.FleetKind}
 
-func NewResourceSync(callbackManager tasks_client.CallbackManager, store store.Store, log logrus.FieldLogger) *ResourceSync {
+func NewResourceSync(callbackManager tasks_client.CallbackManager, serviceHandler *service.ServiceHandler, store store.Store, log logrus.FieldLogger) *ResourceSync {
 	return &ResourceSync{
 		log:             log,
 		store:           store,
+		serviceHandler:  serviceHandler,
 		callbackManager: callbackManager,
 	}
 }
@@ -49,6 +53,7 @@ func (r *ResourceSync) Poll() {
 	reqid.OverridePrefix("resourcesync")
 	requestID := reqid.NextRequestID()
 	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, commonauth.InternalRequestCtxKey, true)
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running ResourceSync Polling")
@@ -68,7 +73,7 @@ func (r *ResourceSync) Poll() {
 func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *model.ResourceSync) error {
 	defer r.updateResourceSyncStatus(rs)
 	reponame := rs.Spec.Data.Repository
-	repo, err := r.store.Repository().GetInternal(ctx, rs.OrgID, reponame)
+	repo, err := getRepository(ctx, r.serviceHandler, reponame)
 	if err != nil {
 		// Failed to fetch Repository resource
 		rs.AddRepoNotFoundCondition(err)
@@ -183,7 +188,7 @@ func fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []string {
 	return dfleets
 }
 
-func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *model.Repository, gitCloneRepo cloneGitRepoFunc) ([]genericResourceMap, error) {
+func (r *ResourceSync) parseAndValidateResources(rs *model.ResourceSync, repo *api.Repository, gitCloneRepo cloneGitRepoFunc) ([]genericResourceMap, error) {
 	path := rs.Spec.Data.Path
 	revision := rs.Spec.Data.TargetRevision
 	mfs, hash, err := gitCloneRepo(repo, &revision, lo.ToPtr(1))

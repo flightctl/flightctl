@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -20,10 +21,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func resourceSyncParams(t *testing.T) (tasks_client.CallbackManager, store.Store, logrus.FieldLogger) {
+func resourceSyncParams(t *testing.T) (tasks_client.CallbackManager, *service.ServiceHandler, store.Store, logrus.FieldLogger) {
 	ctrl := gomock.NewController(t)
 	l := flightlog.InitLogs()
-	return tasks_client.NewCallbackManager(queues.NewMockPublisher(ctrl), l), nil, l
+	return tasks_client.NewCallbackManager(queues.NewMockPublisher(ctrl), l), nil, nil, l
 }
 
 func TestIsValidFile_invalid(t *testing.T) {
@@ -267,30 +268,25 @@ func testResourceSync() model.ResourceSync {
 	}
 }
 
-func testRepo() (model.Repository, error) {
+func testRepo() (api.Repository, error) {
 	spec := api.RepositorySpec{}
 	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-		// This is contacting a GIT repo, we should either mock it, or move it to E2E eventually
+		// This is contacting a Git repo, we should either mock it, or move it to E2E eventually
 		// where we setup a local test git repo we could control (i.e. https://github.com/rockstorm101/git-server-docker)
 		Url: "https://github.com/flightctl/flightctl",
 	})
-	return model.Repository{
-		Spec: &model.JSONField[api.RepositorySpec]{
-			Data: spec,
-		},
-	}, err
-
+	return api.Repository{Spec: spec}, err
 }
 
 var gitRepoCommit = "abcdef012"
 
-func testCloneEmptyGitRepo(_ *model.Repository, _ *string, _ *int) (billy.Filesystem, string, error) {
+func testCloneEmptyGitRepo(_ *api.Repository, _ *string, _ *int) (billy.Filesystem, string, error) {
 	memfs := memfs.New()
 
 	return memfs, gitRepoCommit, nil
 }
 
-func testCloneUnsupportedGitRepo(_ *model.Repository, _ *string, _ *int) (billy.Filesystem, string, error) {
+func testCloneUnsupportedGitRepo(_ *api.Repository, _ *string, _ *int) (billy.Filesystem, string, error) {
 	memfs := memfs.New()
 	_ = memfs.MkdirAll("/examples", 0666)
 
