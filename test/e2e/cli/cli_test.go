@@ -199,7 +199,7 @@ var _ = Describe("cli operation", func() {
 
 			By("Verifying Device update")
 			devName := *device.Metadata.Name
-			dev, err := harness.Client.ReadDeviceWithResponse(harness.Context, devName)
+			dev, err := harness.Client.GetDeviceWithResponse(harness.Context, devName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.JSON200).ToNot(BeNil(), "failed to read updated device")
 			responseLabelValue := (*dev.JSON200.Metadata.Labels)[newTestKey]
@@ -210,7 +210,7 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify deletion
-			dev, err = harness.Client.ReadDeviceWithResponse(harness.Context, devName)
+			dev, err = harness.Client.GetDeviceWithResponse(harness.Context, devName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.JSON404).ToNot(BeNil(), "device should not exist after deletion")
 
@@ -231,7 +231,7 @@ var _ = Describe("cli operation", func() {
 
 			By("Verifying Fleet update")
 			fleetName := *fleet.Metadata.Name
-			fleetUpdated, err := harness.Client.ReadFleetWithResponse(harness.Context, fleetName, nil)
+			fleetUpdated, err := harness.Client.GetFleetWithResponse(harness.Context, fleetName, nil)
 			Expect(fleetUpdated.JSON200).ToNot(BeNil(), "failed to read updated fleet")
 
 			Expect(err).ToNot(HaveOccurred())

@@ -19,9 +19,9 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
@@ -40,7 +40,7 @@ type Server struct {
 	store              store.Store
 	ca                 *crypto.CA
 	listener           net.Listener
-	provider           queues.Provider
+	queuesProvider     queues.Provider
 	metrics            *instrumentation.ApiMetrics
 	consoleEndpointReg console.InternalSessionRegistration
 }
@@ -52,7 +52,7 @@ func New(
 	store store.Store,
 	ca *crypto.CA,
 	listener net.Listener,
-	provider queues.Provider,
+	queuesProvider queues.Provider,
 	metrics *instrumentation.ApiMetrics,
 	consoleEndpointReg console.InternalSessionRegistration,
 ) *Server {
@@ -62,7 +62,7 @@ func New(
 		store:              store,
 		ca:                 ca,
 		listener:           listener,
-		provider:           provider,
+		queuesProvider:     queuesProvider,
 		metrics:            metrics,
 		consoleEndpointReg: consoleEndpointReg,
 	}
@@ -128,7 +128,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := tasks_client.TaskQueuePublisher(s.provider)
+	publisher, err := tasks_client.TaskQueuePublisher(s.queuesProvider)
 	if err != nil {
 		return err
 	}
@@ -180,12 +180,12 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
-		h := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
-		server.HandlerFromMux(server.NewStrictHandler(h, nil), r)
+		h := transport.NewTransportHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+		server.HandlerFromMux(h, r)
 	})
 
 	consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, kvStore, s.log, s.consoleEndpointReg)
-	ws := service.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
+	ws := transport.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
 	ws.RegisterRoutes(router)
 
 	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
@@ -199,8 +199,8 @@ func (s *Server) Run(ctx context.Context) error {
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
 		kvStore.Close()
-		s.provider.Stop()
-		s.provider.Wait()
+		s.queuesProvider.Stop()
+		s.queuesProvider.Wait()
 	}()
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())

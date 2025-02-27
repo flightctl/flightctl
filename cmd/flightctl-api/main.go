@@ -144,7 +144,7 @@ func main() {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentserver := agentserver.New(log, cfg, store, ca, agentListener, agentTlsConfig, metrics)
+	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig, metrics)
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)

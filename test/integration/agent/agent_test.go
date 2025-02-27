@@ -65,7 +65,7 @@ var _ = Describe("Device Agent behavior", func() {
 				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// verify that the enrollment request is marked as approved
-				er, err := h.Client.ReadEnrollmentRequestWithResponse(h.Context, deviceName)
+				er, err := h.Client.GetEnrollmentRequestWithResponse(h.Context, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(er.JSON200.Status.Conditions).ToNot(BeEmpty())
 
@@ -186,7 +186,7 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.Enrollmen
 	approveEnrollment(h, deviceName, approval)
 
 	// verify that the device is created
-	dev, err := h.Client.ReadDeviceWithResponse(h.Context, deviceName)
+	dev, err := h.Client.GetDeviceWithResponse(h.Context, deviceName)
 	Expect(err).ToNot(HaveOccurred())
 	assertRestResponse(200, dev.HTTPResponse, dev.Body)
 	return dev.JSON200
