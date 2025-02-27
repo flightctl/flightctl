@@ -4,10 +4,7 @@ extends:
 
 aliases:
   PathToResourceCollection:
-    # To prevent enrollmentconfig from being classified as collection, we select everything
-    # except segments starting with 'e', then explicitly add enrollmentrequests.
-    - '$.paths[?(@property.match( "^/api/v1/[a-d,f-z][a-z]+$" ))]'
-    - '$.paths[?(@property.match( "^/api/v1/enrollmentrequests$" ))]'
+    - '$.paths[?(@property.match( "^/api/v1/[a-z]+$" ))]'
   PathToResource:
     - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}$" ))]'
   PathToStatusSubresource:
@@ -499,3 +496,10 @@ rules:
       function: pattern
       functionOptions:
         match: ".+\\.$"
+
+overrides:
+  - files:
+      - "**#/paths/~1api~1v1~1labels"
+      - "**#/paths/~1api~1v1~1enrollmentconfig"
+    rules:
+      collection-verbs-required: off
