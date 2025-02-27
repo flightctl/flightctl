@@ -51,7 +51,7 @@ func (h *ServiceHandler) ListLabels(ctx context.Context, request server.ListLabe
 	// Retrieve labels based on the resource kind
 	var result api.LabelList
 	switch kind {
-	case "Device":
+	case api.DeviceKind:
 		result, err = h.store.Device().Labels(ctx, orgId, listParams)
 	default:
 		return server.ListLabels400JSONResponse{Message: fmt.Sprintf("unsupported kind: %s", kind)}, nil
