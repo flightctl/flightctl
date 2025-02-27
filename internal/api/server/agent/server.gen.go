@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 
 	. "github.com/flightctl/flightctl/api/v1alpha1"
@@ -14,10 +15,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
 	strictnethttp "github.com/oapi-codegen/runtime/strictmiddleware/nethttp"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+
+	// (GET /api/v1/devices/{name}/commands)
+	GetNextCommands(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
@@ -30,11 +35,19 @@ type ServerInterface interface {
 
 	// (GET /api/v1/enrollmentrequests/{name})
 	ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
+
+	// (POST /api/v1/sosreports/{sosSessionID})
+	UploadSosReport(w http.ResponseWriter, r *http.Request, sosSessionID openapi_types.UUID)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// (GET /api/v1/devices/{name}/commands)
+func (_ Unimplemented) GetNextCommands(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // (GET /api/v1/devices/{name}/rendered)
 func (_ Unimplemented) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
@@ -56,6 +69,11 @@ func (_ Unimplemented) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (POST /api/v1/sosreports/{sosSessionID})
+func (_ Unimplemented) UploadSosReport(w http.ResponseWriter, r *http.Request, sosSessionID openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
@@ -64,6 +82,32 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetNextCommands operation middleware
+func (siw *ServerInterfaceWrapper) GetNextCommands(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetNextCommands(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
 
 // GetRenderedDevice operation middleware
 func (siw *ServerInterfaceWrapper) GetRenderedDevice(w http.ResponseWriter, r *http.Request) {
@@ -160,6 +204,32 @@ func (siw *ServerInterfaceWrapper) ReadEnrollmentRequest(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReadEnrollmentRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// UploadSosReport operation middleware
+func (siw *ServerInterfaceWrapper) UploadSosReport(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "sosSessionID" -------------
+	var sosSessionID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sosSessionID", chi.URLParam(r, "sosSessionID"), &sosSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sosSessionID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadSosReport(w, r, sosSessionID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -283,6 +353,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/devices/{name}/commands", wrapper.GetNextCommands)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
 	})
 	r.Group(func(r chi.Router) {
@@ -294,8 +367,64 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReadEnrollmentRequest)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/sosreports/{sosSessionID}", wrapper.UploadSosReport)
+	})
 
 	return r
+}
+
+type GetNextCommandsRequestObject struct {
+	Name string `json:"name"`
+}
+
+type GetNextCommandsResponseObject interface {
+	VisitGetNextCommandsResponse(w http.ResponseWriter) error
+}
+
+type GetNextCommands200JSONResponse DeviceCommands
+
+func (response GetNextCommands200JSONResponse) VisitGetNextCommandsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetNextCommands400JSONResponse externalRef0.Status
+
+func (response GetNextCommands400JSONResponse) VisitGetNextCommandsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetNextCommands401JSONResponse externalRef0.Status
+
+func (response GetNextCommands401JSONResponse) VisitGetNextCommandsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetNextCommands404JSONResponse externalRef0.Status
+
+func (response GetNextCommands404JSONResponse) VisitGetNextCommandsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetNextCommands500JSONResponse externalRef0.Status
+
+func (response GetNextCommands500JSONResponse) VisitGetNextCommandsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type GetRenderedDeviceRequestObject struct {
@@ -511,8 +640,64 @@ func (response ReadEnrollmentRequest503JSONResponse) VisitReadEnrollmentRequestR
 	return json.NewEncoder(w).Encode(response)
 }
 
+type UploadSosReportRequestObject struct {
+	SosSessionID openapi_types.UUID `json:"sosSessionID"`
+	Body         *multipart.Reader
+}
+
+type UploadSosReportResponseObject interface {
+	VisitUploadSosReportResponse(w http.ResponseWriter) error
+}
+
+type UploadSosReport204Response struct {
+}
+
+func (response UploadSosReport204Response) VisitUploadSosReportResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UploadSosReport401JSONResponse externalRef0.Status
+
+func (response UploadSosReport401JSONResponse) VisitUploadSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UploadSosReport404JSONResponse externalRef0.Status
+
+func (response UploadSosReport404JSONResponse) VisitUploadSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UploadSosReport500JSONResponse externalRef0.Status
+
+func (response UploadSosReport500JSONResponse) VisitUploadSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UploadSosReport504JSONResponse externalRef0.Status
+
+func (response UploadSosReport504JSONResponse) VisitUploadSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(504)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+
+	// (GET /api/v1/devices/{name}/commands)
+	GetNextCommands(ctx context.Context, request GetNextCommandsRequestObject) (GetNextCommandsResponseObject, error)
 
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDevice(ctx context.Context, request GetRenderedDeviceRequestObject) (GetRenderedDeviceResponseObject, error)
@@ -525,6 +710,9 @@ type StrictServerInterface interface {
 
 	// (GET /api/v1/enrollmentrequests/{name})
 	ReadEnrollmentRequest(ctx context.Context, request ReadEnrollmentRequestRequestObject) (ReadEnrollmentRequestResponseObject, error)
+
+	// (POST /api/v1/sosreports/{sosSessionID})
+	UploadSosReport(ctx context.Context, request UploadSosReportRequestObject) (UploadSosReportResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -554,6 +742,32 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetNextCommands operation middleware
+func (sh *strictHandler) GetNextCommands(w http.ResponseWriter, r *http.Request, name string) {
+	var request GetNextCommandsRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetNextCommands(ctx, request.(GetNextCommandsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetNextCommands")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetNextCommandsResponseObject); ok {
+		if err := validResponse.VisitGetNextCommandsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetRenderedDevice operation middleware
@@ -666,6 +880,39 @@ func (sh *strictHandler) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReadEnrollmentRequestResponseObject); ok {
 		if err := validResponse.VisitReadEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UploadSosReport operation middleware
+func (sh *strictHandler) UploadSosReport(w http.ResponseWriter, r *http.Request, sosSessionID openapi_types.UUID) {
+	var request UploadSosReportRequestObject
+
+	request.SosSessionID = sosSessionID
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadSosReport(ctx, request.(UploadSosReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadSosReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UploadSosReportResponseObject); ok {
+		if err := validResponse.VisitUploadSosReportResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

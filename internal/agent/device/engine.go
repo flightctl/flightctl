@@ -12,6 +12,7 @@ type Engine struct {
 	fetchSpecFn        func(context.Context)
 	pushStatusInterval util.Duration
 	pushStatusFn       func(context.Context)
+	commandsFn         func(context.Context)
 
 	clock Clock
 	// startedCh is used to signal when the ticker has started used for testing
@@ -24,6 +25,7 @@ func NewEngine(
 	fetchSpecFn func(context.Context),
 	pushStatusInterval util.Duration,
 	pushStatusFn func(context.Context),
+	commandsFn func(ctx context.Context),
 ) *Engine {
 	return &Engine{
 		fetchSpecInterval:  fetchSpecInterval,
@@ -32,6 +34,7 @@ func NewEngine(
 		pushStatusFn:       pushStatusFn,
 		clock:              &realClock{},
 		startedCh:          make(chan struct{}),
+		commandsFn:         commandsFn,
 	}
 }
 
@@ -77,6 +80,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if e.next(e.fetchSpecInterval, lastSpecSync, now) {
 				lastSpecSync = now
 				e.fetchSpecFn(ctx)
+				e.commandsFn(ctx)
 			}
 
 			// status

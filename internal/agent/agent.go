@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/commands"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -21,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/internal/agent/device/sosreport"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -195,6 +197,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	sosreportManager := sosreport.NewManager(a.log)
+
+	commandsManager := commands.NewManager(deviceName, sosreportManager, a.log)
+
 	bootstrap := device.NewBootstrap(
 		deviceName,
 		executer,
@@ -205,6 +211,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		lifecycleManager,
 		&a.config.ManagementService.Config,
 		systemClient,
+		commandsManager,
 		a.log,
 	)
 
@@ -258,6 +265,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		configController,
 		resourceController,
 		consoleController,
+		commandsManager,
 		osClient,
 		podmanClient,
 		backoff,

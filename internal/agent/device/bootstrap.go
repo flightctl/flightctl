@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/commands"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -29,6 +30,7 @@ type Bootstrap struct {
 	specManager      spec.Manager
 	statusManager    status.Manager
 	hookManager      hook.Manager
+	commandsManager  commands.Manager
 	lifecycle        lifecycle.Initializer
 	systemClient     client.System
 
@@ -48,6 +50,7 @@ func NewBootstrap(
 	lifecycleInitializer lifecycle.Initializer,
 	managementServiceConfig *client.Config,
 	systemClient client.System,
+	commandsManager commands.Manager,
 	log *log.PrefixLogger,
 ) *Bootstrap {
 	return &Bootstrap{
@@ -60,6 +63,7 @@ func NewBootstrap(
 		lifecycle:               lifecycleInitializer,
 		managementServiceConfig: managementServiceConfig,
 		systemClient:            systemClient,
+		commandsManager:         commandsManager,
 		log:                     log,
 	}
 }
@@ -276,6 +280,7 @@ func (b *Bootstrap) setManagementClient() error {
 	// initialize the management client for spec and status managers
 	b.statusManager.SetClient(b.managementClient)
 	b.specManager.SetClient(b.managementClient)
+	b.commandsManager.SetClient(managementHTTPClient)
 	b.log.Info("Management client set")
 	return nil
 }

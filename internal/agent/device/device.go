@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/commands"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -43,6 +44,7 @@ type Agent struct {
 	configController       *config.Controller
 	resourceController     *resource.Controller
 	consoleController      *console.ConsoleController
+	commandsManager        commands.Manager
 	osClient               os.Client
 	podmanClient           *client.Podman
 
@@ -73,6 +75,7 @@ func NewAgent(
 	configController *config.Controller,
 	resourceController *resource.Controller,
 	consoleController *console.ConsoleController,
+	commandsManager commands.Manager,
 	osClient os.Client,
 	podmanClient *client.Podman,
 	backoff wait.Backoff,
@@ -95,6 +98,7 @@ func NewAgent(
 		configController:       configController,
 		resourceController:     resourceController,
 		consoleController:      consoleController,
+		commandsManager:        commandsManager,
 		osClient:               osClient,
 		podmanClient:           podmanClient,
 		cancelFn:               func() {},
@@ -111,6 +115,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.syncDeviceSpec,
 		a.statusUpdateInterval,
 		a.statusUpdate,
+		a.handleCommands,
 	)
 
 	return engine.Run(ctx)
@@ -185,6 +190,10 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) err
 	}
 
 	return nil
+}
+
+func (a *Agent) handleCommands(ctx context.Context) {
+	a.commandsManager.NextCommands(ctx)
 }
 
 func (a *Agent) syncDeviceSpec(ctx context.Context) {

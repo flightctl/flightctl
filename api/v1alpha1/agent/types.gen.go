@@ -4,8 +4,32 @@
 package v1alpha1
 
 import (
+	"encoding/json"
+	"errors"
+
 	externalRef0 "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// DeviceCommand Represents a single command.
+type DeviceCommand struct {
+	union json.RawMessage
+}
+
+// DeviceCommands All the commands to run.
+type DeviceCommands struct {
+	Commands *[]DeviceCommand `json:"commands,omitempty"`
+}
+
+// UploadSosReportCommand A request to upload SOS report.
+type UploadSosReportCommand struct {
+	// CommandName Discriminator describing the command.
+	CommandName string `json:"commandName"`
+
+	// Id The id of the command.  Used to correlate with the requestor.
+	Id openapi_types.UUID `json:"id"`
+}
 
 // GetRenderedDeviceParams defines parameters for GetRenderedDevice.
 type GetRenderedDeviceParams struct {
@@ -13,8 +37,77 @@ type GetRenderedDeviceParams struct {
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
 
+// UploadSosReportMultipartBody defines parameters for UploadSosReport.
+type UploadSosReportMultipartBody struct {
+	// Error Status is a return value for calls that don't return other objects.
+	Error     *externalRef0.Status `json:"error,omitempty"`
+	Sosreport *openapi_types.File  `json:"sosreport,omitempty"`
+}
+
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = externalRef0.Device
 
 // CreateEnrollmentRequestJSONRequestBody defines body for CreateEnrollmentRequest for application/json ContentType.
 type CreateEnrollmentRequestJSONRequestBody = externalRef0.EnrollmentRequest
+
+// UploadSosReportMultipartRequestBody defines body for UploadSosReport for multipart/form-data ContentType.
+type UploadSosReportMultipartRequestBody UploadSosReportMultipartBody
+
+// AsUploadSosReportCommand returns the union data inside the DeviceCommand as a UploadSosReportCommand
+func (t DeviceCommand) AsUploadSosReportCommand() (UploadSosReportCommand, error) {
+	var body UploadSosReportCommand
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUploadSosReportCommand overwrites any union data inside the DeviceCommand as the provided UploadSosReportCommand
+func (t *DeviceCommand) FromUploadSosReportCommand(v UploadSosReportCommand) error {
+	v.CommandName = "UploadSosReportCommand"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUploadSosReportCommand performs a merge with any union data inside the DeviceCommand, using the provided UploadSosReportCommand
+func (t *DeviceCommand) MergeUploadSosReportCommand(v UploadSosReportCommand) error {
+	v.CommandName = "UploadSosReportCommand"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t DeviceCommand) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"commandName"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t DeviceCommand) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "UploadSosReportCommand":
+		return t.AsUploadSosReportCommand()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t DeviceCommand) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *DeviceCommand) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/sosreport"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/config"
@@ -34,6 +35,7 @@ func TestInitialization(t *testing.T) {
 			mockEnrollmentClient *client.MockEnrollment,
 			mockSystemClient *client.MockSystem,
 			mockLifecycleInitializer *lifecycle.MockInitializer,
+			mockSosreportManager *sosreport.MockManager,
 		)
 		expectedError error
 	}{
@@ -47,6 +49,7 @@ func TestInitialization(t *testing.T) {
 				_ *client.MockEnrollment,
 				mockSystemClient *client.MockSystem,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
+				mockSosreportManager *sosreport.MockManager,
 			) {
 				gomock.InOrder(
 					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
@@ -57,6 +60,7 @@ func TestInitialization(t *testing.T) {
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockSosreportManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
 					mockSystemClient.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
@@ -76,6 +80,7 @@ func TestInitialization(t *testing.T) {
 				_ *client.MockEnrollment,
 				mockSystemClient *client.MockSystem,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
+				mockSosreportManager *sosreport.MockManager,
 			) {
 				bootedOSVersion := "2.0.0"
 				gomock.InOrder(
@@ -87,6 +92,7 @@ func TestInitialization(t *testing.T) {
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockSosreportManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(true),
 					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOSVersion, true, nil),
 					mockSystemClient.EXPECT().IsRebooted().Return(false),
@@ -107,6 +113,7 @@ func TestInitialization(t *testing.T) {
 				mockEnrollmentClient *client.MockEnrollment,
 				mockSystemClient *client.MockSystem,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
+				mockSosreportManager *sosreport.MockManager,
 
 			) {
 				gomock.InOrder(
@@ -118,6 +125,7 @@ func TestInitialization(t *testing.T) {
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockSosreportManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
 					mockSystemClient.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
@@ -141,6 +149,7 @@ func TestInitialization(t *testing.T) {
 			mockEnrollmentClient := client.NewMockEnrollment(ctrl)
 			mockSystemClient := client.NewMockSystem(ctrl)
 			mockLifecycleInitializer := lifecycle.NewMockInitializer(ctrl)
+			mockSosreportManager := sosreport.NewMockManager(ctrl)
 
 			b := &Bootstrap{
 				statusManager:           mockStatusManager,
@@ -150,6 +159,7 @@ func TestInitialization(t *testing.T) {
 				deviceReadWriter:        mockReadWriter,
 				managementServiceConfig: &client.Config{},
 				systemClient:            mockSystemClient,
+				commandsManager:         mockSosreportManager,
 				log:                     log.NewPrefixLogger("test"),
 			}
 
@@ -163,6 +173,7 @@ func TestInitialization(t *testing.T) {
 				mockEnrollmentClient,
 				mockSystemClient,
 				mockLifecycleInitializer,
+				mockSosreportManager,
 			)
 
 			err := b.Initialize(ctx)

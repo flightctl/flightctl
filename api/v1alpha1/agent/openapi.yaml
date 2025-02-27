@@ -113,6 +113,106 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+
+  /api/v1/devices/{name}/commands:
+    get:
+      tags:
+        - device
+      description: Get the next commands.
+      operationId: getNextCommands
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device to get the commands for.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceCommands'
+        "400":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/sosreports/{sosSessionID}:
+    post:
+      tags:
+        - device
+      description: Upload sos report.
+      operationId: uploadSosReport
+      parameters:
+        - name: sosSessionID
+          in: path
+          description: The id of the sos report.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                sosreport:
+                  type: string
+                  format: binary
+                error:
+                  $ref: '../openapi.yaml#/components/schemas/Status'
+
+      responses:
+        "204":
+          description: No content
+          content: {}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "504":
+          description: GatewayTimeout
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
     get:
@@ -207,3 +307,38 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+components:
+  schemas:
+    DeviceCommands:
+      type: object
+      description: All the commands to run.
+      properties:
+        commands:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceCommand'
+
+    DeviceCommand:
+      type: object
+      description: Represents a single command.
+      oneOf:
+        - $ref: '#/components/schemas/UploadSosReportCommand'
+      discriminator:
+        propertyName: commandName
+        mapping:
+          UploadSosReport: '#/components/schemas/UploadSosReport'
+
+    UploadSosReportCommand:
+      type: object
+      description: A request to upload SOS report.
+      properties:
+        commandName:
+          description: Discriminator describing the command.
+          type: string
+        id:
+          description: The id of the command.  Used to correlate with the requestor.
+          type: string
+          format: uuid
+      required:
+        - commandName
+        - id

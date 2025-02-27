@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/internal/agent/device/sosreport"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -52,6 +53,7 @@ func TestSync(t *testing.T) {
 			mockHookManager *hook.MockManager,
 			mockAppManager *applications.MockManager,
 			mockLifecycleManager *lifecycle.MockManager,
+			mockSosreportManager *sosreport.MockManager,
 		)
 	}{
 		{
@@ -71,6 +73,7 @@ func TestSync(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				mockAppManager *applications.MockManager,
 				mockLifecycleManager *lifecycle.MockManager,
+				mockSosreportManager *sosreport.MockManager,
 			) {
 				nonRetryableHookError := errors.New("hook error")
 				gomock.InOrder(
@@ -85,6 +88,7 @@ func TestSync(t *testing.T) {
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, desired.Spec).Return(nil),
+					mockSosreportManager.EXPECT().Sync(ctx, gomock.Any(), gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, desired.Spec).Return(nil),
 					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError),
@@ -98,6 +102,7 @@ func TestSync(t *testing.T) {
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, desired.Spec, current.Spec).Return(nil),
+					mockSosreportManager.EXPECT().Sync(ctx, gomock.Any(), gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, desired.Spec, current.Spec).Return(nil),
 					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nonRetryableHookError),
@@ -113,6 +118,7 @@ func TestSync(t *testing.T) {
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, current.Spec).Return(nil),
+					mockSosreportManager.EXPECT().Sync(ctx, gomock.Any(), gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, current.Spec).Return(nil),
 					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, current.Spec, false).Return(nonRetryableHookError),
@@ -135,6 +141,7 @@ func TestSync(t *testing.T) {
 			mockHookManager := hook.NewMockManager(ctrl)
 			mockAppManager := applications.NewMockManager(ctrl)
 			mockLifecycleManager := lifecycle.NewMockManager(ctrl)
+			mockSosreportManager := sosreport.NewMockManager(ctrl)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -148,6 +155,7 @@ func TestSync(t *testing.T) {
 				mockHookManager,
 				mockAppManager,
 				mockLifecycleManager,
+				mockSosreportManager,
 			)
 
 			// setup
@@ -197,6 +205,7 @@ func TestSync(t *testing.T) {
 				resourceController:     resourceController,
 				systemdManager:         mockSystemdManager,
 				lifecycleManager:       mockLifecycleManager,
+				commandsManager:        mockSosreportManager,
 			}
 
 			// initial sync

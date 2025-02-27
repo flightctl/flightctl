@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	. "github.com/flightctl/flightctl/api/v1alpha1"
@@ -74,6 +75,9 @@ type ServerInterface interface {
 
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
+
+	// (GET /api/v1/devices/{name}/sosreport)
+	GetSosReport(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /api/v1/devices/{name}/status)
 	ReadDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
@@ -307,6 +311,11 @@ func (_ Unimplemented) DecommissionDevice(w http.ResponseWriter, r *http.Request
 
 // (GET /api/v1/devices/{name}/rendered)
 func (_ Unimplemented) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/devices/{name}/sosreport)
+func (_ Unimplemented) GetSosReport(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1060,6 +1069,32 @@ func (siw *ServerInterfaceWrapper) GetRenderedDevice(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetRenderedDevice(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// GetSosReport operation middleware
+func (siw *ServerInterfaceWrapper) GetSosReport(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSosReport(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2522,6 +2557,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/devices/{name}/sosreport", wrapper.GetSosReport)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReadDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
@@ -3761,6 +3799,111 @@ type GetRenderedDevice503JSONResponse Status
 func (response GetRenderedDevice503JSONResponse) VisitGetRenderedDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetSosReportRequestObject struct {
+	Name string `json:"name"`
+}
+
+type GetSosReportResponseObject interface {
+	VisitGetSosReportResponse(w http.ResponseWriter) error
+}
+
+type GetSosReport200ResponseHeaders struct {
+	ContentDisposition string
+}
+
+type GetSosReport200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	Headers       GetSosReport200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSosReport200ApplicationoctetStreamResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprint(response.Headers.ContentDisposition))
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSosReport400JSONResponse Status
+
+func (response GetSosReport400JSONResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetSosReport401JSONResponse Status
+
+func (response GetSosReport401JSONResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetSosReport403JSONResponse Status
+
+func (response GetSosReport403JSONResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetSosReport404JSONResponse Status
+
+func (response GetSosReport404JSONResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetSosReport409JSONResponse Status
+
+func (response GetSosReport409JSONResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetSosReport500JSONResponse Status
+
+func (response GetSosReport500JSONResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetSosReport503JSONResponse Status
+
+func (response GetSosReport503JSONResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetSosReport504JSONResponse Status
+
+func (response GetSosReport504JSONResponse) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(504)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -6440,6 +6583,9 @@ type StrictServerInterface interface {
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDevice(ctx context.Context, request GetRenderedDeviceRequestObject) (GetRenderedDeviceResponseObject, error)
 
+	// (GET /api/v1/devices/{name}/sosreport)
+	GetSosReport(ctx context.Context, request GetSosReportRequestObject) (GetSosReportResponseObject, error)
+
 	// (GET /api/v1/devices/{name}/status)
 	ReadDeviceStatus(ctx context.Context, request ReadDeviceStatusRequestObject) (ReadDeviceStatusResponseObject, error)
 
@@ -7139,6 +7285,32 @@ func (sh *strictHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetRenderedDeviceResponseObject); ok {
 		if err := validResponse.VisitGetRenderedDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSosReport operation middleware
+func (sh *strictHandler) GetSosReport(w http.ResponseWriter, r *http.Request, name string) {
+	var request GetSosReportRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSosReport(ctx, request.(GetSosReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSosReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSosReportResponseObject); ok {
+		if err := validResponse.VisitGetSosReportResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

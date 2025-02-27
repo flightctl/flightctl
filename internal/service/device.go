@@ -2,19 +2,27 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
+	"net/http"
 	"reflect"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/service/sosreport"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 // (POST /api/v1/devices)
@@ -367,4 +375,173 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.
 	default:
 		return nil, err
 	}
+}
+
+type sosReportGetter struct {
+	store   store.Store
+	log     logrus.FieldLogger
+	request server.GetSosReportRequestObject
+	rcvChan chan *multipart.Reader
+	errChan chan error
+}
+
+func (h *ServiceHandler) sosReportGetter(request server.GetSosReportRequestObject) *sosReportGetter {
+	return &sosReportGetter{
+		store:   h.store,
+		log:     h.log,
+		request: request,
+		rcvChan: make(chan *multipart.Reader),
+		errChan: make(chan error),
+	}
+}
+
+func (s *sosReportGetter) updateAnnotation(ctx context.Context, orgId uuid.UUID, updater func([]string) []string) (server.GetSosReportResponseObject, error) {
+	device, err := s.store.Device().Get(ctx, orgId, s.request.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
+			return server.GetSosReport400JSONResponse(api.StatusBadRequest(err.Error())), nil
+		case errors.Is(err, flterrors.ErrResourceNotFound):
+			return server.GetSosReport404JSONResponse(api.StatusResourceNotFound("Device", s.request.Name)), nil
+		default:
+			return nil, err
+		}
+	}
+	var ids []string
+	annotation, exists := util.GetFromMap(lo.FromPtr(device.Metadata.Annotations), api.DeviceAnnotationSosReports)
+	if exists {
+		if err := json.Unmarshal([]byte(annotation), &ids); err != nil {
+			return server.GetSosReport500JSONResponse(api.StatusInternalServerError(err.Error())), nil
+		}
+	}
+	ids = updater(ids)
+	b, err := json.Marshal(&ids)
+	if err != nil {
+		return server.GetSosReport500JSONResponse(api.StatusInternalServerError(err.Error())), nil
+	}
+	annotations := map[string]string{
+		api.DeviceAnnotationSosReports: string(b),
+	}
+	err = s.store.Device().UpdateAnnotations(ctx, orgId, s.request.Name, annotations, nil)
+	if err != nil {
+		return server.GetSosReport500JSONResponse(api.StatusInternalServerError(err.Error())), nil
+	}
+	return nil, nil
+}
+
+func (s *sosReportGetter) addSession(ctx context.Context, orgId, id uuid.UUID) (server.GetSosReportResponseObject, error) {
+	sosreport.Sessions.Add(id, s.rcvChan, s.errChan)
+	return s.updateAnnotation(ctx, orgId, func(arr []string) []string { return append(arr, id.String()) })
+}
+
+func (s *sosReportGetter) removeSession(ctx context.Context, orgId, id uuid.UUID) (server.GetSosReportResponseObject, error) {
+	sosreport.Sessions.Remove(id)
+	return s.updateAnnotation(ctx, orgId, func(arr []string) []string { return lo.Without(arr, id.String()) })
+}
+
+type getSosReport200ApplicationoctetStreamResponse struct {
+	srcPart *multipart.Part
+	s       *sosReportGetter
+}
+
+func (g getSosReport200ApplicationoctetStreamResponse) VisitGetSosReportResponse(w http.ResponseWriter) (err error) {
+	defer func() {
+		g.s.errChan <- err
+		close(g.s.errChan)
+	}()
+	err = server.GetSosReport200ApplicationoctetStreamResponse{
+		Body: g.srcPart,
+		Headers: server.GetSosReport200ResponseHeaders{
+			ContentDisposition: fmt.Sprintf(`attachment; filename="%s"`, g.srcPart.FileName()),
+		},
+	}.VisitGetSosReportResponse(w)
+	return
+}
+
+func (s *sosReportGetter) emitReport(srcPart *multipart.Part) server.GetSosReportResponseObject {
+	return getSosReport200ApplicationoctetStreamResponse{
+		srcPart: srcPart,
+		s:       s,
+	}
+}
+
+type getSosReportErrorByStatus api.Status
+
+func (response getSosReportErrorByStatus) VisitGetSosReportResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(int(response.Code))
+	return json.NewEncoder(w).Encode(response)
+}
+
+func (s *sosReportGetter) emitError(srcPart *multipart.Part) server.GetSosReportResponseObject {
+	defer close(s.errChan)
+	var status api.Status
+	d := json.NewDecoder(srcPart)
+	if err := d.Decode(&status); err != nil {
+		err = fmt.Errorf("failed to decode error status: %w", err)
+		s.errChan <- err
+		return server.GetSosReport500JSONResponse(api.StatusInternalServerError(fmt.Sprintf("failed to decode error status: %v", err)))
+	}
+	return getSosReportErrorByStatus(status)
+}
+
+func (s *sosReportGetter) emitUnexpected(srcPart *multipart.Part) server.GetSosReportResponseObject {
+	defer close(s.errChan)
+	err := fmt.Errorf("unexpected part form name %s", srcPart.FormName())
+	s.errChan <- err
+	return server.GetSosReport500JSONResponse(api.StatusInternalServerError(err.Error()))
+}
+
+func (s *sosReportGetter) getSosReportObject(reader *multipart.Reader) server.GetSosReportResponseObject {
+	part, err := reader.NextPart()
+	if err != nil {
+		s.errChan <- err
+		close(s.errChan)
+		return server.GetSosReport500JSONResponse(api.StatusInternalServerError(err.Error()))
+	}
+	switch part.FormName() {
+	case sosreport.ReportFormName:
+		return s.emitReport(part)
+	case sosreport.ErrorFormName:
+		return s.emitError(part)
+	default:
+		return s.emitUnexpected(part)
+	}
+}
+
+func (s *sosReportGetter) query(ctx context.Context) (ret server.GetSosReportResponseObject, err error) {
+	orgId := store.NullOrgId
+
+	device, err := s.store.Device().Get(ctx, orgId, s.request.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
+			return server.GetSosReport400JSONResponse(api.StatusBadRequest(err.Error())), nil
+		case errors.Is(err, flterrors.ErrResourceNotFound):
+			return server.GetSosReport404JSONResponse(api.StatusResourceNotFound("Device", s.request.Name)), nil
+		default:
+			return nil, err
+		}
+	}
+	if device.Status.Summary.Status == api.DeviceSummaryStatusUnknown {
+		return server.GetSosReport503JSONResponse(api.StatusServiceUnavailableError(fmt.Sprintf("device %s is disconnected", s.request.Name))), nil
+	}
+	id := uuid.New()
+	ret, err = s.addSession(ctx, orgId, id)
+	defer s.removeSession(ctx, orgId, id)
+	if err != nil || ret != nil {
+		return ret, err
+	}
+	timer := time.NewTimer(10 * time.Minute)
+	select {
+	case reader := <-s.rcvChan:
+		return s.getSosReportObject(reader), nil
+	case <-timer.C:
+		return server.GetSosReport504JSONResponse(api.StatusGatewayTimeoutError("timeout waiting for reader")), nil
+	}
+}
+
+// (GET /api/v1/devices/{name}/sosreport)
+func (h *ServiceHandler) GetSosReport(ctx context.Context, request server.GetSosReportRequestObject) (server.GetSosReportResponseObject, error) {
+	return h.sosReportGetter(request).query(ctx)
 }

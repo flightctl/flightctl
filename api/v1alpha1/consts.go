@@ -14,6 +14,7 @@ const (
 	DeviceListKind   = "DeviceList"
 
 	DeviceAnnotationConsole         = "device-controller/console"
+	DeviceAnnotationSosReports      = "device-controller/sosReports"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
 	// This annotation is populated after a device was rolled out by the fleet-rollout task
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"

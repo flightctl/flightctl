@@ -10,7 +10,7 @@ import (
 	"slices"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	agentApi "github.com/flightctl/flightctl/api/v1alpha1/agent"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
@@ -102,7 +102,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 }
 
 func (s *AgentServer) prepareHTTPHandler() (*chi.Mux, error) {
-	swagger, err := api.GetSwagger()
+	swagger, err := agentApi.GetSwagger()
 	if err != nil {
 		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)
 	}
