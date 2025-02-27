@@ -88,7 +88,7 @@ func (o *ConsoleOptions) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	err = o.connectViaWS(ctx, config, name, config.AuthInfo.Token)
+	err = o.connectViaWS(ctx, config, name, client.GetAccessToken(config))
 	if err == io.EOF {
 		fmt.Println("Connection closed")
 		return nil
