@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/internal/agent/device/sosreport"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -43,6 +44,7 @@ type Agent struct {
 	configController       *config.Controller
 	resourceController     *resource.Controller
 	consoleController      *console.ConsoleController
+	sosreportManager       sosreport.Manager
 	osClient               os.Client
 	podmanClient           *client.Podman
 
@@ -73,6 +75,7 @@ func NewAgent(
 	configController *config.Controller,
 	resourceController *resource.Controller,
 	consoleController *console.ConsoleController,
+	sosreportManager sosreport.Manager,
 	osClient os.Client,
 	podmanClient *client.Podman,
 	backoff wait.Backoff,
@@ -95,6 +98,7 @@ func NewAgent(
 		configController:       configController,
 		resourceController:     resourceController,
 		consoleController:      consoleController,
+		sosreportManager:       sosreportManager,
 		osClient:               osClient,
 		podmanClient:           podmanClient,
 		cancelFn:               func() {},
@@ -391,6 +395,10 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Devic
 
 	if err := a.lifecycleManager.Sync(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("lifecycle: %w", err)
+	}
+
+	if err := a.sosreportManager.Sync(ctx, current, desired); err != nil {
+		return fmt.Errorf("sosreport: %w", err)
 	}
 
 	// NOTE: policy manager is reconciled early in sync() so that the agent

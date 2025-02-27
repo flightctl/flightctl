@@ -113,6 +113,58 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/sosreports/{sosSessionID}:
+    post:
+      tags:
+        - device
+      description: Upload sos report.
+      operationId: uploadSosReport
+      parameters:
+        - name: sosSessionID
+          in: path
+          description: The id of the sos report.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "204":
+          description: No content
+          content: {}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "504":
+          description: GatewayTimeout
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
     get:

@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	agentServer "github.com/flightctl/flightctl/internal/api/server/agent"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/service/sosreport"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/sirupsen/logrus"
 )
@@ -123,4 +126,22 @@ func (s *AgentServiceHandler) ReadEnrollmentRequest(ctx context.Context, request
 		Name: request.Name,
 	}
 	return common.ReadEnrollmentRequest(ctx, s.store, serverRequest)
+}
+
+func (s *AgentServiceHandler) UploadSosReport(ctx context.Context, request agentServer.UploadSosReportRequestObject) (agentServer.UploadSosReportResponseObject, error) {
+	data, exists := sosreport.Sessions.Get(request.SosSessionID)
+	if !exists {
+		return agentServer.UploadSosReport404JSONResponse(api.StatusResourceNotFound("session-id", request.SosSessionID.String())), nil
+	}
+	data.RcvChan <- request.Body
+	timer := time.NewTimer(time.Hour)
+	select {
+	case err := <-data.ErrChan:
+		if err != nil {
+			return nil, err
+		}
+	case <-timer.C:
+		return agentServer.UploadSosReport504JSONResponse(api.StatusGatewayTimeoutError("timeout waiting for the file to be sent to the client")), nil
+	}
+	return agentServer.UploadSosReport204Response{}, nil
 }
