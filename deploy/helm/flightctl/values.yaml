@@ -90,8 +90,8 @@ db:
 kv:
   enabled: true
   image:
-    image: docker.io/redis
-    tag: 7.4.1
+    image: quay.io/sclorg/redis-7-c9s
+    tag: "20250108"
     pullPolicy: Always
   password: adminpass
   # Save if at least 1 key changed in 5 minutes
