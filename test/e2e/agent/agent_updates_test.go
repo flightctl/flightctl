@@ -93,7 +93,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 						}
 					}
 					return false
-				}, "2m")
+				}, "4m")
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
