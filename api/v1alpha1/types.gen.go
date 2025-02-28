@@ -22,6 +22,11 @@ const (
 	ApplicationStatusUnknown   ApplicationStatusType = "Unknown"
 )
 
+// Defines values for ApplicationType.
+const (
+	ApplicationTypeCompose ApplicationType = "Compose"
+)
+
 // Defines values for ApplicationsSummaryStatusType.
 const (
 	ApplicationsSummaryStatusDegraded ApplicationsSummaryStatusType = "Degraded"
@@ -113,6 +118,12 @@ const (
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
 )
 
+// Defines values for FileContentContentEncoding.
+const (
+	FileContentContentEncodingBase64 FileContentContentEncoding = "base64"
+	FileContentContentEncodingPlain  FileContentContentEncoding = "plain"
+)
+
 // Defines values for FileOperation.
 const (
 	FileOperationCreated FileOperation = "created"
@@ -122,8 +133,14 @@ const (
 
 // Defines values for FileSpecContentEncoding.
 const (
-	Base64 FileSpecContentEncoding = "base64"
-	Plain  FileSpecContentEncoding = "plain"
+	FileSpecContentEncodingBase64 FileSpecContentEncoding = "base64"
+	FileSpecContentEncodingPlain  FileSpecContentEncoding = "plain"
+)
+
+// Defines values for InlineApplicationProviderContentEncoding.
+const (
+	Base64 InlineApplicationProviderContentEncoding = "base64"
+	Plain  InlineApplicationProviderContentEncoding = "plain"
 )
 
 // Defines values for MatchExpressionOperator.
@@ -182,6 +199,9 @@ type ApplicationProviderSpec struct {
 
 // ApplicationStatusType Status of a single application on the device.
 type ApplicationStatusType string
+
+// ApplicationType The type of the application.
+type ApplicationType string
 
 // ApplicationsSummaryStatusType Status of all applications on the device.
 type ApplicationsSummaryStatusType string
@@ -763,6 +783,30 @@ type EnrollmentServiceService struct {
 	Server string `json:"server"`
 }
 
+// FileContent The content of a file.
+type FileContent struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+	ContentEncoding *FileContentContentEncoding `json:"contentEncoding,omitempty"`
+}
+
+// FileContentContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+type FileContentContentEncoding string
+
+// FileMetadata File metadata.
+type FileMetadata struct {
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
 // FileOperation defines model for FileOperation.
 type FileOperation string
 
@@ -990,6 +1034,27 @@ type ImageApplicationProvider struct {
 	// Image Reference to the container image for the application package.
 	Image string `json:"image"`
 }
+
+// InlineApplicationProvider Describes an application package that is provided inline.
+type InlineApplicationProvider map[string]struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+	ContentEncoding *InlineApplicationProviderContentEncoding `json:"contentEncoding,omitempty"`
+
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
+// InlineApplicationProviderContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
+type InlineApplicationProviderContentEncoding string
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {

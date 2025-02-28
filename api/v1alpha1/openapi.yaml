@@ -3563,11 +3563,20 @@ components:
       - name
       - inline
     FileSpec:
+      allOf:
+        - $ref: '#/components/schemas/FileContent'
+        - $ref: '#/components/schemas/FileMetadata'
+        - type: object
+          properties:
+            path:
+              type: string
+              description: The absolute path to the file on the device. Note that any existing file will be overwritten.
+          required:
+          - path
+    FileContent:
+      description: The content of a file.
       type: object
       properties:
-        path:
-          type: string
-          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
         content:
           type: string
           description: The plain text (UTF-8) or base64-encoded content of the file.
@@ -3577,6 +3586,12 @@ components:
           enum:
           - plain
           - base64
+      required:
+      - content
+    FileMetadata:
+      description: File metadata.
+      type: object
+      properties:
         mode:
           type: integer
           description: The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
@@ -3586,9 +3601,6 @@ components:
         group:
           type: string
           description: The file's group, specified either as a name or numeric ID. Defaults to "root".
-      required:
-      - path
-      - content
     HttpConfigProviderSpec:
       type: object
       properties:
@@ -3634,6 +3646,13 @@ components:
           description: Reference to the container image for the application package.
       required:
         - image
+    InlineApplicationProvider:
+      type: object
+      description: Describes an application package that is provided inline.
+      additionalProperties:
+        allOf:  
+          - $ref: '#/components/schemas/FileContent'
+          - $ref: '#/components/schemas/FileMetadata'       
     ApplicationEnvVars:
       type: object
       properties:
@@ -3642,6 +3661,13 @@ components:
           description: Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
           additionalProperties:
             type: string
+    ApplicationType:
+      type: string
+      description: The type of the application.
+      enum:
+        - "Compose"
+      x-enum-varnames:
+        - "ApplicationTypeCompose"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'
