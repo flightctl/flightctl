@@ -21,6 +21,7 @@ type Config struct {
 	KV         *kvConfig         `json:"kv,omitempty"`
 	Auth       *authConfig       `json:"auth,omitempty"`
 	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
+	CA         *CAConfigT        `json:"ca,omitempty"`
 }
 
 type dbConfig struct {
@@ -39,8 +40,6 @@ type svcConfig struct {
 	BaseUrl               string        `json:"baseUrl,omitempty"`
 	BaseAgentEndpointUrl  string        `json:"baseAgentEndpointUrl,omitempty"`
 	BaseUIUrl             string        `json:"baseUIUrl,omitempty"`
-	CaCertFile            string        `json:"caCertFile,omitempty"`
-	CaKeyFile             string        `json:"caKeyFile,omitempty"`
 	SrvCertFile           string        `json:"srvCertFile,omitempty"`
 	SrvKeyFile            string        `json:"srvKeyFile,omitempty"`
 	AltNames              []string      `json:"altNames,omitempty"`
@@ -53,6 +52,33 @@ type svcConfig struct {
 	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
 	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
 	HttpMaxRequestSize    int           `json:"httpMaxRequestSize,omitempty"`
+}
+
+type CAIdType int
+
+const (
+	InternalCA CAIdType = iota + 1
+	AsyncInternalCA
+)
+
+type CAConfigT struct {
+	CAType			CAIdType		`json:"CAType,omitempty"`
+	InternalCAConfig	*InternalCAConfigT	`json:"InternalCAConfig,omitempty"`
+	ServerCertValidityDays      int			`json:"ServerCertValidityDays,omitempty"`
+	ClientBootStrapValidityDays int			`json:"ClientBootStrapValidityDays,omitempty"`
+	ServerCertName              string		`json:"ServerCertName,omitempty"`
+	ClientBootstrapCommonName     string		`json:"ClientBootstrapCertName,omitempty"`
+	ClientBootstrapCommonNamePrefix string		`json:"ClientBootstrapCommonNamePrefix,omitempty"`
+	AdminCommonName			string		`json:"AdminCommonName,omitempty"`
+	DeviceCommonNamePrefix 		string		`json:"DeviceCommonNamePrefix,omitempty"`
+}
+
+type InternalCAConfigT struct {
+	CaCertFile            string        `json:"caCertFile,omitempty"`
+	CaKeyFile             string        `json:"caKeyFile,omitempty"`
+	SignerCertName        string	    `json:"SignerCertName,omitempty"`
+	CaSerialFile           string        `json:"caSerialFile,omitempty"`
+	CaCertValidityDays    int	    `json:"CaCertValidityDays,omitempty"`
 }
 
 type kvConfig struct {
@@ -136,6 +162,17 @@ func NewDefault() *Config {
 			Address:        ":15690",
 			SloMax:         4.0,
 			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+		},
+		CA: &CAConfigT{
+			CAType:			InternalCA,
+			ServerCertValidityDays: 		365 * 1,
+			ClientBootStrapValidityDays:		365 * 1,
+			ServerCertName:				"server",
+			ClientBootstrapCommonName:		"client-enrollment",
+			InternalCAConfig: &InternalCAConfigT{
+				CaCertValidityDays:		365 * 10,
+				SignerCertName:			"ca",
+			},
 		},
 	}
 	return c

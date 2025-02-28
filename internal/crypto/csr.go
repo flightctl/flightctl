@@ -8,11 +8,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"math/big"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
-	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
 func MakeCSR(privateKey crypto.Signer, subjectName string) ([]byte, error) {
@@ -54,41 +51,3 @@ func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 	return csr, nil
 }
 
-// IssueRequestedClientCertificate issues a client certificate based on the provided
-// Certificate Signing Request (CSR) and the desired expiration time in seconds.
-// This currently processes both enrollment cert and management cert signing requests, which both are signed
-// by the FC service's internal CA instance named 'ca'.
-func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
-	now := time.Now()
-	template := &x509.Certificate{
-		Subject: csr.Subject,
-
-		Signature:          csr.Signature,
-		SignatureAlgorithm: csr.SignatureAlgorithm,
-
-		PublicKey:          csr.PublicKey,
-		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
-
-		Issuer: ca.Config.Certs[0].Subject,
-
-		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expirySeconds) * time.Second),
-		SerialNumber: big.NewInt(1),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
-
-		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
-	}
-	cert, err := ca.signCertificate(template, csr.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
-	}
-	certData, err := oscrypto.EncodeCertificates(cert)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", flterrors.ErrEncodeCert, err.Error())
-	}
-
-	return certData, nil
-}

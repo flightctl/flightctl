@@ -24,13 +24,13 @@ type AgentServiceHandler struct {
 // Make sure we conform to servers Service interface
 var _ agentServer.Service = (*AgentServiceHandler)(nil)
 
-func ValidateDeviceAccessFromContext(ctx context.Context, name string, log logrus.FieldLogger) error {
+func ValidateDeviceAccessFromContext(ctx context.Context, name string, ca *crypto.CA, log logrus.FieldLogger) error {
 	cn, ok := ctx.Value(middleware.TLSCommonNameContextKey).(string)
 	if !ok {
 		log.Warningf("an attempt to access device %q without a CN in tls certificate has been detected", name)
 		return errors.New("no common name in certificate")
 	}
-	if expectedCn, err := crypto.CNFromDeviceFingerprint(name); err != nil {
+	if expectedCn, err := ca.CNFromDeviceFingerprint(name); err != nil {
 		return err
 	} else if cn != expectedCn {
 		log.Warningf("an attempt to access device %q with a certificate with CN %q has been detected", name, cn)
@@ -40,13 +40,13 @@ func ValidateDeviceAccessFromContext(ctx context.Context, name string, log logru
 	return nil
 }
 
-func ValidateEnrollmentAccessFromContext(ctx context.Context, log logrus.FieldLogger) error {
+func ValidateEnrollmentAccessFromContext(ctx context.Context, ca *crypto.CA, log logrus.FieldLogger) error {
 	cn, ok := ctx.Value(middleware.TLSCommonNameContextKey).(string)
 	if !ok {
 		return errors.New("no common name in certificate")
 	}
-	if cn != crypto.ClientBootstrapCommonName &&
-		!strings.HasPrefix(cn, crypto.ClientBootstrapCommonNamePrefix) {
+	if cn != ca.Cfg.CA.ClientBootstrapCommonName &&
+		!strings.HasPrefix(cn, ca.Cfg.CA.ClientBootstrapCommonNamePrefix) {
 		log.Errorf("an attempt to perform enrollment with a certificate with CN %q has been detected", cn)
 		return errors.New("invalid tls CN for enrollment request")
 	}
@@ -66,7 +66,7 @@ func NewAgentServiceHandler(store store.Store, ca *crypto.CA, log logrus.FieldLo
 // (GET /api/v1/devices/{name}/rendered)
 func (s *AgentServiceHandler) GetRenderedDevice(ctx context.Context, request agentServer.GetRenderedDeviceRequestObject) (agentServer.GetRenderedDeviceResponseObject, error) {
 
-	if err := ValidateDeviceAccessFromContext(ctx, request.Name, s.log); err != nil {
+	if err := ValidateDeviceAccessFromContext(ctx, request.Name, s.ca, s.log); err != nil {
 		return agentServer.GetRenderedDevice401JSONResponse{
 			Message: err.Error(),
 		}, err
@@ -83,7 +83,7 @@ func (s *AgentServiceHandler) GetRenderedDevice(ctx context.Context, request age
 // (PUT /api/v1/devices/{name}/status)
 func (s *AgentServiceHandler) ReplaceDeviceStatus(ctx context.Context, request agentServer.ReplaceDeviceStatusRequestObject) (agentServer.ReplaceDeviceStatusResponseObject, error) {
 
-	if err := ValidateDeviceAccessFromContext(ctx, request.Name, s.log); err != nil {
+	if err := ValidateDeviceAccessFromContext(ctx, request.Name, s.ca, s.log); err != nil {
 		return agentServer.ReplaceDeviceStatus401JSONResponse{
 			Message: err.Error(),
 		}, err
@@ -99,7 +99,7 @@ func (s *AgentServiceHandler) ReplaceDeviceStatus(ctx context.Context, request a
 // (POST /api/v1/enrollmentrequests)
 func (s *AgentServiceHandler) CreateEnrollmentRequest(ctx context.Context, request agentServer.CreateEnrollmentRequestRequestObject) (agentServer.CreateEnrollmentRequestResponseObject, error) {
 
-	if err := ValidateEnrollmentAccessFromContext(ctx, s.log); err != nil {
+	if err := ValidateEnrollmentAccessFromContext(ctx, s.ca, s.log); err != nil {
 		return agentServer.CreateEnrollmentRequest401JSONResponse{
 			Message: err.Error(),
 		}, err
@@ -114,7 +114,7 @@ func (s *AgentServiceHandler) CreateEnrollmentRequest(ctx context.Context, reque
 // (GET /api/v1/enrollmentrequests/{name})
 func (s *AgentServiceHandler) ReadEnrollmentRequest(ctx context.Context, request agentServer.ReadEnrollmentRequestRequestObject) (agentServer.ReadEnrollmentRequestResponseObject, error) {
 
-	if err := ValidateEnrollmentAccessFromContext(ctx, s.log); err != nil {
+	if err := ValidateEnrollmentAccessFromContext(ctx, s.ca, s.log); err != nil {
 		return agentServer.ReadEnrollmentRequest401JSONResponse{
 			Message: err.Error(),
 		}, err

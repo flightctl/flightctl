@@ -22,14 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	caCertValidityDays          = 365 * 10
-	serverCertValidityDays      = 365 * 1
-	clientBootStrapValidityDays = 365 * 1
-	signerCertName              = "ca"
-	serverCertName              = "server"
-	clientBootstrapCertName     = "client-enrollment"
-)
 
 func main() {
 	log := log.InitLogs()
@@ -48,7 +40,7 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	ca, _, err := crypto.EnsureCA(certFile(signerCertName), keyFile(signerCertName), "", signerCertName, caCertValidityDays)
+	ca, _, err := crypto.EnsureCA(cfg)
 	if err != nil {
 		log.Fatalf("ensuring CA cert: %v", err)
 	}
@@ -66,8 +58,9 @@ func main() {
 			log.Fatalf("failed to load provided certificate: %v", err)
 		}
 	} else {
-		srvCertFile := certFile(serverCertName)
-		srvKeyFile := keyFile(serverCertName)
+
+		srvCertFile := certFile(cfg.CA.ServerCertName)
+		srvKeyFile := keyFile(cfg.CA.ServerCertName)
 
 		// check if existing self-signed certificate is available
 		if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
@@ -81,7 +74,7 @@ func main() {
 				cfg.Service.AltNames = []string{"localhost"}
 			}
 
-			serverCerts, err = ca.MakeAndWriteServerCert(srvCertFile, srvKeyFile, cfg.Service.AltNames, serverCertValidityDays)
+			serverCerts, err = ca.MakeAndWriteServerCert(srvCertFile, srvKeyFile, cfg.Service.AltNames, cfg.CA.ServerCertValidityDays)
 			if err != nil {
 				log.Fatalf("failed to create self-signed certificate: %v", err)
 			}
@@ -100,13 +93,19 @@ func main() {
 		}
 	}
 
-	_, _, err = ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), crypto.ClientBootstrapCommonName, clientBootStrapValidityDays)
+	_, _, err = ca.EnsureClientCertificate(certFile(cfg.CA.ClientBootstrapCommonName), keyFile(cfg.CA.ClientBootstrapCommonName), cfg.CA.ClientBootstrapCommonName, cfg.CA.ClientBootStrapValidityDays)
 	if err != nil {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
 	}
 
 	// also write out a client config file
-	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", ca.Config, nil)
+
+	caPemBytes, err := ca.GetCABundle()
+	if err != nil {
+		log.Fatalf("loading CA certificate bundle: %v", err)
+	}
+
+	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", caPemBytes, nil)
 	if err != nil {
 		log.Fatalf("writing client config: %v", err)
 	}
@@ -124,7 +123,7 @@ func main() {
 		log.Fatalf("running initial migration: %v", err)
 	}
 
-	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}

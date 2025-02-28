@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,10 +20,6 @@ const (
 	certFile  = "some.crt"
 	certData  = "certdata"
 
-	caCertValidityDays          = 365 * 10
-	serverCertValidityDays      = 365 * 1
-	clientBootStrapValidityDays = 365 * 1
-	signerCertName              = "ca"
 	clientBootstrapCertName     = "client-enrollment"
 )
 
@@ -120,13 +117,21 @@ func TestClientConfig(t *testing.T) {
 			configFile := filepath.Join(testDirPath, "client.yaml")
 
 			// generate the CA and client certs
-			ca, _, err := crypto.EnsureCA(filepath.Join(testDirPath, "ca.crt"), filepath.Join(testDirPath, "ca.key"), "", signerCertName, caCertValidityDays)
+
+			g_cfg := config.NewDefault()
+
+			g_cfg.CA.InternalCAConfig.CaCertFile = filepath.Join(testDirPath, "ca.crt")
+			g_cfg.CA.InternalCAConfig.CaKeyFile = filepath.Join(testDirPath, "ca.key")
+
+			ca, _, err := crypto.EnsureCA(g_cfg)
 			require.NoError(err)
-			clientCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), clientBootstrapCertName, clientBootStrapValidityDays)
+			clientCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), g_cfg.CA.ClientBootstrapCommonName, g_cfg.CA.ClientBootStrapValidityDays)
 			require.NoError(err)
 
 			// write client config to disk
-			err = WriteConfig(configFile, tt.server, tt.serverName, ca.Config, clientCert)
+			bundle, err := ca.GetCABundle()
+			require.NoError(err)
+			err = WriteConfig(configFile, tt.server, tt.serverName, bundle, clientCert)
 			require.NoError(err)
 
 			// read client config from disk and create API client from it
@@ -149,7 +154,7 @@ func TestClientConfig(t *testing.T) {
 			require.ElementsMatch(clientCert.Certs[0].Raw, httpTransport.TLSClientConfig.Certificates[0].Certificate[0])
 			require.NotNil(httpTransport.TLSClientConfig.RootCAs)
 			caPool := x509.NewCertPool()
-			for _, caCert := range ca.Config.Certs {
+			for _, caCert := range ca.GetCABundleX509() {
 				caPool.AddCert(caCert)
 			}
 			require.True(caPool.Equal(httpTransport.TLSClientConfig.RootCAs))
