@@ -76,7 +76,7 @@ You need to download the helm chart first, as it is stored in quay.io
 
 ```shell
 #on machine connected to internet
-helm pull oci://quay.io/flightctl/charts/flightctl:${FCTL_VERSION}
+helm pull oci://quay.io/flightctl/charts/flightctl --version ${FCTL_VERSION}
 #copy the downloaded file to disconnected environment
 #on disconnected environment
 helm upgrade --install --namespace flightctl --create-namespace flightctl ./flightctl-${FCTL_VERSION}.tgz
