@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/samber/lo"
@@ -268,4 +269,26 @@ func GetFromMap[K comparable, V any](in map[K]V, key K) (V, bool) {
 		return lo.Empty[V](), false
 	}
 	return v, true
+}
+
+type Singleton[T any] struct {
+	value atomic.Pointer[T]
+}
+
+func (s *Singleton[T]) Instance() *T {
+	var empty T
+	return s.GetOrInit(&empty)
+}
+
+func (s *Singleton[T]) GetOrInit(t *T) *T {
+	_ = s.value.CompareAndSwap(nil, t)
+	return s.value.Load()
+}
+
+func Clone[T any](t *T) *T {
+	if t == nil {
+		return nil
+	}
+	ret := *t
+	return &ret
 }

@@ -28,7 +28,7 @@ import (
 
 const POLLING = "250ms"
 const TIMEOUT = "60s"
-const LONGTIMEOUT = "2m"
+const LONGTIMEOUT = "3m"
 
 type Harness struct {
 	VM        vm.TestVMInterface

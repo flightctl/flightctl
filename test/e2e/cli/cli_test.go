@@ -51,7 +51,7 @@ var _ = Describe("cli operation", func() {
 		out, err := harness.CLI(loginArgs...)
 
 		// if openshift authentication is required, try to obtain a token
-		if strings.Contains(out, "You must obtain an API token by visiting") {
+		if strings.Contains(out, "You must provide one of the following options to log in") {
 			token, err = harness.SH("oc", "whoami", "-t")
 			token = strings.Trim(token, "\n")
 			Expect(err).ToNot(HaveOccurred())

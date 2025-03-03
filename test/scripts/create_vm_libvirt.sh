@@ -65,6 +65,7 @@ virt-install \
   --disk path=$DISK_PATH,size=${VM_DISK_SIZE},format=qcow2 \
   --os-variant centos-stream9  \
   --network network=$NETWORK_NAME,model=virtio \
+  --network network="default" \
   --import \
   --cpu host-model \
   --graphics none \
@@ -78,14 +79,19 @@ sleep ${TIMEOUT_SECONDS}
 # Configure the VM
 echo "Provisioning the VM..."
 
-# Get the VM IP
-VM_IP=$(sudo virsh domifaddr ${VM_NAME} | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+# Get the VM IPs
+export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} | grep default | awk '{print $1}')
+VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+echo "VM DEFAULT IP: ${VM_DEFAULT_IP}"
+
+export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} | grep ${NETWORK_NAME} | awk '{print $1}')
+VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
 echo "VM IP: ${VM_IP}"
 
 # Executing commands
 echo "Executing commands in the VM..."
 
-ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_IP} <<EOF
+ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} <<EOF
 
   # Install necessary packages
   sudo dnf install -y epel-release libvirt libvirt-client virt-install swtpm \
