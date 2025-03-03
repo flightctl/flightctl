@@ -403,7 +403,7 @@ func (t *DeviceRenderLogic) renderInlineConfig(configItem *api.ConfigProviderSpe
 		}
 
 		isBase64 := false
-		if file.ContentEncoding != nil && *file.ContentEncoding == api.Base64 {
+		if file.ContentEncoding != nil && *file.ContentEncoding == api.ContentEncodingBase64 {
 			isBase64 = true
 		}
 		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User, file.Group)
@@ -618,11 +618,11 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 	var files []api.FileSpec
 	for _, file := range ignition.Storage.Files {
 		content := lo.FromPtr(file.Contents.Source)
-		encoding := api.Plain
+		encoding := api.ContentEncodingPlain
 
 		// parse encoding
 		if strings.HasPrefix(content, "data:") {
-			encoding = api.Base64
+			encoding = api.ContentEncodingBase64
 			if commaIndex := strings.Index(content, ","); commaIndex != -1 {
 				content = content[commaIndex+1:]
 			}

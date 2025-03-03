@@ -465,7 +465,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 			continue
 		}
 
-		if file.ContentEncoding != nil && (*file.ContentEncoding) == api.Base64 {
+		if file.ContentEncoding != nil && (*file.ContentEncoding) == api.ContentEncodingBase64 {
 			inlineSpec.Inline[fileIndex].Content = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
 		} else {
 			inlineSpec.Inline[fileIndex].Content = contentsReplaced

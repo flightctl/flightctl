@@ -316,14 +316,14 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].Group, fmt.Sprintf("spec.config[].inline[%d].group", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxFileMode(c.Inline[i].Mode, fmt.Sprintf("spec.config[].inline[%d].mode", i))...)
 
-		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64 {
+		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == ContentEncodingBase64 {
 			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
 			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
 			// Can ignore errors because we just validated it in the previous line
 			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
 			_, paramErrs = validateParametersInString(lo.ToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
-		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
+		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == ContentEncodingBase64) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
 			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineConfigLength, nil, "")...)
 			_, paramErrs = validateParametersInString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), fleetTemplate)
@@ -684,6 +684,13 @@ func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProvide
 			errs = append(errs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 		}
 		errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
+	case InlineApplicationProviderType:
+		_, err := app.AsInlineApplicationProvider()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid inline application provider: %w", err))
+			return errs
+		}
+		fmt.Println("##### validateAppProvider inline application provider")
 	default:
 		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
 	}
@@ -699,6 +706,10 @@ func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderTy
 
 	switch providerType {
 	case ImageApplicationProviderType:
+		fmt.Println("##### image application provider type")
+		return providerType, nil
+	case InlineApplicationProviderType:
+		fmt.Println("##### inline application provider type")
 		return providerType, nil
 	default:
 		return "", fmt.Errorf("unknown application provider type: %s", providerType)
@@ -721,6 +732,15 @@ func getAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (s
 			return provider.Image, nil
 		}
 
+		return *app.Name, nil
+	case InlineApplicationProviderType:
+		_, err := app.AsInlineApplicationProvider()
+		if err != nil {
+			return "", fmt.Errorf("invalid inline application provider: %w", err)
+		}
+		if app.Name == nil {
+			return "", fmt.Errorf("application name must be provided for inline application provider")
+		}
 		return *app.Name, nil
 	default:
 		return "", fmt.Errorf("unsupported application provider type: %s", appType)
