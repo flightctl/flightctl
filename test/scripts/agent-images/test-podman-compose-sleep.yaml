@@ -2,13 +2,13 @@ version: '3'
 
 services:
   service1:
-    image: alpine
+    image:  quay.io/flightctl-tests/alpine:v1
     command: ["sleep", "infinity"]
 
   service2:
-    image: alpine
+    image:  quay.io/flightctl-tests/alpine:v1
     command: ["sleep", "infinity"]
 
   service3:
-    image: alpine
+    image:  quay.io/flightctl-tests/alpine:v1
     command: ["sleep", "infinity"]
