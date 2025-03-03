@@ -4,7 +4,7 @@ global:
     gitserver: 3222
     prometheus: 9090
 registry:
-  image: docker.io/library/registry:2
+  image: quay.io/flightctl/e2eregistry:2
   route: false
   hostName: ""
 gitserver:
