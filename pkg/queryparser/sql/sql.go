@@ -132,12 +132,12 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 	sp := &SQLParser{}
 	sp.funcs = map[string]handler{
 		"AND": {
-			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "OR"),
+			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
 			Verifications: []verificationHandler{withNoValues()},
 			handle:        Wrap(sp.queryAnd),
 		},
 		"OR": {
-			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND"),
+			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
 			Verifications: []verificationHandler{withNoValues()},
 			handle:        Wrap(sp.queryOr),
 		},

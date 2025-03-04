@@ -333,7 +333,7 @@ func (fs *FieldSelector) createOperatorToken(operator selection.Operator, select
 			return queryparser.NewTokenSet().AddFunctionToken(op, func() queryparser.TokenSet {
 				return queryparser.NewTokenSet().Append(fieldToken, valueToken)
 			})
-		case selection.NotEquals, selection.NotIn:
+		case selection.NotEquals, selection.NotIn, selection.NotContains:
 			return queryparser.NewTokenSet().AddFunctionToken("OR", func() queryparser.TokenSet {
 				return queryparser.NewTokenSet().AddFunctionToken("ISNULL", func() queryparser.TokenSet { return fieldToken }).
 					AddFunctionToken(op, func() queryparser.TokenSet {
