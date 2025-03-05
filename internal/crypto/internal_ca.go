@@ -6,12 +6,10 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
-	"fmt"
 	"math/big"
 	"os"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/flterrors"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
@@ -138,7 +136,9 @@ func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, is
 // Certificate Signing Request (CSR) and the desired expiration time in seconds.
 // This currently processes both enrollment cert and management cert signing requests, which both are signed
 // by the FC service's internal CA instance named 'ca'.
-func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
+
+
+func (ca *CA) IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error) {
 	now := time.Now()
 	template := &x509.Certificate{
 		Subject: csr.Subject,
@@ -148,6 +148,8 @@ func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expi
 
 		PublicKey:          csr.PublicKey,
 		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+		IPAddresses: csr.IPAddresses,
+		DNSNames: csr.DNSNames,
 
 		Issuer: ca.Config.Certs[0].Subject,
 
@@ -156,19 +158,10 @@ func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expi
 		SerialNumber: big.NewInt(1),
 
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		ExtKeyUsage:           usage,
 		BasicConstraintsValid: true,
 
 		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
 	}
-	cert, err := ca.signCertificate(template, csr.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
-	}
-	certData, err := oscrypto.EncodeCertificates(cert)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", flterrors.ErrEncodeCert, err.Error())
-	}
-
-	return certData, nil
+	return ca.signCertificate(template, csr.PublicKey)
 }
