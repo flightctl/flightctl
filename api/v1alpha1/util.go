@@ -38,7 +38,8 @@ const (
 type ApplicationProviderType string
 
 const (
-	ImageApplicationProviderType ApplicationProviderType = "image"
+	ImageApplicationProviderType  ApplicationProviderType = "image"
+	InlineApplicationProviderType ApplicationProviderType = "inline"
 )
 
 // Type returns the type of the action.
@@ -118,6 +119,10 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 
 	if _, exists := data[ImageApplicationProviderType]; exists {
 		return ImageApplicationProviderType, nil
+	}
+
+	if _, exists := data[InlineApplicationProviderType]; exists {
+		return InlineApplicationProviderType, nil
 	}
 
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)

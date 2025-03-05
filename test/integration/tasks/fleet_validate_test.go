@@ -105,7 +105,7 @@ var _ = Describe("FleetValidate", func() {
 		goodInlineConfig = &api.InlineConfigProviderSpec{
 			Name: "goodInlineConfig",
 		}
-		base64 := api.Base64
+		base64 := api.ContentEncodingBase64
 		goodInlineConfig.Inline = []api.FileSpec{
 			{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
 			{Path: "/etc/notencoded", Content: "Hello world, what's up?"},

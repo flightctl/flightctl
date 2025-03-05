@@ -3563,20 +3563,40 @@ components:
       - name
       - inline
     FileSpec:
+      allOf:
+        - $ref: '#/components/schemas/FileContent'
+        - $ref: '#/components/schemas/FileMetadata'
+        - type: object
+          properties:
+            path:
+              type: string
+              description: The absolute path to the file on the device. Note that any existing file will be overwritten.
+          required:
+          - path
+    FileContent:
+      description: The content of a file.
       type: object
       properties:
-        path:
-          type: string
-          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
         content:
           type: string
           description: The plain text (UTF-8) or base64-encoded content of the file.
         contentEncoding:
-          type: string
-          description: How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
-          enum:
-          - plain
-          - base64
+          $ref: '#/components/schemas/ContentEncodingType'
+      required:
+      - content
+    ContentEncodingType:
+      type: string
+      description: How the contents are encoded. Must be either "plain" or "base64".
+      enum:
+      - plain
+      - base64
+      x-enum-varnames:
+      - "ContentEncodingPlain"
+      - "ContentEncodingBase64"
+    FileMetadata:
+      description: File metadata.
+      type: object
+      properties:
         mode:
           type: integer
           description: The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
@@ -3586,9 +3606,6 @@ components:
         group:
           type: string
           description: The file's group, specified either as a name or numeric ID. Defaults to "root".
-      required:
-      - path
-      - content
     HttpConfigProviderSpec:
       type: object
       properties:
@@ -3623,9 +3640,11 @@ components:
             name:
               type: string
               description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
+            appType:
+              $ref: '#/components/schemas/AppType' 
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProvider'
-            # extend application providers
+            - $ref: '#/components/schemas/InlineApplicationProvider'
     ImageApplicationProvider:
       type: object
       properties:
@@ -3634,6 +3653,20 @@ components:
           description: Reference to the container image for the application package.
       required:
         - image
+    InlineApplicationProvider:
+      type: object
+      properties:
+        inline:
+          type: object
+          description: Describes an application package that is provided inline.
+          additionalProperties:
+            description: |
+              The key is a relative path to the application directory.
+              Example: "podman-compose.yaml" or "src/index.js".
+            allOf:  
+              - $ref: '#/components/schemas/FileContent'
+      required:
+        - inline
     ApplicationEnvVars:
       type: object
       properties:
@@ -3642,6 +3675,13 @@ components:
           description: Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
           additionalProperties:
             type: string
+    AppType:
+      type: string
+      description: The type of the application.
+      enum:
+        - "Compose"
+      x-enum-varnames:
+        - "AppTypeCompose"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'

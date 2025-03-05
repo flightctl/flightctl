@@ -144,7 +144,7 @@ var _ = Describe("FleetRollout", func() {
 				inlineConfig = &api.InlineConfigProviderSpec{
 					Name: "param-inline-config",
 				}
-				enc := api.Base64
+				enc := api.ContentEncodingBase64
 				inlineConfig.Inline = []api.FileSpec{
 					// Unencoded: My version is {{ index .metadata.labels "version" }}
 					{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBpbmRleCAubWV0YWRhdGEubGFiZWxzICJ2ZXJzaW9uIiB9fQ=="},
