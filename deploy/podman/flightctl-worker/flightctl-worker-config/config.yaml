@@ -4,7 +4,6 @@ database:
     port: 5432
     name: flightctl
     user: admin
-    password: adminpass   # we should funnel this via secrets instead
 service: {}
 kv:
     hostname: flightctl-kv
