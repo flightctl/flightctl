@@ -54,4 +54,7 @@ kill-db:
 kill-kv:
 	systemctl --user stop flightctl-kv-standalone.service
 
+show-podman-secret:
+	podman secret inspect $(SECRET_NAME) --showsecret | jq '.[] | .SecretData'
+
 .PHONY: deploy-db deploy cluster

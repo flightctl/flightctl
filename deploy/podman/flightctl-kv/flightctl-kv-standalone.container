@@ -4,7 +4,8 @@ Description=Flight Control Key Value service
 [Container]
 ContainerName=flightctl-kv
 Image=docker.io/redis:7.4.1
-Exec=redis-server /usr/local/etc/redis/redis.conf
+Exec=/bin/sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Network=flightctl.network
 
 # The following is necessary so that the redis user which runs the redis process inside of the container
