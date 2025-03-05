@@ -308,6 +308,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 	}
 
 	// if the enrollment request was already approved we should not try to approve it one more time
+	var approvalStatus v1alpha1.EnrollmentRequestApprovalStatus
 	if request.Body.Approved {
 		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.EnrollmentRequestApproved) {
 			return server.ApproveEnrollmentRequest400JSONResponse(api.StatusBadRequest("Enrollment request is already approved")), nil
@@ -323,7 +324,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 			approvedBy = identity.Username
 		}
 
-		approvalStatus := v1alpha1.EnrollmentRequestApprovalStatus{
+		approvalStatus = v1alpha1.EnrollmentRequestApprovalStatus{
 			Approved:   request.Body.Approved,
 			Labels:     request.Body.Labels,
 			ApprovedAt: time.Now(),
@@ -342,7 +343,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
 	switch {
 	case err == nil:
-		return server.ApproveEnrollmentRequest200JSONResponse{}, nil
+		return server.ApproveEnrollmentRequest200JSONResponse(approvalStatus), nil
 	case errors.Is(err, flterrors.ErrResourceNotFound):
 		return server.ApproveEnrollmentRequest404JSONResponse(api.StatusResourceNotFound("EnrollmentRequest", request.Name)), nil
 	default:
