@@ -2,6 +2,7 @@ package util
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
@@ -25,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+
 )
 
 const (
@@ -106,7 +108,12 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
 func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig, provider queues.Provider) (*apiserver.Server, net.Listener, error) {
 	// create a listener using the next available port
-	tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
+
+	pemCert, _ := ca.GetCABundle()
+
+	log.Infof("Server caCert %s", pemCert)
+
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestServer: error creating TLS certs: %w", err)
 	}
@@ -125,7 +132,12 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
 func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
-	_, tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
+
+	pemCert, _ := ca.GetCABundle()
+
+	log.Infof("Agent Server caCert %s", pemCert)
+
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
@@ -198,8 +210,8 @@ func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig,
 }
 
 // NewClient creates a new client with the given server URL and certificates. If the certs are nil a http client will be created.
-func NewClient(serverUrl string, caCert *crypto.TLSCertificateConfig) (*client.ClientWithResponses, error) {
-	httpClient, err := NewBareHTTPsClient(caCert, nil)
+func NewClient(serverUrl string, caBundle []*x509.Certificate) (*client.ClientWithResponses, error) {
+	httpClient, err := NewBareHTTPsClient(caBundle, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating TLS config: %v", err)
 	}
@@ -208,8 +220,8 @@ func NewClient(serverUrl string, caCert *crypto.TLSCertificateConfig) (*client.C
 }
 
 // NewClient creates a new client with the given server URL and certificates. If the certs are nil a http client will be created.
-func NewAgentClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateConfig) (*agentclient.ClientWithResponses, error) {
-	httpClient, err := NewBareHTTPsClient(caCert, clientCert)
+func NewAgentClient(serverUrl string, caBundle []*x509.Certificate, clientCert *crypto.TLSCertificateConfig) (*agentclient.ClientWithResponses, error) {
+	httpClient, err := NewBareHTTPsClient(caBundle, clientCert)
 	if err != nil {
 		return nil, fmt.Errorf("creating TLS config: %v", err)
 	}
@@ -217,12 +229,11 @@ func NewAgentClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateC
 	return agentclient.NewClientWithResponses(serverUrl, agentclient.WithHTTPClient(httpClient))
 }
 
-func NewBareHTTPsClient(caCert, clientCert *crypto.TLSCertificateConfig) (*http.Client, error) {
+func NewBareHTTPsClient(caBundle []*x509.Certificate, clientCert *crypto.TLSCertificateConfig) (*http.Client, error) {
 
 	httpClient := &http.Client{}
-	if caCert != nil || clientCert != nil {
-		var err error
-		tlsConfig, err := crypto.TLSConfigForClient(caCert, clientCert)
+	if len(caBundle) > 0 || clientCert != nil {
+		tlsConfig, err := crypto.TLSConfigForClient(caBundle, clientCert)
 		if err != nil {
 			return nil, fmt.Errorf("creating TLS config: %v", err)
 		}

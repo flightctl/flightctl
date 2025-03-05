@@ -19,6 +19,23 @@ const ClientBootstrapCommonNamePrefix = "client-enrollment-"
 const AdminCommonName = "flightctl-admin"
 const DeviceCommonNamePrefix = "device:"
 
+type CABackend interface {
+	IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error)
+	GetCABundleX509() ([]*x509.Certificate)
+}
+
+type CA struct {
+	caBackend CABackend
+}
+
+func EnsureCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*CA, bool, error) {
+	caBackend, fresh, err := ensureInternalCA(certFile, keyFile, serialFile, subjectName, expireDays)
+	if err != nil {
+		return nil, fresh, err
+	}
+	return &CA{caBackend: caBackend,}, fresh, err
+}
+
 func BootstrapCNFromName(name string) string {
 	return ClientBootstrapCommonNamePrefix + name
 }
@@ -32,10 +49,10 @@ func CNFromDeviceFingerprint(fingerprint string) (string, error) {
 
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
 
-func (ca *CA) EnsureServerCertificate(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error) {
+func (caClient *CA) EnsureServerCertificate(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error) {
 	certConfig, err := GetServerCert(certFile, keyFile, hostnames)
 	if err != nil {
-		certConfig, err = ca.MakeAndWriteServerCert(certFile, keyFile, hostnames, expireDays)
+		certConfig, err = caClient.MakeAndWriteServerCert(certFile, keyFile, hostnames, expireDays)
 		return certConfig, true, err
 	}
 
@@ -51,8 +68,8 @@ func GetServerCert(certFile, keyFile string, hostnames []string) (*TLSCertificat
 	return &server, nil
 }
 
-func (ca *CA) MakeAndWriteServerCert(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, error) {
-	server, err := ca.MakeServerCert(hostnames, expireDays)
+func (caClient *CA) MakeAndWriteServerCert(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, error) {
+	server, err := caClient.MakeServerCert(hostnames, expireDays)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +79,7 @@ func (ca *CA) MakeAndWriteServerCert(certFile, keyFile string, hostnames []strin
 	return server, nil
 }
 
-func (ca *CA) MakeServerCert(hostnames []string, expiryDays int) (*TLSCertificateConfig, error) {
+func (caClient *CA) MakeServerCert(hostnames []string, expiryDays int) (*TLSCertificateConfig, error) {
 	if len(hostnames) < 1 {
 		return nil, fmt.Errorf("at least one hostname must be provided")
 	}
@@ -83,21 +100,21 @@ func (ca *CA) MakeServerCert(hostnames []string, expiryDays int) (*TLSCertificat
 		return nil, err
 	}
 
-	serverCrt, err := ca.IssueRequestedServerCertificateAsX509(csr, expiryDays * 24 * 3600)
+	serverCrt, err := caClient.IssueRequestedServerCertificateAsX509(csr, expiryDays * 24 * 3600)
 	if err != nil {
 		return nil, err
 	}
 	server := &TLSCertificateConfig{
-		Certs: append([]*x509.Certificate{serverCrt}, ca.Config.Certs...),
+		Certs: append([]*x509.Certificate{serverCrt}, caClient.GetCABundleX509()...),
 		Key:   serverPrivateKey,
 	}
 	return server, nil
 }
 
-func (ca *CA) EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
+func (caClient *CA) EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
 	certConfig, err := GetClientCertificate(certFile, keyFile, subjectName)
 	if err != nil {
-		certConfig, err := ca.MakeClientCert(certFile, keyFile, subjectName, expireDays)
+		certConfig, err := caClient.MakeClientCert(certFile, keyFile, subjectName, expireDays)
 		if err != nil {
 			return nil, false, err
 		}
@@ -122,7 +139,7 @@ func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCer
 	return &client, nil
 }
 
-func (ca *CA) MakeClientCert(certFile, keyFile string, subjectName string, expiryDays int) (*TLSCertificateConfig, error) {
+func (caClient *CA) MakeClientCert(certFile, keyFile string, subjectName string, expiryDays int) (*TLSCertificateConfig, error) {
 
 	_, clientPrivateKey, _ := NewKeyPair()
 
@@ -138,12 +155,12 @@ func (ca *CA) MakeClientCert(certFile, keyFile string, subjectName string, expir
 		return nil, err
 	}
 
-	clientCrt, err := ca.IssueRequestedClientCertificateAsX509(csr, expiryDays * 24 * 3600)
+	clientCrt, err := caClient.IssueRequestedClientCertificateAsX509(csr, expiryDays * 24 * 3600)
 	if err != nil {
 		return nil, err
 	}
 	client := &TLSCertificateConfig{
-		Certs: append([]*x509.Certificate{clientCrt}, ca.Config.Certs...),
+		Certs: append([]*x509.Certificate{clientCrt}, caClient.GetCABundleX509()...),
 		Key:   clientPrivateKey,
 	}
 	return client, nil
@@ -177,12 +194,12 @@ func (c *TLSCertificateConfig) GetPEMBytes() ([]byte, []byte, error) {
 	return certBytes, keyBytes, nil
 }
 
-func (ca *CA) IssueRequestedClientCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
-	return ca.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+func (caClient *CA) IssueRequestedClientCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
+	return caClient.caBackend.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
 }
 
-func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
-	cert, err := ca.IssueRequestedClientCertificateAsX509(csr, expirySeconds)
+func (caClient *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
+	cert, err := caClient.IssueRequestedClientCertificateAsX509(csr, expirySeconds)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
 	}
@@ -194,11 +211,11 @@ func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expi
 	return certData, nil
 }
 
-func (ca *CA) IssueRequestedServerCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
-	return ca.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth})
+func (caClient *CA) IssueRequestedServerCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
+	return caClient.caBackend.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth})
 }
-func (ca *CA) IssueRequestedServerCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
-	cert, err := ca.IssueRequestedServerCertificateAsX509(csr, expirySeconds)
+func (caClient *CA) IssueRequestedServerCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
+	cert, err := caClient.IssueRequestedServerCertificateAsX509(csr, expirySeconds)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
 	}
@@ -208,6 +225,17 @@ func (ca *CA) IssueRequestedServerCertificate(csr *x509.CertificateRequest, expi
 	}
 
 	return certData, nil
+}
+
+func (caClient *CA) GetCABundleX509() ([]*x509.Certificate) {
+	return caClient.caBackend.GetCABundleX509()
+}
+
+func (caClient *CA) GetCABundle() ([]byte, error) {
+
+	certs := caClient.GetCABundleX509()
+
+	return oscrypto.EncodeCertificates(certs...)
 }
 
 

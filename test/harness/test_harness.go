@@ -165,7 +165,11 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	}
 
 	// create client to talk to the server
-	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.Config)
+
+	pemCA, _ := ca.GetCABundle()
+
+	serverLog.Infof("New Client ca %s", pemCA)
+	client, err := testutil.NewClient("https://"+listener.Addr().String(), ca.GetCABundleX509())
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
