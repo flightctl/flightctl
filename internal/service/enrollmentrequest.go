@@ -291,7 +291,7 @@ func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, reques
 	}
 }
 
-// (POST /api/v1/enrollmentrequests/{name}/approval)
+// (PUT /api/v1/enrollmentrequests/{name}/approval)
 func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request server.ApproveEnrollmentRequestRequestObject) (server.ApproveEnrollmentRequestResponseObject, error) {
 	orgId := store.NullOrgId
 
