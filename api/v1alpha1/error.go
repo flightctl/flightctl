@@ -58,3 +58,11 @@ func StatusResourceVersionConflict(message string) Status {
 func StatusInternalServerError(message string) Status {
 	return NewFailureStatus(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), message)
 }
+
+func StatusServiceUnavailableError(message string) Status {
+	return NewFailureStatus(http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), message)
+}
+
+func StatusGatewayTimeoutError(message string) Status {
+	return NewFailureStatus(http.StatusGatewayTimeout, http.StatusText(http.StatusGatewayTimeout), message)
+}

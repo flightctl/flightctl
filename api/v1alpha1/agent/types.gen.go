@@ -5,6 +5,7 @@ package v1alpha1
 
 import (
 	externalRef0 "github.com/flightctl/flightctl/api/v1alpha1"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // GetRenderedDeviceParams defines parameters for GetRenderedDevice.
@@ -13,8 +14,16 @@ type GetRenderedDeviceParams struct {
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
 
+// UploadSosReportMultipartBody defines parameters for UploadSosReport.
+type UploadSosReportMultipartBody struct {
+	File *openapi_types.File `json:"file,omitempty"`
+}
+
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = externalRef0.Device
 
 // CreateEnrollmentRequestJSONRequestBody defines body for CreateEnrollmentRequest for application/json ContentType.
 type CreateEnrollmentRequestJSONRequestBody = externalRef0.EnrollmentRequest
+
+// UploadSosReportMultipartRequestBody defines body for UploadSosReport for multipart/form-data ContentType.
+type UploadSosReportMultipartRequestBody UploadSosReportMultipartBody

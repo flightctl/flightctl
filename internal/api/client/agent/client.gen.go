@@ -16,6 +16,7 @@ import (
 	. "github.com/flightctl/flightctl/api/v1alpha1"
 	externalRef0 "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
@@ -106,6 +107,9 @@ type ClientInterface interface {
 
 	// ReadEnrollmentRequest request
 	ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UploadSosReportWithBody request with any body
+	UploadSosReportWithBody(ctx context.Context, sosSessionID openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -170,6 +174,18 @@ func (c *Client) CreateEnrollmentRequest(ctx context.Context, body CreateEnrollm
 
 func (c *Client) ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReadEnrollmentRequestRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UploadSosReportWithBody(ctx context.Context, sosSessionID openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadSosReportRequestWithBody(c.Server, sosSessionID, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -357,6 +373,42 @@ func NewReadEnrollmentRequestRequest(server string, name string) (*http.Request,
 	return req, nil
 }
 
+// NewUploadSosReportRequestWithBody generates requests for UploadSosReport with any type of body
+func NewUploadSosReportRequestWithBody(server string, sosSessionID openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "sosSessionID", runtime.ParamLocationPath, sosSessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/sosreports/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -415,6 +467,9 @@ type ClientWithResponsesInterface interface {
 
 	// ReadEnrollmentRequestWithResponse request
 	ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error)
+
+	// UploadSosReportWithBodyWithResponse request with any body
+	UploadSosReportWithBodyWithResponse(ctx context.Context, sosSessionID openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadSosReportResponse, error)
 }
 
 type GetRenderedDeviceResponse struct {
@@ -520,6 +575,31 @@ func (r ReadEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
+type UploadSosReportResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON500      *externalRef0.Status
+	JSON504      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r UploadSosReportResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UploadSosReportResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // GetRenderedDeviceWithResponse request returning *GetRenderedDeviceResponse
 func (c *ClientWithResponses) GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error) {
 	rsp, err := c.GetRenderedDevice(ctx, name, params, reqEditors...)
@@ -570,6 +650,15 @@ func (c *ClientWithResponses) ReadEnrollmentRequestWithResponse(ctx context.Cont
 		return nil, err
 	}
 	return ParseReadEnrollmentRequestResponse(rsp)
+}
+
+// UploadSosReportWithBodyWithResponse request with arbitrary body returning *UploadSosReportResponse
+func (c *ClientWithResponses) UploadSosReportWithBodyWithResponse(ctx context.Context, sosSessionID openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadSosReportResponse, error) {
+	rsp, err := c.UploadSosReportWithBody(ctx, sosSessionID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadSosReportResponse(rsp)
 }
 
 // ParseGetRenderedDeviceResponse parses an HTTP response from a GetRenderedDeviceWithResponse call
@@ -775,6 +864,53 @@ func ParseReadEnrollmentRequestResponse(rsp *http.Response) (*ReadEnrollmentRequ
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUploadSosReportResponse parses an HTTP response from a UploadSosReportWithResponse call
+func ParseUploadSosReportResponse(rsp *http.Response) (*UploadSosReportResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UploadSosReportResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON504 = &dest
 
 	}
 
