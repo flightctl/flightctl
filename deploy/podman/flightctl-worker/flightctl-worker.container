@@ -8,6 +8,8 @@ ContainerName=flightctl-worker
 Image=quay.io/flightctl/flightctl-worker:0.4.0
 Network=flightctl.network
 Environment=HOME=/root
+Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Volume=%h/.config/flightctl/flightctl-worker-config/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
