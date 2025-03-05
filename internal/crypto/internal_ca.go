@@ -6,19 +6,15 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
-	"fmt"
 	"math/big"
 	"os"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/flterrors"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
-
 type CA struct {
-	Config *TLSCertificateConfig
-
+	Config          *TLSCertificateConfig
 	SerialGenerator oscrypto.SerialGenerator
 }
 
@@ -117,7 +113,6 @@ func (ca *CA) signCertificate(template *x509.Certificate, requestKey crypto.Publ
 	return signCertificate(template, requestKey, ca.Config.Certs[0], ca.Config.Key)
 }
 
-
 func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, issuer *x509.Certificate, issuerKey crypto.PrivateKey) (*x509.Certificate, error) {
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, issuer, requestKey, issuerKey)
 	if err != nil {
@@ -133,42 +128,29 @@ func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, is
 	return certs[0], nil
 }
 
-
 // IssueRequestedClientCertificate issues a client certificate based on the provided
 // Certificate Signing Request (CSR) and the desired expiration time in seconds.
 // This currently processes both enrollment cert and management cert signing requests, which both are signed
 // by the FC service's internal CA instance named 'ca'.
-func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
+func (ca *CA) IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error) {
 	now := time.Now()
+	expire := time.Duration(expirySeconds) * time.Second
 	template := &x509.Certificate{
-		Subject: csr.Subject,
-
-		Signature:          csr.Signature,
-		SignatureAlgorithm: csr.SignatureAlgorithm,
-
-		PublicKey:          csr.PublicKey,
-		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
-
-		Issuer: ca.Config.Certs[0].Subject,
-
-		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expirySeconds) * time.Second),
-		SerialNumber: big.NewInt(1),
-
+		Subject:               csr.Subject,
+		Signature:             csr.Signature,
+		SignatureAlgorithm:    csr.SignatureAlgorithm,
+		PublicKey:             csr.PublicKey,
+		PublicKeyAlgorithm:    csr.PublicKeyAlgorithm,
+		IPAddresses:           csr.IPAddresses,
+		DNSNames:              csr.DNSNames,
+		Issuer:                ca.Config.Certs[0].Subject,
+		NotBefore:             now.Add(-time.Second),
+		NotAfter:              now.Add(expire),
+		SerialNumber:          big.NewInt(1),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		ExtKeyUsage:           usage,
 		BasicConstraintsValid: true,
-
-		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
+		AuthorityKeyId:        ca.Config.Certs[0].SubjectKeyId,
 	}
-	cert, err := ca.signCertificate(template, csr.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
-	}
-	certData, err := oscrypto.EncodeCertificates(cert)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", flterrors.ErrEncodeCert, err.Error())
-	}
-
-	return certData, nil
+	return ca.signCertificate(template, csr.PublicKey)
 }

@@ -1,16 +1,15 @@
 package crypto
 
 import (
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -78,40 +77,27 @@ func (ca *CA) MakeAndWriteServerCert(certFile, keyFile string, hostnames []strin
 	return server, nil
 }
 
-type CertificateExtensionFunc func(*x509.Certificate) error
-
-func (ca *CA) MakeServerCert(hostnames []string, expiryDays int, fns ...CertificateExtensionFunc) (*TLSCertificateConfig, error) {
+func (ca *CA) MakeServerCert(hostnames []string, expiryDays int) (*TLSCertificateConfig, error) {
 	if len(hostnames) < 1 {
 		return nil, fmt.Errorf("at least one hostname must be provided")
 	}
 
-	serverPublicKey, serverPrivateKey, publicKeyHash, _ := NewKeyPairWithHash()
+	_, serverPrivateKey, _ := NewKeyPair()
 
-	now := time.Now()
-	serverTemplate := &x509.Certificate{
+	serverTemplate := &x509.CertificateRequest{
 		Subject: pkix.Name{CommonName: hostnames[0]},
-
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
-
-		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expiryDays) * 24 * time.Hour),
-		SerialNumber: big.NewInt(1),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-
-		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
-		SubjectKeyId:   publicKeyHash,
 	}
 	serverTemplate.IPAddresses, serverTemplate.DNSNames = oscrypto.IPAddressesDNSNames(hostnames)
-	for _, fn := range fns {
-		if err := fn(serverTemplate); err != nil {
-			return nil, err
-		}
-	}
 
-	serverCrt, err := ca.signCertificate(serverTemplate, serverPublicKey)
+	raw, err := x509.CreateCertificateRequest(rand.Reader, serverTemplate, serverPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	csr, err := x509.ParseCertificateRequest(raw)
+	if err != nil {
+		return nil, err
+	}
+	serverCrt, err := ca.IssueRequestedServerCertificateAsX509(csr, expiryDays*86400)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +111,12 @@ func (ca *CA) MakeServerCert(hostnames []string, expiryDays int, fns ...Certific
 func (ca *CA) EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
 	certConfig, err := GetClientCertificate(certFile, keyFile, subjectName)
 	if err != nil {
-		certConfig, err = ca.MakeClientCertificate(certFile, keyFile, subjectName, expireDays)
-		return certConfig, true, err // true indicates we wrote the files.
+		certConfig, err := ca.MakeClientCert(certFile, keyFile, subjectName, expireDays)
+		if err != nil {
+			return nil, false, err
+		}
+		err = certConfig.WriteCertConfigFile(certFile, keyFile)
+		return certConfig, err == nil, err // true indicates we wrote the files.
 	}
 	return certConfig, false, nil
 }
@@ -145,66 +135,32 @@ func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCer
 	client := TLSCertificateConfig(*internalConfig)
 	return &client, nil
 }
-func (ca *CA) MakeClientCertificate(certFile, keyFile string, subject string, expiryDays int) (*TLSCertificateConfig, error) {
-	if err := os.MkdirAll(filepath.Dir(certFile), os.FileMode(0755)); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(keyFile), os.FileMode(0755)); err != nil {
-		return nil, err
-	}
 
-	clientPublicKey, clientPrivateKey, isNewKey, err := EnsureKey(keyFile)
+func (ca *CA) MakeClientCert(certFile, keyFile string, subjectName string, expiryDays int) (*TLSCertificateConfig, error) {
+
+	_, clientPrivateKey, _ := NewKeyPair()
+
+	clientTemplate := &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: subjectName},
+	}
+	raw, err := x509.CreateCertificateRequest(rand.Reader, clientTemplate, clientPrivateKey)
 	if err != nil {
 		return nil, err
 	}
-	clientPublicKeyHash, err := HashPublicKey(clientPublicKey)
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	clientTemplate := &x509.Certificate{
-
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
-
-		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expiryDays) * 24 * time.Hour),
-		SerialNumber: big.NewInt(1),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
-
-		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
-		SubjectKeyId:   clientPublicKeyHash,
-	}
-	if subject != "" {
-		clientTemplate.Subject = pkix.Name{CommonName: subject}
-	}
-	clientCrt, err := ca.signCertificate(clientTemplate, clientPublicKey)
+	csr, err := x509.ParseCertificateRequest(raw)
 	if err != nil {
 		return nil, err
 	}
 
-	certData, err := oscrypto.EncodeCertificates(clientCrt)
+	clientCrt, err := ca.IssueRequestedClientCertificateAsX509(csr, expiryDays*24*3600)
 	if err != nil {
 		return nil, err
 	}
-	keyData, err := PEMEncodeKey(clientPrivateKey)
-	if err != nil {
-		return nil, err
+	client := &TLSCertificateConfig{
+		Certs: append([]*x509.Certificate{clientCrt}, ca.Config.Certs...),
+		Key:   clientPrivateKey,
 	}
-
-	if err = os.WriteFile(certFile, certData, os.FileMode(0644)); err != nil {
-		return nil, err
-	}
-	if isNewKey {
-		if err = os.WriteFile(keyFile, keyData, os.FileMode(0600)); err != nil {
-			return nil, err
-		}
-	}
-
-	return GetTLSCertificateConfig(certFile, keyFile)
+	return client, nil
 }
 
 func GetTLSCertificateConfig(certFile, keyFile string) (*TLSCertificateConfig, error) {
@@ -232,6 +188,39 @@ func (c *TLSCertificateConfig) GetPEMBytes() ([]byte, []byte, error) {
 	}
 
 	return certBytes, keyBytes, nil
+}
+
+func (ca *CA) IssueRequestedClientCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
+	return ca.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+}
+
+func (ca *CA) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
+	cert, err := ca.IssueRequestedClientCertificateAsX509(csr, expirySeconds)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
+	}
+	certData, err := oscrypto.EncodeCertificates(cert)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrEncodeCert, err.Error())
+	}
+
+	return certData, nil
+}
+
+func (ca *CA) IssueRequestedServerCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
+	return ca.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth})
+}
+func (ca *CA) IssueRequestedServerCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
+	cert, err := ca.IssueRequestedServerCertificateAsX509(csr, expirySeconds)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignCert, err.Error())
+	}
+	certData, err := oscrypto.EncodeCertificates(cert)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", flterrors.ErrEncodeCert, err.Error())
+	}
+
+	return certData, nil
 }
 
 // CanReadCertAndKey checks if both the certificate and key files exist and are readable.
