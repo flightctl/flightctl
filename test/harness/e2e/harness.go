@@ -134,7 +134,7 @@ func (h *Harness) GetEnrollmentIDFromConsole() string {
 func (h *Harness) WaitForEnrollmentRequest(id string) *v1alpha1.EnrollmentRequest {
 	var enrollmentRequest *v1alpha1.EnrollmentRequest
 	Eventually(func() *v1alpha1.EnrollmentRequest {
-		resp, _ := h.Client.ReadEnrollmentRequestWithResponse(h.Context, id)
+		resp, _ := h.Client.GetEnrollmentRequestWithResponse(h.Context, id)
 		if resp != nil && resp.JSON200 != nil {
 			enrollmentRequest = resp.JSON200
 		}
@@ -171,8 +171,8 @@ func (h *Harness) StartVMAndEnroll() string {
 	return enrollmentID
 }
 
-func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) *apiclient.ReadDeviceResponse {
-	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) *apiclient.GetDeviceResponse {
+	device, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
 	Expect(err).NotTo(HaveOccurred())
 	// we keep waiting for a 200 response, with filled in Status.SystemInfo
 	if device.JSON200 == nil || device.JSON200.Status == nil || device.JSON200.Status.SystemInfo.IsEmpty() {
@@ -182,7 +182,7 @@ func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) *apiclient.Read
 }
 
 func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) v1alpha1.DeviceSummaryStatusType {
-	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+	device, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
 	Expect(err).NotTo(HaveOccurred())
 	// we keep waiting for a 200 response, with filled in Status.SystemInfo
 	if device == nil || device.JSON200 == nil || device.JSON200.Status == nil || device.JSON200.Status.Summary.Status == "" {
@@ -192,7 +192,7 @@ func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) v1alpha1.Devic
 }
 
 func (h *Harness) GetDeviceWithUpdateStatus(enrollmentID string) v1alpha1.DeviceUpdatedStatusType {
-	device, err := h.Client.ReadDeviceWithResponse(h.Context, enrollmentID)
+	device, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
 	Expect(err).NotTo(HaveOccurred())
 	// we keep waiting for a 200 response, with filled in Status.SystemInfo
 	if device == nil || device.JSON200 == nil || device.JSON200.Status == nil {
@@ -305,7 +305,7 @@ func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*
 }
 
 func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1alpha1.Device)) error {
-	response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
+	response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
 	Expect(err).NotTo(HaveOccurred())
 	if response.JSON200 == nil {
 		logrus.Errorf("An error happened retrieving device: %+v", response)
@@ -342,7 +342,7 @@ func (h *Harness) WaitForDeviceContents(deviceId string, description string, con
 
 	Eventually(func() error {
 		logrus.Infof("Waiting for condition: %q to be met", description)
-		response, err := h.Client.ReadDeviceWithResponse(h.Context, deviceId)
+		response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
 		Expect(err).NotTo(HaveOccurred())
 		if response.JSON200 == nil {
 			logrus.Errorf("An error happened retrieving device: %+v", response)

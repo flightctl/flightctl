@@ -269,10 +269,6 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	var numRemaining *int64
 	var options listOptions
 
-	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitParamOutOfBounds
-	}
-
 	lo.ForEach(opts, func(opt ListOption, _ int) { opt(&options) })
 	query, err := ListQuery(&model.Fleet{}).Build(ctx, s.db, orgId, listParams)
 	if err != nil {

@@ -111,7 +111,7 @@ func (o *LoginOptions) Validate(args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get auth info: %w", err)
 	}
-	if authConfig == nil {
+	if authConfig == nil || authConfig.AuthType == "" {
 		// auth disabled
 		return nil
 	}

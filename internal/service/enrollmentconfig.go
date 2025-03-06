@@ -4,41 +4,30 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
 
-// (GET /api/v1/enrollmentconfig)
-func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, request server.GetEnrollmentConfigRequestObject) (server.GetEnrollmentConfigResponseObject, error) {
+func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, params api.GetEnrollmentConfigParams) (*api.EnrollmentConfig, api.Status) {
 	orgId := store.NullOrgId
 
 	caCert, _, err := h.ca.Config.GetPEMBytes()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get CA certificate")
+		return nil, api.StatusInternalServerError("failed to get CA certificate")
 	}
 
 	clientCert := []byte{}
-	if request.Params.Csr != nil {
-		if errs := validation.ValidateResourceName(request.Params.Csr); len(errs) > 0 {
-			return server.GetEnrollmentConfig400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
+	if params.Csr != nil {
+		if errs := validation.ValidateResourceName(params.Csr); len(errs) > 0 {
+			return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 		}
 
-		csr, err := h.store.CertificateSigningRequest().Get(ctx, orgId, *request.Params.Csr)
+		csr, err := h.store.CertificateSigningRequest().Get(ctx, orgId, *params.Csr)
 		if err != nil {
-			switch {
-			case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-				return server.GetEnrollmentConfig400JSONResponse(api.StatusBadRequest(err.Error())), nil
-			case errors.Is(err, flterrors.ErrResourceNotFound):
-				return server.GetEnrollmentConfig404JSONResponse(api.StatusResourceNotFound("CertificateSigningRequest", *request.Params.Csr)), nil
-			default:
-				return nil, err
-			}
+			return nil, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, params.Csr)
 		}
 
 		if csr.Status != nil && csr.Status.Certificate != nil {
@@ -46,7 +35,7 @@ func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, request server
 		}
 	}
 
-	return server.GetEnrollmentConfig200JSONResponse{
+	return &api.EnrollmentConfig{
 		EnrollmentService: v1alpha1.EnrollmentService{
 			Authentication: v1alpha1.EnrollmentServiceAuth{
 				ClientCertificateData: base64.StdEncoding.EncodeToString(clientCert),
@@ -58,5 +47,5 @@ func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, request server
 			},
 			EnrollmentUiEndpoint: h.uiUrl,
 		},
-	}, nil
+	}, api.StatusOK()
 }

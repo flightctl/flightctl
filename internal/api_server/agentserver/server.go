@@ -16,8 +16,12 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
-	service "github.com/flightctl/flightctl/internal/service/agent"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tasks_client"
+	transport "github.com/flightctl/flightctl/internal/transport/agent"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
@@ -31,14 +35,15 @@ const (
 )
 
 type AgentServer struct {
-	log        logrus.FieldLogger
-	cfg        *config.Config
-	store      store.Store
-	ca         *crypto.CA
-	listener   net.Listener
-	tlsConfig  *tls.Config
-	metrics    *instrumentation.ApiMetrics
-	grpcServer *AgentGrpcServer
+	log            logrus.FieldLogger
+	cfg            *config.Config
+	store          store.Store
+	ca             *crypto.CA
+	listener       net.Listener
+	queuesProvider queues.Provider
+	tlsConfig      *tls.Config
+	metrics        *instrumentation.ApiMetrics
+	grpcServer     *AgentGrpcServer
 }
 
 // New returns a new instance of a flightctl server.
@@ -48,18 +53,20 @@ func New(
 	store store.Store,
 	ca *crypto.CA,
 	listener net.Listener,
+	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
 	metrics *instrumentation.ApiMetrics,
 ) *AgentServer {
 	return &AgentServer{
-		log:        log,
-		cfg:        cfg,
-		store:      store,
-		ca:         ca,
-		listener:   listener,
-		tlsConfig:  tlsConfig,
-		metrics:    metrics,
-		grpcServer: NewAgentGrpcServer(log, cfg),
+		log:            log,
+		cfg:            cfg,
+		store:          store,
+		ca:             ca,
+		listener:       listener,
+		queuesProvider: queuesProvider,
+		tlsConfig:      tlsConfig,
+		metrics:        metrics,
+		grpcServer:     NewAgentGrpcServer(log, cfg),
 	}
 }
 
@@ -72,7 +79,20 @@ func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
 }
 func (s *AgentServer) Run(ctx context.Context) error {
 	s.log.Println("Initializing Agent-side API server")
-	httpAPIHandler, err := s.prepareHTTPHandler()
+
+	publisher, err := tasks_client.TaskQueuePublisher(s.queuesProvider)
+	if err != nil {
+		return err
+	}
+	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	if err != nil {
+		return err
+	}
+	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
+
+	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl)
+
+	httpAPIHandler, err := s.prepareHTTPHandler(serviceHandler)
 	if err != nil {
 		return err
 	}
@@ -101,7 +121,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	return nil
 }
 
-func (s *AgentServer) prepareHTTPHandler() (*chi.Mux, error) {
+func (s *AgentServer) prepareHTTPHandler(serviceHandler *service.ServiceHandler) (*chi.Mux, error) {
 	swagger, err := api.GetSwagger()
 	if err != nil {
 		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)
@@ -130,10 +150,8 @@ func (s *AgentServer) prepareHTTPHandler() (*chi.Mux, error) {
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
-	server.HandlerFromMux(
-		server.NewStrictHandler(
-			service.NewAgentServiceHandler(s.store, s.ca, s.log, s.cfg.Service.AgentEndpointAddress), nil),
-		router)
+	h := transport.NewAgentTransportHandler(serviceHandler, s.log)
+	server.HandlerFromMux(h, router)
 	return router, nil
 }
 
