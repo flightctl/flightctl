@@ -3,7 +3,6 @@
 export SYSTEMD_DIR="$HOME/.config/containers/systemd"
 export CONFIG_DIR="$HOME/.config/flightctl"
 
-
 postgres_secrets=("flightctl-postgresql-password" "flightctl-postgresql-master-password" "flightctl-postgresql-user-password")
 kv_secrets=("flightctl-kv-password")
 export SECRETS=("${postgres_secrets[@]}" "${kv_secrets[@]}")
@@ -18,7 +17,7 @@ start_service() {
 }
 
 generate_password() {
-    echo $(cat /dev/urandom | tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd'-')
+    echo "$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd'-')"
 }
 
 create_secrets() {
