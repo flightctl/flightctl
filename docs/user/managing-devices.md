@@ -601,18 +601,18 @@ spec:
 [...]
 ```
 
-## Accessing Devices Remotely (experimental)
+## Accessing Devices Remotely
 
-For troubleshooting an edge device, a user can be authorized to remotely connect to that device's console through the agent. This does not require an SSH connection and so works even if that device is on a private network (behind a NAT), has a dynamic IP address, or has its SSH service disabled.
+For troubleshooting an edge device, a user with the appropriate authorization (`get` permission on the `devices/console` resource) can remotely connect to the device's console through the agent. This does not require an SSH connection and so works even if that device is on a private network (behind a NAT), has a dynamic IP address, or has its SSH service disabled.
 
 ### Accessing Devices on the Web UI
 
 ### Accessing Devices on the CLI
 
-To connect, use the `flightctl console` command specifying the device's name, and the agent will establish the console connection the next time it calls home (pull mode) or instantaneously (push mode):
+To connect, use the `flightctl console` command specifying the device's name, and the agent will establish the console connection the next time it calls home:
 
 ```console
-flightctl console <some_device_name>
+flightctl console device/<some_device_name>
 ```
 
 To disconnect, enter "exit" on the console. To force-disconnect, press `<ctrl>+b` three times.
