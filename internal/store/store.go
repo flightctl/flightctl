@@ -12,9 +12,8 @@ import (
 )
 
 var (
-	NullOrgId                = uuid.MustParse("00000000-0000-0000-0000-000000000000")
-	MaxRecordsPerListRequest = 1000
-	CurrentContinueVersion   = 1
+	NullOrgId              = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	CurrentContinueVersion = 1
 )
 
 type Store interface {

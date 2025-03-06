@@ -8,6 +8,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -39,6 +41,7 @@ var _ = Describe("FleetRollout", func() {
 		fleetStore      store.Fleet
 		tvStore         store.TemplateVersion
 		storeInst       store.Store
+		serviceHandler  *service.ServiceHandler
 		cfg             *config.Config
 		db              *gorm.DB
 		dbName          string
@@ -50,8 +53,8 @@ var _ = Describe("FleetRollout", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
-		orgId, _ = uuid.NewUUID()
+		ctx = context.WithValue(context.Background(), service.InternalRequestCtxKey, true)
+		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		numDevices = 3
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
@@ -63,6 +66,9 @@ var _ = Describe("FleetRollout", func() {
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
 		mockPublisher.EXPECT().Publish(gomock.Any()).AnyTimes()
+		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		Expect(err).ToNot(HaveOccurred())
+		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
 	})
 
 	AfterEach(func() {
@@ -78,7 +84,7 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
 			logic.SetItemsPerPage(2)
 
 			// First update
@@ -113,7 +119,7 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			logic.SetItemsPerPage(2)
 
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
@@ -186,7 +192,7 @@ var _ = Describe("FleetRollout", func() {
 				Expect(len(devices.Items)).To(Equal(numDevices))
 
 				// Roll out the devices and check their configs
-				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
+				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
 				err = logic.RolloutFleet(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				for i := 1; i <= numDevices; i++ {
@@ -247,7 +253,7 @@ var _ = Describe("FleetRollout", func() {
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
 				// Roll out to the single device
-				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 				err = logic.RolloutDevice(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
@@ -286,7 +292,7 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -329,7 +335,7 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 

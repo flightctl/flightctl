@@ -2,8 +2,10 @@ package device_selection
 
 import (
 	"context"
+	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/google/uuid"
@@ -16,14 +18,14 @@ type Reconciler interface {
 }
 
 type reconciler struct {
-	store           store.Store
+	serviceHandler  *service.ServiceHandler
 	log             logrus.FieldLogger
 	callbackManager tasks_client.CallbackManager
 }
 
-func NewReconciler(store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
+func NewReconciler(serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
-		store:           store,
+		serviceHandler:  serviceHandler,
 		log:             log,
 		callbackManager: callbackManager,
 	}
@@ -40,7 +42,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	}
 	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
 		r.log.Debugf("no device selection definition for fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
-		rolloutWasActive, err := cleanupRollout(ctx, orgId, &fleet, r.store)
+		rolloutWasActive, err := cleanupRollout(ctx, &fleet, r.serviceHandler)
 		if err != nil {
 			r.log.WithError(err).Errorf("%v/%s: CleanupRollout", orgId, lo.FromPtr(fleet.Metadata.Name))
 		}
@@ -56,7 +58,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		r.log.Warnf("no template version for fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 		return
 	}
-	selector, err := NewRolloutDeviceSelector(fleet.Spec.RolloutPolicy.DeviceSelection, fleet.Spec.RolloutPolicy.DefaultUpdateTimeout, r.store, orgId, &fleet, templateVersionName, r.log)
+	selector, err := NewRolloutDeviceSelector(fleet.Spec.RolloutPolicy.DeviceSelection, fleet.Spec.RolloutPolicy.DefaultUpdateTimeout, r.serviceHandler, orgId, &fleet, templateVersionName, r.log)
 	if err != nil {
 		r.log.WithError(err).Errorf("%v/%s: NewRolloutDeviceSelector", orgId, lo.FromPtr(fleet.Metadata.Name))
 		return
@@ -159,9 +161,9 @@ func (r *reconciler) Reconcile(ctx context.Context) {
 	// Get all relevant fleets
 	orgId := store.NullOrgId
 
-	fleetList, err := r.store.Fleet().ListRolloutDeviceSelection(ctx, orgId)
-	if err != nil {
-		r.log.WithError(err).Error("ListRolloutDeviceSelection")
+	fleetList, status := r.serviceHandler.ListFleetRolloutDeviceSelection(ctx)
+	if status.Code != http.StatusOK {
+		r.log.WithError(service.ApiStatusToErr(status)).Error("ListRolloutDeviceSelection")
 		return
 	}
 	for _, fleet := range fleetList.Items {

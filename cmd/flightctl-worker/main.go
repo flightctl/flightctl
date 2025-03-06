@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -42,6 +43,7 @@ func main() {
 	defer store.Close()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	ctx = context.WithValue(ctx, service.InternalRequestCtxKey, true)
 
 	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {

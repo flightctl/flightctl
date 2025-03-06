@@ -83,7 +83,7 @@ func SliceToPtrWithNilDefault(s []string) *[]string {
 }
 
 func TimeStampString() string {
-	return time.Now().Format(time.RFC3339Nano)
+	return time.Now().Format("20060102-150405-999999999")
 }
 
 func TimeStampStringPtr() *string {

@@ -8,22 +8,29 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/mock/gomock"
 )
 
 type MockRepoTester struct {
 }
 
-func (r *MockRepoTester) TestAccess(repository *model.Repository) error {
-	if v, ok := repository.Labels["status"]; ok && strings.EqualFold(v, "OK") {
+func (r *MockRepoTester) TestAccess(repository *api.Repository) error {
+	if repository.Metadata.Labels == nil {
+		return errors.New("fail")
+	}
+	if v, ok := (*repository.Metadata.Labels)["status"]; ok && strings.EqualFold(v, "OK") {
 		return nil
 	}
 	return errors.New("fail")
@@ -52,21 +59,29 @@ func createRepository(ctx context.Context, repostore store.Repository, orgId uui
 
 var _ = Describe("RepoTester", func() {
 	var (
-		log       *logrus.Logger
-		ctx       context.Context
-		orgId     uuid.UUID
-		stores    store.Store
-		cfg       *config.Config
-		dbName    string
-		repotestr *tasks.RepoTester
+		log            *logrus.Logger
+		ctx            context.Context
+		orgId          uuid.UUID
+		stores         store.Store
+		serviceHandler *service.ServiceHandler
+		cfg            *config.Config
+		dbName         string
+		repotestr      *tasks.RepoTester
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
-		orgId, _ = uuid.NewUUID()
+		ctx = context.WithValue(context.Background(), service.InternalRequestCtxKey, true)
+		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
-		repotestr = tasks.NewRepoTester(log, stores)
+		ctrl := gomock.NewController(GinkgoT())
+		publisher := queues.NewMockPublisher(ctrl)
+		publisher.EXPECT().Publish(gomock.Any()).Return(nil).AnyTimes()
+		callbackManager := tasks_client.NewCallbackManager(publisher, log)
+		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		Expect(err).ToNot(HaveOccurred())
+		serviceHandler = service.NewServiceHandler(stores, callbackManager, kvStore, nil, log, "", "")
+		repotestr = tasks.NewRepoTester(log, serviceHandler)
 		repotestr.TypeSpecificRepoTester = &MockRepoTester{}
 	})
 
@@ -84,9 +99,7 @@ var _ = Describe("RepoTester", func() {
 			repo, err := stores.Repository().Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 
-			repoModel, err := model.NewRepositoryFromApiResource(repo)
-			Expect(err).ToNot(HaveOccurred())
-			err = repotestr.SetAccessCondition(*repoModel, nil)
+			err = repotestr.SetAccessCondition(ctx, repo, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = createRepository(ctx, stores.Repository(), orgId, "ok-to-err", &map[string]string{"status": "fail"})
@@ -94,9 +107,7 @@ var _ = Describe("RepoTester", func() {
 			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
 
-			repoModel, err = model.NewRepositoryFromApiResource(repo)
-			Expect(err).ToNot(HaveOccurred())
-			err = repotestr.SetAccessCondition(*repoModel, nil)
+			err = repotestr.SetAccessCondition(ctx, repo, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			repotestr.TestRepositories()

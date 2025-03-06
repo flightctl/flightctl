@@ -23,8 +23,6 @@ type Fleet interface {
 
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
 	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, error)
-	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
-	ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
@@ -32,9 +30,10 @@ type Fleet interface {
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 
+	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
+	ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
-	ListIgnoreOrg() ([]model.Fleet, error)
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
