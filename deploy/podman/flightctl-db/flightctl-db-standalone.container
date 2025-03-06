@@ -3,11 +3,13 @@ Description=PostgreSQL Database for Flightctl
 
 [Container]
 ContainerName=flightctl-db
-Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=demouser POSTGRESQL_PASSWORD=demopass POSTGRESQL_MASTER_USER=admin PGPASSWORD=adminpass
+Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=demouser POSTGRESQL_MASTER_USER=admin
 Image=quay.io/sclorg/postgresql-16-c9s:latest
 PublishPort=5432:5432
 Volume=flightctl-db:/var/lib/pgsql/data:Z
-Secret=flightctl-postgres-master-password,type=env,target=POSTGRESQL_MASTER_PASSWORD
+Secret=flightctl-postgresql-password,type=env,target=PGPASSWORD
+Secret=flightctl-postgresql-master-password,type=env,target=POSTGRESQL_MASTER_PASSWORD
+Secret=flightctl-postgresql-user-password,type=env,target=POSTGRESQL_PASSWORD
 
 [Service]
 Restart=always

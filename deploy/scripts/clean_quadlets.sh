@@ -29,3 +29,11 @@ if podman network inspect flightctl >/dev/null 2>&1; then
     echo "Removing network"
     podman network rm flightctl || echo "Warning: Failed to remove network"
 fi
+
+# Remove generated secrets
+for secret in "${SECRETS[@]}"; do
+    if podman secret inspect "$secret" &>/dev/null; then
+        echo "Removing secret $secret"
+        podman secret rm "$secret" || echo "Warning: Failed to remove $secret"
+    fi
+done
