@@ -13,18 +13,21 @@ deploy_service() {
     # Stop the service if it's running
     systemctl --user stop "$service_full_name" || true
 
-    # Handle special handling for each service
+    # Handle pre-startup logic for each service
     if [[ "$service_name" == "db" ]]; then
         podman volume rm flightctl-db || true
         podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
+        create_postgres_secrets
     else
         # Copy configuration files
         mkdir -p "$CONFIG_DIR/flightctl-$service_name-config"
         cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf "$CONFIG_DIR/flightctl-kv-config/redis.conf"
+        create_kv_secrets
     fi
 
     mkdir -p "$SYSTEMD_DIR"
     cp deploy/podman/flightctl-$service_name/flightctl-$service_name-standalone.container "$SYSTEMD_DIR"
+    cp deploy/podman/flightctl-$service_name/flightctl-$service_name.volume "$SYSTEMD_DIR"
     cp deploy/podman/flightctl.network "$SYSTEMD_DIR"
 
     start_service $service_full_name
