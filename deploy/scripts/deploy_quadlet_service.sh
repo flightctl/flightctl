@@ -27,6 +27,7 @@ deploy_service() {
 
     mkdir -p "$SYSTEMD_DIR"
     cp deploy/podman/flightctl-$service_name/flightctl-$service_name-standalone.container "$SYSTEMD_DIR"
+    cp deploy/podman/flightctl-$service_name/flightctl-$service_name.volume "$SYSTEMD_DIR"
     cp deploy/podman/flightctl.network "$SYSTEMD_DIR"
 
     start_service $service_full_name
