@@ -3,6 +3,7 @@ WORKDIR /app
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
+COPY ./.git .git
 COPY ./api api
 COPY ./cmd cmd
 COPY ./deploy deploy
@@ -14,8 +15,9 @@ COPY ./test test
 COPY ./Makefile .
 
 USER 0
-RUN SOURCE_GIT_TAG=$SOURCE_GIT_TAG SOURCE_GIT_TREE_STATE=$SOURCE_GIT_TREE_STATE SOURCE_GIT_COMMIT=$SOURCE_GIT_COMMIT make build-api
-
+RUN git config --global --add safe.directory /app
+RUN make build-api
+    
 FROM registry.access.redhat.com/ubi9/ubi as certs
 RUN dnf update --nodocs -y  && dnf install ca-certificates tzdata --nodocs -y
 

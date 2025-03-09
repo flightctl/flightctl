@@ -104,16 +104,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Capture Git Metadata
-        run: |
-          echo "SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo v0.0.0)" >> $GITHUB_ENV
-          if git diff --quiet; then 
-            echo "SOURCE_GIT_TREE_STATE=clean" >> $GITHUB_ENV
-          else 
-            echo "SOURCE_GIT_TREE_STATE=dirty" >> $GITHUB_ENV
-          fi
-          echo "SOURCE_GIT_COMMIT=$(git rev-parse --short 'HEAD^{commit}')" >> $GITHUB_ENV
-
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
@@ -128,10 +118,6 @@ jobs:
             org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
           extra-args: |
             --ulimit nofile=10000:10000
-          build-args: |
-            SOURCE_GIT_TAG=${{ env.SOURCE_GIT_TAG }}
-            SOURCE_GIT_TREE_STATE=${{ env.SOURCE_GIT_TREE_STATE }}
-            SOURCE_GIT_COMMIT=${{ env.SOURCE_GIT_COMMIT }}
           containerfiles: Containerfile.${{ matrix.image }}
           context: .
 
