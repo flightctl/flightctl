@@ -345,10 +345,6 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 	var nextContinue *string
 	var numRemaining *int64
 
-	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitParamOutOfBounds
-	}
-
 	var resource M
 	query, err := ListQuery(&resource).Build(ctx, s.db, orgId, listParams)
 	if err != nil {

@@ -19,10 +19,6 @@ import (
 const (
 	maxBase64CertificateLength = 20 * 1024 * 1024
 	maxInlineConfigLength      = 1024 * 1024
-	// MaxDNSNameLength defines the maximum length of a DNS-1123 compliant name,
-	// as specified by RFC 1123. It is used to validate the length of strings
-	// that must conform to DNS naming requirements.
-	MaxDNSNameLength = 253
 )
 
 var ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
@@ -641,11 +637,10 @@ func validateSshConfig(config *SshConfig) []error {
 
 func (a ApplicationProviderSpec) Validate() []error {
 	allErrs := []error{}
-	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
-	// name must be between 1 and 253 characters and start with a letter or number.
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, MaxDNSNameLength, pattern, "")...)
+	// name must be 1–253 characters long, start with a letter or number, and contain no whitespace
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, validation.DNS1123MaxLength, validation.GenericNameRegexp, validation.Dns1123LabelFmt)...)
 	// envVars keys and values must be between 1 and 253 characters
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, MaxDNSNameLength, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, validation.DNS1123MaxLength, nil, "")...)
 	return allErrs
 }
 
@@ -687,9 +682,8 @@ func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProvide
 
 		if provider.Image == "" && app.Name == nil {
 			errs = append(errs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
-		} else if app.Name != nil {
-			errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
 		}
+		errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
 	default:
 		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
 	}

@@ -166,7 +166,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 	}
 	switch {
 	case kind == DeviceKind && len(name) > 0 && !o.Rendered:
-		response, err = c.ReadDeviceWithResponse(ctx, name)
+		response, err = c.GetDeviceWithResponse(ctx, name)
 	case kind == DeviceKind && len(name) > 0 && o.Rendered:
 		response, err = c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
 	case kind == DeviceKind && len(name) == 0:
@@ -179,7 +179,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		}
 		response, err = c.ListDevicesWithResponse(ctx, &params)
 	case kind == EnrollmentRequestKind && len(name) > 0:
-		response, err = c.ReadEnrollmentRequestWithResponse(ctx, name)
+		response, err = c.GetEnrollmentRequestWithResponse(ctx, name)
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		params := api.ListEnrollmentRequestsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
@@ -189,10 +189,10 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		}
 		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
 	case kind == FleetKind && len(name) > 0:
-		params := api.ReadFleetParams{
+		params := api.GetFleetParams{
 			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
 		}
-		response, err = c.ReadFleetWithResponse(ctx, name, &params)
+		response, err = c.GetFleetWithResponse(ctx, name, &params)
 	case kind == FleetKind && len(name) == 0:
 		params := api.ListFleetsParams{
 			LabelSelector:     util.ToPtrWithNilDefault(o.LabelSelector),
@@ -203,7 +203,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		}
 		response, err = c.ListFleetsWithResponse(ctx, &params)
 	case kind == TemplateVersionKind && len(name) > 0:
-		response, err = c.ReadTemplateVersionWithResponse(ctx, o.FleetName, name)
+		response, err = c.GetTemplateVersionWithResponse(ctx, o.FleetName, name)
 	case kind == TemplateVersionKind && len(name) == 0:
 		params := api.ListTemplateVersionsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
@@ -213,7 +213,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		}
 		response, err = c.ListTemplateVersionsWithResponse(ctx, o.FleetName, &params)
 	case kind == RepositoryKind && len(name) > 0:
-		response, err = c.ReadRepositoryWithResponse(ctx, name)
+		response, err = c.GetRepositoryWithResponse(ctx, name)
 	case kind == RepositoryKind && len(name) == 0:
 		params := api.ListRepositoriesParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
@@ -223,17 +223,17 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 		}
 		response, err = c.ListRepositoriesWithResponse(ctx, &params)
 	case kind == ResourceSyncKind && len(name) > 0:
-		response, err = c.ReadResourceSyncWithResponse(ctx, name)
+		response, err = c.GetResourceSyncWithResponse(ctx, name)
 	case kind == ResourceSyncKind && len(name) == 0:
-		params := api.ListResourceSyncParams{
+		params := api.ListResourceSyncsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListResourceSyncWithResponse(ctx, &params)
+		response, err = c.ListResourceSyncsWithResponse(ctx, &params)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
-		response, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
+		response, err = c.GetCertificateSigningRequestWithResponse(ctx, name)
 	case kind == CertificateSigningRequestKind && len(name) == 0:
 		params := api.ListCertificateSigningRequestsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
@@ -324,33 +324,33 @@ func (o *GetOptions) printTable(response interface{}, kind string, name string) 
 		if o.Rendered {
 			device = *(response.(*apiclient.GetRenderedDeviceResponse).JSON200)
 		} else {
-			device = *(response.(*apiclient.ReadDeviceResponse).JSON200)
+			device = *(response.(*apiclient.GetDeviceResponse).JSON200)
 		}
 		o.printDevicesTable(w, device)
 	case kind == EnrollmentRequestKind && len(name) == 0:
 		o.printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items...)
 	case kind == EnrollmentRequestKind && len(name) > 0:
-		o.printEnrollmentRequestsTable(w, *(response.(*apiclient.ReadEnrollmentRequestResponse).JSON200))
+		o.printEnrollmentRequestsTable(w, *(response.(*apiclient.GetEnrollmentRequestResponse).JSON200))
 	case kind == FleetKind && len(name) == 0:
 		o.printFleetsTable(w, response.(*apiclient.ListFleetsResponse).JSON200.Items...)
 	case kind == FleetKind && len(name) > 0:
-		o.printFleetsTable(w, *(response.(*apiclient.ReadFleetResponse).JSON200))
+		o.printFleetsTable(w, *(response.(*apiclient.GetFleetResponse).JSON200))
 	case kind == TemplateVersionKind && len(name) == 0:
 		o.printTemplateVersionsTable(w, response.(*apiclient.ListTemplateVersionsResponse).JSON200.Items...)
 	case kind == TemplateVersionKind && len(name) > 0:
-		o.printTemplateVersionsTable(w, *(response.(*apiclient.ReadTemplateVersionResponse).JSON200))
+		o.printTemplateVersionsTable(w, *(response.(*apiclient.GetTemplateVersionResponse).JSON200))
 	case kind == RepositoryKind && len(name) == 0:
 		o.printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse).JSON200.Items...)
 	case kind == RepositoryKind && len(name) > 0:
-		o.printRepositoriesTable(w, *(response.(*apiclient.ReadRepositoryResponse).JSON200))
+		o.printRepositoriesTable(w, *(response.(*apiclient.GetRepositoryResponse).JSON200))
 	case kind == ResourceSyncKind && len(name) == 0:
-		o.printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncResponse).JSON200.Items...)
+		o.printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncsResponse).JSON200.Items...)
 	case kind == ResourceSyncKind && len(name) > 0:
-		o.printResourceSyncsTable(w, *(response.(*apiclient.ReadResourceSyncResponse).JSON200))
+		o.printResourceSyncsTable(w, *(response.(*apiclient.GetResourceSyncResponse).JSON200))
 	case kind == CertificateSigningRequestKind && len(name) == 0:
 		o.printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
-		o.printCSRTable(w, *(response.(*apiclient.ReadCertificateSigningRequestResponse).JSON200))
+		o.printCSRTable(w, *(response.(*apiclient.GetCertificateSigningRequestResponse).JSON200))
 	default:
 		return fmt.Errorf("unknown resource type %s", kind)
 	}

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - 'release-*'
     tags:
       - '*'
 
@@ -42,8 +43,15 @@ jobs:
             # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
             version=$(echo "${version#v}" | sed 's/~/-/g')
 
+            # if the branch is main, we tag the image as latest, otherwise release-0.x
+            if ${{ github.ref_name == 'main' }}; then
+              latest_tag="latest"
+            else
+              latest_tag="${{ github.ref_name }}"
+            fi
+
             # The images tags are taken from git
-            image_tags=( latest-${GITHUB_SHA} latest ${version} )
+            image_tags=( ${latest_tag}-${GITHUB_SHA} ${latest_tag} ${version} )
             echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
             echo "image_tags=${image_tags[@]}"
 
@@ -64,6 +72,10 @@ jobs:
       - name: Build helm charts
         run: |
           echo packaging "${{ needs.generate-tags.outputs.helm_tag }}"
+          if ${{ github.ref_type == 'tag'  }}; then
+            # Use release tag for UI chart too
+            sed -i 's/^appVersion:.*/appVersion: "${{ needs.generate-tags.outputs.helm_tag }}"/' ./deploy/helm/flightctl/charts/ui/Chart.yaml
+          fi
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
               --version "${{ needs.generate-tags.outputs.helm_tag }}" \
@@ -88,6 +100,19 @@ jobs:
     runs-on: "ubuntu-24.04"
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Capture Git Metadata
+        run: |
+          echo "SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo v0.0.0)" >> $GITHUB_ENV
+          if git diff --quiet; then 
+            echo "SOURCE_GIT_TREE_STATE=clean" >> $GITHUB_ENV
+          else 
+            echo "SOURCE_GIT_TREE_STATE=dirty" >> $GITHUB_ENV
+          fi
+          echo "SOURCE_GIT_COMMIT=$(git rev-parse --short 'HEAD^{commit}')" >> $GITHUB_ENV
 
       - name: Build
         id: build
@@ -103,6 +128,10 @@ jobs:
             org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
           extra-args: |
             --ulimit nofile=10000:10000
+          build-args: |
+            SOURCE_GIT_TAG=${{ env.SOURCE_GIT_TAG }}
+            SOURCE_GIT_TREE_STATE=${{ env.SOURCE_GIT_TREE_STATE }}
+            SOURCE_GIT_COMMIT=${{ env.SOURCE_GIT_COMMIT }}
           containerfiles: Containerfile.${{ matrix.image }}
           context: .
 

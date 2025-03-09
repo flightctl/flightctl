@@ -2,16 +2,11 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -19,254 +14,172 @@ import (
 	"github.com/google/uuid"
 )
 
-func FleetFromReader(r io.Reader) (*api.Fleet, error) {
-	var fleet api.Fleet
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&fleet)
-	return &fleet, err
-}
-
-// (POST /api/v1/fleets)
-func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
+func (h *ServiceHandler) CreateFleet(ctx context.Context, fleet api.Fleet) (*api.Fleet, api.Status) {
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
-	request.Body.Status = nil
-	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
-	if request.Body.Spec.Template.Metadata != nil {
-		common.NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
+	fleet.Status = nil
+	NilOutManagedObjectMetaProperties(&fleet.Metadata)
+	if fleet.Spec.Template.Metadata != nil {
+		NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
 	}
 
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateFleet400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
+	if errs := fleet.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
-	switch {
-	case err == nil:
-		return server.CreateFleet201JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.CreateFleet400JSONResponse(api.StatusBadRequest(err.Error())), nil
-	case errors.Is(err, flterrors.ErrDuplicateName):
-		return server.CreateFleet409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().Create(ctx, orgId, &fleet, h.callbackManager.FleetUpdatedCallback)
+	return result, StoreErrorToApiStatus(err, true, api.FleetKind, fleet.Metadata.Name)
 }
 
-// (GET /api/v1/fleets)
-func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
+func (h *ServiceHandler) ListFleets(ctx context.Context, params api.ListFleetsParams) (*api.FleetList, api.Status) {
 	orgId := store.NullOrgId
 
-	cont, err := store.ParseContinueString(request.Params.Continue)
+	cont, err := store.ParseContinueString(params.Continue)
 	if err != nil {
-		return server.ListFleets400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))), nil
+		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
 	}
 
 	var fieldSelector *selector.FieldSelector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListFleets400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))), nil
+	if params.FieldSelector != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*params.FieldSelector); err != nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
 		}
 	}
 
 	var labelSelector *selector.LabelSelector
-	if request.Params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListFleets400JSONResponse(api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))), nil
+	if params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*params.LabelSelector); err != nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))
 		}
 	}
 
 	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Limit:         int(swag.Int32Value(params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
 		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
-	}
-	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListFleets400JSONResponse(api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))), nil
+	} else if listParams.Limit > store.MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))
+	} else if listParams.Limit < 0 {
+		return nil, api.StatusBadRequest("limit cannot be negative")
 	}
 
-	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.ListWithDevicesSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
+	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.ListWithDevicesSummary(util.DefaultBoolIfNil(params.AddDevicesSummary, false)))
 	if err == nil {
-		return server.ListFleets200JSONResponse(*result), nil
+		return result, api.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListFleets400JSONResponse(api.StatusBadRequest(se.Error())), nil
+		return nil, api.StatusBadRequest(se.Error())
 	default:
-		return nil, err
+		return nil, api.StatusInternalServerError(err.Error())
 	}
 }
 
-// (DELETE /api/v1/fleets)
-func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
+func (h *ServiceHandler) DeleteFleets(ctx context.Context) api.Status {
 	orgId := store.NullOrgId
 
 	err := h.store.Fleet().DeleteAll(ctx, orgId, h.callbackManager.AllFleetsDeletedCallback)
-	switch err {
-	case nil:
-		return server.DeleteFleets200JSONResponse(api.StatusOK()), nil
-	default:
-		return nil, err
-	}
+	return StoreErrorToApiStatus(err, false, api.FleetKind, nil)
 }
 
-// (GET /api/v1/fleets/{name})
-func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
+func (h *ServiceHandler) GetFleet(ctx context.Context, name string, params api.GetFleetParams) (*api.Fleet, api.Status) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.GetWithDeviceSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
-	switch {
-	case err == nil:
-		return server.ReadFleet200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadFleet404JSONResponse(api.StatusResourceNotFound("Fleet", request.Name)), nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().Get(ctx, orgId, name, store.GetWithDeviceSummary(util.DefaultBoolIfNil(params.AddDevicesSummary, false)))
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (PUT /api/v1/fleets/{name})
-func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
+func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet api.Fleet) (*api.Fleet, api.Status) {
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
-	request.Body.Status = nil
-	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
-	if request.Body.Spec.Template.Metadata != nil {
-		common.NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
+	fleet.Status = nil
+	NilOutManagedObjectMetaProperties(&fleet.Metadata)
+	if fleet.Spec.Template.Metadata != nil {
+		NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
 	}
 
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceFleet400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
+	if errs := fleet.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceFleet400JSONResponse(api.StatusBadRequest("resource name specified in metadata does not match name in path")), nil
+	if name != *fleet.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.FleetUpdatedCallback)
-	switch {
-	case err == nil:
-		if created {
-			return server.ReplaceFleet201JSONResponse(*result), nil
-		} else {
-			return server.ReplaceFleet200JSONResponse(*result), nil
-		}
-	case errors.Is(err, flterrors.ErrResourceIsNil):
-		return server.ReplaceFleet400JSONResponse(api.StatusBadRequest(err.Error())), nil
-	case errors.Is(err, flterrors.ErrResourceNameIsNil):
-		return server.ReplaceFleet400JSONResponse(api.StatusBadRequest(err.Error())), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceFleet404JSONResponse(api.StatusResourceNotFound("Fleet", request.Name)), nil
-	case errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed), errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.ReplaceFleet409JSONResponse(api.StatusResourceVersionConflict(err.Error())), nil
-	default:
-		return nil, err
-	}
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, true, h.callbackManager.FleetUpdatedCallback)
+	return result, StoreErrorToApiStatus(err, created, api.FleetKind, &name)
 }
 
-// (DELETE /api/v1/fleets/{name})
-func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
+func (h *ServiceHandler) DeleteFleet(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	f, err := h.store.Fleet().Get(ctx, orgId, request.Name)
-	if err == flterrors.ErrResourceNotFound {
-		return server.DeleteFleet404JSONResponse(api.StatusResourceNotFound("Fleet", request.Name)), nil
+	f, err := h.store.Fleet().Get(ctx, orgId, name)
+	if err != nil {
+		return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 	}
 	if f.Metadata.Owner != nil {
 		// Can't delete via api
-		return server.DeleteFleet403JSONResponse(api.StatusUnauthorized("unauthorized to delete fleet because it is owned by another resource")), nil
+		return api.StatusConflict("unauthorized to delete fleet because it is owned by another resource")
 	}
 
-	err = h.store.Fleet().Delete(ctx, orgId, request.Name, h.callbackManager.FleetUpdatedCallback)
-	switch {
-	case err == nil:
-		return server.DeleteFleet200JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteFleet404JSONResponse(api.StatusResourceNotFound("Fleet", request.Name)), nil
-	default:
-		return nil, err
-	}
+	err = h.store.Fleet().Delete(ctx, orgId, name, h.callbackManager.FleetUpdatedCallback)
+	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (GET /api/v1/fleets/{name}/status)
-func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.ReadFleetStatusRequestObject) (server.ReadFleetStatusResponseObject, error) {
+func (h *ServiceHandler) GetFleetStatus(ctx context.Context, name string) (*api.Fleet, api.Status) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
-	switch {
-	case err == nil:
-		return server.ReadFleetStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadFleetStatus404JSONResponse(api.StatusResourceNotFound("Fleet", request.Name)), nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (PUT /api/v1/fleets/{name}/status)
-func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.ReplaceFleetStatusRequestObject) (server.ReplaceFleetStatusResponseObject, error) {
+func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, name string, fleet api.Fleet) (*api.Fleet, api.Status) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, request.Body)
-	switch {
-	case err == nil:
-		return server.ReplaceFleetStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceFleetStatus404JSONResponse(api.StatusResourceNotFound("Fleet", request.Name)), nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, &fleet)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (PATCH /api/v1/fleets/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFleetRequestObject) (server.PatchFleetResponseObject, error) {
+func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.PatchRequest) (*api.Fleet, api.Status) {
 	orgId := store.NullOrgId
 
-	currentObj, err := h.store.Fleet().Get(ctx, orgId, request.Name)
+	currentObj, err := h.store.Fleet().Get(ctx, orgId, name)
 	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.PatchFleet400JSONResponse(api.StatusBadRequest(err.Error())), nil
-		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.PatchFleet404JSONResponse(api.StatusResourceNotFound("Fleet", request.Name)), nil
-		default:
-			return nil, err
-		}
+		return nil, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 	}
 
 	newObj := &api.Fleet{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/fleets/"+request.Name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/fleets/"+name)
 	if err != nil {
-		return server.PatchFleet400JSONResponse(api.StatusBadRequest(err.Error())), nil
+		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	if errs := newObj.Validate(); len(errs) > 0 {
-		return server.PatchFleet400JSONResponse(api.StatusBadRequest(errors.Join(errs...).Error())), nil
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchFleet400JSONResponse(api.StatusBadRequest("metadata.name is immutable")), nil
+		return nil, api.StatusBadRequest("metadata.name is immutable")
 	}
 	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchFleet400JSONResponse(api.StatusBadRequest("apiVersion is immutable")), nil
+		return nil, api.StatusBadRequest("apiVersion is immutable")
 	}
 	if currentObj.Kind != newObj.Kind {
-		return server.PatchFleet400JSONResponse(api.StatusBadRequest("kind is immutable")), nil
+		return nil, api.StatusBadRequest("kind is immutable")
 	}
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchFleet400JSONResponse(api.StatusBadRequest("status is immutable")), nil
+		return nil, api.StatusBadRequest("status is immutable")
 	}
 
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
 	var updateCallback func(uuid.UUID, *api.Fleet, *api.Fleet)
@@ -275,22 +188,5 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFle
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
 	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback)
-
-	switch {
-	case err == nil:
-		return server.PatchFleet200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-		return server.PatchFleet400JSONResponse(api.StatusBadRequest(err.Error())), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.PatchFleet404JSONResponse(api.StatusResourceNotFound("Fleet", request.Name)), nil
-	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.PatchFleet409JSONResponse(api.StatusResourceVersionConflict("")), nil
-	default:
-		return nil, err
-	}
-}
-
-// (PATCH /api/v1/fleets/{name}/status)
-func (h *ServiceHandler) PatchFleetStatus(ctx context.Context, request server.PatchFleetStatusRequestObject) (server.PatchFleetStatusResponseObject, error) {
-	return nil, fmt.Errorf("not yet implemented")
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }

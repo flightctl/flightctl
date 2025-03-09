@@ -110,8 +110,8 @@ type ClientInterface interface {
 	// DeleteCertificateSigningRequest request
 	DeleteCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadCertificateSigningRequest request
-	ReadCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetCertificateSigningRequest request
+	GetCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchCertificateSigningRequestWithBody request with any body
 	PatchCertificateSigningRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -142,8 +142,8 @@ type ClientInterface interface {
 	// DeleteDevice request
 	DeleteDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadDevice request
-	ReadDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetDevice request
+	GetDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchDeviceWithBody request with any body
 	PatchDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -163,8 +163,8 @@ type ClientInterface interface {
 	// GetRenderedDevice request
 	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadDeviceStatus request
-	ReadDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetDeviceStatus request
+	GetDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchDeviceStatusWithBody request with any body
 	PatchDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -193,8 +193,8 @@ type ClientInterface interface {
 	// DeleteEnrollmentRequest request
 	DeleteEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadEnrollmentRequest request
-	ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetEnrollmentRequest request
+	GetEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchEnrollmentRequestWithBody request with any body
 	PatchEnrollmentRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -211,8 +211,8 @@ type ClientInterface interface {
 
 	ApproveEnrollmentRequest(ctx context.Context, name string, body ApproveEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadEnrollmentRequestStatus request
-	ReadEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetEnrollmentRequestStatus request
+	GetEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchEnrollmentRequestStatusWithBody request with any body
 	PatchEnrollmentRequestStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -244,14 +244,14 @@ type ClientInterface interface {
 	// DeleteTemplateVersion request
 	DeleteTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadTemplateVersion request
-	ReadTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetTemplateVersion request
+	GetTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteFleet request
 	DeleteFleet(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadFleet request
-	ReadFleet(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetFleet request
+	GetFleet(ctx context.Context, name string, params *GetFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchFleetWithBody request with any body
 	PatchFleetWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -263,8 +263,8 @@ type ClientInterface interface {
 
 	ReplaceFleet(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadFleetStatus request
-	ReadFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetFleetStatus request
+	GetFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchFleetStatusWithBody request with any body
 	PatchFleetStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -275,6 +275,9 @@ type ClientInterface interface {
 	ReplaceFleetStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListLabels request
+	ListLabels(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteRepositories request
 	DeleteRepositories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -290,8 +293,8 @@ type ClientInterface interface {
 	// DeleteRepository request
 	DeleteRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadRepository request
-	ReadRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetRepository request
+	GetRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchRepositoryWithBody request with any body
 	PatchRepositoryWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -306,8 +309,8 @@ type ClientInterface interface {
 	// DeleteResourceSyncs request
 	DeleteResourceSyncs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListResourceSync request
-	ListResourceSync(ctx context.Context, params *ListResourceSyncParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ListResourceSyncs request
+	ListResourceSyncs(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateResourceSyncWithBody request with any body
 	CreateResourceSyncWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -317,8 +320,8 @@ type ClientInterface interface {
 	// DeleteResourceSync request
 	DeleteResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadResourceSync request
-	ReadResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetResourceSync request
+	GetResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchResourceSyncWithBody request with any body
 	PatchResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -418,8 +421,8 @@ func (c *Client) DeleteCertificateSigningRequest(ctx context.Context, name strin
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadCertificateSigningRequestRequest(c.Server, name)
+func (c *Client) GetCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCertificateSigningRequestRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -562,8 +565,8 @@ func (c *Client) DeleteDevice(ctx context.Context, name string, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadDeviceRequest(c.Server, name)
+func (c *Client) GetDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDeviceRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -658,8 +661,8 @@ func (c *Client) GetRenderedDevice(ctx context.Context, name string, params *Get
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadDeviceStatusRequest(c.Server, name)
+func (c *Client) GetDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDeviceStatusRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -790,8 +793,8 @@ func (c *Client) DeleteEnrollmentRequest(ctx context.Context, name string, reqEd
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadEnrollmentRequestRequest(c.Server, name)
+func (c *Client) GetEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentRequestRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -874,8 +877,8 @@ func (c *Client) ApproveEnrollmentRequest(ctx context.Context, name string, body
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadEnrollmentRequestStatusRequest(c.Server, name)
+func (c *Client) GetEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentRequestStatusRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1018,8 +1021,8 @@ func (c *Client) DeleteTemplateVersion(ctx context.Context, fleet string, name s
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadTemplateVersionRequest(c.Server, fleet, name)
+func (c *Client) GetTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTemplateVersionRequest(c.Server, fleet, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1042,8 +1045,8 @@ func (c *Client) DeleteFleet(ctx context.Context, name string, reqEditors ...Req
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadFleet(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadFleetRequest(c.Server, name, params)
+func (c *Client) GetFleet(ctx context.Context, name string, params *GetFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetFleetRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1102,8 +1105,8 @@ func (c *Client) ReplaceFleet(ctx context.Context, name string, body ReplaceFlee
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadFleetStatusRequest(c.Server, name)
+func (c *Client) GetFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetFleetStatusRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1152,6 +1155,18 @@ func (c *Client) ReplaceFleetStatusWithBody(ctx context.Context, name string, co
 
 func (c *Client) ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceFleetStatusRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListLabels(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLabelsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1222,8 +1237,8 @@ func (c *Client) DeleteRepository(ctx context.Context, name string, reqEditors .
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadRepositoryRequest(c.Server, name)
+func (c *Client) GetRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRepositoryRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1294,8 +1309,8 @@ func (c *Client) DeleteResourceSyncs(ctx context.Context, reqEditors ...RequestE
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListResourceSync(ctx context.Context, params *ListResourceSyncParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListResourceSyncRequest(c.Server, params)
+func (c *Client) ListResourceSyncs(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListResourceSyncsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1342,8 +1357,8 @@ func (c *Client) DeleteResourceSync(ctx context.Context, name string, reqEditors
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadResourceSyncRequest(c.Server, name)
+func (c *Client) GetResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetResourceSyncRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1681,8 +1696,8 @@ func NewDeleteCertificateSigningRequestRequest(server string, name string) (*htt
 	return req, nil
 }
 
-// NewReadCertificateSigningRequestRequest generates requests for ReadCertificateSigningRequest
-func NewReadCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
+// NewGetCertificateSigningRequestRequest generates requests for GetCertificateSigningRequest
+func NewGetCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -2070,8 +2085,8 @@ func NewDeleteDeviceRequest(server string, name string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewReadDeviceRequest generates requests for ReadDevice
-func NewReadDeviceRequest(server string, name string) (*http.Request, error) {
+// NewGetDeviceRequest generates requests for GetDevice
+func NewGetDeviceRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -2301,8 +2316,8 @@ func NewGetRenderedDeviceRequest(server string, name string, params *GetRendered
 	return req, nil
 }
 
-// NewReadDeviceStatusRequest generates requests for ReadDeviceStatus
-func NewReadDeviceStatusRequest(server string, name string) (*http.Request, error) {
+// NewGetDeviceStatusRequest generates requests for GetDeviceStatus
+func NewGetDeviceStatusRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -2676,8 +2691,8 @@ func NewDeleteEnrollmentRequestRequest(server string, name string) (*http.Reques
 	return req, nil
 }
 
-// NewReadEnrollmentRequestRequest generates requests for ReadEnrollmentRequest
-func NewReadEnrollmentRequestRequest(server string, name string) (*http.Request, error) {
+// NewGetEnrollmentRequestRequest generates requests for GetEnrollmentRequest
+func NewGetEnrollmentRequestRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -2851,8 +2866,8 @@ func NewApproveEnrollmentRequestRequestWithBody(server string, name string, cont
 	return req, nil
 }
 
-// NewReadEnrollmentRequestStatusRequest generates requests for ReadEnrollmentRequestStatus
-func NewReadEnrollmentRequestStatusRequest(server string, name string) (*http.Request, error) {
+// NewGetEnrollmentRequestStatusRequest generates requests for GetEnrollmentRequestStatus
+func NewGetEnrollmentRequestStatusRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3338,8 +3353,8 @@ func NewDeleteTemplateVersionRequest(server string, fleet string, name string) (
 	return req, nil
 }
 
-// NewReadTemplateVersionRequest generates requests for ReadTemplateVersion
-func NewReadTemplateVersionRequest(server string, fleet string, name string) (*http.Request, error) {
+// NewGetTemplateVersionRequest generates requests for GetTemplateVersion
+func NewGetTemplateVersionRequest(server string, fleet string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3413,8 +3428,8 @@ func NewDeleteFleetRequest(server string, name string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewReadFleetRequest generates requests for ReadFleet
-func NewReadFleetRequest(server string, name string, params *ReadFleetParams) (*http.Request, error) {
+// NewGetFleetRequest generates requests for GetFleet
+func NewGetFleetRequest(server string, name string, params *GetFleetParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3563,8 +3578,8 @@ func NewReplaceFleetRequestWithBody(server string, name string, contentType stri
 	return req, nil
 }
 
-// NewReadFleetStatusRequest generates requests for ReadFleetStatus
-func NewReadFleetStatusRequest(server string, name string) (*http.Request, error) {
+// NewGetFleetStatusRequest generates requests for GetFleetStatus
+func NewGetFleetStatusRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3687,6 +3702,99 @@ func NewReplaceFleetStatusRequestWithBody(server string, name string, contentTyp
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListLabelsRequest generates requests for ListLabels
+func NewListLabelsRequest(server string, params *ListLabelsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/labels")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "kind", runtime.ParamLocationQuery, params.Kind); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if params.LabelSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "labelSelector", runtime.ParamLocationQuery, *params.LabelSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.FieldSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "fieldSelector", runtime.ParamLocationQuery, *params.FieldSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -3889,8 +3997,8 @@ func NewDeleteRepositoryRequest(server string, name string) (*http.Request, erro
 	return req, nil
 }
 
-// NewReadRepositoryRequest generates requests for ReadRepository
-func NewReadRepositoryRequest(server string, name string) (*http.Request, error) {
+// NewGetRepositoryRequest generates requests for GetRepository
+func NewGetRepositoryRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4044,8 +4152,8 @@ func NewDeleteResourceSyncsRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewListResourceSyncRequest generates requests for ListResourceSync
-func NewListResourceSyncRequest(server string, params *ListResourceSyncParams) (*http.Request, error) {
+// NewListResourceSyncsRequest generates requests for ListResourceSyncs
+func NewListResourceSyncsRequest(server string, params *ListResourceSyncsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -4215,8 +4323,8 @@ func NewDeleteResourceSyncRequest(server string, name string) (*http.Request, er
 	return req, nil
 }
 
-// NewReadResourceSyncRequest generates requests for ReadResourceSync
-func NewReadResourceSyncRequest(server string, name string) (*http.Request, error) {
+// NewGetResourceSyncRequest generates requests for GetResourceSync
+func NewGetResourceSyncRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4433,8 +4541,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteCertificateSigningRequestWithResponse request
 	DeleteCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteCertificateSigningRequestResponse, error)
 
-	// ReadCertificateSigningRequestWithResponse request
-	ReadCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadCertificateSigningRequestResponse, error)
+	// GetCertificateSigningRequestWithResponse request
+	GetCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetCertificateSigningRequestResponse, error)
 
 	// PatchCertificateSigningRequestWithBodyWithResponse request with any body
 	PatchCertificateSigningRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestResponse, error)
@@ -4465,8 +4573,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteDeviceWithResponse request
 	DeleteDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteDeviceResponse, error)
 
-	// ReadDeviceWithResponse request
-	ReadDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceResponse, error)
+	// GetDeviceWithResponse request
+	GetDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceResponse, error)
 
 	// PatchDeviceWithBodyWithResponse request with any body
 	PatchDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchDeviceResponse, error)
@@ -4486,8 +4594,8 @@ type ClientWithResponsesInterface interface {
 	// GetRenderedDeviceWithResponse request
 	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
 
-	// ReadDeviceStatusWithResponse request
-	ReadDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceStatusResponse, error)
+	// GetDeviceStatusWithResponse request
+	GetDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceStatusResponse, error)
 
 	// PatchDeviceStatusWithBodyWithResponse request with any body
 	PatchDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error)
@@ -4516,8 +4624,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteEnrollmentRequestWithResponse request
 	DeleteEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestResponse, error)
 
-	// ReadEnrollmentRequestWithResponse request
-	ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error)
+	// GetEnrollmentRequestWithResponse request
+	GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestResponse, error)
 
 	// PatchEnrollmentRequestWithBodyWithResponse request with any body
 	PatchEnrollmentRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchEnrollmentRequestResponse, error)
@@ -4534,8 +4642,8 @@ type ClientWithResponsesInterface interface {
 
 	ApproveEnrollmentRequestWithResponse(ctx context.Context, name string, body ApproveEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ApproveEnrollmentRequestResponse, error)
 
-	// ReadEnrollmentRequestStatusWithResponse request
-	ReadEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestStatusResponse, error)
+	// GetEnrollmentRequestStatusWithResponse request
+	GetEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestStatusResponse, error)
 
 	// PatchEnrollmentRequestStatusWithBodyWithResponse request with any body
 	PatchEnrollmentRequestStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchEnrollmentRequestStatusResponse, error)
@@ -4567,14 +4675,14 @@ type ClientWithResponsesInterface interface {
 	// DeleteTemplateVersionWithResponse request
 	DeleteTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionResponse, error)
 
-	// ReadTemplateVersionWithResponse request
-	ReadTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*ReadTemplateVersionResponse, error)
+	// GetTemplateVersionWithResponse request
+	GetTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*GetTemplateVersionResponse, error)
 
 	// DeleteFleetWithResponse request
 	DeleteFleetWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteFleetResponse, error)
 
-	// ReadFleetWithResponse request
-	ReadFleetWithResponse(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*ReadFleetResponse, error)
+	// GetFleetWithResponse request
+	GetFleetWithResponse(ctx context.Context, name string, params *GetFleetParams, reqEditors ...RequestEditorFn) (*GetFleetResponse, error)
 
 	// PatchFleetWithBodyWithResponse request with any body
 	PatchFleetWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchFleetResponse, error)
@@ -4586,8 +4694,8 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceFleetWithResponse(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetResponse, error)
 
-	// ReadFleetStatusWithResponse request
-	ReadFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadFleetStatusResponse, error)
+	// GetFleetStatusWithResponse request
+	GetFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetFleetStatusResponse, error)
 
 	// PatchFleetStatusWithBodyWithResponse request with any body
 	PatchFleetStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchFleetStatusResponse, error)
@@ -4598,6 +4706,9 @@ type ClientWithResponsesInterface interface {
 	ReplaceFleetStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
 
 	ReplaceFleetStatusWithResponse(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
+
+	// ListLabelsWithResponse request
+	ListLabelsWithResponse(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*ListLabelsResponse, error)
 
 	// DeleteRepositoriesWithResponse request
 	DeleteRepositoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteRepositoriesResponse, error)
@@ -4613,8 +4724,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteRepositoryWithResponse request
 	DeleteRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteRepositoryResponse, error)
 
-	// ReadRepositoryWithResponse request
-	ReadRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadRepositoryResponse, error)
+	// GetRepositoryWithResponse request
+	GetRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetRepositoryResponse, error)
 
 	// PatchRepositoryWithBodyWithResponse request with any body
 	PatchRepositoryWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchRepositoryResponse, error)
@@ -4629,8 +4740,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteResourceSyncsWithResponse request
 	DeleteResourceSyncsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteResourceSyncsResponse, error)
 
-	// ListResourceSyncWithResponse request
-	ListResourceSyncWithResponse(ctx context.Context, params *ListResourceSyncParams, reqEditors ...RequestEditorFn) (*ListResourceSyncResponse, error)
+	// ListResourceSyncsWithResponse request
+	ListResourceSyncsWithResponse(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*ListResourceSyncsResponse, error)
 
 	// CreateResourceSyncWithBodyWithResponse request with any body
 	CreateResourceSyncWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateResourceSyncResponse, error)
@@ -4640,8 +4751,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteResourceSyncWithResponse request
 	DeleteResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteResourceSyncResponse, error)
 
-	// ReadResourceSyncWithResponse request
-	ReadResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadResourceSyncResponse, error)
+	// GetResourceSyncWithResponse request
+	GetResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetResourceSyncResponse, error)
 
 	// PatchResourceSyncWithBodyWithResponse request with any body
 	PatchResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchResourceSyncResponse, error)
@@ -4661,6 +4772,7 @@ type AuthConfigResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *AuthConfig
+	JSON418      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4682,6 +4794,9 @@ func (r AuthConfigResponse) StatusCode() int {
 type AuthValidateResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON200      *Status
+	JSON401      *Status
+	JSON418      *Status
 	JSON500      *Status
 }
 
@@ -4782,7 +4897,7 @@ func (r CreateCertificateSigningRequestResponse) StatusCode() int {
 type DeleteCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *CertificateSigningRequest
+	JSON200      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -4805,7 +4920,7 @@ func (r DeleteCertificateSigningRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadCertificateSigningRequestResponse struct {
+type GetCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
@@ -4816,7 +4931,7 @@ type ReadCertificateSigningRequestResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadCertificateSigningRequestResponse) Status() string {
+func (r GetCertificateSigningRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -4824,7 +4939,7 @@ func (r ReadCertificateSigningRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadCertificateSigningRequestResponse) StatusCode() int {
+func (r GetCertificateSigningRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -4997,7 +5112,7 @@ func (r CreateDeviceResponse) StatusCode() int {
 type DeleteDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Device
+	JSON200      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -5020,7 +5135,7 @@ func (r DeleteDeviceResponse) StatusCode() int {
 	return 0
 }
 
-type ReadDeviceResponse struct {
+type GetDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
@@ -5031,7 +5146,7 @@ type ReadDeviceResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadDeviceResponse) Status() string {
+func (r GetDeviceResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5039,7 +5154,7 @@ func (r ReadDeviceResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadDeviceResponse) StatusCode() int {
+func (r GetDeviceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5157,7 +5272,7 @@ func (r GetRenderedDeviceResponse) StatusCode() int {
 	return 0
 }
 
-type ReadDeviceStatusResponse struct {
+type GetDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
@@ -5168,7 +5283,7 @@ type ReadDeviceStatusResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadDeviceStatusResponse) Status() string {
+func (r GetDeviceStatusResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5176,7 +5291,7 @@ func (r ReadDeviceStatusResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadDeviceStatusResponse) StatusCode() int {
+func (r GetDeviceStatusResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5345,7 +5460,7 @@ func (r CreateEnrollmentRequestResponse) StatusCode() int {
 type DeleteEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *EnrollmentRequest
+	JSON200      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -5368,7 +5483,7 @@ func (r DeleteEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadEnrollmentRequestResponse struct {
+type GetEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
@@ -5379,7 +5494,7 @@ type ReadEnrollmentRequestResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadEnrollmentRequestResponse) Status() string {
+func (r GetEnrollmentRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5387,7 +5502,7 @@ func (r ReadEnrollmentRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadEnrollmentRequestResponse) StatusCode() int {
+func (r GetEnrollmentRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5478,7 +5593,7 @@ func (r ApproveEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadEnrollmentRequestStatusResponse struct {
+type GetEnrollmentRequestStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
@@ -5489,7 +5604,7 @@ type ReadEnrollmentRequestStatusResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadEnrollmentRequestStatusResponse) Status() string {
+func (r GetEnrollmentRequestStatusResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5497,7 +5612,7 @@ func (r ReadEnrollmentRequestStatusResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadEnrollmentRequestStatusResponse) StatusCode() int {
+func (r GetEnrollmentRequestStatusResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5690,7 +5805,7 @@ func (r ListTemplateVersionsResponse) StatusCode() int {
 type DeleteTemplateVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *TemplateVersion
+	JSON200      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -5713,7 +5828,7 @@ func (r DeleteTemplateVersionResponse) StatusCode() int {
 	return 0
 }
 
-type ReadTemplateVersionResponse struct {
+type GetTemplateVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *TemplateVersion
@@ -5724,7 +5839,7 @@ type ReadTemplateVersionResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadTemplateVersionResponse) Status() string {
+func (r GetTemplateVersionResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5732,7 +5847,7 @@ func (r ReadTemplateVersionResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadTemplateVersionResponse) StatusCode() int {
+func (r GetTemplateVersionResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5742,7 +5857,7 @@ func (r ReadTemplateVersionResponse) StatusCode() int {
 type DeleteFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Fleet
+	JSON200      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -5765,7 +5880,7 @@ func (r DeleteFleetResponse) StatusCode() int {
 	return 0
 }
 
-type ReadFleetResponse struct {
+type GetFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
@@ -5776,7 +5891,7 @@ type ReadFleetResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadFleetResponse) Status() string {
+func (r GetFleetResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5784,7 +5899,7 @@ func (r ReadFleetResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadFleetResponse) StatusCode() int {
+func (r GetFleetResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5848,7 +5963,7 @@ func (r ReplaceFleetResponse) StatusCode() int {
 	return 0
 }
 
-type ReadFleetStatusResponse struct {
+type GetFleetStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
@@ -5859,7 +5974,7 @@ type ReadFleetStatusResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadFleetStatusResponse) Status() string {
+func (r GetFleetStatusResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5867,7 +5982,7 @@ func (r ReadFleetStatusResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadFleetStatusResponse) StatusCode() int {
+func (r GetFleetStatusResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5921,6 +6036,32 @@ func (r ReplaceFleetStatusResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceFleetStatusResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListLabelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *LabelList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r ListLabelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListLabelsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6008,7 +6149,7 @@ func (r CreateRepositoryResponse) StatusCode() int {
 type DeleteRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Repository
+	JSON200      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -6031,7 +6172,7 @@ func (r DeleteRepositoryResponse) StatusCode() int {
 	return 0
 }
 
-type ReadRepositoryResponse struct {
+type GetRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Repository
@@ -6042,7 +6183,7 @@ type ReadRepositoryResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadRepositoryResponse) Status() string {
+func (r GetRepositoryResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -6050,7 +6191,7 @@ func (r ReadRepositoryResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadRepositoryResponse) StatusCode() int {
+func (r GetRepositoryResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6139,7 +6280,7 @@ func (r DeleteResourceSyncsResponse) StatusCode() int {
 	return 0
 }
 
-type ListResourceSyncResponse struct {
+type ListResourceSyncsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ResourceSyncList
@@ -6150,7 +6291,7 @@ type ListResourceSyncResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ListResourceSyncResponse) Status() string {
+func (r ListResourceSyncsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -6158,7 +6299,7 @@ func (r ListResourceSyncResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ListResourceSyncResponse) StatusCode() int {
+func (r ListResourceSyncsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6195,7 +6336,7 @@ func (r CreateResourceSyncResponse) StatusCode() int {
 type DeleteResourceSyncResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *ResourceSync
+	JSON200      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -6218,7 +6359,7 @@ func (r DeleteResourceSyncResponse) StatusCode() int {
 	return 0
 }
 
-type ReadResourceSyncResponse struct {
+type GetResourceSyncResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ResourceSync
@@ -6229,7 +6370,7 @@ type ReadResourceSyncResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadResourceSyncResponse) Status() string {
+func (r GetResourceSyncResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -6237,7 +6378,7 @@ func (r ReadResourceSyncResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadResourceSyncResponse) StatusCode() int {
+func (r GetResourceSyncResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6387,13 +6528,13 @@ func (c *ClientWithResponses) DeleteCertificateSigningRequestWithResponse(ctx co
 	return ParseDeleteCertificateSigningRequestResponse(rsp)
 }
 
-// ReadCertificateSigningRequestWithResponse request returning *ReadCertificateSigningRequestResponse
-func (c *ClientWithResponses) ReadCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadCertificateSigningRequestResponse, error) {
-	rsp, err := c.ReadCertificateSigningRequest(ctx, name, reqEditors...)
+// GetCertificateSigningRequestWithResponse request returning *GetCertificateSigningRequestResponse
+func (c *ClientWithResponses) GetCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetCertificateSigningRequestResponse, error) {
+	rsp, err := c.GetCertificateSigningRequest(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadCertificateSigningRequestResponse(rsp)
+	return ParseGetCertificateSigningRequestResponse(rsp)
 }
 
 // PatchCertificateSigningRequestWithBodyWithResponse request with arbitrary body returning *PatchCertificateSigningRequestResponse
@@ -6491,13 +6632,13 @@ func (c *ClientWithResponses) DeleteDeviceWithResponse(ctx context.Context, name
 	return ParseDeleteDeviceResponse(rsp)
 }
 
-// ReadDeviceWithResponse request returning *ReadDeviceResponse
-func (c *ClientWithResponses) ReadDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceResponse, error) {
-	rsp, err := c.ReadDevice(ctx, name, reqEditors...)
+// GetDeviceWithResponse request returning *GetDeviceResponse
+func (c *ClientWithResponses) GetDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceResponse, error) {
+	rsp, err := c.GetDevice(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadDeviceResponse(rsp)
+	return ParseGetDeviceResponse(rsp)
 }
 
 // PatchDeviceWithBodyWithResponse request with arbitrary body returning *PatchDeviceResponse
@@ -6560,13 +6701,13 @@ func (c *ClientWithResponses) GetRenderedDeviceWithResponse(ctx context.Context,
 	return ParseGetRenderedDeviceResponse(rsp)
 }
 
-// ReadDeviceStatusWithResponse request returning *ReadDeviceStatusResponse
-func (c *ClientWithResponses) ReadDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceStatusResponse, error) {
-	rsp, err := c.ReadDeviceStatus(ctx, name, reqEditors...)
+// GetDeviceStatusWithResponse request returning *GetDeviceStatusResponse
+func (c *ClientWithResponses) GetDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceStatusResponse, error) {
+	rsp, err := c.GetDeviceStatus(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadDeviceStatusResponse(rsp)
+	return ParseGetDeviceStatusResponse(rsp)
 }
 
 // PatchDeviceStatusWithBodyWithResponse request with arbitrary body returning *PatchDeviceStatusResponse
@@ -6656,13 +6797,13 @@ func (c *ClientWithResponses) DeleteEnrollmentRequestWithResponse(ctx context.Co
 	return ParseDeleteEnrollmentRequestResponse(rsp)
 }
 
-// ReadEnrollmentRequestWithResponse request returning *ReadEnrollmentRequestResponse
-func (c *ClientWithResponses) ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error) {
-	rsp, err := c.ReadEnrollmentRequest(ctx, name, reqEditors...)
+// GetEnrollmentRequestWithResponse request returning *GetEnrollmentRequestResponse
+func (c *ClientWithResponses) GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestResponse, error) {
+	rsp, err := c.GetEnrollmentRequest(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadEnrollmentRequestResponse(rsp)
+	return ParseGetEnrollmentRequestResponse(rsp)
 }
 
 // PatchEnrollmentRequestWithBodyWithResponse request with arbitrary body returning *PatchEnrollmentRequestResponse
@@ -6716,13 +6857,13 @@ func (c *ClientWithResponses) ApproveEnrollmentRequestWithResponse(ctx context.C
 	return ParseApproveEnrollmentRequestResponse(rsp)
 }
 
-// ReadEnrollmentRequestStatusWithResponse request returning *ReadEnrollmentRequestStatusResponse
-func (c *ClientWithResponses) ReadEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestStatusResponse, error) {
-	rsp, err := c.ReadEnrollmentRequestStatus(ctx, name, reqEditors...)
+// GetEnrollmentRequestStatusWithResponse request returning *GetEnrollmentRequestStatusResponse
+func (c *ClientWithResponses) GetEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestStatusResponse, error) {
+	rsp, err := c.GetEnrollmentRequestStatus(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadEnrollmentRequestStatusResponse(rsp)
+	return ParseGetEnrollmentRequestStatusResponse(rsp)
 }
 
 // PatchEnrollmentRequestStatusWithBodyWithResponse request with arbitrary body returning *PatchEnrollmentRequestStatusResponse
@@ -6821,13 +6962,13 @@ func (c *ClientWithResponses) DeleteTemplateVersionWithResponse(ctx context.Cont
 	return ParseDeleteTemplateVersionResponse(rsp)
 }
 
-// ReadTemplateVersionWithResponse request returning *ReadTemplateVersionResponse
-func (c *ClientWithResponses) ReadTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*ReadTemplateVersionResponse, error) {
-	rsp, err := c.ReadTemplateVersion(ctx, fleet, name, reqEditors...)
+// GetTemplateVersionWithResponse request returning *GetTemplateVersionResponse
+func (c *ClientWithResponses) GetTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*GetTemplateVersionResponse, error) {
+	rsp, err := c.GetTemplateVersion(ctx, fleet, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadTemplateVersionResponse(rsp)
+	return ParseGetTemplateVersionResponse(rsp)
 }
 
 // DeleteFleetWithResponse request returning *DeleteFleetResponse
@@ -6839,13 +6980,13 @@ func (c *ClientWithResponses) DeleteFleetWithResponse(ctx context.Context, name 
 	return ParseDeleteFleetResponse(rsp)
 }
 
-// ReadFleetWithResponse request returning *ReadFleetResponse
-func (c *ClientWithResponses) ReadFleetWithResponse(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*ReadFleetResponse, error) {
-	rsp, err := c.ReadFleet(ctx, name, params, reqEditors...)
+// GetFleetWithResponse request returning *GetFleetResponse
+func (c *ClientWithResponses) GetFleetWithResponse(ctx context.Context, name string, params *GetFleetParams, reqEditors ...RequestEditorFn) (*GetFleetResponse, error) {
+	rsp, err := c.GetFleet(ctx, name, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadFleetResponse(rsp)
+	return ParseGetFleetResponse(rsp)
 }
 
 // PatchFleetWithBodyWithResponse request with arbitrary body returning *PatchFleetResponse
@@ -6882,13 +7023,13 @@ func (c *ClientWithResponses) ReplaceFleetWithResponse(ctx context.Context, name
 	return ParseReplaceFleetResponse(rsp)
 }
 
-// ReadFleetStatusWithResponse request returning *ReadFleetStatusResponse
-func (c *ClientWithResponses) ReadFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadFleetStatusResponse, error) {
-	rsp, err := c.ReadFleetStatus(ctx, name, reqEditors...)
+// GetFleetStatusWithResponse request returning *GetFleetStatusResponse
+func (c *ClientWithResponses) GetFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetFleetStatusResponse, error) {
+	rsp, err := c.GetFleetStatus(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadFleetStatusResponse(rsp)
+	return ParseGetFleetStatusResponse(rsp)
 }
 
 // PatchFleetStatusWithBodyWithResponse request with arbitrary body returning *PatchFleetStatusResponse
@@ -6923,6 +7064,15 @@ func (c *ClientWithResponses) ReplaceFleetStatusWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseReplaceFleetStatusResponse(rsp)
+}
+
+// ListLabelsWithResponse request returning *ListLabelsResponse
+func (c *ClientWithResponses) ListLabelsWithResponse(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*ListLabelsResponse, error) {
+	rsp, err := c.ListLabels(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListLabelsResponse(rsp)
 }
 
 // DeleteRepositoriesWithResponse request returning *DeleteRepositoriesResponse
@@ -6969,13 +7119,13 @@ func (c *ClientWithResponses) DeleteRepositoryWithResponse(ctx context.Context, 
 	return ParseDeleteRepositoryResponse(rsp)
 }
 
-// ReadRepositoryWithResponse request returning *ReadRepositoryResponse
-func (c *ClientWithResponses) ReadRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadRepositoryResponse, error) {
-	rsp, err := c.ReadRepository(ctx, name, reqEditors...)
+// GetRepositoryWithResponse request returning *GetRepositoryResponse
+func (c *ClientWithResponses) GetRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetRepositoryResponse, error) {
+	rsp, err := c.GetRepository(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadRepositoryResponse(rsp)
+	return ParseGetRepositoryResponse(rsp)
 }
 
 // PatchRepositoryWithBodyWithResponse request with arbitrary body returning *PatchRepositoryResponse
@@ -7021,13 +7171,13 @@ func (c *ClientWithResponses) DeleteResourceSyncsWithResponse(ctx context.Contex
 	return ParseDeleteResourceSyncsResponse(rsp)
 }
 
-// ListResourceSyncWithResponse request returning *ListResourceSyncResponse
-func (c *ClientWithResponses) ListResourceSyncWithResponse(ctx context.Context, params *ListResourceSyncParams, reqEditors ...RequestEditorFn) (*ListResourceSyncResponse, error) {
-	rsp, err := c.ListResourceSync(ctx, params, reqEditors...)
+// ListResourceSyncsWithResponse request returning *ListResourceSyncsResponse
+func (c *ClientWithResponses) ListResourceSyncsWithResponse(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*ListResourceSyncsResponse, error) {
+	rsp, err := c.ListResourceSyncs(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseListResourceSyncResponse(rsp)
+	return ParseListResourceSyncsResponse(rsp)
 }
 
 // CreateResourceSyncWithBodyWithResponse request with arbitrary body returning *CreateResourceSyncResponse
@@ -7056,13 +7206,13 @@ func (c *ClientWithResponses) DeleteResourceSyncWithResponse(ctx context.Context
 	return ParseDeleteResourceSyncResponse(rsp)
 }
 
-// ReadResourceSyncWithResponse request returning *ReadResourceSyncResponse
-func (c *ClientWithResponses) ReadResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadResourceSyncResponse, error) {
-	rsp, err := c.ReadResourceSync(ctx, name, reqEditors...)
+// GetResourceSyncWithResponse request returning *GetResourceSyncResponse
+func (c *ClientWithResponses) GetResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetResourceSyncResponse, error) {
+	rsp, err := c.GetResourceSync(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadResourceSyncResponse(rsp)
+	return ParseGetResourceSyncResponse(rsp)
 }
 
 // PatchResourceSyncWithBodyWithResponse request with arbitrary body returning *PatchResourceSyncResponse
@@ -7129,6 +7279,13 @@ func ParseAuthConfigResponse(rsp *http.Response) (*AuthConfigResponse, error) {
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 418:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON418 = &dest
+
 	}
 
 	return response, nil
@@ -7148,6 +7305,27 @@ func ParseAuthValidateResponse(rsp *http.Response) (*AuthValidateResponse, error
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 418:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON418 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7337,7 +7515,7 @@ func ParseDeleteCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCe
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CertificateSigningRequest
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7376,15 +7554,15 @@ func ParseDeleteCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCe
 	return response, nil
 }
 
-// ParseReadCertificateSigningRequestResponse parses an HTTP response from a ReadCertificateSigningRequestWithResponse call
-func ParseReadCertificateSigningRequestResponse(rsp *http.Response) (*ReadCertificateSigningRequestResponse, error) {
+// ParseGetCertificateSigningRequestResponse parses an HTTP response from a GetCertificateSigningRequestWithResponse call
+func ParseGetCertificateSigningRequestResponse(rsp *http.Response) (*GetCertificateSigningRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadCertificateSigningRequestResponse{
+	response := &GetCertificateSigningRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -7818,7 +7996,7 @@ func ParseDeleteDeviceResponse(rsp *http.Response) (*DeleteDeviceResponse, error
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Device
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7857,15 +8035,15 @@ func ParseDeleteDeviceResponse(rsp *http.Response) (*DeleteDeviceResponse, error
 	return response, nil
 }
 
-// ParseReadDeviceResponse parses an HTTP response from a ReadDeviceWithResponse call
-func ParseReadDeviceResponse(rsp *http.Response) (*ReadDeviceResponse, error) {
+// ParseGetDeviceResponse parses an HTTP response from a GetDeviceWithResponse call
+func ParseGetDeviceResponse(rsp *http.Response) (*GetDeviceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadDeviceResponse{
+	response := &GetDeviceResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -8176,15 +8354,15 @@ func ParseGetRenderedDeviceResponse(rsp *http.Response) (*GetRenderedDeviceRespo
 	return response, nil
 }
 
-// ParseReadDeviceStatusResponse parses an HTTP response from a ReadDeviceStatusWithResponse call
-func ParseReadDeviceStatusResponse(rsp *http.Response) (*ReadDeviceStatusResponse, error) {
+// ParseGetDeviceStatusResponse parses an HTTP response from a GetDeviceStatusWithResponse call
+func ParseGetDeviceStatusResponse(rsp *http.Response) (*GetDeviceStatusResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadDeviceStatusResponse{
+	response := &GetDeviceStatusResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -8590,7 +8768,7 @@ func ParseDeleteEnrollmentRequestResponse(rsp *http.Response) (*DeleteEnrollment
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest EnrollmentRequest
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8629,15 +8807,15 @@ func ParseDeleteEnrollmentRequestResponse(rsp *http.Response) (*DeleteEnrollment
 	return response, nil
 }
 
-// ParseReadEnrollmentRequestResponse parses an HTTP response from a ReadEnrollmentRequestWithResponse call
-func ParseReadEnrollmentRequestResponse(rsp *http.Response) (*ReadEnrollmentRequestResponse, error) {
+// ParseGetEnrollmentRequestResponse parses an HTTP response from a GetEnrollmentRequestWithResponse call
+func ParseGetEnrollmentRequestResponse(rsp *http.Response) (*GetEnrollmentRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadEnrollmentRequestResponse{
+	response := &GetEnrollmentRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -8887,15 +9065,15 @@ func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollme
 	return response, nil
 }
 
-// ParseReadEnrollmentRequestStatusResponse parses an HTTP response from a ReadEnrollmentRequestStatusWithResponse call
-func ParseReadEnrollmentRequestStatusResponse(rsp *http.Response) (*ReadEnrollmentRequestStatusResponse, error) {
+// ParseGetEnrollmentRequestStatusResponse parses an HTTP response from a GetEnrollmentRequestStatusWithResponse call
+func ParseGetEnrollmentRequestStatusResponse(rsp *http.Response) (*GetEnrollmentRequestStatusResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadEnrollmentRequestStatusResponse{
+	response := &GetEnrollmentRequestStatusResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9341,7 +9519,7 @@ func ParseDeleteTemplateVersionResponse(rsp *http.Response) (*DeleteTemplateVers
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest TemplateVersion
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9380,15 +9558,15 @@ func ParseDeleteTemplateVersionResponse(rsp *http.Response) (*DeleteTemplateVers
 	return response, nil
 }
 
-// ParseReadTemplateVersionResponse parses an HTTP response from a ReadTemplateVersionWithResponse call
-func ParseReadTemplateVersionResponse(rsp *http.Response) (*ReadTemplateVersionResponse, error) {
+// ParseGetTemplateVersionResponse parses an HTTP response from a GetTemplateVersionWithResponse call
+func ParseGetTemplateVersionResponse(rsp *http.Response) (*GetTemplateVersionResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadTemplateVersionResponse{
+	response := &GetTemplateVersionResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9449,7 +9627,7 @@ func ParseDeleteFleetResponse(rsp *http.Response) (*DeleteFleetResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Fleet
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9488,15 +9666,15 @@ func ParseDeleteFleetResponse(rsp *http.Response) (*DeleteFleetResponse, error) 
 	return response, nil
 }
 
-// ParseReadFleetResponse parses an HTTP response from a ReadFleetWithResponse call
-func ParseReadFleetResponse(rsp *http.Response) (*ReadFleetResponse, error) {
+// ParseGetFleetResponse parses an HTTP response from a GetFleetWithResponse call
+func ParseGetFleetResponse(rsp *http.Response) (*GetFleetResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadFleetResponse{
+	response := &GetFleetResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9685,15 +9863,15 @@ func ParseReplaceFleetResponse(rsp *http.Response) (*ReplaceFleetResponse, error
 	return response, nil
 }
 
-// ParseReadFleetStatusResponse parses an HTTP response from a ReadFleetStatusWithResponse call
-func ParseReadFleetStatusResponse(rsp *http.Response) (*ReadFleetStatusResponse, error) {
+// ParseGetFleetStatusResponse parses an HTTP response from a GetFleetStatusWithResponse call
+func ParseGetFleetStatusResponse(rsp *http.Response) (*GetFleetStatusResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadFleetStatusResponse{
+	response := &GetFleetStatusResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9841,6 +10019,60 @@ func ParseReplaceFleetStatusResponse(rsp *http.Response) (*ReplaceFleetStatusRes
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListLabelsResponse parses an HTTP response from a ListLabelsWithResponse call
+func ParseListLabelsResponse(rsp *http.Response) (*ListLabelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListLabelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LabelList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
@@ -10031,7 +10263,7 @@ func ParseDeleteRepositoryResponse(rsp *http.Response) (*DeleteRepositoryRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Repository
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10070,15 +10302,15 @@ func ParseDeleteRepositoryResponse(rsp *http.Response) (*DeleteRepositoryRespons
 	return response, nil
 }
 
-// ParseReadRepositoryResponse parses an HTTP response from a ReadRepositoryWithResponse call
-func ParseReadRepositoryResponse(rsp *http.Response) (*ReadRepositoryResponse, error) {
+// ParseGetRepositoryResponse parses an HTTP response from a GetRepositoryWithResponse call
+func ParseGetRepositoryResponse(rsp *http.Response) (*GetRepositoryResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadRepositoryResponse{
+	response := &GetRepositoryResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -10314,15 +10546,15 @@ func ParseDeleteResourceSyncsResponse(rsp *http.Response) (*DeleteResourceSyncsR
 	return response, nil
 }
 
-// ParseListResourceSyncResponse parses an HTTP response from a ListResourceSyncWithResponse call
-func ParseListResourceSyncResponse(rsp *http.Response) (*ListResourceSyncResponse, error) {
+// ParseListResourceSyncsResponse parses an HTTP response from a ListResourceSyncsWithResponse call
+func ParseListResourceSyncsResponse(rsp *http.Response) (*ListResourceSyncsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ListResourceSyncResponse{
+	response := &ListResourceSyncsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -10444,7 +10676,7 @@ func ParseDeleteResourceSyncResponse(rsp *http.Response) (*DeleteResourceSyncRes
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ResourceSync
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10483,15 +10715,15 @@ func ParseDeleteResourceSyncResponse(rsp *http.Response) (*DeleteResourceSyncRes
 	return response, nil
 }
 
-// ParseReadResourceSyncResponse parses an HTTP response from a ReadResourceSyncWithResponse call
-func ParseReadResourceSyncResponse(rsp *http.Response) (*ReadResourceSyncResponse, error) {
+// ParseGetResourceSyncResponse parses an HTTP response from a GetResourceSyncWithResponse call
+func ParseGetResourceSyncResponse(rsp *http.Response) (*GetResourceSyncResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadResourceSyncResponse{
+	response := &GetResourceSyncResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
@@ -192,6 +193,9 @@ func TestListenForEvents(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
+			tmpDir := t.TempDir()
+			r := fileio.NewReader()
+			r.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
 			var testInspect []PodmanInspect
@@ -200,7 +204,7 @@ func TestListenForEvents(t *testing.T) {
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
-			podman := client.NewPodman(log, execMock, newTestBackoff())
+			podman := client.NewPodman(log, execMock, r, newTestBackoff())
 			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "")
 
 			// add test apps to the monitor
@@ -343,9 +347,12 @@ func TestApplicationAddRemove(t *testing.T) {
 			defer ctrl.Finish()
 
 			log := log.NewPrefixLogger("test")
+			tmpDir := t.TempDir()
+			reader := fileio.NewReader()
+			reader.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
-			podman := client.NewPodman(log, execMock, newTestBackoff())
+			podman := client.NewPodman(log, execMock, reader, newTestBackoff())
 			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "")
 			testApp := createTestApplication(tc.appName, v1alpha1.ApplicationStatusPreparing)
 

@@ -159,6 +159,11 @@ const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
 
+// Defines values for ListLabelsParamsKind.
+const (
+	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
+)
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
@@ -170,7 +175,7 @@ type ApplicationProviderSpec struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
-	// Name The name of the application must be between 1 and 253 characters and start with a letter or number.
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name  *string `json:"name,omitempty"`
 	union json.RawMessage
 }
@@ -415,9 +420,6 @@ type DeviceIntegrityStatus struct {
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
-
-// DeviceLabelList A list of distinct labels, where each item is formatted as "key=value".
-type DeviceLabelList = []string
 
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
@@ -1016,6 +1018,9 @@ type KubernetesSecretProviderSpec struct {
 	} `json:"secretRef"`
 }
 
+// LabelList A list of distinct labels, where each item is formatted as "key=value".
+type LabelList = []string
+
 // LabelSelector A label selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. Empty/null label selectors match nothing.
 type LabelSelector struct {
 	// MatchExpressions A list of match expressions.
@@ -1505,11 +1510,29 @@ type ListTemplateVersionsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// ReadFleetParams defines parameters for ReadFleet.
-type ReadFleetParams struct {
+// GetFleetParams defines parameters for GetFleet.
+type GetFleetParams struct {
 	// AddDevicesSummary Include a summary of the devices in the fleet.
 	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
+
+// ListLabelsParams defines parameters for ListLabels.
+type ListLabelsParams struct {
+	// Kind The type of resource to retrieve labels from.
+	Kind ListLabelsParamsKind `form:"kind" json:"kind"`
+
+	// LabelSelector A filter to retrieve labels only from resources that match the given label selector.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A filter to retrieve labels only from resources that match the given field selector.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of distinct labels to return in the response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListLabelsParamsKind defines parameters for ListLabels.
+type ListLabelsParamsKind string
 
 // ListRepositoriesParams defines parameters for ListRepositories.
 type ListRepositoriesParams struct {
@@ -1526,8 +1549,8 @@ type ListRepositoriesParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// ListResourceSyncParams defines parameters for ListResourceSync.
-type ListResourceSyncParams struct {
+// ListResourceSyncsParams defines parameters for ListResourceSyncs.
+type ListResourceSyncsParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 

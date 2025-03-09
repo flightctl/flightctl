@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -24,6 +25,7 @@ type Podman struct {
 	exec    executer.Executer
 	log     *log.PrefixLogger
 	timeout time.Duration
+	reader  fileio.Reader
 	backoff wait.Backoff
 }
 
@@ -31,11 +33,12 @@ type ImageConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
-func NewPodman(log *log.PrefixLogger, exec executer.Executer, backoff wait.Backoff) *Podman {
+func NewPodman(log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, backoff wait.Backoff) *Podman {
 	return &Podman{
 		log:     log,
 		exec:    exec,
 		timeout: defaultPodmanTimeout,
+		reader:  reader,
 		backoff: backoff,
 	}
 }
@@ -68,7 +71,7 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 
 	if options.retry {
 		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func() (bool, error) {
-			resp, err = p.pullImage(ctx, image)
+			resp, err = p.pullImage(ctx, image, options.pullSecretPath)
 			if err != nil {
 				// fail fast if the error is not retryable
 				if !errors.IsRetryable(err) {
@@ -86,18 +89,29 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 	}
 
 	// no retry
-	resp, err = p.pullImage(ctx, image)
+	resp, err = p.pullImage(ctx, image, options.pullSecretPath)
 	if err != nil {
 		return "", err
 	}
 	return resp, nil
 }
 
-func (p *Podman) pullImage(ctx context.Context, image string) (string, error) {
+func (p *Podman) pullImage(ctx context.Context, image string, pullSecretPath string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
 	args := []string{"pull", image}
+	if pullSecretPath != "" {
+		exists, err := p.reader.PathExists(pullSecretPath)
+		if err != nil {
+			return "", fmt.Errorf("check pull secret path: %w", err)
+		}
+		if !exists {
+			p.log.Errorf("Pull secret path %s does not exist", pullSecretPath)
+		} else {
+			args = append(args, "--authfile", pullSecretPath)
+		}
+	}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
 		return "", fmt.Errorf("pull image: %w", errors.FromStderr(stderr, exitCode))

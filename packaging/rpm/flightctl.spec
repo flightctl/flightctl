@@ -56,7 +56,6 @@ Summary: SELinux policies for the Flight Control management agent
 BuildRequires: selinux-policy >= %{selinux_policyver}
 BuildRequires: selinux-policy-devel >= %{selinux_policyver}
 BuildArch: noarch
-Requires: flightctl-agent = %{version}
 Requires: selinux-policy >= %{selinux_policyver}
 
 %description selinux
@@ -75,9 +74,9 @@ The flightctl-selinux package provides the SELinux policy modules required by th
         export GOPROXY='https://proxy.golang.org,direct'
     fi
 
-    SOURCE_GIT_TAG=%{version} \
+    SOURCE_GIT_TAG=$(echo %{version} | tr '~' '-') \
     SOURCE_GIT_TREE_STATE=clean \
-    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'~g' '{print $2}') \
+    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'[-~]g' '{print $2}') \
     SOURCE_GIT_TAG_NO_V=%{version} \
     make build-cli build-agent
 

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
@@ -40,7 +39,7 @@ func (s *DummyEnrollmentRequest) UpdateStatus(ctx context.Context, orgId uuid.UU
 
 func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 	require := require.New(t)
-	approval := &v1alpha1.EnrollmentRequestApproval{
+	approval := v1alpha1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &map[string]string{"label": "value"},
 	}
@@ -68,12 +67,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 		store:           &EnrollmentRequestStore{EnrollmentVal: device},
 		callbackManager: dummyCallbackManager(),
 	}
-	resp, err := serviceHandler.ApproveEnrollmentRequest(context.Background(), server.ApproveEnrollmentRequestRequestObject{
-		Name: "foo",
-		Body: approval,
-	})
-	require.NoError(err)
-	r, ok := resp.(server.ApproveEnrollmentRequest400JSONResponse)
-	require.True(ok)
-	require.Equal("Enrollment request is already approved", r.Message)
+	_, stat := serviceHandler.ApproveEnrollmentRequest(context.Background(), "foo", approval)
+	require.Equal(int32(400), stat.Code)
+	require.Equal("Enrollment request is already approved", stat.Message)
 }

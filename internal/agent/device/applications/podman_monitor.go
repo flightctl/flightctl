@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -513,7 +514,7 @@ func newComposeID(input string) string {
 	id := client.SanitizePodmanLabel(input)
 	hashValue := crc32.ChecksumIEEE([]byte(id))
 	suffix := strconv.AppendUint(nil, uint64(hashValue), 10)
-	maxLength := v1alpha1.MaxDNSNameLength - suffixLength - 1
+	maxLength := validation.DNS1123MaxLength - suffixLength - 1
 	if len(id) > maxLength {
 		id = id[:maxLength]
 	}

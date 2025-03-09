@@ -10,7 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -323,9 +323,9 @@ func (r ResourceSync) parseFleets(resources []genericResourceMap, owner *string)
 			names[name] = name
 			// don't overwrite fields that are managed by the service
 			fleet.Status = nil
-			common.NilOutManagedObjectMetaProperties(&fleet.Metadata)
+			service.NilOutManagedObjectMetaProperties(&fleet.Metadata)
 			if fleet.Spec.Template.Metadata != nil {
-				common.NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
+				service.NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
 			}
 
 			fleet.Metadata.Owner = owner

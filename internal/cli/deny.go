@@ -91,11 +91,11 @@ func (o *DenyOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	var response interface{}
-	var getResponse *apiclient.ReadCertificateSigningRequestResponse
+	var getResponse *apiclient.GetCertificateSigningRequestResponse
 
 	switch {
 	case kind == CertificateSigningRequestKind:
-		getResponse, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
+		getResponse, err = c.GetCertificateSigningRequestWithResponse(ctx, name)
 		if err != nil {
 			return fmt.Errorf("getting certificate signing request: %w", err)
 		}

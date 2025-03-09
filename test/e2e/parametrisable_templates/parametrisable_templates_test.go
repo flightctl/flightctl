@@ -55,7 +55,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			})
 
 			By("Verify the Device is updated with the labels")
-			response, err := harness.Client.ReadDeviceWithResponse(harness.Context, deviceId)
+			response, err := harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
 			Expect(err).ToNot(HaveOccurred())
 			device := response.JSON200
 			Expect(device).ToNot(BeNil(), "failed to read updated device")
@@ -69,7 +69,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Verify that the template variable is replaced in the configuration update")
-			response, err = harness.Client.ReadDeviceWithResponse(harness.Context, deviceId)
+			response, err = harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
 			Expect(err).ToNot(HaveOccurred())
 			device = response.JSON200
 			Expect(device).ToNot(BeNil(), "failed to read updated device")
@@ -110,7 +110,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 					func(device *v1alpha1.Device) bool {
 						return device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusOutOfDate
 					}, "2m")
-				resp, err := harness.Client.ReadDeviceStatusWithResponse(harness.Context, deviceId)
+				resp, err := harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device := resp.JSON200
 				Expect((*device.Metadata.Annotations)["fleet-controller/lastRolloutError"]).NotTo(BeNil())
@@ -124,7 +124,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 					logrus.Infof("Updating %s with label %s=%s", deviceId,
 						teamLabelKey, teamLabelValue)
 				})
-				resp, err = harness.Client.ReadDeviceStatusWithResponse(harness.Context, deviceId)
+				resp, err = harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device = resp.JSON200
 				Expect((*device.Metadata.Labels)[teamLabelKey]).To(ContainSubstring(teamLabelValue))
@@ -134,7 +134,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Verify that the template variable is replaced in the configuration update")
-				response, err := harness.Client.ReadDeviceWithResponse(harness.Context, deviceId)
+				response, err := harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device = response.JSON200
 				Expect(device).ToNot(BeNil(), "failed to read updated device")
@@ -213,7 +213,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Check that the template variables are replaced in the device configurations")
-				response, err := harness.Client.ReadDeviceWithResponse(harness.Context, deviceId)
+				response, err := harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device := response.JSON200
 				Expect(device).ToNot(BeNil(), "failed to read updated device")
@@ -296,7 +296,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Check that the default variables are replaced in the config")
-				response, err = harness.Client.ReadDeviceWithResponse(harness.Context, deviceId)
+				response, err = harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device = response.JSON200
 				Expect(device).ToNot(BeNil(), "failed to read updated device")
@@ -331,10 +331,10 @@ var (
 	mountPath             = "/var/home/user/{{ .metadata.labels.team }}/file.txt"
 	branchTargetRevision  = "demo"
 	httpRepoName          = "http-repo"
-	gitRepoConfigPath     = "/{{ .metadata.labels.config }}/bootc/fedora-bootc/Containerfile"
+	gitRepoConfigPath     = "/{{ .metadata.labels.config }}/bootc/Containerfile.arm64"
 	httpConfigPath        = "/var/home/user/{{ .metadata.labels.config }}"
 	configLabelKey        = "config"
-	configLabelValue      = "images"
+	configLabelValue      = "fedora-bootc"
 	revisionLabelKey      = "revision"
 	revisionLabelValue    = "main"
 	suffix                = "{{ .metadata.labels.suffix }}"

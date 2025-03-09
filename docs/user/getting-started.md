@@ -277,7 +277,7 @@ $ cat Containerfile
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl-dev centos-stream-9-x86_64 && \
+RUN dnf -y copr enable @redhat-et/flightctl && \
     dnf -y install flightctl-agent; \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
