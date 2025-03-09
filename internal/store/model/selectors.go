@@ -70,17 +70,17 @@ func (m *Device) ListSelectors() selector.SelectorNameSet {
 }
 
 func (m *DeviceLabel) MapSelectorName(name selector.SelectorName) []selector.SelectorName {
-	if strings.EqualFold("metadata.label.keyOrValue", name.String()) {
+	if strings.EqualFold("metadata.labels.keyOrValue", name.String()) {
 		return []selector.SelectorName{
-			selector.NewSelectorName("metadata.label.key"),
-			selector.NewSelectorName("metadata.label.value"),
+			selector.NewSelectorName("metadata.labels.key"),
+			selector.NewSelectorName("metadata.labels.value"),
 		}
 	}
 	return nil
 }
 
 func (m *DeviceLabel) ListSelectors() selector.SelectorNameSet {
-	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.label.keyOrValue"))
+	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.labels.keyOrValue"))
 }
 
 func (m *Fleet) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
