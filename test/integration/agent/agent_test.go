@@ -143,7 +143,6 @@ var _ = Describe("Device Agent behavior", func() {
 				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, lo.ToPtr("This text is encoded."), lo.ToPtr(0o1775))
 
 				for key, value := range secrets {
-					value := value
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
 					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, lo.ToPtr(0644))
 				}
