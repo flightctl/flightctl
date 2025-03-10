@@ -165,7 +165,6 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			for _, fleet := range fleets.Items {
-				fleet := fleet
 				fleet.Status.Conditions = []api.Condition{}
 				cond := api.SetStatusCondition(&fleet.Status.Conditions, condition)
 				Expect(cond).To(BeTrue())

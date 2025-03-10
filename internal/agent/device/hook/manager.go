@@ -146,7 +146,6 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 		if action.If != nil {
 			conditionsMet := true
 			for j, condition := range *action.If {
-				condition := condition
 				conditionMet, err := checkCondition(&condition, actionCtx)
 				if err != nil {
 					return fmt.Errorf("failed to check %s hook action #%d condition #%d: %w", actionCtx.hook, i+1, j+1, err)
