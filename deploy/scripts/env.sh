@@ -17,7 +17,7 @@ start_service() {
 }
 
 generate_password() {
-    echo "$(dd bs=512 if=/dev/urandom count=1 2>/dev/null | LC_ALL=C tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd'-')"
+    echo "$(dd bs=512 if=/dev/urandom count=1 2>/dev/null | LC_ALL=C tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sdim '-')"
 }
 
 ensure_secrets() {
@@ -45,7 +45,7 @@ ensure_secret() {
         echo "Creating secret $secret_name"
         if [ -z "${!env_var_name}" ]; then
             echo "Generating password for $env_var_name"
-            export "$env_var_name"=$(generate_password)
+            export "$env_var_name"="$(generate_password)"
         else
             echo "Using existing environment variable $env_var_name"
         fi
