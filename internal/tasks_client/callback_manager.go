@@ -50,8 +50,8 @@ type callbackManager struct {
 	log       logrus.FieldLogger
 }
 
-func TaskQueuePublisher(provider queues.Provider) (queues.Publisher, error) {
-	publisher, err := provider.NewPublisher(consts.TaskQueue)
+func TaskQueuePublisher(queuesProvider queues.Provider) (queues.Publisher, error) {
+	publisher, err := queuesProvider.NewPublisher(consts.TaskQueue)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}

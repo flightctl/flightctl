@@ -76,7 +76,9 @@ func NewCmdCertificate() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -319,7 +321,7 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 }
 
 func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) (*api.CertificateSigningRequest, error) {
-	response, err := c.ReadCertificateSigningRequestWithResponse(ctx, name)
+	response, err := c.GetCertificateSigningRequestWithResponse(ctx, name)
 	if err != nil {
 		return nil, err
 	}

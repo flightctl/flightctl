@@ -237,11 +237,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error) {
 	var labels []model.DeviceLabel
 
-	if listParams.Limit < 0 {
-		return nil, flterrors.ErrLimitParamOutOfBounds
-	}
-
-	resolver, err := selector.NewCompositeSelectorResolver(&model.Device{}, &model.DeviceLabel{})
+	resolver, err := selector.NewCompositeSelectorResolver(&model.DeviceLabel{}, &model.Device{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create selector resolver: %w", err)
 	}

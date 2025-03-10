@@ -601,20 +601,70 @@ spec:
 [...]
 ```
 
-## Accessing Devices Remotely (experimental)
+## Accessing Devices Remotely
 
-For troubleshooting an edge device, a user can be authorized to remotely connect to that device's console through the agent. This does not require an SSH connection and so works even if that device is on a private network (behind a NAT), has a dynamic IP address, or has its SSH service disabled.
+For troubleshooting an edge device, a user with the appropriate authorization (`get` permission on the `devices/console` resource) can remotely connect to the device's console through the agent. This does not require an SSH connection and so works even if that device is on a private network (behind a NAT), has a dynamic IP address, or has its SSH service disabled.
 
 ### Accessing Devices on the Web UI
 
 ### Accessing Devices on the CLI
 
-To connect, use the `flightctl console` command specifying the device's name, and the agent will establish the console connection the next time it calls home (pull mode) or instantaneously (push mode):
+To connect, use the `flightctl console` command specifying the device's name, and the agent will establish the console connection the next time it calls home:
 
 ```console
-flightctl console <some_device_name>
+flightctl console device/<some_device_name>
 ```
 
 To disconnect, enter "exit" on the console. To force-disconnect, press `<ctrl>+b` three times.
 
 ## Decommissioning Devices
+
+Decommissioning a device is the proper way to unenroll it and permanently remove it from Flight Control management. When a user requests the decommissioning of a device, the Flight Control service signals to the Flight Control agent to run a decommissioning process. This process includes erasing the agent's management certificate and key and with it the device's Flight Control identity. This is an action that cannot be undone. Decommissioning should be performed before deleting a device.
+
+To decommission a device:
+
+```console
+flightctl decommission devices/<some_device_name>
+```
+
+You can see that the decommissioning request was properly received by the Flight Control service when it includes a decommissioning target in its device specification and its lifecycle status (`status.lifecycle.status`) moves to Decommissioning:
+
+```console
+$ flightctl get devices/<some_device_name> -o yaml
+
+...
+spec:
+  decommissioning:
+    target: Unenroll
+...
+status:
+  ...
+  lifecycle:
+    status: Decommissioning
+...
+```
+
+Once the device receives the decommissioning request from the server, it will acknowledge the request with a decommissioning `Condition` that can also be seen in the device info:
+
+```console
+$ flightctl get devices/<some_device_name> -o yaml
+
+...
+status:
+...
+  conditions:
+  ...
+    - lastTransitionTime: "2025-03-05T20:40:48.443917332Z"
+    message: The device has completed decommissioning and will wipe its management
+      certificate
+    reason: Completed
+    status: "True"
+    type: DeviceDecommissioning
+
+```
+
+When the device has completed its decommissioning steps, the `status.lifecycle.status` field will show the value `Decommissioned`. At this point, it is safe to delete the device with:
+
+```console
+flightctl delete devices/<some_device_name>
+```
