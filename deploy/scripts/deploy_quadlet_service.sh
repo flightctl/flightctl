@@ -13,6 +13,7 @@ deploy_service() {
     # Stop the service if it's running
     systemctl --user stop "$service_full_name" || true
 
+    echo "Performing pre-install for $service_full_name"
     # Handle pre-startup logic for each service
     if [[ "$service_name" == "db" ]]; then
         podman volume rm flightctl-db || true
@@ -25,6 +26,7 @@ deploy_service() {
         ensure_kv_secrets
     fi
 
+    echo "Moving quadlet files for $service_full_name"
     mkdir -p "$SYSTEMD_DIR"
     cp deploy/podman/flightctl-$service_name/flightctl-$service_name-standalone.container "$SYSTEMD_DIR"
     cp deploy/podman/flightctl-$service_name/flightctl-$service_name.volume "$SYSTEMD_DIR"
@@ -34,6 +36,7 @@ deploy_service() {
 
     # Handle post-startup logic for db service
     if [[ "$service_name" == "db" ]]; then
+        echo "Waiting for PostgreSQL to start"
         test/scripts/wait_for_postgres.sh podman
         podman exec flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
         podman exec flightctl-db createdb admin || true

@@ -27,46 +27,30 @@ ensure_secrets() {
 
 ensure_postgres_secrets() {
     echo "Ensuring secrets for PostgreSQL"
-    if [ -z "${FLIGHTCTL_POSTGRESQL_PASSWORD}" ]; then
-        export FLIGHTCTL_POSTGRESQL_PASSWORD=$(generate_password)
-    fi
-    if [ -z "${FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD}" ]; then
-        export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=$(generate_password)
-    fi
-    if [ -z "${FLIGHTCTL_POSTGRESQL_USER_PASSWORD}" ]; then
-        export FLIGHTCTL_POSTGRESQL_USER_PASSWORD=$(generate_password)
-    fi
-
-    if ! podman secret exists flightctl-postgresql-password; then
-        echo "Creating secret flightctl-postgresql-password"
-        if ! podman secret create --env flightctl-postgresql-password FLIGHTCTL_POSTGRESQL_PASSWORD; then
-            echo "Error creating secret flightctl-postgresql-password"
-        fi
-    fi
-    if ! podman secret exists flightctl-postgresql-master-password; then
-        echo "Creating secret flightctl-postgresql-master-password"
-        if ! podman secret create --env flightctl-postgresql-master-password FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD; then
-            echo "Error creating secret flightctl-postgresql-master-password"
-        fi
-    fi
-    if ! podman secret exists flightctl-postgresql-user-password; then
-        echo "Creating secret flightctl-postgresql-user-password"
-        if ! podman secret create --env flightctl-postgresql-user-password FLIGHTCTL_POSTGRESQL_USER_PASSWORD; then
-            echo "Error creating secret flightctl-postgresql-user-password"
-        fi
-    fi
+    ensure_secret "flightctl-postgresql-password" "FLIGHTCTL_POSTGRESQL_PASSWORD"
+    ensure_secret "flightctl-postgresql-master-password" "FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD"
+    ensure_secret "flightctl-postgresql-user-password" "FLIGHTCTL_POSTGRESQL_USER_PASSWORD"
 }
 
 ensure_kv_secrets() {
     echo "Ensuring secrets for KV"
-    if [ -z "${FLIGHTCTL_KV_PASSWORD}" ]; then
-        export FLIGHTCTL_KV_PASSWORD=$(generate_password)
-    fi
+    ensure_secret "flightctl-kv-password" "FLIGHTCTL_KV_PASSWORD"
+}
 
-    if ! podman secret exists flightctl-kv-password; then
-        echo "Creating secret flightctl-kv-password"
-        if ! podman secret create --env flightctl-kv-password FLIGHTCTL_KV_PASSWORD; then
-            echo "Error creating secret flightctl-kv-password"
+ensure_secret() {
+    local secret_name=$1
+    local env_var_name=$2
+
+    if ! podman secret exists "$secret_name"; then
+        echo "Creating secret $secret_name"
+        if [ -z "${!env_var_name}" ]; then
+            echo "Generating password for $env_var_name"
+            export "$env_var_name"=$(generate_password)
+        else
+            echo "Using existing environment variable $env_var_name"
+        fi
+        if ! podman secret create --env "$secret_name" "$env_var_name"; then
+            echo "Error creating secret $secret_name"
         fi
     fi
 }
