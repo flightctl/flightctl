@@ -17,12 +17,12 @@ deploy_service() {
     if [[ "$service_name" == "db" ]]; then
         podman volume rm flightctl-db || true
         podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
-        create_postgres_secrets
+        ensure_postgres_secrets
     else
         # Copy configuration files
         mkdir -p "$CONFIG_DIR/flightctl-$service_name-config"
         cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf "$CONFIG_DIR/flightctl-kv-config/redis.conf"
-        create_kv_secrets
+        ensure_kv_secrets
     fi
 
     mkdir -p "$SYSTEMD_DIR"
