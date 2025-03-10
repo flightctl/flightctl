@@ -34,8 +34,8 @@ cp deploy/podman/flightctl-periodic/flightctl-periodic-config/config.yaml "$CONF
 mkdir -p "$CONFIG_DIR/flightctl-worker-config"
 cp deploy/podman/flightctl-worker/flightctl-worker-config/config.yaml "$CONFIG_DIR/flightctl-worker-config/config.yaml"
 
-echo "Ensuring secrets are created"
-create_secrets
+echo "Ensuring required secrets exist"
+ensure_secrets
 
 start_service flightctl.slice
 
