@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/types"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 	"k8s.io/klog/v2"
@@ -48,77 +49,29 @@ const (
 )
 
 type Config struct {
-	// ConfigDir is the directory where the device's configuration is stored
-	ConfigDir string `json:"-"`
-	// DataDir is the directory where the device's data is stored
-	DataDir string `json:"-"`
-
-	// EnrollmentService is the client configuration for connecting to the device enrollment server
-	EnrollmentService EnrollmentService `json:"enrollment-service,omitempty"`
-	// ManagementService is the client configuration for connecting to the device management server
-	ManagementService ManagementService `json:"management-service,omitempty"`
-
-	// SpecFetchInterval is the interval between two reads of the remote device spec
-	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
-	// StatusUpdateInterval is the interval between two status updates
-	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
-
-	// TPMPath is the path to the TPM device
-	TPMPath string `json:"tpm-path,omitempty"`
-
-	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
-	// "info", "debug" or "trace", any other will be treated as "info"
-	LogLevel string `json:"log-level,omitempty"`
-	// LogPrefix is the log prefix used for testing
-	LogPrefix string `json:"log-prefix,omitempty"`
+	types.AgentConfig
 
 	// testRootDir is the root directory of the test agent
 	testRootDir string
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
 	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
 
-	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
-	DefaultLabels map[string]string `json:"default-labels,omitempty"`
-
 	readWriter fileio.ReadWriter
-}
-
-type EnrollmentService struct {
-	client.Config
-
-	// EnrollmentUIEndpoint is the address of the device enrollment UI
-	EnrollmentUIEndpoint string `json:"enrollment-ui-endpoint,omitempty"`
-}
-
-type ManagementService struct {
-	client.Config
-}
-
-func (s *EnrollmentService) Equal(s2 *EnrollmentService) bool {
-	if s == s2 {
-		return true
-	}
-	return s.Config.Equal(&s2.Config) && s.EnrollmentUIEndpoint == s2.EnrollmentUIEndpoint
-}
-
-func (s *ManagementService) Equal(s2 *ManagementService) bool {
-	if s == s2 {
-		return true
-	}
-	return s.Config.Equal(&s2.Config)
 }
 
 func NewDefault() *Config {
 	c := &Config{
-		ConfigDir:            DefaultConfigDir,
-		DataDir:              DefaultDataDir,
-		EnrollmentService:    EnrollmentService{Config: *client.NewDefault()},
-		ManagementService:    ManagementService{Config: *client.NewDefault()},
-		StatusUpdateInterval: DefaultStatusUpdateInterval,
-		SpecFetchInterval:    DefaultSpecFetchInterval,
-		readWriter:           fileio.NewReadWriter(),
-		LogLevel:             logrus.InfoLevel.String(),
-		DefaultLabels:        make(map[string]string),
+		AgentConfig: types.AgentConfig{
+			ConfigDir:            DefaultConfigDir,
+			DataDir:              DefaultDataDir,
+			EnrollmentService:    types.EnrollmentService{Config: *client.NewDefault()},
+			ManagementService:    types.ManagementService{Config: *client.NewDefault()},
+			StatusUpdateInterval: DefaultStatusUpdateInterval,
+			SpecFetchInterval:    DefaultSpecFetchInterval,
+			LogLevel:             logrus.InfoLevel.String(),
+			DefaultLabels:        make(map[string]string),
+		},
+		readWriter: fileio.NewReadWriter(),
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -149,9 +102,9 @@ func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duract
 // Complete fills in defaults for fields not set by the config file
 func (cfg *Config) Complete() error {
 	// If the enrollment service hasn't been specified, attempt using the default local dev env.
-	emptyEnrollmentService := EnrollmentService{}
+	emptyEnrollmentService := types.EnrollmentService{}
 	if cfg.EnrollmentService.Equal(&emptyEnrollmentService) {
-		cfg.EnrollmentService = EnrollmentService{Config: *client.NewDefault()}
+		cfg.EnrollmentService = types.EnrollmentService{Config: *client.NewDefault()}
 		cfg.EnrollmentService.Service = client.Service{
 			Server:               DefaultManagementEndpoint,
 			CertificateAuthority: filepath.Join(cfg.ConfigDir, DefaultCertsDirName, CacertFile),
@@ -168,7 +121,7 @@ func (cfg *Config) Complete() error {
 	}
 	// If the management service hasn't been specified, attempt using the same endpoint as the enrollment service,
 	// but clear the auth info.
-	emptyManagementService := ManagementService{}
+	emptyManagementService := types.ManagementService{}
 	if cfg.ManagementService.Equal(&emptyManagementService) {
 		cfg.ManagementService.Config = *cfg.EnrollmentService.Config.DeepCopy()
 		cfg.ManagementService.Config.AuthInfo = client.AuthInfo{}
