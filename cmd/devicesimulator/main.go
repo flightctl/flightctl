@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,14 +22,24 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/version"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/yaml"
 )
 
 const (
 	appName = "flightctl"
+
+	jsonFormat      = "json"
+	yamlFormat      = "yaml"
+	cliVersionTitle = "flightctl simulator version"
+)
+
+var (
+	outputTypes = []string{jsonFormat, yamlFormat}
 )
 
 func defaultConfigFilePath() string {
@@ -47,6 +59,8 @@ func main() {
 	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))")
 	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
+	versionInfo := pflag.Bool("version", false, "Print device simulator version information")
+	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
 	pflag.Usage = func() {
@@ -63,6 +77,14 @@ func main() {
 		os.Exit(1)
 	}
 	log.SetLevel(logLvl)
+
+	if *versionInfo {
+		if err := reportVersion(versionFormat); err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	log.Infoln("command line flags:")
 	pflag.CommandLine.VisitAll(func(flg *pflag.Flag) {
@@ -115,6 +137,31 @@ func main() {
 
 	<-ctx.Done()
 	log.Infoln("Simulator stopped.")
+}
+
+func reportVersion(versionFormat *string) error {
+	cliVersion := version.Get()
+	switch *versionFormat {
+	case "":
+		fmt.Printf("%s: %s\n", cliVersionTitle, cliVersion.String())
+	case "yaml":
+		marshalled, err := yaml.Marshal(&cliVersion)
+		if err != nil {
+			return fmt.Errorf("yaml marshalling error: %w", err)
+		}
+		fmt.Println(string(marshalled))
+	case "json":
+		marshalled, err := json.MarshalIndent(&cliVersion, "", "  ")
+		if err != nil {
+			return fmt.Errorf("json marshalling error: %w", err)
+		}
+		fmt.Println(string(marshalled))
+	default:
+		// There is a bug in the program if we hit this case.
+		// However, we follow a policy of never panicking.
+		return fmt.Errorf("VersionOptions were not validated: --output=%q should have been rejected\n", *versionFormat)
+	}
+	return nil
 }
 
 func startAgent(ctx context.Context, agent *agent.Agent, log *logrus.Logger, agentInstance int) {
