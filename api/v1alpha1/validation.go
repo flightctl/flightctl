@@ -316,14 +316,14 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].Group, fmt.Sprintf("spec.config[].inline[%d].group", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxFileMode(c.Inline[i].Mode, fmt.Sprintf("spec.config[].inline[%d].mode", i))...)
 
-		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64 {
+		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == EncodingBase64 {
 			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
 			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
 			// Can ignore errors because we just validated it in the previous line
 			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
 			_, paramErrs = validateParametersInString(lo.ToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
-		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
+		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == EncodingBase64) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
 			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineConfigLength, nil, "")...)
 			_, paramErrs = validateParametersInString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), fleetTemplate)

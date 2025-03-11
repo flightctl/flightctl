@@ -29,7 +29,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	inlineConfig := &api.InlineConfigProviderSpec{
 		Name: "paramInlineConfig",
 	}
-	enc := api.Base64
+	enc := api.EncodingBase64
 	inlineConfig.Inline = []api.FileSpec{
 		// Unencoded: My version is {{ device.metadata.labels[version] }}
 		{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBkZXZpY2UubWV0YWRhdGEubGFiZWxzW3ZlcnNpb25dIH19"},

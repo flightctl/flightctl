@@ -12,6 +12,11 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AppType.
+const (
+	AppTypeCompose AppType = "compose"
+)
+
 // Defines values for ApplicationStatusType.
 const (
 	ApplicationStatusCompleted ApplicationStatusType = "Completed"
@@ -113,17 +118,17 @@ const (
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
 )
 
+// Defines values for EncodingType.
+const (
+	EncodingBase64 EncodingType = "base64"
+	EncodingPlain  EncodingType = "plain"
+)
+
 // Defines values for FileOperation.
 const (
 	FileOperationCreated FileOperation = "created"
 	FileOperationRemoved FileOperation = "removed"
 	FileOperationUpdated FileOperation = "updated"
-)
-
-// Defines values for FileSpecContentEncoding.
-const (
-	Base64 FileSpecContentEncoding = "base64"
-	Plain  FileSpecContentEncoding = "plain"
 )
 
 // Defines values for MatchExpressionOperator.
@@ -164,6 +169,12 @@ const (
 	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
 )
 
+// AppType The type of the application.
+type AppType string
+
+// ApplicationData Describes application package data that is provided inline.
+type ApplicationData map[string]FileContent
+
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
@@ -172,6 +183,9 @@ type ApplicationEnvVars struct {
 
 // ApplicationProviderSpec defines model for ApplicationProviderSpec.
 type ApplicationProviderSpec struct {
+	// AppType The type of the application.
+	AppType *AppType `json:"appType,omitempty"`
+
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
@@ -646,6 +660,9 @@ type DisruptionBudget struct {
 // Duration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 type Duration = string
 
+// EncodingType Specifies the encoding type used for data representation.
+type EncodingType string
+
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
 	// EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
@@ -763,6 +780,27 @@ type EnrollmentServiceService struct {
 	Server string `json:"server"`
 }
 
+// FileContent The content of a file.
+type FileContent struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content string `json:"content"`
+
+	// ContentEncoding Specifies the encoding type used for data representation.
+	ContentEncoding *EncodingType `json:"contentEncoding,omitempty"`
+}
+
+// FileMetadata File metadata.
+type FileMetadata struct {
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
+}
+
 // FileOperation defines model for FileOperation.
 type FileOperation string
 
@@ -771,8 +809,8 @@ type FileSpec struct {
 	// Content The plain text (UTF-8) or base64-encoded content of the file.
 	Content string `json:"content"`
 
-	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
-	ContentEncoding *FileSpecContentEncoding `json:"contentEncoding,omitempty"`
+	// ContentEncoding Specifies the encoding type used for data representation.
+	ContentEncoding *EncodingType `json:"contentEncoding,omitempty"`
 
 	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
 	Group *string `json:"group,omitempty"`
@@ -786,9 +824,6 @@ type FileSpec struct {
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
 	User *string `json:"user,omitempty"`
 }
-
-// FileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
-type FileSpecContentEncoding string
 
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
@@ -989,6 +1024,12 @@ type HttpRepoSpec struct {
 type ImageApplicationProvider struct {
 	// Image Reference to the container image for the application package.
 	Image string `json:"image"`
+}
+
+// InlineApplicationProvider defines model for InlineApplicationProvider.
+type InlineApplicationProvider struct {
+	// Inline Describes application package data that is provided inline.
+	Inline ApplicationData `json:"inline"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
@@ -1671,6 +1712,32 @@ func (t *ApplicationProviderSpec) MergeImageApplicationProvider(v ImageApplicati
 	return err
 }
 
+// AsInlineApplicationProvider returns the union data inside the ApplicationProviderSpec as a InlineApplicationProvider
+func (t ApplicationProviderSpec) AsInlineApplicationProvider() (InlineApplicationProvider, error) {
+	var body InlineApplicationProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInlineApplicationProvider overwrites any union data inside the ApplicationProviderSpec as the provided InlineApplicationProvider
+func (t *ApplicationProviderSpec) FromInlineApplicationProvider(v InlineApplicationProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInlineApplicationProvider performs a merge with any union data inside the ApplicationProviderSpec, using the provided InlineApplicationProvider
+func (t *ApplicationProviderSpec) MergeInlineApplicationProvider(v InlineApplicationProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	if err != nil {
@@ -1681,6 +1748,13 @@ func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 		err = json.Unmarshal(b, &object)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	if t.AppType != nil {
+		object["appType"], err = json.Marshal(t.AppType)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'appType': %w", err)
 		}
 	}
 
@@ -1710,6 +1784,13 @@ func (t *ApplicationProviderSpec) UnmarshalJSON(b []byte) error {
 	err = json.Unmarshal(b, &object)
 	if err != nil {
 		return err
+	}
+
+	if raw, found := object["appType"]; found {
+		err = json.Unmarshal(raw, &t.AppType)
+		if err != nil {
+			return fmt.Errorf("error reading 'appType': %w", err)
+		}
 	}
 
 	if raw, found := object["envVars"]; found {
