@@ -132,6 +132,7 @@ acm
 namespaces
 USB
 quay.io.
+API_URL
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
