@@ -3693,12 +3693,11 @@ components:
         - inline
     ApplicationContent:
         allOf:
-          - $ref: '#/components/schemas/FileContent'
-          - $ref: '#/components/schemas/AbsolutePath'
+          - $ref: "#/components/schemas/FileContent"
+          - $ref: "#/components/schemas/AbsolutePath"
           - type: object
             required:
               - path
-              - content 
     ApplicationEnvVars:
       type: object
       properties:

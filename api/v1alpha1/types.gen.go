@@ -181,7 +181,7 @@ type AppType string
 // ApplicationContent defines model for ApplicationContent.
 type ApplicationContent struct {
 	// Content The plain text (UTF-8) or base64-encoded content of the file.
-	Content string `json:"content"`
+	Content *string `json:"content,omitempty"`
 
 	// ContentEncoding Specifies the encoding type used for data representation.
 	ContentEncoding *EncodingType `json:"contentEncoding,omitempty"`

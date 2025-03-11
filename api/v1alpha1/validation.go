@@ -664,17 +664,19 @@ func (a InlineApplicationProviderSpec) Validate(fleetTemplate bool) []error {
 		if !containsParams {
 			allErrs = append(allErrs, validation.ValidateRelativePath(&a.Inline[i].Path, fmt.Sprintf("spec.applications[].inline[%d].path", i), 253)...)
 		}
-		if a.Inline[i].ContentEncoding != nil && *(a.Inline[i].ContentEncoding) == EncodingBase64 {
+
+		content := lo.FromPtr(a.Inline[i].Content)
+		if a.Inline[i].ContentEncoding != nil && *(a.Inline[i].ContentEncoding) == EncodingBase64 && content != "" {
 			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
-			allErrs = append(allErrs, validation.ValidateBase64Field(a.Inline[i].Content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), maxInlineLength)...)
+			allErrs = append(allErrs, validation.ValidateBase64Field(content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), maxInlineLength)...)
 			// Can ignore errors because we just validated it in the previous line
-			b, _ := base64.StdEncoding.DecodeString(a.Inline[i].Content)
+			b, _ := base64.StdEncoding.DecodeString(content)
 			_, paramErrs := validateParametersInString(lo.ToPtr(string(b)), fmt.Sprintf("spec.applications[].inline.[%d].content", i), fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
-		} else if a.Inline[i].ContentEncoding == nil || (a.Inline[i].ContentEncoding != nil && *(a.Inline[i].ContentEncoding) == EncodingPlain) {
+		} else if a.Inline[i].ContentEncoding == nil || (a.Inline[i].ContentEncoding != nil && *(a.Inline[i].ContentEncoding) == EncodingPlain) && content != "" {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
-			allErrs = append(allErrs, validation.ValidateString(&a.Inline[i].Content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), 0, maxInlineLength, nil, "")...)
-			_, paramErrs := validateParametersInString(&a.Inline[i].Content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), fleetTemplate)
+			allErrs = append(allErrs, validation.ValidateString(&content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), 0, maxInlineLength, nil, "")...)
+			_, paramErrs := validateParametersInString(&content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
 		} else {
 			allErrs = append(allErrs, fmt.Errorf("unknown encoding type: %s", *(a.Inline[i].ContentEncoding)))
@@ -728,6 +730,9 @@ func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProvide
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid inline application provider: %w", err))
 			return errs
+		}
+		if app.AppType == nil {
+			errs = append(errs, fmt.Errorf("inline application type cannot be empty"))
 		}
 		errs = append(errs, provider.Validate(fleetTemplate)...)
 	default:
