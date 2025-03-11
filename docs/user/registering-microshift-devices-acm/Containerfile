@@ -1,0 +1,28 @@
+FROM quay.io/centos-bootc/centos-bootc:stream9
+
+ADD etc /etc
+
+RUN dnf install -y flightctl-agent && \
+   systemctl enable flightctl-agent.service
+
+RUN dnf install -y microshift && \
+   systemctl enable microshift.service
+
+# First remove /opt if it exists
+RUN rm -rf /opt
+
+# Create symlink from /opt to /var
+RUN ln -s /var /opt
+
+# Create the required directory structure in /var/crio instead of /opt/crio
+RUN mkdir -p /var/crio
+
+RUN rm -rf /opt && ln -s /var /opt
+RUN [ ! -L /var/run ] && rm -rf /var/run && ln -s /run /var/
+
+# Use build argument for root password instead of hardcoding
+# WARNING: This is for testing purposes only. Never use in production.
+ARG ROOT_PASSWORD=changeme
+RUN echo "root:${ROOT_PASSWORD}" | chpasswd
+
+ADD config.yaml /etc/flightctl/config.yaml
