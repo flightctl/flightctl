@@ -45,19 +45,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Version'
+                $ref: "#/components/schemas/Version"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/auth/config:
     get:
       tags:
@@ -70,13 +70,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthConfig'
+                $ref: "#/components/schemas/AuthConfig"
         "418":
           description: Auth not configured
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/auth/validate:
     get:
       tags:
@@ -95,25 +95,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Token invalid
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "418":
           description: Auth not configured
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "500":
           description: InternalServerError
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/resourcesyncs:
     get:
       tags:
@@ -150,31 +150,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceSyncList'
+                $ref: "#/components/schemas/ResourceSyncList"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     post:
       tags:
         - resourcesync
@@ -184,7 +184,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ResourceSync'
+              $ref: "#/components/schemas/ResourceSync"
         required: true
       responses:
         "201":
@@ -192,37 +192,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceSync'
+                $ref: "#/components/schemas/ResourceSync"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - resourcesync
@@ -234,25 +234,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/resourcesyncs/{name}:
     get:
       tags:
@@ -272,31 +272,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceSync'
+                $ref: "#/components/schemas/ResourceSync"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - resourcesync
@@ -313,7 +313,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ResourceSync'
+              $ref: "#/components/schemas/ResourceSync"
         required: true
       responses:
         "200":
@@ -321,49 +321,49 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceSync'
+                $ref: "#/components/schemas/ResourceSync"
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceSync'
+                $ref: "#/components/schemas/ResourceSync"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     patch:
       tags:
         - resourcesync
@@ -380,7 +380,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -388,43 +388,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceSync'
+                $ref: "#/components/schemas/ResourceSync"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - resourcesync
@@ -443,31 +443,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/repositories:
     get:
       tags:
@@ -504,31 +504,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RepositoryList'
+                $ref: "#/components/schemas/RepositoryList"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     post:
       tags:
         - repository
@@ -538,7 +538,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Repository'
+              $ref: "#/components/schemas/Repository"
         required: true
       responses:
         "201":
@@ -546,37 +546,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Repository'
+                $ref: "#/components/schemas/Repository"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - repository
@@ -588,25 +588,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/repositories/{name}:
     get:
       tags:
@@ -626,31 +626,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Repository'
+                $ref: "#/components/schemas/Repository"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - repository
@@ -667,7 +667,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Repository'
+              $ref: "#/components/schemas/Repository"
         required: true
       responses:
         "200":
@@ -675,49 +675,49 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Repository'
+                $ref: "#/components/schemas/Repository"
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Repository'
+                $ref: "#/components/schemas/Repository"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - repository
@@ -736,31 +736,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     patch:
       tags:
         - repository
@@ -777,7 +777,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -785,43 +785,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Repository'
+                $ref: "#/components/schemas/Repository"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/devices:
     get:
       tags:
@@ -864,31 +864,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeviceList'
+                $ref: "#/components/schemas/DeviceList"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Not allowed
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     post:
       tags:
         - device
@@ -898,7 +898,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Device'
+              $ref: "#/components/schemas/Device"
         required: true
       responses:
         "201":
@@ -906,37 +906,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - device
@@ -948,25 +948,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/devices/{name}:
     get:
       tags:
@@ -986,31 +986,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - device
@@ -1027,7 +1027,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Device'
+              $ref: "#/components/schemas/Device"
         required: true
       responses:
         "200":
@@ -1035,49 +1035,49 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - device
@@ -1096,31 +1096,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     patch:
       tags:
         - device
@@ -1137,7 +1137,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -1145,43 +1145,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/devices/{name}/status:
     get:
       tags:
@@ -1201,31 +1201,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     patch:
       tags:
         - device
@@ -1242,7 +1242,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -1250,37 +1250,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - device
@@ -1297,7 +1297,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Device'
+              $ref: "#/components/schemas/Device"
         required: true
       responses:
         "200":
@@ -1305,37 +1305,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/devices/{name}/decommission:
     put:
       tags:
@@ -1353,7 +1353,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeviceDecommission'
+              $ref: "#/components/schemas/DeviceDecommission"
         required: true
       responses:
         "200":
@@ -1361,37 +1361,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -1417,7 +1417,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: "#/components/schemas/Device"
         "204":
           description: No content
           content: {}
@@ -1426,31 +1426,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/enrollmentconfig:
     get:
       tags:
@@ -1470,37 +1470,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentConfig'
+                $ref: "#/components/schemas/EnrollmentConfig"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/enrollmentrequests:
     get:
       tags:
@@ -1537,31 +1537,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequestList'
+                $ref: "#/components/schemas/EnrollmentRequestList"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     post:
       tags:
         - enrollmentrequest
@@ -1571,7 +1571,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
+              $ref: "#/components/schemas/EnrollmentRequest"
         required: true
       responses:
         "201":
@@ -1579,37 +1579,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: "#/components/schemas/EnrollmentRequest"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - enrollmentrequest
@@ -1621,25 +1621,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/enrollmentrequests/{name}:
     get:
       tags:
@@ -1659,31 +1659,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: "#/components/schemas/EnrollmentRequest"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - enrollmentrequest
@@ -1700,7 +1700,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
+              $ref: "#/components/schemas/EnrollmentRequest"
         required: true
       responses:
         "200":
@@ -1708,49 +1708,49 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: "#/components/schemas/EnrollmentRequest"
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: "#/components/schemas/EnrollmentRequest"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     patch:
       tags:
         - enrollmentrequest
@@ -1767,7 +1767,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -1775,43 +1775,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: "#/components/schemas/EnrollmentRequest"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - enrollmentrequest
@@ -1830,31 +1830,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/enrollmentrequests/{name}/status:
     get:
       tags:
@@ -1874,31 +1874,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: "#/components/schemas/EnrollmentRequest"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - enrollmentrequest
@@ -1915,7 +1915,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
+              $ref: "#/components/schemas/EnrollmentRequest"
         required: true
       responses:
         "200":
@@ -1923,31 +1923,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: "#/components/schemas/EnrollmentRequest"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     patch:
       tags:
         - enrollmentrequest
@@ -1964,7 +1964,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -1972,43 +1972,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: "#/components/schemas/EnrollmentRequest"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/enrollmentrequests/{name}/approval:
     put:
       tags:
@@ -2026,7 +2026,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EnrollmentRequestApproval'
+              $ref: "#/components/schemas/EnrollmentRequestApproval"
         required: true
       responses:
         "200":
@@ -2034,37 +2034,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequestApprovalStatus'
+                $ref: "#/components/schemas/EnrollmentRequestApprovalStatus"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/certificatesigningrequests:
     get:
       tags:
@@ -2101,31 +2101,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequestList'
+                $ref: "#/components/schemas/CertificateSigningRequestList"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     post:
       tags:
         - certificatesigningrequest
@@ -2135,7 +2135,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CertificateSigningRequest'
+              $ref: "#/components/schemas/CertificateSigningRequest"
         required: true
       responses:
         "201":
@@ -2143,37 +2143,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
+                $ref: "#/components/schemas/CertificateSigningRequest"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - certificatesigningrequest
@@ -2185,25 +2185,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/certificatesigningrequests/{name}:
     patch:
       tags:
@@ -2221,7 +2221,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -2229,43 +2229,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
+                $ref: "#/components/schemas/CertificateSigningRequest"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     get:
       tags:
         - certificatesigningrequest
@@ -2285,31 +2285,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
+                $ref: "#/components/schemas/CertificateSigningRequest"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - certificatesigningrequest
@@ -2326,7 +2326,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CertificateSigningRequest'
+              $ref: "#/components/schemas/CertificateSigningRequest"
         required: true
       responses:
         "200":
@@ -2334,49 +2334,49 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
+                $ref: "#/components/schemas/CertificateSigningRequest"
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
+                $ref: "#/components/schemas/CertificateSigningRequest"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - certificatesigningrequest
@@ -2395,31 +2395,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/certificatesigningrequests/{name}/approval:
     put:
       tags:
@@ -2437,7 +2437,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CertificateSigningRequest'
+              $ref: "#/components/schemas/CertificateSigningRequest"
         required: true
       responses:
         "200":
@@ -2445,43 +2445,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
+                $ref: "#/components/schemas/CertificateSigningRequest"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/fleets:
     get:
       tags:
@@ -2524,31 +2524,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FleetList'
+                $ref: "#/components/schemas/FleetList"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     post:
       tags:
         - fleet
@@ -2558,7 +2558,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Fleet'
+              $ref: "#/components/schemas/Fleet"
         required: true
       responses:
         "201":
@@ -2566,37 +2566,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: "#/components/schemas/Fleet"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - fleet
@@ -2608,25 +2608,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/fleets/{name}:
     get:
       tags:
@@ -2652,31 +2652,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: "#/components/schemas/Fleet"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - fleet
@@ -2693,7 +2693,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Fleet'
+              $ref: "#/components/schemas/Fleet"
         required: true
       responses:
         "200":
@@ -2701,49 +2701,49 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: "#/components/schemas/Fleet"
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: "#/components/schemas/Fleet"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     patch:
       tags:
         - fleet
@@ -2760,7 +2760,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -2768,43 +2768,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: "#/components/schemas/Fleet"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - fleet
@@ -2823,31 +2823,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/fleets/{name}/status:
     get:
       tags:
@@ -2867,31 +2867,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: "#/components/schemas/Fleet"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     patch:
       tags:
         - fleet
@@ -2908,7 +2908,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '#/components/schemas/PatchRequest'
+              $ref: "#/components/schemas/PatchRequest"
         required: true
       responses:
         "200":
@@ -2916,37 +2916,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: "#/components/schemas/Fleet"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     put:
       tags:
         - fleet
@@ -2963,7 +2963,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Fleet'
+              $ref: "#/components/schemas/Fleet"
         required: true
       responses:
         "200":
@@ -2971,31 +2971,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: "#/components/schemas/Fleet"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/fleets/{fleet}/templateversions:
     get:
       tags:
@@ -3038,31 +3038,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TemplateVersionList'
+                $ref: "#/components/schemas/TemplateVersionList"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - fleet
@@ -3081,25 +3081,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/fleets/{fleet}/templateversions/{name}:
     get:
       tags:
@@ -3125,31 +3125,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TemplateVersion'
+                $ref: "#/components/schemas/TemplateVersion"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
     delete:
       tags:
         - fleet
@@ -3174,31 +3174,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
   /api/v1/labels:
     get:
       tags:
@@ -3238,7 +3238,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LabelList'
+                $ref: "#/components/schemas/LabelList"
               examples:
                 labelsExample:
                   summary: Example response for labels
@@ -3251,25 +3251,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "403":
           description: Not allowed
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: "#/components/schemas/Status"
 components:
   schemas:
     DeviceDecommissionTargetType:
@@ -3285,7 +3285,7 @@ components:
       type: object
       properties:
         target:
-          $ref: '#/components/schemas/DeviceDecommissionTargetType'
+          $ref: "#/components/schemas/DeviceDecommissionTargetType"
       required:
         - target
       description: Metadata about a device decommissioning request.
@@ -3315,16 +3315,16 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ObjectMeta'
+          $ref: "#/components/schemas/ObjectMeta"
         spec:
-          $ref: '#/components/schemas/RepositorySpec'
+          $ref: "#/components/schemas/RepositorySpec"
         status:
-          $ref: '#/components/schemas/RepositoryStatus'
+          $ref: "#/components/schemas/RepositoryStatus"
       required:
         - apiVersion
         - kind
@@ -3367,14 +3367,14 @@ components:
       properties:
         url:
           type: string
-          description: 'The HTTP URL to call or clone from.'
+          description: "The HTTP URL to call or clone from."
         type:
           $ref: "#/components/schemas/RepoSpecType"
         httpConfig:
           $ref: "#/components/schemas/HttpConfig"
         validationSuffix:
           type: string
-          description: 'URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.'
+          description: "URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint."
       required:
         - url
         - type
@@ -3386,22 +3386,22 @@ components:
       properties:
         sshPrivateKey:
           type: string
-          description: 'Base64 encoded private SSH key.'
+          description: "Base64 encoded private SSH key."
           format: password
         privateKeyPassphrase:
           type: string
-          description: 'The passphrase for sshPrivateKey.'
+          description: "The passphrase for sshPrivateKey."
           format: password
         skipServerVerification:
           type: boolean
-          description: 'Skip remote server verification.'
+          description: "Skip remote server verification."
     SshRepoSpec:
       type: object
       additionalProperties: false
       properties:
         url:
           type: string
-          description: 'The SSH Git repository URL to clone from.'
+          description: "The SSH Git repository URL to clone from."
         type:
           $ref: "#/components/schemas/RepoSpecType"
         sshConfig:
@@ -3416,7 +3416,7 @@ components:
       properties:
         url:
           type: string
-          description: 'The (possibly remote) repository URL.'
+          description: "The (possibly remote) repository URL."
         type:
           $ref: "#/components/schemas/RepoSpecType"
       required:
@@ -3435,9 +3435,9 @@ components:
       properties:
         conditions:
           type: array
-          description: 'Current state of the repository.'
+          description: "Current state of the repository."
           items:
-            $ref: '#/components/schemas/Condition'
+            $ref: "#/components/schemas/Condition"
       required:
         - conditions
     RepositoryList:
@@ -3445,17 +3445,17 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ListMeta'
+          $ref: "#/components/schemas/ListMeta"
         items:
           type: array
-          description: 'List of repositories.'
+          description: "List of repositories."
           items:
-            $ref: '#/components/schemas/Repository'
+            $ref: "#/components/schemas/Repository"
       description: RepositoryList is a list of Repositories.
       required:
         - apiVersion
@@ -3464,7 +3464,7 @@ components:
         - items
     RepoSpecType:
       type: string
-      description: 'RepoSpecType is the type of the repository.'
+      description: "RepoSpecType is the type of the repository."
       enum:
         - git
         - http
@@ -3473,16 +3473,16 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ObjectMeta'
+          $ref: "#/components/schemas/ObjectMeta"
         spec:
-          $ref: '#/components/schemas/DeviceSpec'
+          $ref: "#/components/schemas/DeviceSpec"
         status:
-          $ref: '#/components/schemas/DeviceStatus'
+          $ref: "#/components/schemas/DeviceStatus"
       required:
         - apiVersion
         - kind
@@ -3536,8 +3536,8 @@ components:
             - targetRevision
             - path
       required:
-      - name
-      - gitRef
+        - name
+        - gitRef
     KubernetesSecretProviderSpec:
       type: object
       properties:
@@ -3562,8 +3562,8 @@ components:
             - namespace
             - mountPath
       required:
-      - name
-      - secretRef
+        - name
+        - secretRef
     InlineConfigProviderSpec:
       type: object
       properties:
@@ -3574,25 +3574,57 @@ components:
           type: array
           description: A list of files to create on the device.
           items:
-            $ref: '#/components/schemas/FileSpec'
+            $ref: "#/components/schemas/FileSpec"
       required:
-      - name
-      - inline
+        - name
+        - inline
     FileSpec:
+      allOf:
+        - $ref: "#/components/schemas/FileContent"
+        - $ref: "#/components/schemas/FileMetadata"
+        - $ref: "#/components/schemas/AbsolutePath"
+        - type: object
+          required:
+            - path
+            - content
+    FileContent:
+      description: The content of a file.
       type: object
       properties:
-        path:
-          type: string
-          description: The absolute path to the file on the device. Note that any existing file will be overwritten.
         content:
           type: string
           description: The plain text (UTF-8) or base64-encoded content of the file.
         contentEncoding:
+          $ref: "#/components/schemas/EncodingType"
+    AbsolutePath:
+      type: object
+      description: Represents an absolute file path.
+      properties:
+        path:
           type: string
-          description: How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
-          enum:
-          - plain
-          - base64
+          description: The absolute path to a file on the system. Note that any existing file will be overwritten.
+          example: "/var/log/app.log"
+    RelativePath:
+      type: object
+      description: Represents a relative file path.
+      properties:
+        path:
+          type: string
+          description: A relative file path on the system. Note that any existing file will be overwritten.
+          example: "src/index.js"
+    EncodingType:
+      type: string
+      description: Specifies the encoding type used for data representation.
+      enum:
+        - plain
+        - base64
+      x-enum-varnames:
+        - "EncodingPlain"
+        - "EncodingBase64"
+    FileMetadata:
+      description: File metadata.
+      type: object
+      properties:
         mode:
           type: integer
           description: The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
@@ -3602,9 +3634,6 @@ components:
         group:
           type: string
           description: The file's group, specified either as a name or numeric ID. Defaults to "root".
-      required:
-      - path
-      - content
     HttpConfigProviderSpec:
       type: object
       properties:
@@ -3625,24 +3654,26 @@ components:
               type: string
               description: Path in the device's file system to which the content returned by the HTTP sever should be written.
           required:
-          - repository
-          - filePath
+            - repository
+            - filePath
       required:
-      - name
-      - httpRef
+        - name
+        - httpRef
     ApplicationProviderSpec:
       type: object
       allOf:
-        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - $ref: "#/components/schemas/ApplicationEnvVars"
         - type: object
           properties:
             name:
               type: string
               description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
+            appType:
+              $ref: "#/components/schemas/AppType"
         - oneOf:
-            - $ref: '#/components/schemas/ImageApplicationProvider'
-            # extend application providers
-    ImageApplicationProvider:
+            - $ref: "#/components/schemas/ImageApplicationProviderSpec"
+            - $ref: "#/components/schemas/InlineApplicationProviderSpec"
+    ImageApplicationProviderSpec:
       type: object
       properties:
         image:
@@ -3650,6 +3681,24 @@ components:
           description: Reference to the container image for the application package.
       required:
         - image
+    InlineApplicationProviderSpec:
+      type: object
+      properties:
+        inline:
+          type: array
+          description: A list of application-related content.
+          items:
+            $ref: "#/components/schemas/ApplicationContent"
+      required:
+        - inline
+    ApplicationContent:
+        allOf:
+          - $ref: '#/components/schemas/FileContent'
+          - $ref: '#/components/schemas/AbsolutePath'
+          - type: object
+            required:
+              - path
+              - content 
     ApplicationEnvVars:
       type: object
       properties:
@@ -3658,17 +3707,24 @@ components:
           description: Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
           additionalProperties:
             type: string
+    AppType:
+      type: string
+      description: The type of the application.
+      enum:
+        - "compose"
+      x-enum-varnames:
+        - "AppTypeCompose"
     ResourceMonitor:
       oneOf:
-        - $ref: '#/components/schemas/CpuResourceMonitorSpec'
-        - $ref: '#/components/schemas/MemoryResourceMonitorSpec'
-        - $ref: '#/components/schemas/DiskResourceMonitorSpec'
+        - $ref: "#/components/schemas/CpuResourceMonitorSpec"
+        - $ref: "#/components/schemas/MemoryResourceMonitorSpec"
+        - $ref: "#/components/schemas/DiskResourceMonitorSpec"
       discriminator:
         propertyName: monitorType
         mapping:
-          CPU: '#/components/schemas/CpuResourceMonitorSpec'
-          Memory: '#/components/schemas/MemoryResourceMonitorSpec'
-          Disk: '#/components/schemas/DiskResourceMonitorSpec'
+          CPU: "#/components/schemas/CpuResourceMonitorSpec"
+          Memory: "#/components/schemas/MemoryResourceMonitorSpec"
+          Disk: "#/components/schemas/DiskResourceMonitorSpec"
     ResourceMonitorSpec:
       type: object
       description: Specification for monitoring a resource.
@@ -3679,7 +3735,7 @@ components:
         alertRules:
           type: array
           items:
-            $ref: '#/components/schemas/ResourceAlertRule'
+            $ref: "#/components/schemas/ResourceAlertRule"
           description: Array of alert rules. Only one alert per severity is allowed.
         samplingInterval:
           type: string
@@ -3691,13 +3747,13 @@ components:
         - samplingInterval
     CpuResourceMonitorSpec:
       allOf:
-        - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - $ref: "#/components/schemas/ResourceMonitorSpec"
     MemoryResourceMonitorSpec:
       allOf:
-        - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - $ref: "#/components/schemas/ResourceMonitorSpec"
     DiskResourceMonitorSpec:
       allOf:
-        - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - $ref: "#/components/schemas/ResourceMonitorSpec"
         - type: object
           description: Specification for monitoring disk usage.
           required:
@@ -3708,14 +3764,14 @@ components:
               description: The directory path to monitor for disk usage.
     CustomResourceMonitorSpec:
       allOf:
-        - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - $ref: "#/components/schemas/ResourceMonitorSpec"
         - type: object
           description: "Specification for monitoring custom resources."
     ResourceAlertRule:
       type: object
       properties:
         severity:
-          $ref: '#/components/schemas/ResourceAlertSeverityType'
+          $ref: "#/components/schemas/ResourceAlertSeverityType"
         duration:
           type: string
           pattern: '^\d+[smh]$'
@@ -3745,10 +3801,10 @@ components:
     DeviceLifecycleHookType:
       type: string
       enum:
-      - 'BeforeUpdating'
-      - 'AfterUpdating'
-      - 'BeforeRebooting'
-      - 'AfterRebooting'
+        - "BeforeUpdating"
+        - "AfterUpdating"
+        - "BeforeRebooting"
+        - "AfterRebooting"
       x-enum-varnames:
         - "DeviceLifecycleHookBeforeUpdating"
         - "DeviceLifecycleHookAfterUpdating"
@@ -3756,25 +3812,25 @@ components:
         - "DeviceLifecycleHookAfterRebooting"
     HookAction:
       allOf:
-      - type: object
-        properties:
-          if:
-            type: array
-            description: Conditions that must be met for the action to be executed.
-            items:
-              $ref: '#/components/schemas/HookCondition'
-          timeout:
-            type: string
-            pattern: '^(?:[1-9]\d*)?\d[smh]$'
-            description: The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are 's' for seconds, 'm' for minutes, and 'h' for hours.
-      - oneOf:
-          - $ref: '#/components/schemas/HookActionRun'
-          # extend hook actions
+        - type: object
+          properties:
+            if:
+              type: array
+              description: Conditions that must be met for the action to be executed.
+              items:
+                $ref: "#/components/schemas/HookCondition"
+            timeout:
+              type: string
+              pattern: '^(?:[1-9]\d*)?\d[smh]$'
+              description: The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are 's' for seconds, 'm' for minutes, and 'h' for hours.
+        - oneOf:
+            - $ref: "#/components/schemas/HookActionRun"
+            # extend hook actions
     HookCondition:
       type: object
       oneOf:
-        - $ref: '#/components/schemas/HookConditionPathOp'
-        - $ref: '#/components/schemas/HookConditionExpression'
+        - $ref: "#/components/schemas/HookConditionPathOp"
+        - $ref: "#/components/schemas/HookConditionExpression"
         # extend hook conditions
     HookConditionPathOp:
       type: object
@@ -3786,7 +3842,7 @@ components:
           type: array
           description: The operation(s) on files at or below the path that satisfy the path condition.
           items:
-            $ref: '#/components/schemas/FileOperation'
+            $ref: "#/components/schemas/FileOperation"
       required:
         - path
         - op
@@ -3824,19 +3880,19 @@ components:
       description: Specifies the policy for managing device updates, including when updates should be downloaded and applied.
       properties:
         downloadSchedule:
-          $ref: '#/components/schemas/UpdateSchedule'
+          $ref: "#/components/schemas/UpdateSchedule"
         updateSchedule:
-          $ref: '#/components/schemas/UpdateSchedule'
+          $ref: "#/components/schemas/UpdateSchedule"
     UpdateSchedule:
       type: object
       description: Defines the schedule for automatic downloading and updates, including timing and optional timeout.
       properties:
         timeZone:
-          $ref: '#/components/schemas/TimeZone'
+          $ref: "#/components/schemas/TimeZone"
         at:
-          $ref: '#/components/schemas/CronExpression'
+          $ref: "#/components/schemas/CronExpression"
         startGraceDuration:
-          $ref: '#/components/schemas/Duration'
+          $ref: "#/components/schemas/Duration"
       required:
         - at
     TimeZone:
@@ -3845,7 +3901,7 @@ components:
       default: "Local"
     CronExpression:
       type: string
-      description: 'Cron expression format for scheduling times.
+      description: "Cron expression format for scheduling times.
 
         The format is `* * * * *`:
         - Minutes: `*` matches 0-59.
@@ -3861,25 +3917,25 @@ components:
         - `/`: Step (e.g., `*/12` for every 12th minute).
         - Single value (e.g., `8` matches the 8th minute).
 
-        Example: `* 0-8,16-23 * * *`.'
+        Example: `* 0-8,16-23 * * *`."
     DeviceList:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ListMeta'
+          $ref: "#/components/schemas/ListMeta"
         items:
           type: array
-          description: 'List of Devices.'
+          description: "List of Devices."
           items:
-            $ref: '#/components/schemas/Device'
+            $ref: "#/components/schemas/Device"
         summary:
-          $ref: '#/components/schemas/DevicesSummary'
+          $ref: "#/components/schemas/DevicesSummary"
       description: DeviceList is a list of Devices.
       required:
         - apiVersion
@@ -3916,7 +3972,7 @@ components:
           type: array
           description: Conditions represent the observations of a the current state of a device.
           items:
-            $ref: '#/components/schemas/Condition'
+            $ref: "#/components/schemas/Condition"
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"
         applications:
@@ -3943,7 +3999,7 @@ components:
           description: The last time the device was seen by the service.
           format: date-time
         lifecycle:
-          $ref: '#/components/schemas/DeviceLifecycleStatus'
+          $ref: "#/components/schemas/DeviceLifecycleStatus"
     DeviceSystemInfo:
       required:
         - architecture
@@ -4194,20 +4250,20 @@ components:
     EnrollmentRequestApprovalStatus:
       description: EnrollmentRequestApprovalStatus represents information about the status of a device enrollment request approval.
       allOf:
-      - $ref: "#/components/schemas/EnrollmentRequestApproval"
-      - type: object
-        description: EnrollmentRequestApprovalStatus contains information about the status of approval of a device enrollment request.
-        properties:
-          approvedBy:
-            type: string
-            description: The name of the approver.
-          approvedAt:
-            type: string
-            format: date-time
-            description: The time at which the request was approved.
-        required:
-        - approvedBy
-        - approvedAt
+        - $ref: "#/components/schemas/EnrollmentRequestApproval"
+        - type: object
+          description: EnrollmentRequestApprovalStatus contains information about the status of approval of a device enrollment request.
+          properties:
+            approvedBy:
+              type: string
+              description: The name of the approver.
+            approvedAt:
+              type: string
+              format: date-time
+              description: The time at which the request was approved.
+          required:
+            - approvedBy
+            - approvedAt
     EnrollmentServiceAuth:
       type: object
       description: EnrollmentServiceAuth contains the client authentication information for a Flight Control enrollment service.
@@ -4239,9 +4295,9 @@ components:
       description: EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
       properties:
         authentication:
-          $ref: '#/components/schemas/EnrollmentServiceAuth'
+          $ref: "#/components/schemas/EnrollmentServiceAuth"
         service:
-          $ref: '#/components/schemas/EnrollmentServiceService'
+          $ref: "#/components/schemas/EnrollmentServiceService"
         enrollment-ui-endpoint:
           type: string
           description: The URL of the UI that the agent uses to print the QR code and link for enrolling the device.
@@ -4253,7 +4309,7 @@ components:
       type: object
       properties:
         enrollment-service:
-          $ref: '#/components/schemas/EnrollmentService'
+          $ref: "#/components/schemas/EnrollmentService"
       required:
         - enrollment-service
     EnrollmentRequest:
@@ -4261,16 +4317,16 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ObjectMeta'
+          $ref: "#/components/schemas/ObjectMeta"
         spec:
-          $ref: '#/components/schemas/EnrollmentRequestSpec'
+          $ref: "#/components/schemas/EnrollmentRequestSpec"
         status:
-          $ref: '#/components/schemas/EnrollmentRequestStatus'
+          $ref: "#/components/schemas/EnrollmentRequestStatus"
       required:
         - apiVersion
         - kind
@@ -4282,17 +4338,17 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ListMeta'
+          $ref: "#/components/schemas/ListMeta"
         items:
           type: array
-          description: 'List of EnrollmentRequest.'
+          description: "List of EnrollmentRequest."
           items:
-            $ref: '#/components/schemas/EnrollmentRequest'
+            $ref: "#/components/schemas/EnrollmentRequest"
       required:
         - apiVersion
         - kind
@@ -4306,28 +4362,28 @@ components:
       properties:
         csr:
           type: string
-          description: 'The PEM-encoded PKCS#10 certificate signing request.'
+          description: "The PEM-encoded PKCS#10 certificate signing request."
         deviceStatus:
-          $ref: '#/components/schemas/DeviceStatus'
+          $ref: "#/components/schemas/DeviceStatus"
         labels:
           type: object
           additionalProperties:
             type: string
-          description: 'A set of labels that the service will apply to this device when its enrollment is approved.'
+          description: "A set of labels that the service will apply to this device when its enrollment is approved."
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
       properties:
         certificate:
           type: string
-          description: 'The PEM-encoded signed certificate.'
+          description: "The PEM-encoded signed certificate."
         conditions:
           type: array
-          description: 'Current state of the EnrollmentRequest.'
+          description: "Current state of the EnrollmentRequest."
           items:
-            $ref: '#/components/schemas/Condition'
+            $ref: "#/components/schemas/Condition"
         approval:
-          $ref: '#/components/schemas/EnrollmentRequestApprovalStatus'
+          $ref: "#/components/schemas/EnrollmentRequestApprovalStatus"
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
@@ -4338,16 +4394,16 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ObjectMeta'
+          $ref: "#/components/schemas/ObjectMeta"
         spec:
-          $ref: '#/components/schemas/ResourceSyncSpec'
+          $ref: "#/components/schemas/ResourceSyncSpec"
         status:
-          $ref: '#/components/schemas/ResourceSyncStatus'
+          $ref: "#/components/schemas/ResourceSyncStatus"
       required:
         - apiVersion
         - kind
@@ -4367,9 +4423,9 @@ components:
           type: string
           description: The path of a file or directory in the repository. If a directory, the directory should contain only resource definitions with no subdirectories. Each file should contain the definition of one or more resources.
       required:
-      - repository
-      - targetRevision
-      - path
+        - repository
+        - targetRevision
+        - path
     ResourceSyncStatus:
       type: object
       properties:
@@ -4384,7 +4440,7 @@ components:
           type: array
           description: Current state of a resourcesync.
           items:
-            $ref: '#/components/schemas/Condition'
+            $ref: "#/components/schemas/Condition"
       required:
         - conditions
       description: ResourceSyncStatus represents information about the status of a ResourceSync.
@@ -4393,17 +4449,17 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ListMeta'
+          $ref: "#/components/schemas/ListMeta"
         items:
           type: array
-          description: 'List of resourcesync.'
+          description: "List of resourcesync."
           items:
-            $ref: '#/components/schemas/ResourceSync'
+            $ref: "#/components/schemas/ResourceSync"
       required:
         - apiVersion
         - kind
@@ -4414,16 +4470,16 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ObjectMeta'
+          $ref: "#/components/schemas/ObjectMeta"
         spec:
-          $ref: '#/components/schemas/FleetSpec'
+          $ref: "#/components/schemas/FleetSpec"
         status:
-          $ref: '#/components/schemas/FleetStatus'
+          $ref: "#/components/schemas/FleetStatus"
       required:
         - apiVersion
         - kind
@@ -4435,17 +4491,17 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ListMeta'
+          $ref: "#/components/schemas/ListMeta"
         items:
           type: array
-          description: 'List of Fleets.'
+          description: "List of Fleets."
           items:
-            $ref: '#/components/schemas/Fleet'
+            $ref: "#/components/schemas/Fleet"
       required:
         - apiVersion
         - kind
@@ -4460,7 +4516,7 @@ components:
           type: array
           items:
             type: string
-            pattern: '^([A-Za-z0-9][-A-Za-z0-9_/.]*)?[A-Za-z0-9]$'
+            pattern: "^([A-Za-z0-9][-A-Za-z0-9_/.]*)?[A-Za-z0-9]$"
           description: List of label keys to perform grouping for the disruption budget.
         minAvailable:
           type: integer
@@ -4480,26 +4536,26 @@ components:
       type: object
       properties:
         selector:
-          $ref: '#/components/schemas/LabelSelector'
+          $ref: "#/components/schemas/LabelSelector"
         successThreshold:
-          $ref: '#/components/schemas/Percentage'
+          $ref: "#/components/schemas/Percentage"
         limit:
           description: The maximum number or percentage of devices to update in the batch.
           oneOf:
-            - $ref: '#/components/schemas/Percentage'
+            - $ref: "#/components/schemas/Percentage"
             - type: integer
               minimum: 1
       description: Batch is an element in batch sequence.
     Duration:
       type: string
       pattern: '^(?:[1-9]\d*)?\d[smh]$'
-      description: 'The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.'
+      description: "The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours."
       default: "0s"
 
     RolloutStrategy:
       type: string
       description: The strategy of choice for device selection in rollout policy.
-      enum: ['BatchSequence']
+      enum: ["BatchSequence"]
 
     BatchSequence:
       type: object
@@ -4508,35 +4564,35 @@ components:
         - strategy
       properties:
         strategy:
-          $ref: '#/components/schemas/RolloutStrategy'
+          $ref: "#/components/schemas/RolloutStrategy"
         sequence:
           type: array
           description: A list of batch definitions.
           minItems: 1
           items:
-            $ref: '#/components/schemas/Batch'
+            $ref: "#/components/schemas/Batch"
 
     RolloutDeviceSelection:
       type: object
       description: Describes how to select devices for rollout.
       oneOf:
-        - $ref: '#/components/schemas/BatchSequence'
+        - $ref: "#/components/schemas/BatchSequence"
       discriminator:
         propertyName: strategy
         mapping:
-          BatchSequence: '#/components/schemas/BatchSequence'
+          BatchSequence: "#/components/schemas/BatchSequence"
 
     RolloutPolicy:
       type: object
       properties:
         disruptionBudget:
-          $ref: '#/components/schemas/DisruptionBudget'
+          $ref: "#/components/schemas/DisruptionBudget"
         deviceSelection:
-          $ref: '#/components/schemas/RolloutDeviceSelection'
+          $ref: "#/components/schemas/RolloutDeviceSelection"
         successThreshold:
-          $ref: '#/components/schemas/Percentage'
+          $ref: "#/components/schemas/Percentage"
         defaultUpdateTimeout:
-          $ref: '#/components/schemas/Duration'
+          $ref: "#/components/schemas/Duration"
       description: RolloutPolicy is the rollout policy of the fleet.
 
     FleetSpec:
@@ -4544,17 +4600,17 @@ components:
       description: FleetSpec is a description of a fleet's target state.
       properties:
         selector:
-          $ref: '#/components/schemas/LabelSelector'
+          $ref: "#/components/schemas/LabelSelector"
         rolloutPolicy:
-          $ref: '#/components/schemas/RolloutPolicy'
+          $ref: "#/components/schemas/RolloutPolicy"
         template:
           type: object
           description: The template for the devices in the fleet.
           properties:
             metadata:
-              $ref: '#/components/schemas/ObjectMeta'
+              $ref: "#/components/schemas/ObjectMeta"
             spec:
-              $ref: '#/components/schemas/DeviceSpec'
+              $ref: "#/components/schemas/DeviceSpec"
           required:
             - spec
       required:
@@ -4564,19 +4620,19 @@ components:
       description: DeviceSpec describes a device.
       properties:
         updatePolicy:
-          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
+          $ref: "#/components/schemas/DeviceUpdatePolicySpec"
         os:
-          $ref: '#/components/schemas/DeviceOsSpec'
+          $ref: "#/components/schemas/DeviceOsSpec"
         config:
           type: array
           description: List of config providers.
           items:
-            $ref: '#/components/schemas/ConfigProviderSpec'
+            $ref: "#/components/schemas/ConfigProviderSpec"
         applications:
           type: array
           description: List of application providers.
           items:
-            $ref: '#/components/schemas/ApplicationProviderSpec'
+            $ref: "#/components/schemas/ApplicationProviderSpec"
         systemd:
           type: object
           description: The systemd services to monitor.
@@ -4591,16 +4647,16 @@ components:
                 maxLength: 256
         resources:
           type: array
-          description: 'Array of resource monitor configurations.'
+          description: "Array of resource monitor configurations."
           items:
-            $ref: '#/components/schemas/ResourceMonitor'
+            $ref: "#/components/schemas/ResourceMonitor"
         consoles:
           type: array
           description: The list of active console sessions.
           items:
-            $ref: '#/components/schemas/DeviceConsole'
+            $ref: "#/components/schemas/DeviceConsole"
         decommissioning:
-          $ref: '#/components/schemas/DeviceDecommission'
+          $ref: "#/components/schemas/DeviceDecommission"
     FleetRolloutStatus:
       type: object
       description: FleetRolloutStatus represents information about the status of a fleet rollout.
@@ -4613,24 +4669,24 @@ components:
       description: FleetStatus represents information about the status of a fleet. Status may trail the actual state of a fleet, especially if devices of a fleet have not contacted the management service in a while.
       properties:
         rollout:
-          $ref: '#/components/schemas/FleetRolloutStatus'
+          $ref: "#/components/schemas/FleetRolloutStatus"
         conditions:
           type: array
           description: Current state of the fleet.
           items:
-            $ref: '#/components/schemas/Condition'
+            $ref: "#/components/schemas/Condition"
         devicesSummary:
-          $ref: '#/components/schemas/DevicesSummary'
+          $ref: "#/components/schemas/DevicesSummary"
       required:
         - conditions
     DevicesSummary:
       type: object
       description: A summary of the devices in the fleet returned when fetching a single Fleet.
       required:
-      - total
-      - applicationStatus
-      - summaryStatus
-      - updateStatus
+        - total
+        - applicationStatus
+        - summaryStatus
+        - updateStatus
       properties:
         total:
           type: integer
@@ -4662,16 +4718,16 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ObjectMeta'
+          $ref: "#/components/schemas/ObjectMeta"
         spec:
-          $ref: '#/components/schemas/TemplateVersionSpec'
+          $ref: "#/components/schemas/TemplateVersionSpec"
         status:
-          $ref: '#/components/schemas/TemplateVersionStatus'
+          $ref: "#/components/schemas/TemplateVersionStatus"
       required:
         - apiVersion
         - kind
@@ -4690,7 +4746,7 @@ components:
     TemplateVersionStatus:
       description: TemplateVersionStatus represents information about the status of a template version.
       allOf:
-        - $ref: '#/components/schemas/DeviceSpec'
+        - $ref: "#/components/schemas/DeviceSpec"
         - type: object
           properties:
             updatedAt:
@@ -4701,7 +4757,7 @@ components:
               type: array
               description: Current state of the device.
               items:
-                $ref: '#/components/schemas/Condition'
+                $ref: "#/components/schemas/Condition"
           required:
             - conditions
     TemplateVersionList:
@@ -4709,17 +4765,17 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ListMeta'
+          $ref: "#/components/schemas/ListMeta"
         items:
           type: array
-          description: 'List of TemplateVersions.'
+          description: "List of TemplateVersions."
           items:
-            $ref: '#/components/schemas/TemplateVersion'
+            $ref: "#/components/schemas/TemplateVersion"
       required:
         - apiVersion
         - kind
@@ -4809,7 +4865,7 @@ components:
       description: A list of match expressions.
       minItems: 1
       items:
-        $ref: '#/components/schemas/MatchExpression'
+        $ref: "#/components/schemas/MatchExpression"
 
     LabelSelector:
       type: object
@@ -4821,7 +4877,7 @@ components:
           additionalProperties:
             type: string
         matchExpressions:
-          $ref: '#/components/schemas/MatchExpressions'
+          $ref: "#/components/schemas/MatchExpressions"
     LabelList:
       type: array
       items:
@@ -4838,10 +4894,10 @@ components:
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         code:
           type: integer
           format: int32
@@ -4873,9 +4929,9 @@ components:
       type: object
       properties:
         type:
-          $ref: '#/components/schemas/ConditionType'
+          $ref: "#/components/schemas/ConditionType"
         status:
-          $ref: '#/components/schemas/ConditionStatus'
+          $ref: "#/components/schemas/ConditionStatus"
         observedGeneration:
           type: integer
           format: int64
@@ -4895,85 +4951,85 @@ components:
       type: string
       description: Type of condition in CamelCase.
       enum:
-      - 'Approved'              # EnrollmentRequest
-      - 'Approved'              # CertificateSigningRequest
-      - 'Denied'                # CertificateSigningRequest
-      - 'Failed'                # CertificateSigningRequest
-      - 'Accessible'            # Repository
-      - 'Accessible'            # ResourceSync
-      - 'ResourceParsed'        # ResourceSync
-      - 'Synced'                # ResourceSync
-      - 'OverlappingSelectors'  # Fleet
-      - 'Valid'                 # Fleet
-      - 'RolloutInProgress'     # Fleet
-      - 'Updating'              # Device
-      - 'SpecValid'             # Device (service condition)
-      - 'MultipleOwners'        # Device (service condition)
-      - 'DeviceDecommissioning' # Device
+        - "Approved" # EnrollmentRequest
+        - "Approved" # CertificateSigningRequest
+        - "Denied" # CertificateSigningRequest
+        - "Failed" # CertificateSigningRequest
+        - "Accessible" # Repository
+        - "Accessible" # ResourceSync
+        - "ResourceParsed" # ResourceSync
+        - "Synced" # ResourceSync
+        - "OverlappingSelectors" # Fleet
+        - "Valid" # Fleet
+        - "RolloutInProgress" # Fleet
+        - "Updating" # Device
+        - "SpecValid" # Device (service condition)
+        - "MultipleOwners" # Device (service condition)
+        - "DeviceDecommissioning" # Device
       x-enum-varnames:
-      - EnrollmentRequestApproved
-      - CertificateSigningRequestApproved
-      - CertificateSigningRequestDenied
-      - CertificateSigningRequestFailed
-      - RepositoryAccessible
-      - ResourceSyncAccessible
-      - ResourceSyncResourceParsed
-      - ResourceSyncSynced
-      - FleetOverlappingSelectors
-      - FleetValid
-      - FleetRolloutInProgress
-      - DeviceUpdating
-      - DeviceSpecValid
-      - DeviceMultipleOwners
-      - DeviceDecommissioning
+        - EnrollmentRequestApproved
+        - CertificateSigningRequestApproved
+        - CertificateSigningRequestDenied
+        - CertificateSigningRequestFailed
+        - RepositoryAccessible
+        - ResourceSyncAccessible
+        - ResourceSyncResourceParsed
+        - ResourceSyncSynced
+        - FleetOverlappingSelectors
+        - FleetValid
+        - FleetRolloutInProgress
+        - DeviceUpdating
+        - DeviceSpecValid
+        - DeviceMultipleOwners
+        - DeviceDecommissioning
     ConditionStatus:
       type: string
       description: Status of the condition, one of True, False, Unknown.
       enum:
-      - 'True'
-      - 'False'
-      - 'Unknown'
+        - "True"
+        - "False"
+        - "Unknown"
       x-enum-varnames:
-      - 'ConditionStatusTrue'
-      - 'ConditionStatusFalse'
-      - 'ConditionStatusUnknown'
+        - "ConditionStatusTrue"
+        - "ConditionStatusFalse"
+        - "ConditionStatusUnknown"
     CertificateSigningRequest:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ObjectMeta'
+          $ref: "#/components/schemas/ObjectMeta"
         spec:
-          $ref: '#/components/schemas/CertificateSigningRequestSpec'
+          $ref: "#/components/schemas/CertificateSigningRequestSpec"
         status:
-          $ref: '#/components/schemas/CertificateSigningRequestStatus'
+          $ref: "#/components/schemas/CertificateSigningRequestStatus"
       required:
         - apiVersion
         - kind
         - metadata
         - spec
-      description: 'CertificateSigningRequest represents a request for a signed certificate from the CA.'
+      description: "CertificateSigningRequest represents a request for a signed certificate from the CA."
     CertificateSigningRequestList:
       type: object
       properties:
         apiVersion:
           type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources."
         kind:
           type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+          description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds."
         metadata:
-          $ref: '#/components/schemas/ListMeta'
+          $ref: "#/components/schemas/ListMeta"
         items:
           type: array
-          description: 'List of CertificateSigningRequest.'
+          description: "List of CertificateSigningRequest."
           items:
-            $ref: '#/components/schemas/CertificateSigningRequest'
+            $ref: "#/components/schemas/CertificateSigningRequest"
       required:
         - apiVersion
         - kind
@@ -5027,7 +5083,7 @@ components:
           type: array
           description: Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
           items:
-            $ref: '#/components/schemas/Condition'
+            $ref: "#/components/schemas/Condition"
       required:
         - conditions
       type: object
@@ -5038,4 +5094,3 @@ components:
           type: string
       required:
         - version
-
