@@ -1,11 +1,11 @@
 [Unit]
-Description=FlightCtl UI
+Description=Flight Control UI
 After=flightctl-api.service
 Requires=flightctl-api.service
 
 [Container]
 ContainerName=flightctl-ui
-Image=quay.io/flightctl/flightctl-ui:latest
+Image=quay.io/flightctl/flightctl-ui:0.4.0
 Network=flightctl.network
 Environment=API_PORT=8080
 Environment=FLIGHTCTL_SERVER="https://flightctl-api:3443/"
@@ -17,7 +17,7 @@ Environment=OIDC_INSECURE_SKIP_VERIFY="true"
 
 PublishPort=8080:8080
 
-Volume=flightctl-api-certs:/app/certs
+Volume=flightctl-api-certs:/app/certs:Z
 
 [Service]
 Restart=always

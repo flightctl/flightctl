@@ -28,11 +28,11 @@ func GetScriptPath(script string) string {
 	return scriptsDir
 }
 
-func GetExamplesYamlPath(yamlName string) string {
+func GetTestExamplesYamlPath(yamlName string) string {
 	if yamlName == "" {
 		return ""
 	}
-	return GetTopLevelDir() + "/examples/" + yamlName
+	return GetTopLevelDir() + "/test/data/examples/" + yamlName
 }
 
 func GetExtIP() string {

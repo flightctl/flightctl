@@ -18,12 +18,12 @@ const retryIterations = 10
 type CreateOrUpdateMode string
 
 func ErrorFromGormError(err error) error {
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return nil
-	case gorm.ErrRecordNotFound, gorm.ErrForeignKeyViolated:
+	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, gorm.ErrForeignKeyViolated):
 		return flterrors.ErrResourceNotFound
-	case gorm.ErrDuplicatedKey:
+	case errors.Is(err, gorm.ErrDuplicatedKey):
 		return flterrors.ErrDuplicateName
 	default:
 		return err
@@ -55,20 +55,47 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
+type ListQueryOption func(*listQuery)
+
+func WithSelectorResolver(resolver selector.Resolver) ListQueryOption {
+	return func(q *listQuery) {
+		q.resolver = resolver
+	}
+}
+
 type listQuery struct {
-	dest any
+	dest     any
+	resolver selector.Resolver
 }
 
-func ListQuery(model any) *listQuery {
-	return &listQuery{dest: model}
+func ListQuery(dest any, opts ...ListQueryOption) *listQuery {
+	q := &listQuery{dest: dest}
+
+	for _, opt := range opts {
+		opt(q)
+	}
+
+	// Set resolver if not provided
+	if q.resolver == nil {
+		resolver, err := selector.SelectorFieldResolver(q.dest)
+		if err != nil {
+			q.resolver = selector.EmptyResolver{}
+		} else {
+			q.resolver = resolver
+		}
+	}
+	return q
 }
 
-func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
-	query := db.Model(lq.dest).Order("name")
-	query = query.Where("org_id = ?", orgId)
+func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+	query := db.Model(lq.dest)
+
+	query = query.Where(
+		fmt.Sprintf("%s = ?", lq.resolveOrDefault(
+			selector.NewHiddenSelectorName("metadata.orgid"), "org_id")), orgId)
 
 	if listParams.FieldSelector != nil {
-		q, p, err := listParams.FieldSelector.Parse(ctx, lq.dest)
+		q, p, err := listParams.FieldSelector.Parse(ctx, lq.resolver)
 		if err != nil {
 			return nil, err
 		}
@@ -76,8 +103,8 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	}
 
 	if listParams.LabelSelector != nil {
-		q, p, err := listParams.LabelSelector.Parse(ctx, lq.dest,
-			selector.NewHiddenSelectorName("metadata.labels"))
+		q, p, err := listParams.LabelSelector.Parse(ctx,
+			selector.NewHiddenSelectorName("metadata.labels"), lq.resolver)
 		if err != nil {
 			return nil, err
 		}
@@ -85,8 +112,8 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	}
 
 	if listParams.AnnotationSelector != nil {
-		q, p, err := listParams.AnnotationSelector.Parse(ctx, lq.dest,
-			selector.NewHiddenSelectorName("metadata.annotations"))
+		q, p, err := listParams.AnnotationSelector.Parse(ctx,
+			selector.NewHiddenSelectorName("metadata.annotations"), lq.resolver)
 		if err != nil {
 			return nil, err
 		}
@@ -94,6 +121,25 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	}
 
 	return query, nil
+}
+
+func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
+	query, err := lq.BuildNoOrder(ctx, db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+	return query.Order("name"), nil
+}
+
+func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string {
+	r, err := lq.resolver.ResolveFields(sn)
+	if err != nil {
+		return d
+	}
+	if len(r) > 0 && r[0] != nil {
+		return r[0].FieldName
+	}
+	return d
 }
 
 func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
@@ -188,17 +234,6 @@ func createParamsFromKey(key string) string {
 		}
 	}
 	return params
-}
-
-func getExistingRecord[R any](db *gorm.DB, name string, orgId uuid.UUID) (*R, error) {
-	var existingRecord R
-	if err := db.Where("name = ? and org_id = ?", name, orgId).First(&existingRecord).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, ErrorFromGormError(err)
-	}
-	return &existingRecord, nil
 }
 
 func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, error)) (*A, bool, error) {

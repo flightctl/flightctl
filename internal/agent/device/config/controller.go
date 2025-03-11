@@ -6,11 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 
-	cerrors "github.com/coreos/ignition/v2/config/shared/errors"
-	ignv3types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -32,28 +29,24 @@ func NewController(
 	}
 }
 
-func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	c.log.Debug("Syncing device configuration")
 	defer c.log.Debug("Finished syncing device configuration")
 
-	if desired.Config != nil {
-		c.log.Debug("Syncing config data")
-		return c.ensureConfigData(ctx, util.FromPtr(current.Config), util.FromPtr(desired.Config))
-	} else {
-		// the desired config is nil, so we should remove any files that are present in the current config
-		ignitionConfig, err := ParseAndConvertConfigFromStr(util.FromPtr(current.Config))
-		if err != nil {
-			return err
-		}
-		if err := c.removeObsoleteFiles(ctx, ignitionConfig.Storage.Files, []ignv3types.File{}); err != nil {
-			return fmt.Errorf("failed to remove stale files: %w", err)
-		}
+	desiredFiles, err := ProviderSpecToFiles(desired.Config)
+	if err != nil {
+		return fmt.Errorf("convert desired config to files: %w", err)
 	}
 
-	return nil
+	currentFiles, err := ProviderSpecToFiles(current.Config)
+	if err != nil {
+		return fmt.Errorf("convert current config to files: %w", err)
+	}
+
+	return c.ensureConfigFiles(currentFiles, desiredFiles)
 }
 
-func computeRemoval(currentFileList, desiredFileList []ignv3types.File) []string {
+func computeRemoval(currentFileList, desiredFileList []v1alpha1.FileSpec) []string {
 	desiredFiles := getFilePaths(desiredFileList)
 	result := []string{}
 	desiredMap := make(map[string]bool)
@@ -64,7 +57,7 @@ func computeRemoval(currentFileList, desiredFileList []ignv3types.File) []string
 
 	currentFiles := getFilePaths(currentFileList)
 	for _, file := range currentFiles {
-		if !desiredMap[file] {
+		if !desiredMap[file] && len(file) > 0 {
 			result = append(result, file)
 		}
 	}
@@ -72,44 +65,31 @@ func computeRemoval(currentFileList, desiredFileList []ignv3types.File) []string
 	return result
 }
 
-func (c *Controller) ensureConfigData(ctx context.Context, currentData, desiredData string) error {
-	currentIgnition, err := ParseAndConvertConfigFromStr(currentData)
-	if err != nil {
-		if errors.Is(err, cerrors.ErrEmpty) {
-			c.log.Debugf("Current config is empty")
-		} else {
-			c.log.Warnf("Failed to parse current ignition: %+v", err)
-		}
-	}
-	desiredIgnition, err := ParseAndConvertConfigFromStr(desiredData)
-	if err != nil {
-		c.log.Warnf("Failed to parse desired config: %+v", err)
-		return err
-	}
-
-	if err := c.removeObsoleteFiles(ctx, currentIgnition.Storage.Files, desiredIgnition.Storage.Files); err != nil {
+func (c *Controller) ensureConfigFiles(currentFiles, desiredFiles []v1alpha1.FileSpec) error {
+	if err := c.removeObsoleteFiles(currentFiles, desiredFiles); err != nil {
 		return fmt.Errorf("failed to remove obsolete files: %w", err)
 	}
 
-	if len(desiredIgnition.Storage.Files) == 0 {
+	if len(desiredFiles) == 0 {
+		c.log.Debug("No config files to write")
 		// no files to write
 		return nil
 	}
 
-	// write ignition files to disk
-	c.log.Debug("Writing ignition files")
-	err = c.writeIgnitionFiles(ctx, desiredIgnition.Storage.Files)
-	if err != nil {
-		c.log.Warnf("Writing ignition files failed: %+v", err)
+	if err := c.writeFiles(desiredFiles); err != nil {
+		c.log.Warnf("Writing config files failed: %+v", err)
 		return fmt.Errorf("failed to apply configuration: %w", err)
 	}
 	return nil
 }
 
 // removeObsoleteFiles removes files that are present in the currentFiles but not in the desiredFiles.
-func (c *Controller) removeObsoleteFiles(ctx context.Context, currentFiles, desiredFiles []ignv3types.File) error {
+func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1alpha1.FileSpec) error {
 	removeFiles := computeRemoval(currentFiles, desiredFiles)
 	for _, file := range removeFiles {
+		if len(file) == 0 {
+			continue
+		}
 		c.log.Debugf("Deleting file: %s", file)
 		if err := c.deviceWriter.RemoveFile(file); err != nil {
 			return fmt.Errorf("deleting files failed: %w", err)
@@ -118,7 +98,7 @@ func (c *Controller) removeObsoleteFiles(ctx context.Context, currentFiles, desi
 	return nil
 }
 
-func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.File) error {
+func (c *Controller) writeFiles(files []v1alpha1.FileSpec) error {
 	for _, file := range files {
 		managedFile, err := c.deviceWriter.CreateManagedFile(file)
 		if err != nil {
@@ -138,9 +118,9 @@ func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.
 			c.log.Warnf("Failed to write file %s: %v", file.Path, err)
 			// in order to create clearer error in status in case we fail in temp file creation
 			// we don't want to return temp filename but rather change the error message to return given file path
-			var err2 *fs.PathError
-			if errors.As(err, &err2) {
-				return fmt.Errorf("failed to write file %s: %w", file.Path, err2.Err)
+			var pathErr *fs.PathError
+			if errors.As(err, &pathErr) {
+				return fmt.Errorf("write file %s: %w", file.Path, pathErr.Err)
 			}
 			return err
 		}
@@ -148,10 +128,36 @@ func (c *Controller) writeIgnitionFiles(ctx context.Context, files []ignv3types.
 	return nil
 }
 
-func getFilePaths(currentFileList []ignv3types.File) []string {
+func getFilePaths(currentFileList []v1alpha1.FileSpec) []string {
 	result := make([]string, len(currentFileList))
 	for i, f := range currentFileList {
 		result[i] = f.Path
 	}
 	return result
+}
+
+// ProviderSpecToFiles converts a list of ConfigProviderSpecs to a list of FileSpecs.
+func ProviderSpecToFiles(configs *[]v1alpha1.ConfigProviderSpec) ([]v1alpha1.FileSpec, error) {
+	if configs == nil || len(*configs) == 0 {
+		return []v1alpha1.FileSpec{}, nil
+	}
+
+	configItem := (*configs)[0]
+	desiredProvider, err := configItem.AsInlineConfigProviderSpec()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert config to inline config: %w", err)
+	}
+
+	return desiredProvider.Inline, nil
+}
+
+func FilesToProviderSpec(files []v1alpha1.FileSpec) (*[]v1alpha1.ConfigProviderSpec, error) {
+	var provider v1alpha1.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(v1alpha1.InlineConfigProviderSpec{
+		Inline: files,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("inline config: %w", err)
+	}
+	return &[]v1alpha1.ConfigProviderSpec{provider}, nil
 }

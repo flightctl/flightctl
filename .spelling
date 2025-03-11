@@ -112,6 +112,7 @@ toolchains
 TPM
 transactionally
 UI
+unenroll
 UTF-8
 versioned
 versioning
@@ -129,6 +130,8 @@ YAML
 openshift
 acm
 namespaces
+USB
+quay.io.
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp

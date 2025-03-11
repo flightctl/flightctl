@@ -38,7 +38,7 @@ func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device
 		return err
 	}
 	if resp.HTTPResponse != nil {
-		defer resp.HTTPResponse.Body.Close()
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
 	}
 
 	if m.rpcMetricsCallbackFunc != nil {
@@ -52,18 +52,18 @@ func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device
 	return nil
 }
 
-// GetRenderedDeviceSpec returns the rendered device spec for the given device
+// GetRenderedDevice returns the rendered device spec for the given device
 // and the response code. If the server returns a 200, the rendered device spec
 // is returned. If the server returns a 204, the rendered device spec is nil,
 // and the response code is returned which should be evaluated but the caller.
-func (m *management) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
+func (m *management) GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error) {
 	start := time.Now()
-	resp, err := m.client.GetRenderedDeviceSpecWithResponse(ctx, name, params, rcb...)
+	resp, err := m.client.GetRenderedDeviceWithResponse(ctx, name, params, rcb...)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 	if resp.HTTPResponse != nil {
-		defer resp.HTTPResponse.Body.Close()
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
 	}
 
 	if m.rpcMetricsCallbackFunc != nil {

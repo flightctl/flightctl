@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/samber/lo"
+	"golang.org/x/exp/constraints"
 	"k8s.io/klog/v2"
 )
 
@@ -54,22 +57,6 @@ func IsEmptyString(s *string) bool {
 	return len(*s) == 0
 }
 
-func StrToPtr(s string) *string {
-	return &s
-}
-
-func Int64ToPtr(i int64) *int64 {
-	return &i
-}
-
-func IntToPtr(i int) *int {
-	return &i
-}
-
-func BoolToPtr(b bool) *bool {
-	return &b
-}
-
 func DefaultBoolIfNil(b *bool, defaultB bool) bool {
 	if b == nil {
 		return defaultB
@@ -77,24 +64,11 @@ func DefaultBoolIfNil(b *bool, defaultB bool) bool {
 	return *b
 }
 
-func TimeToPtr(t time.Time) *time.Time {
-	return &t
-}
-
-func Int32ToPtrWithNilDefault(i int32) *int32 {
-	var defaultInt32 int32
-	if i == defaultInt32 {
+func ToPtrWithNilDefault[T comparable](i T) *T {
+	if lo.IsEmpty(i) {
 		return nil
 	}
 	return &i
-}
-
-func StrToPtrWithNilDefault(s string) *string {
-	var defaultString string
-	if s == defaultString {
-		return nil
-	}
-	return &s
 }
 
 func SliceToPtrWithNilDefault(s []string) *[]string {
@@ -108,8 +82,12 @@ func SliceToPtrWithNilDefault(s []string) *[]string {
 	return &s
 }
 
+func TimeStampString() string {
+	return time.Now().Format(time.RFC3339Nano)
+}
+
 func TimeStampStringPtr() *string {
-	return StrToPtr(time.Now().Format(time.RFC3339Nano))
+	return lo.ToPtr(TimeStampString())
 }
 
 func BoolToStr(b bool, ifTrue string, ifFalse string) string {
@@ -117,19 +95,6 @@ func BoolToStr(b bool, ifTrue string, ifFalse string) string {
 		return ifTrue
 	}
 	return ifFalse
-}
-
-func FromPtr[T any](x *T) T {
-	if x == nil {
-		return Empty[T]()
-	}
-
-	return *x
-}
-
-func Empty[T any]() T {
-	var zero T
-	return zero
 }
 
 func SingleQuote(input []string) []string {
@@ -220,9 +185,12 @@ func MergeLabels(labels ...map[string]string) map[string]string {
 	return result
 }
 
+func ResourceOwner(kind string, name string) string {
+	return fmt.Sprintf("%s/%s", kind, name)
+}
+
 func SetResourceOwner(kind string, name string) *string {
-	owner := fmt.Sprintf("%s/%s", kind, name)
-	return &owner
+	return lo.ToPtr(ResourceOwner(kind, name))
 }
 
 func GetResourceOwner(owner *string) (string, string, error) {
@@ -278,4 +246,49 @@ func EnsureMap[T comparable, U any](m map[T]U) map[T]U {
 		return make(map[T]U)
 	}
 	return m
+}
+
+type Number interface {
+	constraints.Integer | constraints.Float
+}
+
+func Min[N Number](n1, n2 N) N {
+	return lo.Ternary(n1 < n2, n1, n2)
+}
+
+func Max[N Number](n1, n2 N) N {
+	return lo.Ternary(n1 > n2, n1, n2)
+}
+
+func GetFromMap[K comparable, V any](in map[K]V, key K) (V, bool) {
+	if in == nil {
+		return lo.Empty[V](), false
+	}
+	v, ok := in[key]
+	if !ok {
+		return lo.Empty[V](), false
+	}
+	return v, true
+}
+
+type Singleton[T any] struct {
+	value atomic.Pointer[T]
+}
+
+func (s *Singleton[T]) Instance() *T {
+	var empty T
+	return s.GetOrInit(&empty)
+}
+
+func (s *Singleton[T]) GetOrInit(t *T) *T {
+	_ = s.value.CompareAndSwap(nil, t)
+	return s.value.Load()
+}
+
+func Clone[T any](t *T) *T {
+	if t == nil {
+		return nil
+	}
+	ret := *t
+	return &ret
 }

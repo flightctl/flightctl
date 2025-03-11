@@ -54,7 +54,7 @@ type Manager interface {
 	Ensure(app Application) error
 	Remove(app Application) error
 	Update(app Application) error
-	BeforeUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
+	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
 	AfterUpdate(ctx context.Context) error
 	Stop(ctx context.Context) error
 	status.Exporter
@@ -206,7 +206,7 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.D
 	for _, container := range a.containers {
 		restarts += container.Restarts
 		switch container.Status {
-		case ContainerStatusInit:
+		case ContainerStatusInit, ContainerStatusCreated:
 			initializing++
 		case ContainerStatusRunning:
 			healthy++
@@ -228,7 +228,7 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.D
 		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
 	case isStarting(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusStarting
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1alpha1.ApplicationStatusPreparing
 		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
@@ -326,7 +326,7 @@ func (a *applications) ImageBased() []*application[*v1alpha1.ImageApplicationPro
 }
 
 // ImageProvidersFromSpec returns a list of image application providers from a rendered device spec.
-func ImageProvidersFromSpec(spec *v1alpha1.RenderedDeviceSpec) ([]v1alpha1.ImageApplicationProvider, error) {
+func ImageProvidersFromSpec(spec *v1alpha1.DeviceSpec) ([]v1alpha1.ImageApplicationProvider, error) {
 	var providers []v1alpha1.ImageApplicationProvider
 	for _, appSpec := range *spec.Applications {
 		appProvider, err := appSpec.Type()

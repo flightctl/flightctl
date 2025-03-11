@@ -102,11 +102,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		Steps:    6,
 	}
 
-	// create bootc client
-	bootcClient := client.NewBootc(a.log, executer)
+	// create os client
+	osClient := os.NewClient(a.log, executer)
 
 	// create podman client
-	podmanClient := client.NewPodman(a.log, executer, backoff)
+	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, backoff)
 
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
@@ -128,7 +128,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.DataDir,
 		policyManager,
 		deviceReadWriter,
-		bootcClient,
+		osClient,
 		backoff,
 		a.log,
 	)
@@ -157,7 +157,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	systemdManager := systemd.NewManager(a.log, systemdClient)
 
 	// create os manager
-	osManager := os.NewManager(a.log, bootcClient, podmanClient)
+	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -258,7 +258,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		configController,
 		resourceController,
 		consoleController,
-		bootcClient,
+		osClient,
 		podmanClient,
 		backoff,
 		a.log,

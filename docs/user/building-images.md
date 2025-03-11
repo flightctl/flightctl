@@ -46,17 +46,17 @@ When the Flight Control agent starts, it expects to find its configuration in `/
 * the X.509 client certificate and key to connect with (enrollment certificate),
 * optionally, any further agent configuration (see [Configuring the Flight Control Agent](configuring-agent.md)).
 
-You have multiple options how and when to provision the enrollment endpoint and certificate to the device:
+You can provision the enrollment endpoint and certificate to the device in the following ways:
 
-* You can build the OS image including enrollment endpoint and certificate (*"early binding"*).
+* **Early binding:** You can build an OS image that includes both the enrollment endpoint and certificate.
 
   Devices using this image can automatically connect to "their" Flight Control service to request enrollment, without depending on any provisioning infrastructure. On the other hand, devices are bound to a specific service and owner. They also share the same, typically long-lived X.509 client certificate for connecting to the enrollment service.
 
-* You can build the OS image without enrollment endpoint and certificate, but inject these at provisioning-time (*"late binding"*).
+* **Late binding:** You can build an OS image without enrollment endpoint and certificate and instead inject both at provisioning-time.
 
-  Devices using this image are not bound to a single owner or service and can have device-specific, short-lived X.509 client certificates for connecting to the enrollment service. However, this requires the presence of virtualization or bare metal provisioning infrastructure that can request device-specific enrollment endpoints and certificates from Flight Control and inject these using mechanisms like [cloud-init](https://cloud-init.io/), [Ignition](https://coreos.github.io/ignition/supported-platforms/), or [kickstart](https://anaconda-installer.readthedocs.io/en/latest/kickstart.html).
+  Devices using this image are not bound to a single owner or service and can have device-specific, short-lived X.509 client certificates for connecting to the enrollment service. However, late binding requires virtualization or bare metal provisioning infrastructure that can request device-specific enrollment endpoints and certificates from Flight Control and inject them into the provisioned device using mechanisms such as [cloud-init](https://cloud-init.io/), [Ignition](https://coreos.github.io/ignition/supported-platforms/), or [kickstart](https://anaconda-installer.readthedocs.io/en/latest/kickstart.html).
 
-* You can build the OS image including the agent configuration including the enrollment endpoint, but inject the enrollment certificate at provisioning-time.
+* **Other:** You can build an OS image including only the agent configuration and enrollment endpoint, but inject the enrollment certificate at provisioning-time.
 
 > [!NOTE]
 > The enrollment certificate is only used to secure the network connection for submitting an enrollment request. It is not involved in the actual verification or approval of the enrollment request. It is also no longer used with enrolled devices, as these rely on device-specific management certificates instead.
@@ -82,7 +82,6 @@ enrollment-service:
     certificate-authority-data: LS0tLS1CRUdJTiBD...
     server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
   enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8081
-  grpc-management-endpoint: grpcs://agent-grpc.flightctl.127.0.0.1.nip.io:7444
 ```
 
 ### Building the OS Image (bootc)
@@ -92,7 +91,7 @@ Create a file named `Containerfile` with the following content to build an OS im
 ```console
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl centos-stream-9-x86_64 && \
+RUN dnf -y copr enable @redhat-et/flightctl && \
     dnf -y install flightctl-agent && \
     dnf -y clean all && \
     systemctl enable flightctl-agent.service
@@ -107,6 +106,9 @@ ADD config.yaml /etc/flightctl/
 
 > [!NOTE]
 > If you have used Podman or Docker before to build application containers, you will notice this is a regular `Containerfile`, with the only difference that the base image referenced in `FROM` is bootable container (bootc) image. That means it already contains a Linux kernel. This allows you to reuse existing standard container build tools and workflows.
+
+> [!NOTE]
+If your device relies on an OS image from a private repository, [authentication credentials](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#configuring-container-pull-secrets_managing-users-groups-ssh-key-and-secrets-in-image-mode-for-rhel) (pull secrets) must be placed in the appropriate system path `/etc/ostree/auth.json`. Authentication must exist on the device before it can be consumed.
 
 > [!IMPORTANT]
 > When using Flight Control with a RHEL 9 base image, you need to disable the default automatic updates by adding the following command to the `Containerfile`:
@@ -176,7 +178,7 @@ Once `bootc-image-builder` completes, you can find the disk image under `$(pwd)/
 
 Refer to `bootc-image-builder`'s [list of image types](https://github.com/osbuild/bootc-image-builder?tab=readme-ov-file#-image-types) for other supported types.
 
-### Signing and Publishing the OS Disk Image (bootc)
+### Signing and Publishing the OS Disk Image
 
 Optionally, you can compress, sign, and publish your disk image to your OCI registry, too. This helps unify hosting and distribution. Using manifest lists, you can even keep matching bootc and disk images together:
 

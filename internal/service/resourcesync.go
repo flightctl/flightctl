@@ -6,275 +6,148 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
-	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/service/common"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
 )
 
-// (POST /api/v1/resourcesyncs)
-func (h *ServiceHandler) CreateResourceSync(ctx context.Context, request server.CreateResourceSyncRequestObject) (server.CreateResourceSyncResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "create")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.CreateResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.CreateResourceSync403JSONResponse{Message: Forbidden}, nil
-	}
+func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
 	orgId := store.NullOrgId
 
 	// don't set fields that are managed by the service
-	request.Body.Status = nil
-	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	rs.Status = nil
+	NilOutManagedObjectMetaProperties(&rs.Metadata)
 
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateResourceSync400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	if errs := rs.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.ResourceSync().Create(ctx, orgId, request.Body)
-	switch err {
-	case nil:
-		return server.CreateResourceSync201JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrIllegalResourceVersionFormat:
-		return server.CreateResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrDuplicateName:
-		return server.CreateResourceSync409JSONResponse{Message: err.Error()}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.ResourceSync().Create(ctx, orgId, &rs)
+	return result, StoreErrorToApiStatus(err, true, api.ResourceSyncKind, rs.Metadata.Name)
 }
 
-// (GET /api/v1/resourcesyncs)
-func (h *ServiceHandler) ListResourceSync(ctx context.Context, request server.ListResourceSyncRequestObject) (server.ListResourceSyncResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ListResourceSync403JSONResponse{Message: Forbidden}, nil
-	}
+func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListResourceSyncsParams) (*api.ResourceSyncList, api.Status) {
 	orgId := store.NullOrgId
 
-	cont, err := store.ParseContinueString(request.Params.Continue)
+	cont, err := store.ParseContinueString(params.Continue)
 	if err != nil {
-		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
 	}
 
 	var fieldSelector *selector.FieldSelector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+	if params.FieldSelector != nil {
+		if fieldSelector, err = selector.NewFieldSelector(*params.FieldSelector); err != nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
 		}
 	}
 
 	var labelSelector *selector.LabelSelector
-	if request.Params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
+	if params.LabelSelector != nil {
+		if labelSelector, err = selector.NewLabelSelector(*params.LabelSelector); err != nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))
 		}
 	}
 
 	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(request.Params.Limit)),
+		Limit:         int(swag.Int32Value(params.Limit)),
 		Continue:      cont,
 		FieldSelector: fieldSelector,
 		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
 		listParams.Limit = store.MaxRecordsPerListRequest
-	}
-	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListResourceSync400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
+	} else if listParams.Limit > store.MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))
+	} else if listParams.Limit < 0 {
+		return nil, api.StatusBadRequest("limit cannot be negative")
 	}
 
 	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)
 	if err == nil {
-		return server.ListResourceSync200JSONResponse(*result), nil
+		return result, api.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListResourceSync400JSONResponse{Message: se.Error()}, nil
+		return nil, api.StatusBadRequest(se.Error())
 	default:
-		return nil, err
+		return nil, api.StatusInternalServerError(err.Error())
 	}
 }
 
-// (DELETE /api/v1/resourcesyncs)
-func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context, request server.DeleteResourceSyncsRequestObject) (server.DeleteResourceSyncsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteResourceSyncs503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteResourceSyncs403JSONResponse{Message: Forbidden}, nil
-	}
+func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context) api.Status {
 	orgId := store.NullOrgId
 
-	err = h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
-	switch err {
-	case nil:
-		return server.DeleteResourceSyncs200JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	err := h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
+	return StoreErrorToApiStatus(err, false, api.ResourceSyncKind, nil)
 }
 
-// (GET /api/v1/resourcesyncs/{name})
-func (h *ServiceHandler) ReadResourceSync(ctx context.Context, request server.ReadResourceSyncRequestObject) (server.ReadResourceSyncResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadResourceSync403JSONResponse{Message: Forbidden}, nil
-	}
+func (h *ServiceHandler) GetResourceSync(ctx context.Context, name string) (*api.ResourceSync, api.Status) {
 	orgId := store.NullOrgId
 
-	result, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)
-	switch err {
-	case nil:
-		return server.ReadResourceSync200JSONResponse(*result), nil
-	case flterrors.ErrResourceNotFound:
-		return server.ReadResourceSync404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.ResourceSync().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 }
 
-// (PUT /api/v1/resourcesyncs/{name})
-func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, request server.ReplaceResourceSyncRequestObject) (server.ReplaceResourceSyncResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceResourceSync403JSONResponse{Message: Forbidden}, nil
-	}
+func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, name string, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
-	request.Body.Status = nil
-	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceResourceSync400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	rs.Status = nil
+	NilOutManagedObjectMetaProperties(&rs.Metadata)
+	if errs := rs.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceResourceSync400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+	if name != *rs.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, request.Body)
-	switch err {
-	case nil:
-		if created {
-			return server.ReplaceResourceSync201JSONResponse(*result), nil
-		} else {
-			return server.ReplaceResourceSync200JSONResponse(*result), nil
-		}
-	case flterrors.ErrResourceIsNil:
-		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNameIsNil:
-		return server.ReplaceResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.ReplaceResourceSync404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
-		return server.ReplaceResourceSync409JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs)
+	return result, StoreErrorToApiStatus(err, created, api.ResourceSyncKind, &name)
 }
 
-// (DELETE /api/v1/resourcesyncs/{name})
-func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, request server.DeleteResourceSyncRequestObject) (server.DeleteResourceSyncResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteResourceSync403JSONResponse{Message: Forbidden}, nil
-	}
+func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
-	err = h.store.ResourceSync().Delete(ctx, orgId, request.Name, h.store.Fleet().UnsetOwner)
-	switch err {
-	case nil:
-		return server.DeleteResourceSync200JSONResponse{}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.DeleteResourceSync404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	err := h.store.ResourceSync().Delete(ctx, orgId, name, h.store.Fleet().UnsetOwner)
+	return StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 }
 
-// (PATCH /api/v1/resourcesyncs/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchResourceSync(ctx context.Context, request server.PatchResourceSyncRequestObject) (server.PatchResourceSyncResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "resourcesyncs", "patch")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.PatchResourceSync503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.PatchResourceSync403JSONResponse{Message: Forbidden}, nil
-	}
+func (h *ServiceHandler) PatchResourceSync(ctx context.Context, name string, patch api.PatchRequest) (*api.ResourceSync, api.Status) {
 	orgId := store.NullOrgId
 
-	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, request.Name)
+	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, name)
 	if err != nil {
-		switch err {
-		case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
-			return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
-		case flterrors.ErrResourceNotFound:
-			return server.PatchResourceSync404JSONResponse{}, nil
-		default:
-			return nil, err
-		}
+		return nil, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 	}
 
-	newObj := &v1alpha1.ResourceSync{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/resourcesyncs/"+request.Name)
+	newObj := &api.ResourceSync{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/resourcesyncs/"+name)
 	if err != nil {
-		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
+		return nil, api.StatusBadRequest(err.Error())
 	}
 
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
 	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchResourceSync400JSONResponse{Message: "metadata.name is immutable"}, nil
+		return nil, api.StatusBadRequest("metadata.name is immutable")
 	}
 	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchResourceSync400JSONResponse{Message: "apiVersion is immutable"}, nil
+		return nil, api.StatusBadRequest("apiVersion is immutable")
 	}
 	if currentObj.Kind != newObj.Kind {
-		return server.PatchResourceSync400JSONResponse{Message: "kind is immutable"}, nil
+		return nil, api.StatusBadRequest("kind is immutable")
 	}
 	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchResourceSync400JSONResponse{Message: "status is immutable"}, nil
+		return nil, api.StatusBadRequest("status is immutable")
 	}
 
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 	result, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
-
-	switch err {
-	case nil:
-		return server.PatchResourceSync200JSONResponse(*result), nil
-	case flterrors.ErrResourceIsNil, flterrors.ErrResourceNameIsNil:
-		return server.PatchResourceSync400JSONResponse{Message: err.Error()}, nil
-	case flterrors.ErrResourceNotFound:
-		return server.PatchResourceSync404JSONResponse{}, nil
-	case flterrors.ErrNoRowsUpdated, flterrors.ErrResourceVersionConflict:
-		return server.PatchResourceSync409JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 }

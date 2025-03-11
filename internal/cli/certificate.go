@@ -76,7 +76,9 @@ func NewCmdCertificate() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -189,10 +191,10 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		}
 		return checkCsrCertReady(currentCsr), nil
 	})
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		fmt.Fprintln(os.Stderr, " success.")
-	case wait.ErrWaitTimeout:
+	case errors.Is(err, wait.ErrWaitTimeout):
 		return fmt.Errorf("timeout polling for certificate")
 	default:
 		return fmt.Errorf("polling for certificate: %w", err)
@@ -319,7 +321,7 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 }
 
 func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) (*api.CertificateSigningRequest, error) {
-	response, err := c.ReadCertificateSigningRequestWithResponse(ctx, name)
+	response, err := c.GetCertificateSigningRequestWithResponse(ctx, name)
 	if err != nil {
 		return nil, err
 	}

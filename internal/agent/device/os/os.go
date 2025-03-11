@@ -6,39 +6,51 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-type Manager interface {
-	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error
-	AfterUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
-	Reboot(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
+const (
+	authPath = "/etc/ostree/auth.json"
+)
 
+type Client interface {
+	// Status retrieves the current OS status.
+	Status(ctx context.Context) (*Status, error)
+	// Switch prepares the system to switch to the specified OS image.
+	Switch(ctx context.Context, image string) error
+	// Apply applies the OS changes, potentially triggering a reboot.
+	Apply(ctx context.Context) error
+}
+
+type Manager interface {
+	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error
+	AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error
 	status.Exporter
 }
 
-func NewManager(log *log.PrefixLogger, bootcClient container.BootcClient, podmanClient *client.Podman) Manager {
+// NewManager creates a new os manager.
+func NewManager(log *log.PrefixLogger, client Client, reader fileio.Reader, podmanClient *client.Podman) Manager {
 	return &manager{
-		bootcClient:  bootcClient,
+		client:       client,
 		podmanClient: podmanClient,
+		reader:       reader,
 		log:          log,
 	}
 }
 
 type manager struct {
-	bootcClient  container.BootcClient
+	client       Client
 	podmanClient *client.Podman
+	reader       fileio.Reader
 	log          *log.PrefixLogger
 }
 
-func (m *manager) Initialize() error {
-	return nil
-}
-
 func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	bootcInfo, err := m.bootcClient.Status(ctx)
+	bootcInfo, err := m.client.Status(ctx)
 	if err != nil {
 		return err
 	}
@@ -48,7 +60,7 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) err
 	return nil
 }
 
-func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
 	}
@@ -57,7 +69,20 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.R
 	now := time.Now()
 	m.log.Infof("Fetching OS image: %s", osImage)
 
-	_, err := m.podmanClient.Pull(ctx, osImage, client.WithRetry())
+	opts := []client.ClientOption{
+		client.WithRetry(),
+	}
+
+	exists, err := m.reader.PathExists(authPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		m.log.Infof("Using pull secret: %s", authPath)
+		opts = append(opts, client.WithPullSecret(authPath))
+	}
+
+	_, err = m.podmanClient.Pull(ctx, osImage, opts...)
 	if err != nil {
 		return err
 	}
@@ -66,14 +91,18 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.R
 	return nil
 }
 
-func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
 	}
 	osImage := desired.Os.Image
-	return m.bootcClient.Switch(ctx, osImage)
+	return m.client.Switch(ctx, osImage)
 }
 
-func (m *manager) Reboot(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	return m.bootcClient.Apply(ctx)
+func (m *manager) Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+	return m.client.Apply(ctx)
+}
+
+type Status struct {
+	container.BootcHost
 }

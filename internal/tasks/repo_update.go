@@ -6,19 +6,20 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/sirupsen/logrus"
 )
 
-func repositoryUpdate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+func repositoryUpdate(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	logic := NewRepositoryUpdateLogic(callbackManager, log, store, *resourceRef)
 
 	switch {
-	case resourceRef.Op == RepositoryUpdateOpUpdate && resourceRef.Kind == api.RepositoryKind:
+	case resourceRef.Op == tasks_client.RepositoryUpdateOpUpdate && resourceRef.Kind == api.RepositoryKind:
 		err := logic.HandleRepositoryUpdate(ctx)
 		if err != nil {
 			log.Errorf("failed to notify associated resources of update to repository %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
 		}
-	case resourceRef.Op == RepositoryUpdateOpDeleteAll && resourceRef.Kind == api.RepositoryKind:
+	case resourceRef.Op == tasks_client.RepositoryUpdateOpDeleteAll && resourceRef.Kind == api.RepositoryKind:
 		err := logic.HandleAllRepositoriesDeleted(ctx, log)
 		if err != nil {
 			log.Errorf("failed to notify associated resources deletion of all repositories in org %s: %v", resourceRef.OrgID, err)
@@ -30,13 +31,13 @@ func repositoryUpdate(ctx context.Context, resourceRef *ResourceReference, store
 }
 
 type RepositoryUpdateLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	store           store.Store
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 }
 
-func NewRepositoryUpdateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) RepositoryUpdateLogic {
+func NewRepositoryUpdateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef tasks_client.ResourceReference) RepositoryUpdateLogic {
 	return RepositoryUpdateLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef}
 }
 

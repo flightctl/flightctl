@@ -61,7 +61,7 @@ flightctl get devices -l type=pos-terminal -l stage=development
 If the list of returned devices is OK, you could then define a `development-pos-terminals` fleet selecting these like this:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
   name: development-pos-terminals
@@ -97,12 +97,12 @@ We also provide some helper functions:
 
 * `upper`: Change to upper case. For example, `{{ upper .metadata.name }}`.
 * `lower`: Change to lower case. For example, `{{ lower .metadata.labels.key }}`.
-* `replace`: Replace all occurrences of a substring with another string. For example, `{{ replace \"old\" \"new\" .metadata.labels.key }}`.
-* `getOrDefault`: Return a default value if accessing a missing label. For example, `{{ getOrDefault .metadata.labels \"key\" \"default\" }}`.
+* `replace`: Replace all occurrences of a substring with another string. For example, `{{ replace "old" "new" .metadata.labels.key }}`.
+* `getOrDefault`: Return a default value if accessing a missing label. For example, `{{ getOrDefault .metadata.labels "key" "default" }}`.
 
-You can also combine helpers in pipelines, for example `{{ getOrDefault .metadata.labels \"key\" \"default\" | upper | replace \" \" \"-\" }}`.
+You can also combine helpers in pipelines, for example `{{ getOrDefault .metadata.labels "key" "default" | upper | replace " " "-" }}`.
 
-Note: Always make sure to use proper Go template syntax. For example, `{{ .metadata.labels.target-revision }}` is not valid because of the hyphen, and you would need to use something like `{{ index .metadata.labels \"target-revision\" }}` instead.
+Note: Always make sure to use proper Go template syntax. For example, `{{ .metadata.labels.target-revision }}` is not valid because of the hyphen, and you would need to use something like `{{ index .metadata.labels "target-revision" }}` instead.
 
 Here are some examples of what you can do with placeholders in device templates:
 
@@ -117,7 +117,3 @@ The following fields in device templates support placeholders (including within 
 | Git Config Provider | targetRevision, path |
 | HTTP Config Provider | URL suffix, path |
 | Inline Config Provider | content, path |
-
-## Defining Rollout Policies
-
-## Managing Fleets Using GitOps

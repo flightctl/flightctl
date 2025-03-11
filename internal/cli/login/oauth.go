@@ -64,10 +64,10 @@ func (o OAuth2) GetOAuth2Config() (OauthServerResponse, error) {
 	return oauthResponse, nil
 }
 
-func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.AuthorizeRequest, r *http.Request) (string, error) {
+func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.AuthorizeRequest, r *http.Request) (AuthInfo, error) {
 	areqdata, err := authorizeRequest.HandleRequest(r)
 	if err != nil {
-		return "", err
+		return AuthInfo{}, err
 	}
 
 	treq := client.NewAccessRequest(osincli.AUTHORIZATION_CODE, areqdata)
@@ -75,10 +75,14 @@ func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.Auth
 	ad, err := treq.GetToken()
 
 	if err != nil {
-		return "", err
+		return AuthInfo{}, err
 	}
 
-	return ad.AccessToken, nil
+	return AuthInfo{
+		AccessToken:  ad.AccessToken,
+		RefreshToken: ad.RefreshToken,
+		ExpiresIn:    ad.Expiration,
+	}, nil
 }
 
 func (o OAuth2) getOAuth2Client(scope string, callback string) (*osincli.Client, *osincli.AuthorizeRequest, error) {
@@ -115,22 +119,22 @@ func (o OAuth2) getOAuth2Client(scope string, callback string) (*osincli.Client,
 	return client, client.NewAuthorizeRequest(osincli.CODE), nil
 }
 
-func (o OAuth2) authHeadless(username, password string) (string, error) {
+func (o OAuth2) authHeadless(username, password string) (AuthInfo, error) {
 	client, authorizeRequest, err := o.getOAuth2Client("", "")
 	if err != nil {
-		return "", err
+		return AuthInfo{}, err
 	}
 	requestURL := authorizeRequest.GetAuthorizeUrl().String()
 	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {
-		return "", err
+		return AuthInfo{}, err
 	}
 	req.Header.Set(csrfTokenHeader, "1")
 	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(username+":"+password)))
 	resp, err := client.Transport.RoundTrip(req)
 
 	if err != nil {
-		return "", err
+		return AuthInfo{}, err
 	}
 
 	if resp.StatusCode == http.StatusFound {
@@ -138,35 +142,38 @@ func (o OAuth2) authHeadless(username, password string) (string, error) {
 
 		req, err := http.NewRequest(http.MethodGet, redirectURL, nil)
 		if err != nil {
-			return "", err
+			return AuthInfo{}, err
 		}
 
 		return getOAuth2AccessToken(client, authorizeRequest, req)
 	}
-	return "", fmt.Errorf("unexpected http code: %v", resp.StatusCode)
+	return AuthInfo{}, fmt.Errorf("unexpected http code: %v", resp.StatusCode)
 }
 
-func (o OAuth2) authWeb(scope string) (string, error) {
-	token := ""
+func (o OAuth2) authWeb(scope string) (AuthInfo, error) {
+	var ret AuthInfo
 
 	// find free port
 	listener, err := net.Listen("tcp", "")
 	if err != nil {
-		return token, fmt.Errorf("failed to open listener: %w", err)
+		return ret, fmt.Errorf("failed to open listener: %w", err)
 	}
+	defer listener.Close()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	done := make(chan error, 1)
 	mux := http.NewServeMux()
+	server := &http.Server{Handler: mux} // #nosec G112
+	defer server.Close()
 	callback := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
 	client, authorizeRequest, err := o.getOAuth2Client(scope, callback)
 	if err != nil {
-		return token, err
+		return ret, err
 	}
 
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		token, err = getOAuth2AccessToken(client, authorizeRequest, r)
+		ret, err = getOAuth2AccessToken(client, authorizeRequest, r)
 		if err != nil {
 			_, err = w.Write([]byte(fmt.Sprintf("ERROR: %s\n", err)))
 			if err != nil {
@@ -183,7 +190,7 @@ func (o OAuth2) authWeb(scope string) (string, error) {
 	})
 
 	go func() {
-		err = http.Serve(listener, mux) // #nosec G114
+		err = server.Serve(listener) // #nosec G114
 		if err != nil {
 			fmt.Printf("failed to start local http server %s\n", err.Error())
 		}
@@ -193,14 +200,43 @@ func (o OAuth2) authWeb(scope string) (string, error) {
 	fmt.Printf("Opening login URL in default browser: %s\n", loginUrl)
 	err = browser.OpenURL(loginUrl)
 	if err != nil {
-		return token, fmt.Errorf("failed to open URL in default browser: %w", err)
+		return ret, fmt.Errorf("failed to open URL in default browser: %w", err)
 	}
 
 	err = <-done
-	return token, err
+	return ret, err
 }
 
-func (o OAuth2) Auth(web bool, username, password string) (string, error) {
+func (o OAuth2) Renew(refreshToken string) (AuthInfo, error) {
+	if refreshToken == "" {
+		return AuthInfo{}, fmt.Errorf("refresh token is required")
+	}
+
+	client, _, err := o.getOAuth2Client("", "")
+	if err != nil {
+		return AuthInfo{}, err
+	}
+
+	// Create a refresh token request
+	req := client.NewAccessRequest(osincli.REFRESH_TOKEN, nil)
+
+	// Set the refresh token parameter
+	req.CustomParameters["refresh_token"] = refreshToken
+
+	// Exchange refresh token for a new access token
+	accessData, err := req.GetToken()
+	if err != nil {
+		return AuthInfo{}, fmt.Errorf("failed to refresh token: %w", err)
+	}
+
+	return AuthInfo{
+		AccessToken:  accessData.AccessToken,
+		RefreshToken: accessData.RefreshToken, // May be empty if not returned
+		ExpiresIn:    accessData.Expiration,
+	}, nil
+}
+
+func (o OAuth2) Auth(web bool, username, password string) (AuthInfo, error) {
 	if web {
 		return o.authWeb("")
 	}

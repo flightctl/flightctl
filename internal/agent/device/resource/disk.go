@@ -128,9 +128,9 @@ func (m *DiskMonitor) sync(ctx context.Context, usage *DiskUsage) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultDiskSyncTimeout)
 	defer cancel()
 
+	path := m.getPath()
 	if err := m.CollectUsage(ctx, usage); err != nil {
-		m.log.Errorf("Failed to collect Disk usage: %v", err)
-		return
+		m.log.Errorf("Failed to collect Disk usage for path: %s: %v", path, err)
 	}
 
 	m.ensureAlerts(usage.UsedPercent)

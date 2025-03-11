@@ -71,12 +71,12 @@ func (m *manager) Update(app Application) error {
 }
 
 // BeforeUpdate prepares the manager for reconciliation.
-func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
-	if desired.Applications == nil {
+func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+	if desired.Applications == nil || len(*desired.Applications) == 0 {
 		m.log.Debug("No applications to pre-check")
 		return nil
 	}
-	m.log.Info("Pre-checking application dependencies")
+	m.log.Debug("Pre-checking application dependencies")
 	defer m.log.Info("Finished pre-checking application dependencies")
 
 	// ensure dependencies for image based application manifests
@@ -98,7 +98,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.RenderedDe
 	// validate image based application specs and pull images
 	imageBasedApps := apps.ImageBased()
 	if err := m.ensureApps(ctx, imageBasedApps); err != nil {
-		return fmt.Errorf("ensuring apps: %w", err)
+		return err
 	}
 
 	return nil

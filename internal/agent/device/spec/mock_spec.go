@@ -115,10 +115,10 @@ func (mr *MockManagerMockRecorder) Ensure() *gomock.Call {
 }
 
 // GetDesired mocks base method.
-func (m *MockManager) GetDesired(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool, error) {
+func (m *MockManager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDesired", ctx)
-	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
+	ret0, _ := ret[0].(*v1alpha1.Device)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -131,17 +131,17 @@ func (mr *MockManagerMockRecorder) GetDesired(ctx any) *gomock.Call {
 }
 
 // Initialize mocks base method.
-func (m *MockManager) Initialize() error {
+func (m *MockManager) Initialize(ctx context.Context) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Initialize")
+	ret := m.ctrl.Call(m, "Initialize", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Initialize indicates an expected call of Initialize.
-func (mr *MockManagerMockRecorder) Initialize() *gomock.Call {
+func (mr *MockManagerMockRecorder) Initialize(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockManager)(nil).Initialize))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockManager)(nil).Initialize), ctx)
 }
 
 // IsOSUpdate mocks base method.
@@ -202,10 +202,10 @@ func (mr *MockManagerMockRecorder) OSVersion(specType any) *gomock.Call {
 }
 
 // Read mocks base method.
-func (m *MockManager) Read(specType Type) (*v1alpha1.RenderedDeviceSpec, error) {
+func (m *MockManager) Read(specType Type) (*v1alpha1.Device, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Read", specType)
-	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
+	ret0, _ := ret[0].(*v1alpha1.Device)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -231,17 +231,22 @@ func (mr *MockManagerMockRecorder) RenderedVersion(specType any) *gomock.Call {
 }
 
 // Rollback mocks base method.
-func (m *MockManager) Rollback() error {
+func (m *MockManager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Rollback")
+	varargs := []any{ctx}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Rollback", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Rollback indicates an expected call of Rollback.
-func (mr *MockManagerMockRecorder) Rollback() *gomock.Call {
+func (mr *MockManagerMockRecorder) Rollback(ctx any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockManager)(nil).Rollback))
+	varargs := append([]any{ctx}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockManager)(nil).Rollback), varargs...)
 }
 
 // SetClient mocks base method.
@@ -257,15 +262,17 @@ func (mr *MockManagerMockRecorder) SetClient(arg0 any) *gomock.Call {
 }
 
 // SetUpgradeFailed mocks base method.
-func (m *MockManager) SetUpgradeFailed() {
+func (m *MockManager) SetUpgradeFailed(version string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUpgradeFailed")
+	ret := m.ctrl.Call(m, "SetUpgradeFailed", version)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUpgradeFailed indicates an expected call of SetUpgradeFailed.
-func (mr *MockManagerMockRecorder) SetUpgradeFailed() *gomock.Call {
+func (mr *MockManagerMockRecorder) SetUpgradeFailed(version any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed), version)
 }
 
 // Status mocks base method.
@@ -320,7 +327,7 @@ func (m *MockPriorityQueue) EXPECT() *MockPriorityQueueMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockPriorityQueue) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpec) {
+func (m *MockPriorityQueue) Add(ctx context.Context, spec *v1alpha1.Device) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Add", ctx, spec)
 }
@@ -346,7 +353,7 @@ func (mr *MockPriorityQueueMockRecorder) CheckPolicy(ctx, policyType, version an
 }
 
 // IsFailed mocks base method.
-func (m *MockPriorityQueue) IsFailed(version string) bool {
+func (m *MockPriorityQueue) IsFailed(version int64) bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IsFailed", version)
 	ret0, _ := ret[0].(bool)
@@ -360,10 +367,10 @@ func (mr *MockPriorityQueueMockRecorder) IsFailed(version any) *gomock.Call {
 }
 
 // Next mocks base method.
-func (m *MockPriorityQueue) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool) {
+func (m *MockPriorityQueue) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Next", ctx)
-	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
+	ret0, _ := ret[0].(*v1alpha1.Device)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -375,7 +382,7 @@ func (mr *MockPriorityQueueMockRecorder) Next(ctx any) *gomock.Call {
 }
 
 // Remove mocks base method.
-func (m *MockPriorityQueue) Remove(version string) {
+func (m *MockPriorityQueue) Remove(version int64) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Remove", version)
 }
@@ -387,7 +394,7 @@ func (mr *MockPriorityQueueMockRecorder) Remove(version any) *gomock.Call {
 }
 
 // SetFailed mocks base method.
-func (m *MockPriorityQueue) SetFailed(version string) {
+func (m *MockPriorityQueue) SetFailed(version int64) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetFailed", version)
 }

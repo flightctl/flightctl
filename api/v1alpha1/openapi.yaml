@@ -3,7 +3,7 @@ info:
   title: Flight Control API
   version: v1alpha1
   description: |
-    [Flight Control](https://github.com/flightctl/flightctl) is a service for declarative management of fleets of edge devices and their workloads.
+    [Flight Control](https://flightctl.io) is a service for declarative management of fleets of edge devices and their workloads.
   contact:
     name: The Flight Control Team
     url: https://flightctl.io
@@ -24,11 +24,40 @@ tags:
     description: Operations on EnrollmentRequest resources.
   - name: fleet
     description: Operations on Fleet resources.
+  - name: labels
+    description: Operations for retrieving labels across different resources.
   - name: repository
     description: Operations on Repository resources.
   - name: resourcesync
     description: Operations on ResourceSync resources.
+  - name: version
+    description: Operations for receiving service version.
 paths:
+  /api/version:
+    get:
+      tags:
+        - version
+      description: Get service version.
+      operationId: getVersion
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/auth/config:
     get:
       tags:
@@ -44,6 +73,10 @@ paths:
                 $ref: '#/components/schemas/AuthConfig'
         "418":
           description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/auth/validate:
     get:
       tags:
@@ -51,7 +84,7 @@ paths:
       description: Validate an authentication token.
       operationId: authValidate
       parameters:
-        - name: Authentication
+        - name: Authorization
           in: header
           description: The authentication token to validate.
           schema:
@@ -59,22 +92,34 @@ paths:
       responses:
         "200":
           description: Token valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Token invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "418":
           description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "500":
           description: InternalServerError
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/resourcesyncs:
     get:
       tags:
         - resourcesync
       description: List ResourceSync resources.
-      operationId: listResourceSync
+      operationId: listResourceSyncs
       parameters:
         - name: continue
           in: query
@@ -111,25 +156,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - resourcesync
@@ -153,31 +198,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - resourcesync
@@ -195,25 +240,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/resourcesyncs/{name}:
     get:
       tags:
         - resourcesync
       description: Get a ResourceSync resource.
-      operationId: readResourceSync
+      operationId: getResourceSync
       parameters:
         - name: name
           in: path
@@ -233,25 +278,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - resourcesync
@@ -288,37 +333,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - resourcesync
@@ -349,37 +394,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - resourcesync
@@ -398,31 +443,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResourceSync'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/repositories:
     get:
       tags:
@@ -465,25 +510,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - repository
@@ -507,31 +552,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - repository
@@ -549,25 +594,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/repositories/{name}:
     get:
       tags:
         - repository
       description: Get a Repository resource.
-      operationId: readRepository
+      operationId: getRepository
       parameters:
         - name: name
           in: path
@@ -587,25 +632,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - repository
@@ -642,37 +687,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - repository
@@ -691,31 +736,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Repository'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - repository
@@ -746,37 +791,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/devices:
     get:
       tags:
@@ -825,25 +870,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Not allowed
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - device
@@ -867,31 +912,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - device
@@ -909,25 +954,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}:
     get:
       tags:
         - device
       description: Get a Device resource.
-      operationId: readDevice
+      operationId: getDevice
       parameters:
         - name: name
           in: path
@@ -947,25 +992,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - device
@@ -1002,37 +1047,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - device
@@ -1051,31 +1096,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - device
@@ -1106,43 +1151,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/status:
     get:
       tags:
         - device
       description: Get the status of a Device resource.
-      operationId: readDeviceStatus
+      operationId: getDeviceStatus
       parameters:
         - name: name
           in: path
@@ -1162,25 +1207,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - device
@@ -1211,31 +1256,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - device
@@ -1266,81 +1311,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-  /api/v1/devices/{name}/console:
-    get:
-      tags:
-        - device
-      description: Request a console connection
-      operationId: requestConsole
-      parameters:
-        - name: name
-          in: path
-          description: The name of the Device resource to create a console connection to.
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeviceConsole'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "404":
-          description: NotFound
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "409":
-          description: StatusConflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/decommission:
     put:
       tags:
@@ -1372,37 +1367,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/rendered:
     get:
       tags:
         - device
-      description: Get the rendered, self-contained device specification for a Device resource.
-      operationId: getRenderedDeviceSpec
+      description: Get the rendered device.
+      operationId: getRenderedDevice
       parameters:
         - name: name
           in: path
@@ -1422,7 +1417,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RenderedDeviceSpec'
+                $ref: '#/components/schemas/Device'
         "204":
           description: No content
           content: {}
@@ -1431,31 +1426,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentconfig:
     get:
       tags:
@@ -1481,31 +1476,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests:
     get:
       tags:
@@ -1548,25 +1543,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - enrollmentrequest
@@ -1590,31 +1585,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - enrollmentrequest
@@ -1632,25 +1627,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     get:
       tags:
         - enrollmentrequest
       description: Get an EnrollmentRequest resource.
-      operationId: readEnrollmentRequest
+      operationId: getEnrollmentRequest
       parameters:
         - name: name
           in: path
@@ -1670,25 +1665,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - enrollmentrequest
@@ -1725,37 +1720,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - enrollmentrequest
@@ -1786,37 +1781,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - enrollmentrequest
@@ -1835,37 +1830,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EnrollmentRequest'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}/status:
     get:
       tags:
         - enrollmentrequest
       description: Get the status of an EnrollmentRequest resource.
-      operationId: readEnrollmentRequestStatus
+      operationId: getEnrollmentRequestStatus
       parameters:
         - name: name
           in: path
@@ -1885,25 +1880,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - enrollmentrequest
@@ -1934,25 +1929,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - enrollmentrequest
@@ -1983,37 +1978,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}/approval:
     put:
       tags:
@@ -2045,31 +2040,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/certificatesigningrequests:
     get:
       tags:
@@ -2112,25 +2107,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - certificatesigningrequest
@@ -2154,31 +2149,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - certificatesigningrequest
@@ -2196,19 +2191,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/certificatesigningrequests/{name}:
     patch:
       tags:
@@ -2240,42 +2235,42 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     get:
       tags:
         - certificatesigningrequest
       description: read the specified certificateSigningRequest
-      operationId: readCertificateSigningRequest
+      operationId: getCertificateSigningRequest
       parameters:
         - name: name
           in: path
@@ -2296,25 +2291,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - certificatesigningrequest
@@ -2351,37 +2346,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - certificatesigningrequest
@@ -2400,31 +2395,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CertificateSigningRequest'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/certificatesigningrequests/{name}/approval:
     put:
       tags:
@@ -2456,37 +2451,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/fleets:
     get:
       tags:
@@ -2517,9 +2512,9 @@ paths:
           schema:
             type: integer
             format: int32
-        - name: addDevicesCount
+        - name: addDevicesSummary
           in: query
-          description: Include the number of devices in each fleet.
+          description: Include a summary of the devices in the fleet.
           required: false
           schema:
             type: boolean
@@ -2535,25 +2530,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - fleet
@@ -2577,31 +2572,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - fleet
@@ -2619,25 +2614,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/fleets/{name}:
     get:
       tags:
         - fleet
       description: Get a Fleet resource.
-      operationId: readFleet
+      operationId: getFleet
       parameters:
         - name: name
           in: path
@@ -2663,25 +2658,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - fleet
@@ -2718,37 +2713,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - fleet
@@ -2779,37 +2774,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - fleet
@@ -2828,37 +2823,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Fleet'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/fleets/{name}/status:
     get:
       tags:
         - fleet
       description: read status of the specified Fleet
-      operationId: readFleetStatus
+      operationId: getFleetStatus
       parameters:
         - name: name
           in: path
@@ -2878,25 +2873,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - fleet
@@ -2927,31 +2922,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - fleet
@@ -2982,25 +2977,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/fleets/{fleet}/templateversions:
     get:
       tags:
@@ -3049,25 +3044,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - fleet
@@ -3092,25 +3087,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
   /api/v1/fleets/{fleet}/templateversions/{name}:
     get:
       tags:
         - fleet
       description: read the specified template version
-      operationId: readTemplateVersion
+      operationId: getTemplateVersion
       parameters:
         - name: fleet
           in: path
@@ -3136,25 +3131,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - fleet
@@ -3179,31 +3174,102 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TemplateVersion'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Status'
+  /api/v1/labels:
+    get:
+      tags:
+        - labels
+      description: |
+        Retrieves a distinct list of labels for the specified resource type.
+      operationId: listLabels
+      parameters:
+        - name: kind
+          in: query
+          description: The type of resource to retrieve labels from.
+          required: true
+          schema:
+            type: string
+            enum:
+              - Device
+        - name: labelSelector
+          in: query
+          description: A filter to retrieve labels only from resources that match the given label selector.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A filter to retrieve labels only from resources that match the given field selector.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of distinct labels to return in the response.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelList'
+              examples:
+                labelsExample:
+                  summary: Example response for labels
+                  value:
+                    - "environment=production"
+                    - "region=us-east-1"
+                    - "tier=backend"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   schemas:
     DeviceDecommissionTargetType:
@@ -3426,19 +3492,16 @@ components:
       type: object
       description: DeviceConsole represents the console connection information.
       properties:
-        # TODO: when migrating to ws, this should be a ws url instead of gRPCEndpoint
-        #wsURL:
-        #  type: string
-        #  description: 'The URL to connect to the console through a websocket'
-        gRPCEndpoint:
+        sessionMetadata:
           type: string
-          description: The gRPC endpoint for the console connection.
+          description: Additional session metadata in the form of key=value pairs, can be used to initialize the type of terminal, console to be used, etc.
         sessionID:
           type: string
           description: The session ID for the console connection.
       required:
-        - gRPCEndpoint
+        - sessionMetadata
         - sessionID
+      readOnly: true
     ConfigProviderSpec:
       oneOf:
         - $ref: "#/components/schemas/GitConfigProviderSpec"
@@ -3567,7 +3630,7 @@ components:
       required:
       - name
       - httpRef
-    ApplicationSpec:
+    ApplicationProviderSpec:
       type: object
       allOf:
         - $ref: '#/components/schemas/ApplicationEnvVars'
@@ -3575,7 +3638,7 @@ components:
           properties:
             name:
               type: string
-              description: The name of the application must be between 1 and 253 characters and start with a letter or number.
+              description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProvider'
             # extend application providers
@@ -3595,18 +3658,6 @@ components:
           description: Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
           additionalProperties:
             type: string
-    RenderedApplicationSpec:
-      type: object
-      description: RenderedApplicationSpec describes the rendered and self-contained specification of an application.
-      allOf:
-        - $ref: '#/components/schemas/ApplicationEnvVars'
-        - type: object
-          properties:
-            name:
-              type: string
-              description: An application name.
-        - oneOf:
-            - $ref: '#/components/schemas/ImageApplicationProvider'
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'
@@ -3898,6 +3949,7 @@ components:
         - architecture
         - bootID
         - operatingSystem
+        - agentVersion
       type: object
       properties:
         architecture:
@@ -3909,6 +3961,9 @@ components:
         operatingSystem:
           type: string
           description: The Operating System reported by the device.
+        agentVersion:
+          type: string
+          description: The Agent version.
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
     DeviceApplicationStatus:
       type: object
@@ -3991,7 +4046,7 @@ components:
       properties:
         renderedVersion:
           type: string
-          description: Version of the device rendered config.
+          description: Rendered version of the device config.
     DeviceSummaryStatus:
       type: object
       description: A summary of the health of the device hardware and operating system resources.
@@ -4069,14 +4124,6 @@ components:
         - "DeviceLifecycleStatusDecommissioned"
       description: Status type of the device lifecycle.
     DeviceIntegrityStatus:
-      type: object
-      description: Status of device integrity.
-      required:
-        - summary
-      properties:
-        summary:
-          $ref: "#/components/schemas/DeviceIntegrityStatusSummary"
-    DeviceIntegrityStatusSummary:
       type: object
       description: Summary status of the integrity of the device.
       required:
@@ -4406,25 +4453,27 @@ components:
         - items
       description: FleetList is a list of Fleets.
 
-    DisruptionAllowance:
+    DisruptionBudget:
       type: object
       properties:
         groupBy:
           type: array
           items:
             type: string
-          description: List of label keys to perform grouping for the disruption allowance.
+            pattern: '^([A-Za-z0-9][-A-Za-z0-9_/.]*)?[A-Za-z0-9]$'
+          description: List of label keys to perform grouping for the disruption budget.
         minAvailable:
           type: integer
+          minimum: 1
           description: The maximum number of unavailable devices allowed during rollout.
         maxUnavailable:
+          minimum: 1
           type: integer
           description: The minimum number of required available devices during rollout.
-      description: DisruptionAllowance defines the level of allowed disruption when rollout is in progress.
+      description: DisruptionBudget defines the level of allowed disruption when rollout is in progress.
 
     Percentage:
       type: string
-      format: '^(100|[1-9]?[0-9])%$'
       description: Percentage is the string format representing percentage string.
 
     Batch:
@@ -4447,10 +4496,19 @@ components:
       description: 'The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.'
       default: "0s"
 
+    RolloutStrategy:
+      type: string
+      description: The strategy of choice for device selection in rollout policy.
+      enum: ['BatchSequence']
+
     BatchSequence:
       type: object
       description: BatchSequence defines the list of batches to be executed in sequence.
+      required:
+        - strategy
       properties:
+        strategy:
+          $ref: '#/components/schemas/RolloutStrategy'
         sequence:
           type: array
           description: A list of batch definitions.
@@ -4461,22 +4519,18 @@ components:
     RolloutDeviceSelection:
       type: object
       description: Describes how to select devices for rollout.
-      required:
-        - strategy
-      properties:
-        strategy:
-          type: string
-          description: The rollout strategy to use.
       oneOf:
         - $ref: '#/components/schemas/BatchSequence'
       discriminator:
         propertyName: strategy
+        mapping:
+          BatchSequence: '#/components/schemas/BatchSequence'
 
     RolloutPolicy:
       type: object
       properties:
-        disruptionAllowance:
-          $ref: '#/components/schemas/DisruptionAllowance'
+        disruptionBudget:
+          $ref: '#/components/schemas/DisruptionBudget'
         deviceSelection:
           $ref: '#/components/schemas/RolloutDeviceSelection'
         successThreshold:
@@ -4505,46 +4559,6 @@ components:
             - spec
       required:
         - template
-    RenderedDeviceSpec:
-      type: object
-      description: RenderedDeviceSpec describes the rendered and self-contained specification of a Device.
-      properties:
-        renderedVersion:
-          type: string
-          description: Version of the rendered device spec.
-        updatePolicy:
-          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
-        os:
-          $ref: '#/components/schemas/DeviceOsSpec'
-        config:
-          type: string
-          description: The configuration to apply, in Ignition format.
-        applications:
-          type: array
-          description: The list of applications to deploy.
-          items:
-            $ref: '#/components/schemas/RenderedApplicationSpec'
-        systemd:
-          type: object
-          description: The systemd services to monitor.
-          properties:
-            matchPatterns:
-              type: array
-              description: A list of match patterns.
-              items:
-                type: string
-                description: A single systemd unit name, with or without suffix, or a shell-style glob pattern to match against currently loaded units.
-        resources:
-          type: array
-          description: 'Array of resource monitor configurations.'
-          items:
-            $ref: '#/components/schemas/ResourceMonitor'
-        console:
-          $ref: '#/components/schemas/DeviceConsole'
-        decommission:
-          $ref: '#/components/schemas/DeviceDecommission'
-      required:
-        - renderedVersion
     DeviceSpec:
       type: object
       description: DeviceSpec describes a device.
@@ -4560,9 +4574,9 @@ components:
             $ref: '#/components/schemas/ConfigProviderSpec'
         applications:
           type: array
-          description: List of applications.
+          description: List of application providers.
           items:
-            $ref: '#/components/schemas/ApplicationSpec'
+            $ref: '#/components/schemas/ApplicationProviderSpec'
         systemd:
           type: object
           description: The systemd services to monitor.
@@ -4580,6 +4594,11 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+        consoles:
+          type: array
+          description: The list of active console sessions.
+          items:
+            $ref: '#/components/schemas/DeviceConsole'
         decommissioning:
           $ref: '#/components/schemas/DeviceDecommission'
     FleetRolloutStatus:
@@ -4803,9 +4822,30 @@ components:
             type: string
         matchExpressions:
           $ref: '#/components/schemas/MatchExpressions'
+    LabelList:
+      type: array
+      items:
+        type: string
+      description: |
+        A list of distinct labels, where each item is formatted as "key=value".
+      example:
+        - "environment=production"
+        - "region=us-east-1"
+        - "tier=backend"
+
     Status:
       type: object
       properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        code:
+          type: integer
+          format: int32
+          description: Suggested HTTP return code for this status, 0 if not set.
         message:
           type: string
           description: A human-readable description of the status of this operation.
@@ -4816,13 +4856,13 @@ components:
           type: string
           description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.'
       description: Status is a return value for calls that don't return other objects.
-    Error:
       required:
+        - apiVersion
+        - kind
+        - status
+        - code
+        - reason
         - message
-      properties:
-        message:
-          type: string
-          description: Error message.
     Condition:
       required:
         - type
@@ -4865,6 +4905,7 @@ components:
       - 'Synced'                # ResourceSync
       - 'OverlappingSelectors'  # Fleet
       - 'Valid'                 # Fleet
+      - 'RolloutInProgress'     # Fleet
       - 'Updating'              # Device
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
@@ -4880,6 +4921,7 @@ components:
       - ResourceSyncSynced
       - FleetOverlappingSelectors
       - FleetValid
+      - FleetRolloutInProgress
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
@@ -4975,19 +5017,25 @@ components:
         - signerName
       type: object
     CertificateSigningRequestStatus:
-      description: Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+      description: Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
       properties:
         certificate:
           description: The issued signed certificate, immutable once populated.
           format: byte
           type: string
         conditions:
+          type: array
           description: Conditions applied to the request. Known conditions are Approved, Denied, and Failed.
           items:
-            allOf:
-              - $ref: '#/components/schemas/Condition'
-            default: {}
-          type: array
+            $ref: '#/components/schemas/Condition'
       required:
         - conditions
       type: object
+    Version:
+      properties:
+        version:
+          description: Git version of the service.
+          type: string
+      required:
+        - version
+

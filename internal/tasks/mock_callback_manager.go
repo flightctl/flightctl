@@ -12,7 +12,7 @@ package tasks
 import (
 	reflect "reflect"
 
-	model "github.com/flightctl/flightctl/internal/store/model"
+	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -89,15 +89,39 @@ func (mr *MockCallbackManagerMockRecorder) DeviceSourceUpdated(orgId, name any) 
 }
 
 // DeviceUpdatedCallback mocks base method.
-func (m *MockCallbackManager) DeviceUpdatedCallback(before, after *model.Device) {
+func (m *MockCallbackManager) DeviceUpdatedCallback(orgId uuid.UUID, before, after *v1alpha1.Device) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "DeviceUpdatedCallback", before, after)
+	m.ctrl.Call(m, "DeviceUpdatedCallback", orgId, before, after)
 }
 
 // DeviceUpdatedCallback indicates an expected call of DeviceUpdatedCallback.
-func (mr *MockCallbackManagerMockRecorder) DeviceUpdatedCallback(before, after any) *gomock.Call {
+func (mr *MockCallbackManagerMockRecorder) DeviceUpdatedCallback(orgId, before, after any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeviceUpdatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).DeviceUpdatedCallback), before, after)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeviceUpdatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).DeviceUpdatedCallback), orgId, before, after)
+}
+
+// DeviceUpdatedNoRenderCallback mocks base method.
+func (m *MockCallbackManager) DeviceUpdatedNoRenderCallback(orgId uuid.UUID, before, after *v1alpha1.Device) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "DeviceUpdatedNoRenderCallback", orgId, before, after)
+}
+
+// DeviceUpdatedNoRenderCallback indicates an expected call of DeviceUpdatedNoRenderCallback.
+func (mr *MockCallbackManagerMockRecorder) DeviceUpdatedNoRenderCallback(orgId, before, after any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeviceUpdatedNoRenderCallback", reflect.TypeOf((*MockCallbackManager)(nil).DeviceUpdatedNoRenderCallback), orgId, before, after)
+}
+
+// FleetRolloutSelectionUpdated mocks base method.
+func (m *MockCallbackManager) FleetRolloutSelectionUpdated(orgId uuid.UUID, name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "FleetRolloutSelectionUpdated", orgId, name)
+}
+
+// FleetRolloutSelectionUpdated indicates an expected call of FleetRolloutSelectionUpdated.
+func (mr *MockCallbackManagerMockRecorder) FleetRolloutSelectionUpdated(orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FleetRolloutSelectionUpdated", reflect.TypeOf((*MockCallbackManager)(nil).FleetRolloutSelectionUpdated), orgId, name)
 }
 
 // FleetSourceUpdated mocks base method.
@@ -113,37 +137,37 @@ func (mr *MockCallbackManagerMockRecorder) FleetSourceUpdated(orgId, name any) *
 }
 
 // FleetUpdatedCallback mocks base method.
-func (m *MockCallbackManager) FleetUpdatedCallback(before, after *model.Fleet) {
+func (m *MockCallbackManager) FleetUpdatedCallback(orgId uuid.UUID, before, after *v1alpha1.Fleet) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "FleetUpdatedCallback", before, after)
+	m.ctrl.Call(m, "FleetUpdatedCallback", orgId, before, after)
 }
 
 // FleetUpdatedCallback indicates an expected call of FleetUpdatedCallback.
-func (mr *MockCallbackManagerMockRecorder) FleetUpdatedCallback(before, after any) *gomock.Call {
+func (mr *MockCallbackManagerMockRecorder) FleetUpdatedCallback(orgId, before, after any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FleetUpdatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).FleetUpdatedCallback), before, after)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FleetUpdatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).FleetUpdatedCallback), orgId, before, after)
 }
 
 // RepositoryUpdatedCallback mocks base method.
-func (m *MockCallbackManager) RepositoryUpdatedCallback(repository *model.Repository) {
+func (m *MockCallbackManager) RepositoryUpdatedCallback(orgId uuid.UUID, before, after *v1alpha1.Repository) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RepositoryUpdatedCallback", repository)
+	m.ctrl.Call(m, "RepositoryUpdatedCallback", orgId, before, after)
 }
 
 // RepositoryUpdatedCallback indicates an expected call of RepositoryUpdatedCallback.
-func (mr *MockCallbackManagerMockRecorder) RepositoryUpdatedCallback(repository any) *gomock.Call {
+func (mr *MockCallbackManagerMockRecorder) RepositoryUpdatedCallback(orgId, before, after any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RepositoryUpdatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).RepositoryUpdatedCallback), repository)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RepositoryUpdatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).RepositoryUpdatedCallback), orgId, before, after)
 }
 
 // TemplateVersionCreatedCallback mocks base method.
-func (m *MockCallbackManager) TemplateVersionCreatedCallback(templateVersion *model.TemplateVersion) {
+func (m *MockCallbackManager) TemplateVersionCreatedCallback(orgId uuid.UUID, before, after *v1alpha1.TemplateVersion) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "TemplateVersionCreatedCallback", templateVersion)
+	m.ctrl.Call(m, "TemplateVersionCreatedCallback", orgId, before, after)
 }
 
 // TemplateVersionCreatedCallback indicates an expected call of TemplateVersionCreatedCallback.
-func (mr *MockCallbackManagerMockRecorder) TemplateVersionCreatedCallback(templateVersion any) *gomock.Call {
+func (mr *MockCallbackManagerMockRecorder) TemplateVersionCreatedCallback(orgId, before, after any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TemplateVersionCreatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).TemplateVersionCreatedCallback), templateVersion)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TemplateVersionCreatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).TemplateVersionCreatedCallback), orgId, before, after)
 }

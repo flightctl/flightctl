@@ -19,6 +19,7 @@ var (
 		selector.NewSelectorName("status.applicationsSummary.status"): selector.String,
 		selector.NewSelectorName("status.updated.status"):             selector.String,
 		selector.NewSelectorName("status.lastSeen"):                   selector.Timestamp,
+		selector.NewSelectorName("status.lifecycle.status"):           selector.String,
 	}
 	fleetSpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.template.spec.os.image"): selector.String,
@@ -40,7 +41,7 @@ var (
 )
 
 func (m *Device) MapSelectorName(name selector.SelectorName) []selector.SelectorName {
-	if strings.EqualFold("metadata.nameoralias", name.String()) {
+	if strings.EqualFold("metadata.nameOrAlias", name.String()) {
 		return []selector.SelectorName{
 			selector.NewSelectorName("metadata.name"),
 			selector.NewSelectorName("metadata.alias"),
@@ -65,7 +66,21 @@ func (m *Device) ListSelectors() selector.SelectorNameSet {
 	for sn := range deviceStatusSelectors {
 		keys = append(keys, sn)
 	}
-	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameoralias")).Add(keys...)
+	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.nameOrAlias")).Add(keys...)
+}
+
+func (m *DeviceLabel) MapSelectorName(name selector.SelectorName) []selector.SelectorName {
+	if strings.EqualFold("metadata.labels.keyOrValue", name.String()) {
+		return []selector.SelectorName{
+			selector.NewSelectorName("metadata.labels.key"),
+			selector.NewSelectorName("metadata.labels.value"),
+		}
+	}
+	return nil
+}
+
+func (m *DeviceLabel) ListSelectors() selector.SelectorNameSet {
+	return selector.NewSelectorFieldNameSet().Add(selector.NewSelectorName("metadata.labels.keyOrValue"))
 }
 
 func (m *Fleet) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {

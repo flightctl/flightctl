@@ -15,9 +15,8 @@ import (
 	"github.com/go-chi/chi/middleware"
 )
 
-// NewFromConfig returns a new FlightCtl API client from the given config.
+// NewFromConfig returns a new Flight Control API client from the given config.
 func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, error) {
-
 	httpClient, err := baseclient.NewHTTPClientFromConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
@@ -44,7 +43,7 @@ func NewDefault() *Config {
 // Management is the client interface for managing devices.
 type Management interface {
 	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
-	GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error)
+	GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error)
 }
 
 // Enrollment is client the interface for managing device enrollment.
@@ -96,12 +95,21 @@ func IsComposeAvailable() bool {
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	retry bool
+	retry          bool
+	pullSecretPath string
 }
 
 // WithRetry enables enables retry based on the backoff config provided.
 func WithRetry() ClientOption {
 	return func(opts *clientOptions) {
 		opts.retry = true
+	}
+}
+
+// WithPullSecret sets the path to the pull secret. If unset uses the default
+// path for the runtime.
+func WithPullSecret(path string) ClientOption {
+	return func(opts *clientOptions) {
+		opts.pullSecretPath = path
 	}
 }

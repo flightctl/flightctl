@@ -41,7 +41,9 @@ func NewCmdApprove() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -100,7 +102,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	var response *http.Response
-	var getResponse *apiclient.ReadCertificateSigningRequestResponse
+	var getResponse *apiclient.GetCertificateSigningRequestResponse
 
 	switch {
 	case kind == EnrollmentRequestKind:
@@ -111,7 +113,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		}
 		response, err = c.ApproveEnrollmentRequest(ctx, name, approval)
 	case kind == CertificateSigningRequestKind:
-		getResponse, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
+		getResponse, err = c.GetCertificateSigningRequestWithResponse(ctx, name)
 		if err != nil {
 			return fmt.Errorf("getting certificate signing request: %w", err)
 		}
@@ -149,7 +151,7 @@ func processApprovalReponse(response *http.Response, err error, kind string, nam
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		var responseError api.Error
+		var responseError api.Status
 		// not handling errors as we are only interested in the message
 		// and in case there will be a problem in reading the body or unmarshalling it
 		// we will print the status like

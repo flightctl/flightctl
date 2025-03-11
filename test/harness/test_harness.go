@@ -68,6 +68,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	serverCfg := *config.NewDefault()
 	serverLog := log.InitLogs()
 	serverLog.SetLevel(logrus.DebugLevel)
+	serverLog.SetOutput(os.Stdout)
 
 	// create store
 	store, dbName, err := testutil.NewTestStore(serverCfg, serverLog)
@@ -95,7 +96,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
 	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient)
 
-	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts)
+	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}

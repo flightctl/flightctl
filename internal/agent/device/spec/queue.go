@@ -68,12 +68,21 @@ func newPriorityQueue(
 	}
 }
 
-func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpec) {
+func (m *queueManager) Add(ctx context.Context, device *v1alpha1.Device) {
 	if ctx.Err() != nil {
 		return
 	}
 
-	item := newItem(spec)
+	if device.Spec == nil {
+		m.log.Errorf("Skipping device with nil spec: %s", device.Version())
+		return
+	}
+
+	item, err := newItem(device)
+	if err != nil {
+		m.log.Errorf("Failed to create queue item: %v", err)
+		return
+	}
 	version := item.Version
 	if _, failed := m.failedVersions[version]; failed {
 		m.log.Debugf("Skipping adding failed template version: %d", version)
@@ -95,11 +104,11 @@ func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpe
 	m.queue.Add(item)
 }
 
-func (m *queueManager) Remove(version string) {
-	m.queue.Remove(stringToInt64(version))
+func (m *queueManager) Remove(version int64) {
+	m.queue.Remove(version)
 }
 
-func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool) {
+func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	if ctx.Err() != nil {
 		return nil, false
 	}
@@ -113,7 +122,7 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 	requeue, exists := m.requeueLookup[item.Version]
 	if exists && now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
-		m.log.Debugf("Template version %d is not yet ready. Available after: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
+		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
 		return nil, false
 	}
 	if m.updatePolicy(ctx, requeue) {
@@ -134,7 +143,10 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 }
 
 func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
-	v := stringToInt64(version)
+	v, err := stringToInt64(version)
+	if err != nil {
+		return err
+	}
 	requeue, exists := m.requeueLookup[v]
 	if !exists {
 		// this would be very unexpected so we would need to requeue the version
@@ -158,9 +170,8 @@ func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, 
 	}
 }
 
-func (m *queueManager) SetFailed(version string) {
-	v := stringToInt64(version)
-	m.setFailed(v)
+func (m *queueManager) SetFailed(version int64) {
+	m.setFailed(version)
 }
 
 func (m *queueManager) setFailed(version int64) {
@@ -169,8 +180,8 @@ func (m *queueManager) setFailed(version int64) {
 	m.queue.Remove(version)
 }
 
-func (m *queueManager) IsFailed(version string) bool {
-	_, ok := m.failedVersions[stringToInt64(version)]
+func (m *queueManager) IsFailed(version int64) bool {
+	_, ok := m.failedVersions[version]
 	return ok
 }
 
@@ -239,8 +250,8 @@ func (m *queueManager) pruneRequeueStatus() {
 		var minVersion int64
 		var initialized bool
 
-		for version := range m.requeueLookup {
-			if !initialized || version < minVersion {
+		for version, state := range m.requeueLookup {
+			if !initialized || version < minVersion && state.tries > 0 {
 				minVersion = version
 				initialized = true
 			}
@@ -315,15 +326,13 @@ func (q *queue) Clear() {
 }
 
 func (q *queue) Remove(version int64) {
-	if _, ok := q.items[version]; ok {
-		delete(q.items, version)
-		q.log.Debugf("Forgetting item version %v", version)
-	}
+	q.log.Tracef("Removing item version: %d", version)
+	delete(q.items, version)
 
 	// ensure heap removal
 	for i, heapItem := range q.heap {
 		if heapItem.Version == version {
-			q.log.Debugf("Removing item version from heap: %d", version)
+			q.log.Tracef("Removing item version from heap: %d", version)
 			heap.Remove(&q.heap, i)
 			break
 		}
@@ -332,15 +341,19 @@ func (q *queue) Remove(version int64) {
 
 type Item struct {
 	Version int64
-	Spec    *v1alpha1.RenderedDeviceSpec
+	Spec    *v1alpha1.Device
 }
 
 // newItem creates a new queue item.
-func newItem(data *v1alpha1.RenderedDeviceSpec) *Item {
+func newItem(data *v1alpha1.Device) (*Item, error) {
+	version, err := stringToInt64(data.Version())
+	if err != nil {
+		return nil, err
+	}
 	return &Item{
 		Spec:    data,
-		Version: stringToInt64(data.RenderedVersion),
-	}
+		Version: version,
+	}, nil
 }
 
 // ItemHeap is a priority queue that orders items by version.
@@ -370,7 +383,16 @@ func (h *ItemHeap) Pop() interface{} {
 	return item
 }
 
-func stringToInt64(s string) int64 {
-	i, _ := strconv.ParseInt(s, 10, 64)
-	return i
+func stringToInt64(s string) (int64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	i, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("convert string to int64: %w", err)
+	}
+	if i < 0 {
+		return 0, fmt.Errorf("version number cannot be negative: %d", i)
+	}
+	return i, nil
 }

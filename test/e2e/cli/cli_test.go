@@ -3,7 +3,6 @@ package cli_test
 import (
 	"crypto/rand"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -52,7 +51,7 @@ var _ = Describe("cli operation", func() {
 		out, err := harness.CLI(loginArgs...)
 
 		// if openshift authentication is required, try to obtain a token
-		if strings.Contains(out, "You must obtain an API token by visiting") {
+		if strings.Contains(out, "You must provide one of the following options to log in") {
 			token, err = harness.SH("oc", "whoami", "-t")
 			token = strings.Trim(token, "\n")
 			Expect(err).ToNot(HaveOccurred())
@@ -80,7 +79,7 @@ var _ = Describe("cli operation", func() {
 
 	Context("apply/recursive", func() {
 		It("should work for a complete set of yamls", func() {
-			out, err := harness.CLI("apply", "-R", "-f", filepath.Join(util.GetTopLevelDir(), "examples"))
+			out, err := harness.CLI("apply", "-R", "-f", util.GetTestExamplesYamlPath("/"))
 			Expect(err).ToNot(HaveOccurred())
 			// expect out to contain 200 OK or 201 Created
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
@@ -185,11 +184,11 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing Device resource lifecycle")
-			out, err := harness.CLI("apply", "-f", util.GetExamplesYamlPath("device.yaml"))
+			out, err := harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("device.yaml"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
 
-			device := harness.GetDeviceByYaml(util.GetExamplesYamlPath("device.yaml"))
+			device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath("device.yaml"))
 			Expect(*device.Metadata.Name).ToNot(BeEmpty(), "device name should not be empty")
 
 			(*device.Metadata.Labels)[newTestKey] = newTestValue
@@ -200,7 +199,7 @@ var _ = Describe("cli operation", func() {
 
 			By("Verifying Device update")
 			devName := *device.Metadata.Name
-			dev, err := harness.Client.ReadDeviceWithResponse(harness.Context, devName)
+			dev, err := harness.Client.GetDeviceWithResponse(harness.Context, devName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.JSON200).ToNot(BeNil(), "failed to read updated device")
 			responseLabelValue := (*dev.JSON200.Metadata.Labels)[newTestKey]
@@ -211,15 +210,15 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify deletion
-			dev, err = harness.Client.ReadDeviceWithResponse(harness.Context, devName)
+			dev, err = harness.Client.GetDeviceWithResponse(harness.Context, devName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev.JSON404).ToNot(BeNil(), "device should not exist after deletion")
 
 			By("Testing Fleet resource lifecycle")
-			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("fleet-b.yaml"))
+			out, err = harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("fleet-b.yaml"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
-			fleet := harness.GetFleetByYaml(util.GetExamplesYamlPath("fleet-b.yaml"))
+			fleet := harness.GetFleetByYaml(util.GetTestExamplesYamlPath("fleet-b.yaml"))
 			Expect(fleet.Spec.Template).ToNot(BeNil(), "fleet template should not be nil")
 			Expect(fleet.Spec.Selector).ToNot(BeNil(), "fleet selector should not be nil")
 
@@ -232,7 +231,7 @@ var _ = Describe("cli operation", func() {
 
 			By("Verifying Fleet update")
 			fleetName := *fleet.Metadata.Name
-			fleetUpdated, err := harness.Client.ReadFleetWithResponse(harness.Context, fleetName, nil)
+			fleetUpdated, err := harness.Client.GetFleetWithResponse(harness.Context, fleetName, nil)
 			Expect(fleetUpdated.JSON200).ToNot(BeNil(), "failed to read updated fleet")
 
 			Expect(err).ToNot(HaveOccurred())
@@ -245,12 +244,12 @@ var _ = Describe("cli operation", func() {
 
 			By("Repository: Resources lifecycle")
 			Eventually(func() error {
-				out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("repository-flightctl.yaml"))
+				out, err = harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("repository-flightctl.yaml"))
 				return err
 			}, "30s", "1s").Should(BeNil(), "failed to apply Repository")
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
 
-			repo := harness.GetRepositoryByYaml(util.GetExamplesYamlPath("repository-flightctl.yaml"))
+			repo := harness.GetRepositoryByYaml(util.GetTestExamplesYamlPath("repository-flightctl.yaml"))
 
 			//Update repo name
 			updatedName := "flightctl-new"
@@ -265,10 +264,10 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("ResourceSync: Resources lifecycle")
-			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("resourcesync.yaml"))
+			out, err = harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("resourcesync.yaml"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
-			rSync := harness.GetResourceSyncByYaml(util.GetExamplesYamlPath("resourcesync.yaml"))
+			rSync := harness.GetResourceSyncByYaml(util.GetTestExamplesYamlPath("resourcesync.yaml"))
 
 			//Update rSync name
 			rSyncNewName := "flightctl-new"
@@ -283,10 +282,10 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("EnrollmentRequest: Resources lifecycle")
-			out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("enrollmentrequest.yaml"))
+			out, err = harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("enrollmentrequest.yaml"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
-			er := harness.GetEnrollmentRequestByYaml(util.GetExamplesYamlPath("enrollmentrequest.yaml"))
+			er := harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath("enrollmentrequest.yaml"))
 
 			//Update er name
 			erNewName := randString(64)
@@ -302,11 +301,11 @@ var _ = Describe("cli operation", func() {
 
 			By("CertificateSigningRequest: Resources lifecycle")
 			Eventually(func() error {
-				out, err = harness.CLI("apply", "-f", util.GetExamplesYamlPath("csr.yaml"))
+				out, err = harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("csr.yaml"))
 				return err
 			}, "30s", "1s").Should(BeNil(), "failed to apply CSR")
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
-			csr := harness.GetCertificateSigningRequestByYaml(util.GetExamplesYamlPath("csr.yaml"))
+			csr := harness.GetCertificateSigningRequestByYaml(util.GetTestExamplesYamlPath("csr.yaml"))
 
 			//Update csr name
 			csrNewName := randString(64)

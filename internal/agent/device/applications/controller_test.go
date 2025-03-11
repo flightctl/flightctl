@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coreos/ignition/v2/config/util"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -90,10 +90,13 @@ func TestParseApps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			log := log.NewPrefixLogger("test")
+			tmpDir := t.TempDir()
+			reader := fileio.NewReadWriter()
+			reader.SetRootdir(tmpDir)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			spec, err := newTestRenderedDeviceSpec(tc.apps)
+			spec, err := newTestDeviceSpec(tc.apps)
 			require.NoError(err)
 			execMock := executer.NewMockExecuter(ctrl)
 
@@ -102,7 +105,7 @@ func TestParseApps(t *testing.T) {
 			require.NoError(err)
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0).Times(len(tc.apps))
 
-			mockPodman := client.NewPodman(log, execMock, newTestBackoff())
+			mockPodman := client.NewPodman(log, execMock, reader, newTestBackoff())
 			apps, err := parseApps(ctx, mockPodman, spec)
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)
@@ -144,11 +147,11 @@ func newImageConfig(labels map[string]string) (string, error) {
 	return string(imageConfigBytes), nil
 }
 
-func newTestRenderedDeviceSpec(appSpecs []testApp) (*v1alpha1.RenderedDeviceSpec, error) {
-	var applications []v1alpha1.RenderedApplicationSpec
+func newTestDeviceSpec(appSpecs []testApp) (*v1alpha1.DeviceSpec, error) {
+	var applications []v1alpha1.ApplicationProviderSpec
 	for _, spec := range appSpecs {
-		app := v1alpha1.RenderedApplicationSpec{
-			Name: util.StrToPtr(spec.name),
+		app := v1alpha1.ApplicationProviderSpec{
+			Name: lo.ToPtr(spec.name),
 		}
 		provider := v1alpha1.ImageApplicationProvider{
 			Image: spec.image,
@@ -158,7 +161,7 @@ func newTestRenderedDeviceSpec(appSpecs []testApp) (*v1alpha1.RenderedDeviceSpec
 		}
 		applications = append(applications, app)
 	}
-	return &v1alpha1.RenderedDeviceSpec{
+	return &v1alpha1.DeviceSpec{
 		Applications: &applications,
 	}, nil
 }
@@ -315,7 +318,7 @@ func TestControllerSync(t *testing.T) {
 			defer ctrl.Finish()
 			mockExecuter := executer.NewMockExecuter(ctrl)
 			mockAppManager := NewMockManager(ctrl)
-			podmanClient := client.NewPodman(log, mockExecuter, newTestBackoff())
+			podmanClient := client.NewPodman(log, mockExecuter, readWriter, newTestBackoff())
 
 			controller := NewController(podmanClient, mockAppManager, readWriter, log)
 
@@ -342,9 +345,9 @@ func TestControllerSync(t *testing.T) {
 				}
 
 				// generate current and desired for each step
-				current, err := newTestRenderedDeviceSpec(currentApps)
+				current, err := newTestDeviceSpec(currentApps)
 				require.NoError(err)
-				desired, err := newTestRenderedDeviceSpec(desiredApps)
+				desired, err := newTestDeviceSpec(desiredApps)
 				require.NoError(err)
 
 				err = controller.Sync(ctx, current, desired)

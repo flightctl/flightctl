@@ -10,17 +10,18 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
-	cfg       *config.Config
-	log       logrus.FieldLogger
-	store     store.Store
-	provider  queues.Provider
-	k8sClient k8sclient.K8SClient
+	cfg            *config.Config
+	log            logrus.FieldLogger
+	store          store.Store
+	queuesProvider queues.Provider
+	k8sClient      k8sclient.K8SClient
 }
 
 // New returns a new instance of a flightctl server.
@@ -28,21 +29,21 @@ func New(
 	cfg *config.Config,
 	log logrus.FieldLogger,
 	store store.Store,
-	provider queues.Provider,
+	queuesProvider queues.Provider,
 	k8sClient k8sclient.K8SClient,
 ) *Server {
 	return &Server{
-		cfg:       cfg,
-		log:       log,
-		store:     store,
-		provider:  provider,
-		k8sClient: k8sClient,
+		cfg:            cfg,
+		log:            log,
+		store:          store,
+		queuesProvider: queuesProvider,
+		k8sClient:      k8sClient,
 	}
 }
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := tasks.TaskQueuePublisher(s.provider)
+	publisher, err := tasks_client.TaskQueuePublisher(s.queuesProvider)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create fleet queue publisher")
 		return err
@@ -52,8 +53,8 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
-	callbackManager := tasks.NewCallbackManager(publisher, s.log)
-	if err = tasks.LaunchConsumers(ctx, s.provider, s.store, callbackManager, s.k8sClient, kvStore, 1, 1); err != nil {
+	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, s.store, callbackManager, s.k8sClient, kvStore, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}
@@ -62,10 +63,10 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		<-sigShutdown
 		s.log.Println("Shutdown signal received")
-		s.provider.Stop()
+		s.queuesProvider.Stop()
 		kvStore.Close()
 	}()
-	s.provider.Wait()
+	s.queuesProvider.Wait()
 
 	return nil
 }

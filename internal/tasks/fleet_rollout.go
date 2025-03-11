@@ -5,18 +5,22 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"text/template"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
-func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
-	if resourceRef.Op != FleetRolloutOpUpdate {
+func fleetRollout(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
+	if resourceRef.Op != tasks_client.FleetRolloutOpUpdate {
 		log.Errorf("received unknown op %s", resourceRef.Op)
 		return nil
 	}
@@ -40,17 +44,17 @@ func fleetRollout(ctx context.Context, resourceRef *ResourceReference, store sto
 }
 
 type FleetRolloutsLogic struct {
-	callbackManager CallbackManager
+	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	fleetStore      store.Fleet
 	devStore        store.Device
 	tvStore         store.TemplateVersion
-	resourceRef     ResourceReference
+	resourceRef     tasks_client.ResourceReference
 	itemsPerPage    int
 	owner           string
 }
 
-func NewFleetRolloutsLogic(callbackManager CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef ResourceReference) FleetRolloutsLogic {
+func NewFleetRolloutsLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, storeInst store.Store, resourceRef tasks_client.ResourceReference) FleetRolloutsLogic {
 	return FleetRolloutsLogic{
 		callbackManager: callbackManager,
 		log:             log,
@@ -67,6 +71,10 @@ func (f *FleetRolloutsLogic) SetItemsPerPage(items int) {
 }
 
 func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
+	fleet, err := f.fleetStore.Get(ctx, f.resourceRef.OrgID, f.resourceRef.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get fleet %s/%s: %w", f.resourceRef.OrgID, f.resourceRef.Name, err)
+	}
 	f.log.Infof("Rolling out fleet %s/%s", f.resourceRef.OrgID, f.resourceRef.Name)
 
 	templateVersion, err := f.tvStore.GetLatest(ctx, f.resourceRef.OrgID, f.resourceRef.Name)
@@ -87,6 +95,21 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 		Limit:         ItemsPerPage,
 		FieldSelector: fs,
 	}
+	annotationFilter := []string{
+		api.MatchExpression{
+			Key:      api.DeviceAnnotationTemplateVersion,
+			Operator: api.NotIn,
+			Values:   &[]string{lo.FromPtr(templateVersion.Metadata.Name)},
+		}.String(),
+	}
+	if fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DeviceSelection != nil {
+		annotationFilter = append(annotationFilter, api.MatchExpression{
+			Key:      api.DeviceAnnotationSelectedForRollout,
+			Operator: api.Exists,
+		}.String())
+	}
+	listParams.AnnotationSelector = selector.NewAnnotationSelectorOrDie(strings.Join(annotationFilter, ","))
+	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
 	for {
 		devices, err := f.devStore.List(ctx, f.resourceRef.OrgID, listParams)
@@ -97,7 +120,7 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 
 		for devIndex := range devices.Items {
 			device := &devices.Items[devIndex]
-			err = f.updateDeviceToFleetTemplate(ctx, device, templateVersion)
+			err = f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
 			if err != nil {
 				f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, f.resourceRef.Name, err)
 				failureCount++
@@ -154,10 +177,24 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return fmt.Errorf("failed to get templateVersion: %w", err)
 	}
 
-	return f.updateDeviceToFleetTemplate(ctx, device, templateVersion)
+	fleet, err := f.fleetStore.Get(ctx, f.resourceRef.OrgID, ownerName)
+	if err != nil {
+		return fmt.Errorf("failed to get fleet: %w", err)
+	}
+	rolloutProgressStage, err := rollout.ProgressStage(fleet)
+	if err != nil {
+		return fmt.Errorf("failed to find rollout progress stage for fleet: %w", err)
+	}
+	if rolloutProgressStage == rollout.ConfiguredBatch {
+		// If a rollout is in progress, then the device will be rolled out by one of the next batches
+		f.log.Infof("Rollout is in progress for fleet %v/%s. Skipping device %s rollout", f.resourceRef.OrgID, lo.FromPtr(fleet.Metadata.Name), f.resourceRef.Name)
+		return nil
+	}
+	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
+	return f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
 }
 
-func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *api.Device, templateVersion *api.TemplateVersion) error {
+func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *api.Device, templateVersion *api.TemplateVersion, delayDeviceRender bool) error {
 	currentVersion := ""
 	if device.Metadata.Annotations != nil {
 		v, ok := (*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
@@ -214,7 +251,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.resourceRef.OrgID, *device.Metadata.Name, *templateVersion.Metadata.Name)
-	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec)
+	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec, delayDeviceRender)
 	if err != nil {
 		return fmt.Errorf("failed updating device spec: %w", err)
 	}
@@ -230,13 +267,13 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	return err
 }
 
-func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationSpec, []error) {
+func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationProviderSpec, []error) {
 	if templateVersion.Status.Applications == nil {
 		return nil, nil
 	}
 	errs := []error{}
 
-	deviceApps := []api.ApplicationSpec{}
+	deviceApps := []api.ApplicationProviderSpec{}
 	for appIndex, app := range *templateVersion.Status.Applications {
 		appType, err := app.Type()
 		if err != nil {
@@ -259,7 +296,7 @@ func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *a
 	return &deviceApps, errs
 }
 
-func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationSpec) (*api.ApplicationSpec, error) {
+func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, error) {
 	if app.EnvVars == nil {
 		return &app, nil
 	}
@@ -482,16 +519,19 @@ func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *api.Device, conf
 	return &newConfigItem, nil
 }
 
-func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api.Device, newDeviceSpec *api.DeviceSpec) error {
+func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api.Device, newDeviceSpec *api.DeviceSpec, delayDeviceRender bool) error {
 	var err error
 
 	for i := 0; i < 10; i++ {
 		if device.Metadata.Owner == nil || *device.Metadata.Owner != f.owner {
 			return fmt.Errorf("device owner changed, skipping rollout")
 		}
-
+		var callback store.DeviceStoreCallback = f.callbackManager.DeviceUpdatedCallback
+		if delayDeviceRender {
+			callback = f.callbackManager.DeviceUpdatedNoRenderCallback
+		}
 		device.Spec = newDeviceSpec
-		_, err = f.devStore.Update(ctx, f.resourceRef.OrgID, device, nil, false, f.callbackManager.DeviceUpdatedCallback)
+		_, err = f.devStore.Update(ctx, f.resourceRef.OrgID, device, nil, false, nil, callback)
 		if err != nil {
 			if errors.Is(err, flterrors.ErrResourceVersionConflict) {
 				device, err = f.devStore.Get(ctx, f.resourceRef.OrgID, *device.Metadata.Name)
