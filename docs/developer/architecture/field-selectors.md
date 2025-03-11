@@ -111,7 +111,7 @@ func (m *Device) ResolveSelector(name selector.SelectorName) (*selector.Selector
   if strings.EqualFold("status.updated.status", name.String()) {
 		return &selector.SelectorField{
 			Type:      selector.String,
-			FieldName: "status.updated.status",
+			FieldName: "status->'updated'->>'status'",
 			FieldType: "jsonb",
 		}, nil
 	}
