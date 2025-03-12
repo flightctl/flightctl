@@ -132,6 +132,8 @@ acm
 namespaces
 USB
 quay.io.
+madrid
+paris
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -215,3 +217,6 @@ disk.vmdk
 iso
 ISOs
 yaml
+ - docs/user/rollout-policies.md
+rollouts
+BatchSequence
