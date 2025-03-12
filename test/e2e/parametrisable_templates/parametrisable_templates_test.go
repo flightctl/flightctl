@@ -39,7 +39,8 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the device status is Online")
-			CheckDeviceOnlineStatus(harness, deviceId)
+			_, err = harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Add the fleet selector and the team label to the device")
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
@@ -55,10 +56,8 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			})
 
 			By("Verify the Device is updated with the labels")
-			response, err := harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
+			device, err := harness.GetDevice(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			device := response.JSON200
-			Expect(device).ToNot(BeNil(), "failed to read updated device")
 			responseSelectorLabelValue := (*device.Metadata.Labels)[fleetSelectorKey]
 			Expect(responseSelectorLabelValue).To(ContainSubstring(fleetSelectorValue))
 			responseTeamLabelValue := (*device.Metadata.Labels)[teamLabelKey]
@@ -69,10 +68,9 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Verify that the template variable is replaced in the configuration update")
-			response, err = harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
+			device, err = harness.GetDevice(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			device = response.JSON200
-			Expect(device).ToNot(BeNil(), "failed to read updated device")
+
 			inlineConfigPathResponse, err := harness.GetDeviceInlineConfig(device, inlineConfigName)
 			Expect(err).ToNot(HaveOccurred())
 			if len(inlineConfigPathResponse.Inline) > 0 {
@@ -86,10 +84,11 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			Label("75600"), func() {
 
 				By("Check the device status is Online")
-				CheckDeviceOnlineStatus(harness, deviceId)
+				_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Create a fleet with a template variable")
-				err := configProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidWithFunction)
+				err = configProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidWithFunction)
 				Expect(err).ToNot(HaveOccurred())
 				err = harness.CreateTestFleetWithConfig(fleetTestName, testFleetSelector, configProviderSpec)
 				Expect(err).ToNot(HaveOccurred())
@@ -134,10 +133,8 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Verify that the template variable is replaced in the configuration update")
-				response, err := harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
+				device, err = harness.GetDevice(deviceId)
 				Expect(err).ToNot(HaveOccurred())
-				device = response.JSON200
-				Expect(device).ToNot(BeNil(), "failed to read updated device")
 				inlineConfigResponse, err := harness.GetDeviceInlineConfig(device, inlineConfigName)
 				Expect(err).ToNot(HaveOccurred())
 				if len(inlineConfigResponse.Inline) > 0 {
@@ -151,10 +148,11 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			Label("78684"), func() {
 
 				By("Check the device status")
-				CheckDeviceOnlineStatus(harness, deviceId)
+				_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Create a git and a http repository")
-				err := harness.CreateRepository(gitRepositorySpec, gitMetadata)
+				err = harness.CreateRepository(gitRepositorySpec, gitMetadata)
 				Expect(err).ToNot(HaveOccurred())
 				logrus.Infof("Created git repository %s", *gitMetadata.Name)
 
@@ -213,10 +211,8 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Check that the template variables are replaced in the device configurations")
-				response, err := harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
+				device, err := harness.GetDevice(deviceId)
 				Expect(err).ToNot(HaveOccurred())
-				device := response.JSON200
-				Expect(device).ToNot(BeNil(), "failed to read updated device")
 
 				inlineConfigResponse, err := harness.GetDeviceInlineConfig(device, inlineConfigName)
 				Expect(err).ToNot(HaveOccurred())
@@ -296,10 +292,9 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Check that the default variables are replaced in the config")
-				response, err = harness.Client.GetDeviceWithResponse(harness.Context, deviceId)
+				device, err = harness.GetDevice(deviceId)
 				Expect(err).ToNot(HaveOccurred())
-				device = response.JSON200
-				Expect(device).ToNot(BeNil(), "failed to read updated device")
+
 				logrus.Infof("The device labels are %s", *device.Metadata.Labels)
 
 				inlineConfigResponse, err = harness.GetDeviceInlineConfig(device, inlineConfigName)
@@ -428,13 +423,4 @@ var httpConfigvalid = v1alpha1.HttpConfigProviderSpec{
 		Suffix:     &suffix,
 	},
 	Name: httpConfigName,
-}
-
-func CheckDeviceOnlineStatus(harness *e2e.Harness, deviceId string) *v1alpha1.Device {
-	response := harness.GetDeviceWithStatusSystem(deviceId)
-	Expect(response).ToNot(BeNil())
-	Expect(response.JSON200).ToNot(BeNil())
-	device := response.JSON200
-	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
-	return device
 }
