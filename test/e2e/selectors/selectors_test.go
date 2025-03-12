@@ -62,8 +62,8 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	Context("Basic Functionality Tests", Label("77917"), func() {
-		It("We can list devices and create resources", func() {
+	Context("Basic Functionality Tests", func() {
+		It("We can list devices and create resources", Label("77917"), func() {
 			By("Listing devices", func() {
 				out, err := harness.CLI("get", "devices")
 				Expect(err).ToNot(HaveOccurred())
@@ -136,8 +136,8 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		})
 	})
 
-	Context("Advanced Functionality Tests", Label("77947"), func() {
-		It("Advanced Functionality Tests", func() {
+	Context("Advanced Functionality Tests", func() {
+		It("Advanced Functionality Tests", Label("77947"), func() {
 			By("filters devices by multiple field selectors", func() {
 				startTimestamp, _ := generateTimestamps()
 				out, err := harness.CLI("get", "devices", "-l", "region=eu-west-1", "--field-selector",
@@ -154,8 +154,8 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		})
 	})
 
-	Context("Label Selectors Tests", Label("78751"), func() {
-		It("Label Selectors Tests", func() {
+	Context("Label Selectors Tests", func() {
+		It("Label Selectors Tests", Label("78751"), func() {
 			By("filters devices by region in a set", func() {
 				out, err := harness.CLI("get", "devices", "-l", "region in (test, eu-west-1)", "-owide")
 				Expect(err).ToNot(HaveOccurred())
@@ -200,8 +200,8 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		})
 	})
 
-	Context("Negative Tests", Label("77948"), func() {
-		It("Negative Tests", func() {
+	Context("Negative Tests", func() {
+		It("Negative Tests", Label("77948"), func() {
 			By("returns an error for an invalid field selector", func() {
 				out, err := harness.CLI("get", "devices", "--field-selector", "invalid.field")
 				Expect(err).To(HaveOccurred())
