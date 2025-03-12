@@ -180,6 +180,7 @@ factory-berlinsite
 factory-madridsite
  - docs/user/building-images.md
 usr
+iso
  - docs/user/registering-microshift-devices-acm.md
 klusterlet
  - docs/user/field-selectors.md
@@ -206,3 +207,11 @@ global.auth.k8s.externalApiToken
 global.auth.k8s.externalOpenShiftApiUrl
 caCert
 ClusterRoleBinding
+ - docs/user/provisioning-devices.md
+cloud-config.yaml
+config.yaml
+datastore
+disk.vmdk
+iso
+ISOs
+yaml
