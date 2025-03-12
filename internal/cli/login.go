@@ -58,7 +58,9 @@ func NewCmdLogin() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -205,9 +207,11 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if token == "" {
 		return fmt.Errorf("failed to retrieve auth token")
 	}
-	authCAFile, err = filepath.Abs(o.AuthCAFile)
-	if err != nil && authCAFile != "" {
-		return fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
+	if o.AuthCAFile != "" {
+		authCAFile, err = filepath.Abs(o.AuthCAFile)
+		if err != nil {
+			return fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
+		}
 	}
 	o.clientConfig.AuthInfo.AuthType = o.authConfig.AuthType
 	o.clientConfig.AuthInfo.AccessToken = token

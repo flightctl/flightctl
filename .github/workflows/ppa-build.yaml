@@ -1,11 +1,18 @@
-# disabled for now since  ppa builds aren't working and non functional
+# disabled for now since  ppa builds aren't working and are non-functional
 
-# name: deb packaging and PPA push
+name: deb packaging and PPA push
 
-# on:
-#   push:
-#     branches:
-#       - main
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  dummy:
+    runs-on: "ubuntu-24.04"
+    steps:
+      - name: Dummy
+        run: echo "Success"
 
 # jobs:
 #   build_and_upload:
