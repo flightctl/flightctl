@@ -6,6 +6,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -57,6 +59,7 @@ var _ = Describe("RepoUpdate", func() {
 		ctx             context.Context
 		orgId           uuid.UUID
 		storeInst       store.Store
+		serviceHandler  *service.ServiceHandler
 		cfg             *config.Config
 		dbName          string
 		callbackManager tasks_client.CallbackManager
@@ -65,16 +68,19 @@ var _ = Describe("RepoUpdate", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
-		orgId, _ = uuid.NewUUID()
+		ctx = context.WithValue(context.Background(), service.InternalRequestCtxKey, true)
+		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
+		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		Expect(err).ToNot(HaveOccurred())
+		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
 
 		// Create 2 git config items, each to a different repo
-		err := testutil.CreateRepositories(ctx, 2, storeInst, orgId)
+		err = testutil.CreateRepositories(ctx, 2, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		gitConfig1 := &api.GitConfigProviderSpec{
@@ -171,7 +177,7 @@ var _ = Describe("RepoUpdate", func() {
 	When("a Repository definition is updated", func() {
 		It("refreshes relevant fleets and devices", func() {
 			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: api.RepositoryKind}
-			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
+			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, resourceRef)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.FleetValidateTask, "fleet1")).Times(1)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "device1")).Times(1)
 			err := logic.HandleRepositoryUpdate(ctx)
@@ -183,7 +189,7 @@ var _ = Describe("RepoUpdate", func() {
 	When("all Repository definitions are deleted", func() {
 		It("refreshes relevant fleets and devices", func() {
 			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}
-			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, storeInst, resourceRef)
+			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, resourceRef)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.FleetValidateTask, "")).Times(2)
 			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "")).Times(2)
 			err := logic.HandleAllRepositoriesDeleted(ctx, log)

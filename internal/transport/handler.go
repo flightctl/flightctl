@@ -4,10 +4,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/go-chi/chi/v5"
 	"github.com/sirupsen/logrus"
 )
@@ -17,7 +14,6 @@ type TransportHandler struct {
 }
 
 type WebsocketHandler struct {
-	store                 store.Store
 	ca                    *crypto.CA
 	log                   logrus.FieldLogger
 	consoleSessionManager *console.ConsoleSessionManager
@@ -26,14 +22,13 @@ type WebsocketHandler struct {
 // Make sure we conform to servers Transport interface
 var _ server.Transport = (*TransportHandler)(nil)
 
-func NewTransportHandler(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CA, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *TransportHandler {
-	s := service.NewServiceHandler(store, callbackManager, kvStore, ca, log, agentEndpoint, uiUrl)
-	return &TransportHandler{serviceHandler: s}
+func NewTransportHandler(serviceHandler *service.ServiceHandler) *TransportHandler {
+
+	return &TransportHandler{serviceHandler: serviceHandler}
 }
 
-func NewWebsocketHandler(store store.Store, ca *crypto.CA, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {
+func NewWebsocketHandler(ca *crypto.CA, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {
 	return &WebsocketHandler{
-		store:                 store,
 		ca:                    ca,
 		log:                   log,
 		consoleSessionManager: consoleSessionManager,

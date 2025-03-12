@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -27,7 +29,7 @@ type Reconciler interface {
 }
 
 type reconciler struct {
-	store           store.Store
+	serviceHandler  *service.ServiceHandler
 	log             logrus.FieldLogger
 	callbackManager tasks_client.CallbackManager
 }
@@ -39,9 +41,9 @@ type groupCounts struct {
 	key                map[string]any
 }
 
-func NewReconciler(store store.Store, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
+func NewReconciler(serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
-		store:           store,
+		serviceHandler:  serviceHandler,
 		log:             log,
 		callbackManager: callbackManager,
 	}
@@ -87,11 +89,12 @@ func collectDeviceBudgetCounts(counts []map[string]any, groupBy []string) ([]*gr
 func (r *reconciler) getFleetCounts(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
 	groupBy := lo.FromPtr(fleet.Spec.RolloutPolicy.DisruptionBudget.GroupBy)
 
-	counts, err := r.store.Device().CountByLabels(ctx, orgId, store.ListParams{
-		FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name))}),
-	}, groupBy)
-	if err != nil {
-		return nil, err
+	listParams := api.ListDevicesParams{
+		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name)))),
+	}
+	counts, status := r.serviceHandler.CountDevicesByLabels(ctx, listParams, nil, groupBy)
+	if status.Code != http.StatusOK {
+		return nil, service.ApiStatusToErr(status)
 	}
 	return collectDeviceBudgetCounts(counts, groupBy)
 }
@@ -105,24 +108,25 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 	if !exists {
 		return fmt.Errorf("template version doesn't exist")
 	}
-	listParams := store.ListParams{
-		// The query should get only devices that are ready for rendering
-		// but have not been rendered yet.  It means that the annotation 'device-controller/templateVersion'
-		// is equal to the expected template version but the annotation 'device-controller/renderedTemplateVersion'
-		// should not equal to the template version.
-		AnnotationSelector: selector.NewAnnotationSelectorOrDie(strings.Join([]string{
-			api.MatchExpression{
-				Key:      api.DeviceAnnotationTemplateVersion,
-				Operator: api.In,
-				Values:   lo.ToPtr([]string{templateVersionName}),
-			}.String(),
-			api.MatchExpression{
-				Key:      api.DeviceAnnotationRenderedTemplateVersion,
-				Operator: api.NotIn,
-				Values:   lo.ToPtr([]string{templateVersionName}),
-			}.String(),
-		}, ",")),
-		FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name))}),
+
+	// The query should get only devices that are ready for rendering
+	// but have not been rendered yet.  It means that the annotation 'device-controller/templateVersion'
+	// is equal to the expected template version but the annotation 'device-controller/renderedTemplateVersion'
+	// should not equal to the template version.
+	annotationSelector := selector.NewAnnotationSelectorOrDie(strings.Join([]string{
+		api.MatchExpression{
+			Key:      api.DeviceAnnotationTemplateVersion,
+			Operator: api.In,
+			Values:   lo.ToPtr([]string{templateVersionName}),
+		}.String(),
+		api.MatchExpression{
+			Key:      api.DeviceAnnotationRenderedTemplateVersion,
+			Operator: api.NotIn,
+			Values:   lo.ToPtr([]string{templateVersionName}),
+		}.String(),
+	}, ","))
+	listParams := api.ListDevicesParams{
+		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name)))),
 	}
 	if len(key) > 0 {
 		// The list of labels is converted to MatchExpressions.  In case that the label does not exist
@@ -145,14 +149,14 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 				return fmt.Errorf("unexpected type %T for label %s", v, k)
 			}
 		}
-		listParams.LabelSelector = selector.NewLabelSelectorOrDie(strings.Join(labelSelectorParts, ","))
+		listParams.LabelSelector = lo.ToPtr(strings.Join(labelSelectorParts, ","))
 	}
 	remaining := lo.Ternary(numToRender > 0, numToRender, math.MaxInt)
 	for {
-		listParams.Limit = util.Min(remaining, maxItemsToRender)
-		devices, err := r.store.Device().List(ctx, orgId, listParams)
-		if err != nil {
-			return err
+		listParams.Limit = lo.ToPtr(int32(math.Min(float64(remaining), float64(maxItemsToRender))))
+		devices, status := r.serviceHandler.ListDevices(ctx, listParams, annotationSelector)
+		if status.Code != http.StatusOK {
+			return service.ApiStatusToErr(status)
 		}
 		for _, d := range devices.Items {
 			r.log.Infof("%v/%s: sending device to rendering", orgId, lo.FromPtr(d.Metadata.Name))
@@ -162,11 +166,7 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 		if devices.Metadata.Continue == nil || remaining == 0 {
 			break
 		}
-		cont, err := store.ParseContinueString(devices.Metadata.Continue)
-		if err != nil {
-			return fmt.Errorf("failed to parse continuation for paging: %w", err)
-		}
-		listParams.Continue = cont
+		listParams.Continue = devices.Metadata.Continue
 	}
 	return nil
 }
@@ -213,9 +213,9 @@ func (r *reconciler) Reconcile(ctx context.Context) {
 	// Get all relevant fleets
 	orgId := store.NullOrgId
 
-	fleetList, err := r.store.Fleet().ListDisruptionBudgetFleets(ctx, orgId)
-	if err != nil {
-		r.log.WithError(err).Error("Failed to query disruption budget fleets")
+	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx)
+	if status.Code != http.StatusOK {
+		r.log.WithError(service.ApiStatusToErr(status)).Error("Failed to query disruption budget fleets")
 		return
 	}
 	for i := range fleetList.Items {

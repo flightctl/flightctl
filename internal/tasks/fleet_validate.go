@@ -3,20 +3,19 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
-	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
-func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceReference, store store.Store, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
-	logic := NewFleetValidateLogic(callbackManager, log, store, k8sClient, *resourceRef)
+func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+	logic := NewFleetValidateLogic(callbackManager, log, serviceHandler, k8sClient, *resourceRef)
 	switch {
 	case resourceRef.Op == tasks_client.FleetValidateOpUpdate && resourceRef.Kind == api.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -32,20 +31,20 @@ func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceRefere
 type FleetValidateLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
-	store           store.Store
+	serviceHandler  *service.ServiceHandler
 	k8sClient       k8sclient.K8SClient
 	resourceRef     tasks_client.ResourceReference
 	templateConfig  *[]api.ConfigProviderSpec
 }
 
-func NewFleetValidateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef tasks_client.ResourceReference) FleetValidateLogic {
-	return FleetValidateLogic{callbackManager: callbackManager, log: log, store: store, k8sClient: k8sClient, resourceRef: resourceRef}
+func NewFleetValidateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler *service.ServiceHandler, k8sClient k8sclient.K8SClient, resourceRef tasks_client.ResourceReference) FleetValidateLogic {
+	return FleetValidateLogic{callbackManager: callbackManager, log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, resourceRef: resourceRef}
 }
 
 func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context) error {
-	fleet, err := t.store.Fleet().Get(ctx, t.resourceRef.OrgID, t.resourceRef.Name)
-	if err != nil {
-		return fmt.Errorf("failed getting fleet %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
+	fleet, status := t.serviceHandler.GetFleet(ctx, t.resourceRef.Name, api.GetFleetParams{})
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("failed getting fleet %s/%s: %s", t.resourceRef.OrgID, t.resourceRef.Name, status.Message)
 	}
 
 	t.templateConfig = fleet.Spec.Template.Spec.Config
@@ -53,9 +52,9 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 
 	// Set the many-to-many relationship with the repos (we do this even if the validation failed so that we will
 	// validate the fleet again if the repository is updated, and then it might be fixed).
-	err = t.store.Fleet().OverwriteRepositoryRefs(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name, referencedRepos...)
-	if err != nil {
-		return fmt.Errorf("setting repository references: %w", err)
+	status = t.serviceHandler.OverwriteFleetRepositoryRefs(ctx, *fleet.Metadata.Name, referencedRepos...)
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("setting repository references: %s", status.Message)
 	}
 
 	if validationErr != nil {
@@ -77,23 +76,19 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 			UpdatePolicy: fleet.Spec.Template.Spec.UpdatePolicy,
 		},
 	}
-	var callback store.TemplateVersionStoreCallback = func(u uuid.UUID, before *api.TemplateVersion, after *api.TemplateVersion) {
-		t.log.Infof("fleet %v/%s: template version %s created without rollout", t.resourceRef.OrgID, t.resourceRef.Name, lo.FromPtr(after.Metadata.Name))
-	}
-	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
-		callback = t.callbackManager.TemplateVersionCreatedCallback
-	}
-	tv, err := t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, callback)
-	if err != nil {
-		return t.setStatus(ctx, fmt.Errorf("creating templateVersion for valid fleet: %w", err))
+
+	immediateRollout := fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil
+	tv, status := t.serviceHandler.CreateTemplateVersion(ctx, templateVersion, immediateRollout)
+	if status.Code != http.StatusCreated {
+		return t.setStatus(ctx, fmt.Errorf("creating templateVersion for valid fleet: %s", status.Message))
 	}
 
 	annotations := map[string]string{
 		api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 	}
-	err = t.store.Fleet().UpdateAnnotations(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name, annotations, nil)
-	if err != nil {
-		return t.setStatus(ctx, fmt.Errorf("setting fleet annotation with newly-created templateVersion: %w", err))
+	status = t.serviceHandler.UpdateFleetAnnotations(ctx, *fleet.Metadata.Name, annotations, nil)
+	if status.Code != http.StatusOK {
+		return t.setStatus(ctx, fmt.Errorf("setting fleet annotation with newly-created templateVersion: %s", status.Message))
 	}
 
 	return t.setStatus(ctx, nil)
@@ -111,9 +106,9 @@ func (t *FleetValidateLogic) setStatus(ctx context.Context, validationErr error)
 		condition.Message = validationErr.Error()
 	}
 
-	err := t.store.Fleet().UpdateConditions(ctx, t.resourceRef.OrgID, t.resourceRef.Name, []api.Condition{condition})
-	if err != nil {
-		t.log.Errorf("Failed setting condition for fleet %s/%s: %v", t.resourceRef.OrgID, t.resourceRef.Name, err)
+	status := t.serviceHandler.UpdateFleetConditions(ctx, t.resourceRef.Name, []api.Condition{condition})
+	if status.Code != http.StatusOK {
+		t.log.Errorf("Failed setting condition for fleet %s/%s: %s", t.resourceRef.OrgID, t.resourceRef.Name, status.Message)
 	}
 	return validationErr
 }
@@ -181,13 +176,13 @@ func (t *FleetValidateLogic) validateGitConfig(ctx context.Context, configItem *
 		return nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
-	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, gitSpec.GitRef.Repository)
-	if err != nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+	repo, status := t.serviceHandler.GetRepository(ctx, gitSpec.GitRef.Repository)
+	if status.Code != http.StatusOK {
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.resourceRef.OrgID, gitSpec.GitRef.Repository, status.Message)
 	}
-
-	if repo.Spec == nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+	_, err = repo.Spec.GetRepoURL()
+	if err != nil {
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, err
 	}
 
 	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
@@ -224,14 +219,12 @@ func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, con
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
-	repo, err := t.store.Repository().GetInternal(ctx, t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository)
-	if err != nil {
-		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
+
+	repo, status := t.serviceHandler.GetRepository(ctx, httpConfigProviderSpec.HttpRef.Repository)
+	if status.Code != http.StatusOK {
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, status.Message)
 	}
-	if repo.Spec == nil {
-		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("empty Repository definition %s/%s: %w", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, err)
-	}
-	_, err = repo.Spec.Data.GetRepoURL()
+	_, err = repo.Spec.GetRepoURL()
 	if err != nil {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
 	}

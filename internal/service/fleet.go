@@ -61,9 +61,9 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, params api.ListFleetsPa
 		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	} else if listParams.Limit > store.MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))
+		listParams.Limit = MaxRecordsPerListRequest
+	} else if listParams.Limit > MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
 	} else if listParams.Limit < 0 {
 		return nil, api.StatusBadRequest("limit cannot be negative")
 	}
@@ -188,5 +188,47 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
 	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
+}
+
+func (h *ServiceHandler) ListFleetRolloutDeviceSelection(ctx context.Context) (*api.FleetList, api.Status) {
+	orgId := store.NullOrgId
+
+	result, err := h.store.Fleet().ListRolloutDeviceSelection(ctx, orgId)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, nil)
+}
+
+func (h *ServiceHandler) ListDisruptionBudgetFleets(ctx context.Context) (*api.FleetList, api.Status) {
+	orgId := store.NullOrgId
+
+	result, err := h.store.Fleet().ListDisruptionBudgetFleets(ctx, orgId)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, nil)
+}
+
+func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, name string, conditions []api.Condition) api.Status {
+	orgId := store.NullOrgId
+
+	err := h.store.Fleet().UpdateConditions(ctx, orgId, name, conditions)
+	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
+}
+
+func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
+	orgId := store.NullOrgId
+
+	err := h.store.Fleet().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
+	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
+}
+
+func (h *ServiceHandler) OverwriteFleetRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status {
+	orgId := store.NullOrgId
+
+	err := h.store.Fleet().OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
+	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
+}
+
+func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status) {
+	orgId := store.NullOrgId
+
+	result, err := h.store.Fleet().GetRepositoryRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }

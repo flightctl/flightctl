@@ -13,6 +13,14 @@ import (
 	"github.com/samber/lo"
 )
 
+type DeviceCompletionCount struct {
+	Count               int64
+	SameRenderedVersion bool
+	SameTemplateVersion bool
+	UpdatingReason      UpdateState
+	UpdateTimedOut      bool
+}
+
 type HookActionType string
 
 const (

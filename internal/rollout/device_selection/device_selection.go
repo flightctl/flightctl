@@ -3,10 +3,11 @@ package device_selection
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -51,7 +52,7 @@ func getUpdateTimeout(defaultUpdateTimeoutStr *api.Duration) (time.Duration, err
 	return timeout, nil
 }
 
-func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defaultUpdateTimeoutStr *api.Duration, store store.Store, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) (RolloutDeviceSelector, error) {
+func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defaultUpdateTimeoutStr *api.Duration, serviceHandler *service.ServiceHandler, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) (RolloutDeviceSelector, error) {
 
 	updateTimeout, err := getUpdateTimeout(defaultUpdateTimeoutStr)
 	if err != nil {
@@ -63,13 +64,13 @@ func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defau
 	}
 	switch v := selectorInterface.(type) {
 	case api.BatchSequence:
-		return newBatchSequenceSelector(v, updateTimeout, store, orgId, fleet, templateVersionName, log), nil
+		return newBatchSequenceSelector(v, updateTimeout, serviceHandler, orgId, fleet, templateVersionName, log), nil
 	default:
 		return nil, fmt.Errorf("unexpected selector %T", selectorInterface)
 	}
 }
 
-func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, store store.Store) (bool, error) {
+func cleanupRollout(ctx context.Context, fleet *api.Fleet, serviceHandler *service.ServiceHandler) (bool, error) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 	annotationsToDelete := []string{
 		api.FleetAnnotationBatchNumber,
@@ -85,11 +86,11 @@ func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, stor
 		return false, nil
 	}
 
-	if err := store.Device().UnmarkRolloutSelection(ctx, orgId, fleetName); err != nil {
-		return false, err
+	if status := serviceHandler.UnmarkDevicesRolloutSelection(ctx, fleetName); status.Code != http.StatusOK {
+		return false, service.ApiStatusToErr(status)
 	}
-	if err := store.Fleet().UpdateAnnotations(ctx, orgId, fleetName, nil, annotationsToDelete); err != nil {
-		return false, err
+	if status := serviceHandler.UpdateFleetAnnotations(ctx, fleetName, nil, annotationsToDelete); status.Code != http.StatusOK {
+		return false, service.ApiStatusToErr(status)
 	}
 	return true, nil
 }

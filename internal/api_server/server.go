@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/transport"
@@ -170,6 +171,8 @@ func (s *Server) Run(ctx context.Context) error {
 		auth.CreatePermissionsMiddleware(s.log),
 	)
 
+	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service
 	router.Group(func(r chi.Router) {
@@ -180,12 +183,12 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
-		h := transport.NewTransportHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+		h := transport.NewTransportHandler(serviceHandler)
 		server.HandlerFromMux(h, r)
 	})
 
-	consoleSessionManager := console.NewConsoleSessionManager(s.store, callbackManager, kvStore, s.log, s.consoleEndpointReg)
-	ws := transport.NewWebsocketHandler(s.store, s.ca, s.log, consoleSessionManager)
+	consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
+	ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
 	ws.RegisterRoutes(router)
 
 	srv := tlsmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)

@@ -21,7 +21,7 @@ func (h *TransportHandler) CreateDevice(w http.ResponseWriter, r *http.Request) 
 
 // (GET /api/v1/devices)
 func (h *TransportHandler) ListDevices(w http.ResponseWriter, r *http.Request, params api.ListDevicesParams) {
-	body, status := h.serviceHandler.ListDevices(r.Context(), params)
+	body, status := h.serviceHandler.ListDevices(r.Context(), params, nil)
 	SetResponse(w, body, status)
 }
 
@@ -45,7 +45,7 @@ func (h *TransportHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceDevice(r.Context(), name, device)
+	body, status := h.serviceHandler.ReplaceDevice(r.Context(), name, device, nil)
 	SetResponse(w, body, status)
 }
 

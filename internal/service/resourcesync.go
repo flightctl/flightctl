@@ -56,9 +56,9 @@ func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListR
 		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	} else if listParams.Limit > store.MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))
+		listParams.Limit = MaxRecordsPerListRequest
+	} else if listParams.Limit > MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
 	} else if listParams.Limit < 0 {
 		return nil, api.StatusBadRequest("limit cannot be negative")
 	}
@@ -149,5 +149,16 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, name string, pat
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 	result, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
+	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
+}
+
+func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, name string, resourceSync api.ResourceSync) (*api.ResourceSync, api.Status) {
+	orgId := store.NullOrgId
+
+	if name != *resourceSync.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	result, err := h.store.ResourceSync().UpdateStatus(ctx, orgId, &resourceSync)
 	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 }

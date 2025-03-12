@@ -146,9 +146,9 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.
 		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	} else if listParams.Limit > store.MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))
+		listParams.Limit = MaxRecordsPerListRequest
+	} else if listParams.Limit > MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
 	} else if listParams.Limit < 0 {
 		return nil, api.StatusBadRequest("limit cannot be negative")
 	}

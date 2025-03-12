@@ -5,23 +5,23 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 )
 
 type conditionEmitter struct {
-	orgId     uuid.UUID
-	fleetName string
-	batchName string
-	store     store.Store
+	orgId          uuid.UUID
+	fleetName      string
+	batchName      string
+	serviceHandler *service.ServiceHandler
 }
 
-func newConditionEmitter(orgId uuid.UUID, fleetName, batchName string, store store.Store) *conditionEmitter {
+func newConditionEmitter(orgId uuid.UUID, fleetName, batchName string, serviceHandler *service.ServiceHandler) *conditionEmitter {
 	return &conditionEmitter{
-		orgId:     orgId,
-		fleetName: fleetName,
-		batchName: batchName,
-		store:     store,
+		orgId:          orgId,
+		fleetName:      fleetName,
+		batchName:      batchName,
+		serviceHandler: serviceHandler,
 	}
 }
 
@@ -35,7 +35,7 @@ func (c *conditionEmitter) create(status api.ConditionStatus, reason, message st
 }
 
 func (c *conditionEmitter) save(ctx context.Context, condition api.Condition) error {
-	return c.store.Fleet().UpdateConditions(ctx, c.orgId, c.fleetName, []api.Condition{condition})
+	return service.ApiStatusToErr(c.serviceHandler.UpdateFleetConditions(ctx, c.fleetName, []api.Condition{condition}))
 }
 
 func (c *conditionEmitter) inactive(ctx context.Context) error {
