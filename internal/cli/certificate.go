@@ -130,6 +130,10 @@ func (o *CertificateOptions) Validate(args []string) error {
 		return fmt.Errorf("output format cannot be set for certificate types other than 'enrollment'")
 	}
 
+	if errs := validation.ValidateOutputFormat(o.Output); len(errs) > 0 {
+		return fmt.Errorf("invalid output format type: %s", errors.Join(errs...).Error())
+	}
+
 	re := `^\d+d$`
 	matched, err := regexp.MatchString(re, o.Expiration)
 	if err != nil || !matched {

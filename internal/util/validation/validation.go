@@ -279,6 +279,25 @@ func ValidateSignerName(s string) []error {
 	return asErrors(errs)
 }
 
+func ValidateOutputFormat(s string) []error {
+	validEnrollmentConfigOutputFormats := map[string]struct{}{
+		"embedded":  {}, // key and cert material is embedded in the config file
+		"reference": {}, // key and cert material file paths are referenced in the config file
+	}
+	errs := field.ErrorList{}
+
+	if _, exists := validEnrollmentConfigOutputFormats[s]; exists {
+		return nil
+	}
+
+	msg := "must specify a valid output format. options include: "
+	for k := range validEnrollmentConfigOutputFormats {
+		msg += k + ", "
+	}
+	errs = append(errs, field.Invalid(fieldPathFor("enrollment config output format"), s, msg))
+	return asErrors(errs)
+}
+
 // TODO: this should log a warning if less than minExpirationSeconds using the configured logger
 func ValidateExpirationSeconds(e *int32) []error {
 	return nil
