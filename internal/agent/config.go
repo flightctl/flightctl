@@ -8,8 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	baseclient "github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 	"k8s.io/klog/v2"
@@ -48,15 +49,11 @@ const (
 )
 
 type Config struct {
+	common.ServiceConfig
 	// ConfigDir is the directory where the device's configuration is stored
 	ConfigDir string `json:"-"`
 	// DataDir is the directory where the device's data is stored
 	DataDir string `json:"-"`
-
-	// EnrollmentService is the client configuration for connecting to the device enrollment server
-	EnrollmentService EnrollmentService `json:"enrollment-service,omitempty"`
-	// ManagementService is the client configuration for connecting to the device management server
-	ManagementService ManagementService `json:"management-service,omitempty"`
 
 	// SpecFetchInterval is the interval between two reads of the remote device spec
 	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
@@ -83,42 +80,16 @@ type Config struct {
 	readWriter fileio.ReadWriter
 }
 
-type EnrollmentService struct {
-	client.Config
-
-	// EnrollmentUIEndpoint is the address of the device enrollment UI
-	EnrollmentUIEndpoint string `json:"enrollment-ui-endpoint,omitempty"`
-}
-
-type ManagementService struct {
-	client.Config
-}
-
-func (s *EnrollmentService) Equal(s2 *EnrollmentService) bool {
-	if s == s2 {
-		return true
-	}
-	return s.Config.Equal(&s2.Config) && s.EnrollmentUIEndpoint == s2.EnrollmentUIEndpoint
-}
-
-func (s *ManagementService) Equal(s2 *ManagementService) bool {
-	if s == s2 {
-		return true
-	}
-	return s.Config.Equal(&s2.Config)
-}
-
 func NewDefault() *Config {
 	c := &Config{
 		ConfigDir:            DefaultConfigDir,
 		DataDir:              DefaultDataDir,
-		EnrollmentService:    EnrollmentService{Config: *client.NewDefault()},
-		ManagementService:    ManagementService{Config: *client.NewDefault()},
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
 		readWriter:           fileio.NewReadWriter(),
 		LogLevel:             logrus.InfoLevel.String(),
 		DefaultLabels:        make(map[string]string),
+		ServiceConfig:        common.NewServiceConfig(),
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -149,14 +120,14 @@ func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duract
 // Complete fills in defaults for fields not set by the config file
 func (cfg *Config) Complete() error {
 	// If the enrollment service hasn't been specified, attempt using the default local dev env.
-	emptyEnrollmentService := EnrollmentService{}
+	emptyEnrollmentService := common.EnrollmentService{}
 	if cfg.EnrollmentService.Equal(&emptyEnrollmentService) {
-		cfg.EnrollmentService = EnrollmentService{Config: *client.NewDefault()}
-		cfg.EnrollmentService.Service = client.Service{
+		cfg.EnrollmentService = common.EnrollmentService{Config: *baseclient.NewDefault()}
+		cfg.EnrollmentService.Service = baseclient.Service{
 			Server:               DefaultManagementEndpoint,
 			CertificateAuthority: filepath.Join(cfg.ConfigDir, DefaultCertsDirName, CacertFile),
 		}
-		cfg.EnrollmentService.AuthInfo = client.AuthInfo{
+		cfg.EnrollmentService.AuthInfo = baseclient.AuthInfo{
 			ClientCertificate: filepath.Join(cfg.DataDir, DefaultCertsDirName, EnrollmentCertFile),
 			ClientKey:         filepath.Join(cfg.DataDir, DefaultCertsDirName, EnrollmentKeyFile),
 		}
@@ -168,10 +139,10 @@ func (cfg *Config) Complete() error {
 	}
 	// If the management service hasn't been specified, attempt using the same endpoint as the enrollment service,
 	// but clear the auth info.
-	emptyManagementService := ManagementService{}
+	emptyManagementService := common.ManagementService{}
 	if cfg.ManagementService.Equal(&emptyManagementService) {
 		cfg.ManagementService.Config = *cfg.EnrollmentService.Config.DeepCopy()
-		cfg.ManagementService.Config.AuthInfo = client.AuthInfo{}
+		cfg.ManagementService.Config.AuthInfo = baseclient.AuthInfo{}
 	}
 	return nil
 }

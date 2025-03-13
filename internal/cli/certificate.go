@@ -22,9 +22,9 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/config/common"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
@@ -351,7 +351,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 		return fmt.Errorf("base64 decoding CA data: %w", err)
 	}
 
-	config := &agent.Config{}
+	config := common.NewServiceConfig()
 	config.EnrollmentService.AuthInfo.ClientCertificateData = *currentCsr.Status.Certificate
 	config.EnrollmentService.AuthInfo.ClientKeyData = pemPriv
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
@@ -359,7 +359,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
 	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling agent config: %w", err)
+		return fmt.Errorf("marshalling agent service config: %w", err)
 	}
 
 	fmt.Print(string(marshalled))
@@ -367,7 +367,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 }
 
 func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigResponse) error {
-	config := &agent.Config{}
+	config := common.NewServiceConfig()
 	config.EnrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
 	config.EnrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
@@ -375,7 +375,7 @@ func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigR
 	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
 	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling agent config: %w", err)
+		return fmt.Errorf("marshalling agent service config: %w", err)
 	}
 
 	fmt.Print(string(marshalled))

@@ -25,6 +25,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
+	"github.com/flightctl/flightctl/internal/config/common"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -281,7 +282,7 @@ func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
 	return client.NewEnrollment(httpClient), nil
 }
 
-func newGrpcClient(cfg *ManagementService) (grpc_v1.RouterServiceClient, error) {
+func newGrpcClient(cfg *common.ManagementService) (grpc_v1.RouterServiceClient, error) {
 	client, err := client.NewGRPCClientFromConfig(&cfg.Config)
 	if err != nil {
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
