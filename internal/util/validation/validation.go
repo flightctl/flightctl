@@ -259,13 +259,11 @@ func ValidateCSRUsages(u *[]string) []error {
 	return asErrors(errs)
 }
 
-// Currently every request is sent to the only signer, named "ca" and defined in cmd/flightctl-api/main.go
 func ValidateSignerName(s string) []error {
 	errs := field.ErrorList{}
 
 	validSigners := map[string]struct{}{
-		"ca":         {}, // general signer
-		"enrollment": {}, // special logic for enrollment certs, but afterwards fwds to same 'ca' signer internally
+		"enrollment": {},
 	}
 
 	if _, exists := validSigners[s]; exists {
