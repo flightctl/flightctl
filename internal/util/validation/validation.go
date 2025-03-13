@@ -263,7 +263,8 @@ func ValidateSignerName(s string) []error {
 	errs := field.ErrorList{}
 
 	validSigners := map[string]struct{}{
-		"enrollment": {},
+		"enrollment": {}, // for issuing a certificate to be provisioned to a device and used during device enrollment
+		"renewal":    {}, // for renewing device's management certificate ("agent certificate")
 	}
 
 	if _, exists := validSigners[s]; exists {
