@@ -490,22 +490,17 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 	// https://www.postgresql.org/docs/current/functions-json.html
 	// jsonb_set(target jsonb, path text[], new_value jsonb, create_missing boolean)
 	createMissing := "false"
-	query := fmt.Sprintf(`
-        UPDATE devices
-        SET 
-            status = jsonb_set(
-                jsonb_set(status, '{summary,status}', '"%s"', %s), 
-                '{summary,info}', '"%s"'
-            ),
-            resource_version = resource_version + 1
-        WHERE name IN (%s)`, status, createMissing, statusInfo, tokens)
-
-	args := make([]interface{}, len(deviceNames))
-	for i, name := range deviceNames {
-		args[i] = name
-	}
-
-	return s.db.WithContext(ctx).Exec(query, args...).Error
+	return s.db.WithContext(ctx).
+		Model(&model.Device{}).
+		Where("name IN ?", deviceNames).
+		UpdateColumns(map[string]interface{}{
+			"status": gorm.Expr(`
+				jsonb_set(
+					jsonb_set(status, '{summary,status}', ?::jsonb, ?),
+					'{summary,info}', ?::jsonb
+				)`, status, createMissing, statusInfo),
+			"resource_version": gorm.Expr("resource_version + 1"),
+		}).Error
 }
 
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
