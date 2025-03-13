@@ -7,14 +7,14 @@ import (
 
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
 
-func dispatchTasks(store store.Store, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
+func dispatchTasks(serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {
 		var reference tasks_client.ResourceReference
 		if err := json.Unmarshal(payload, &reference); err != nil {
@@ -25,15 +25,15 @@ func dispatchTasks(store store.Store, callbackManager tasks_client.CallbackManag
 			reference.TaskName, reference.Op, reference.Kind, reference.OrgID, reference.Name)
 		switch reference.TaskName {
 		case tasks_client.FleetRolloutTask:
-			return fleetRollout(ctx, &reference, store, callbackManager, log)
+			return fleetRollout(ctx, &reference, serviceHandler, callbackManager, log)
 		case tasks_client.FleetSelectorMatchTask:
-			return fleetSelectorMatching(ctx, &reference, store, callbackManager, log)
+			return fleetSelectorMatching(ctx, &reference, serviceHandler, callbackManager, log)
 		case tasks_client.FleetValidateTask:
-			return fleetValidate(ctx, &reference, store, callbackManager, k8sClient, log)
+			return fleetValidate(ctx, &reference, serviceHandler, callbackManager, k8sClient, log)
 		case tasks_client.DeviceRenderTask:
-			return deviceRender(ctx, &reference, store, callbackManager, k8sClient, kvStore, log)
+			return deviceRender(ctx, &reference, serviceHandler, callbackManager, k8sClient, kvStore, log)
 		case tasks_client.RepositoryUpdatesTask:
-			return repositoryUpdate(ctx, &reference, store, callbackManager, log)
+			return repositoryUpdate(ctx, &reference, serviceHandler, callbackManager, log)
 		default:
 			return fmt.Errorf("unexpected task name %s", reference.TaskName)
 		}
@@ -42,7 +42,7 @@ func dispatchTasks(store store.Store, callbackManager tasks_client.CallbackManag
 
 func LaunchConsumers(ctx context.Context,
 	queuesProvider queues.Provider,
-	store store.Store,
+	serviceHandler *service.ServiceHandler,
 	callbackManager tasks_client.CallbackManager,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,
@@ -53,7 +53,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(store, callbackManager, k8sClient, kvStore)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, callbackManager, k8sClient, kvStore)); err != nil {
 				return err
 			}
 		}

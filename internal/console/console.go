@@ -2,11 +2,10 @@ package console
 
 import (
 	"context"
+	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -30,21 +29,17 @@ type InternalSessionRegistration interface {
 }
 
 type ConsoleSessionManager struct {
-	store           store.Store
-	log             logrus.FieldLogger
-	callbackManager tasks_client.CallbackManager
-	kvStore         kvstore.KVStore
+	serviceHandler *service.ServiceHandler
+	log            logrus.FieldLogger
 	// This one is the gRPC Handler of the agent for now, in the next iteration
 	// this should be split so we funnel traffic through a queue in redis/valkey
 	sessionRegistration InternalSessionRegistration
 }
 
-func NewConsoleSessionManager(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
+func NewConsoleSessionManager(serviceHandler *service.ServiceHandler, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
 	return &ConsoleSessionManager{
-		store:               store,
+		serviceHandler:      serviceHandler,
 		log:                 log,
-		callbackManager:     callbackManager,
-		kvStore:             kvStore,
 		sessionRegistration: sessionRegistration,
 	}
 }
@@ -60,13 +55,13 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 	}
 	// TODO(majopela): This still signals console session creation through an annotation on the device
 	// we should move this to a separate table in the database
-	if _, err := m.store.Device().Get(ctx, orgId, deviceName); err != nil {
-		return nil, err
+	if _, status := m.serviceHandler.GetDevice(ctx, deviceName); status.Code != http.StatusOK {
+		return nil, service.ApiStatusToErr(status)
 	}
 
 	annotations := map[string]string{api.DeviceAnnotationConsole: session.UUID}
-	if err := m.store.Device().UpdateAnnotations(ctx, orgId, deviceName, annotations, []string{}); err != nil {
-		return nil, err
+	if status := m.serviceHandler.UpdateDeviceAnnotations(ctx, deviceName, annotations, []string{}); status.Code != http.StatusOK {
+		return nil, service.ApiStatusToErr(status)
 	}
 
 	// tell the gRPC service, or the message queue (in the future) that there is a session waiting, and provide
@@ -75,9 +70,9 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 		m.log.Errorf("Failed to start session %s for device %s: %v, rolling back device annotation", session.UUID, deviceName, err)
 		// if we fail to register the session we should remove the annotation (best effort)
 		deleteAnnotations := []string{api.DeviceAnnotationConsole}
-		err = m.store.Device().UpdateAnnotations(ctx, orgId, deviceName, map[string]string{}, deleteAnnotations)
-		if err != nil {
-			m.log.Errorf("Failed to remove annotation from device %s: %v", deviceName, err)
+		status := m.serviceHandler.UpdateDeviceAnnotations(ctx, deviceName, map[string]string{}, deleteAnnotations)
+		if status.Code != http.StatusOK {
+			m.log.Errorf("Failed to remove annotation from device %s: %s", deviceName, status.Message)
 		}
 		return nil, err
 	}
@@ -87,9 +82,9 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 func (m *ConsoleSessionManager) CloseSession(ctx context.Context, session *ConsoleSession) error {
 	closeSessionErr := m.sessionRegistration.CloseSession(session)
 	// make sure the device exists
-	device, err := m.store.Device().Get(ctx, session.OrgId, session.DeviceName)
-	if err != nil {
-		return err
+	device, status := m.serviceHandler.GetDevice(ctx, session.DeviceName)
+	if status.Code != http.StatusOK {
+		return service.ApiStatusToErr(status)
 	}
 
 	// if the device is still attached to the same session, remove the annotation
@@ -98,8 +93,8 @@ func (m *ConsoleSessionManager) CloseSession(ctx context.Context, session *Conso
 		if ok && annotation == session.UUID {
 			deleteAnnotations := []string{api.DeviceAnnotationConsole}
 
-			if err := m.store.Device().UpdateAnnotations(ctx, session.OrgId, session.DeviceName, map[string]string{}, deleteAnnotations); err != nil {
-				return err
+			if status := m.serviceHandler.UpdateDeviceAnnotations(ctx, session.DeviceName, map[string]string{}, deleteAnnotations); status.Code != http.StatusOK {
+				return service.ApiStatusToErr(status)
 			}
 		}
 	}

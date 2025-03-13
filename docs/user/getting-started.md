@@ -335,7 +335,7 @@ Use the [`bootc-image-builder`](https://github.com/osbuild/bootc-image-builder) 
 ```console
 mkdir -p output && \
   sudo podman run --rm -it --privileged --pull=newer --security-opt label=type:unconfined_t \
-    -v $(pwd)/output:/output -v /var/lib/containers/storage:/var/lib/containers/storage \
+    -v ${PWD}/output:/output -v /var/lib/containers/storage:/var/lib/containers/storage \
     quay.io/centos-bootc/bootc-image-builder:latest \
     --type raw quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
 ```

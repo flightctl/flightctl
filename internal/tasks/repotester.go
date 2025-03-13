@@ -5,8 +5,7 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
@@ -22,14 +21,14 @@ type API interface {
 
 type RepoTester struct {
 	log                    logrus.FieldLogger
-	repoStore              store.Repository
+	serviceHandler         *service.ServiceHandler
 	TypeSpecificRepoTester TypeSpecificRepoTester
 }
 
-func NewRepoTester(log logrus.FieldLogger, store store.Store) *RepoTester {
+func NewRepoTester(log logrus.FieldLogger, serviceHandler *service.ServiceHandler) *RepoTester {
 	return &RepoTester{
-		log:       log,
-		repoStore: store.Repository(),
+		log:            log,
+		serviceHandler: serviceHandler,
 	}
 }
 
@@ -41,38 +40,51 @@ func (r *RepoTester) TestRepositories() {
 
 	log.Info("Running RepoTester")
 
-	repositories, err := r.repoStore.ListIgnoreOrg()
-	if err != nil {
-		log.Errorf("error fetching repositories: %s", err)
-		return
-	}
+	limit := int32(ItemsPerPage)
+	continueToken := (*string)(nil)
 
-	for i := range repositories {
-		repository := repositories[i]
-
-		repoSpec, _ := repository.Spec.Data.GetGenericRepoSpec()
-		switch repoSpec.Type {
-		case "http":
-			log.Info("Detected HTTP repository type")
-			r.TypeSpecificRepoTester = &HttpRepoTester{}
-		case "git":
-			log.Info("Defaulting to Git repository type")
-			r.TypeSpecificRepoTester = &GitRepoTester{}
-		default:
-			log.Errorf("unsupported repository type: %s", repoSpec.Type)
+	for {
+		repositories, status := r.serviceHandler.ListRepositories(ctx, api.ListRepositoriesParams{
+			Limit:    &limit,
+			Continue: continueToken,
+		})
+		if status.Code != 200 {
+			log.Errorf("error fetching repositories: %s", status.Message)
+			return
 		}
 
-		accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
+		for i := range repositories.Items {
+			repository := repositories.Items[i]
 
-		err := r.SetAccessCondition(repository, accessErr)
-		if err != nil {
-			log.Errorf("Failed to update repository status for %s: %v", repository.Name, err)
+			repoSpec, _ := repository.Spec.GetGenericRepoSpec()
+			switch repoSpec.Type {
+			case api.Http:
+				log.Info("Detected HTTP repository type")
+				r.TypeSpecificRepoTester = &HttpRepoTester{}
+			case api.Git:
+				log.Info("Defaulting to Git repository type")
+				r.TypeSpecificRepoTester = &GitRepoTester{}
+			default:
+				log.Errorf("unsupported repository type: %s", repoSpec.Type)
+			}
+
+			accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
+
+			err := r.SetAccessCondition(ctx, &repository, accessErr)
+			if err != nil {
+				log.Errorf("Failed to update repository status for %s: %v", *repository.Metadata.Name, err)
+			}
+		}
+
+		continueToken = repositories.Metadata.Continue
+		if continueToken == nil {
+			break
 		}
 	}
 }
 
 type TypeSpecificRepoTester interface {
-	TestAccess(repository *model.Repository) error
+	TestAccess(repository *api.Repository) error
 }
 
 type GitRepoTester struct {
@@ -81,16 +93,13 @@ type GitRepoTester struct {
 type HttpRepoTester struct {
 }
 
-func (r *GitRepoTester) TestAccess(repository *model.Repository) error {
-	if repository.Spec == nil {
-		return fmt.Errorf("repository has no spec")
-	}
-	repoURL, err := repository.Spec.Data.GetRepoURL()
+func (r *GitRepoTester) TestAccess(repository *api.Repository) error {
+	repoURL, err := repository.Spec.GetRepoURL()
 	if err != nil {
 		return err
 	}
 	remote := git.NewRemote(memory.NewStorage(), &config.RemoteConfig{
-		Name:  repository.Name,
+		Name:  *repository.Metadata.Name,
 		URLs:  []string{repoURL},
 		Fetch: []config.RefSpec{"HEAD"},
 	})
@@ -106,12 +115,8 @@ func (r *GitRepoTester) TestAccess(repository *model.Repository) error {
 	return err
 }
 
-func (r *HttpRepoTester) TestAccess(repository *model.Repository) error {
-	if repository.Spec == nil {
-		return fmt.Errorf("repository has no spec")
-	}
-
-	repoHttpSpec, err := repository.Spec.Data.GetHttpRepoSpec()
+func (r *HttpRepoTester) TestAccess(repository *api.Repository) error {
+	repoHttpSpec, err := repository.Spec.GetHttpRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to get HTTP repo spec: %w", err)
 	}
@@ -122,21 +127,23 @@ func (r *HttpRepoTester) TestAccess(repository *model.Repository) error {
 		repoURL += *repoHttpSpec.ValidationSuffix
 	}
 
-	repoSpec := repository.Spec.Data
+	repoSpec := repository.Spec
 	_, err = sendHTTPrequest(repoSpec, repoURL)
 	return err
 }
 
-func (r *RepoTester) SetAccessCondition(repository model.Repository, err error) error {
+func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Repository, err error) error {
 	if repository.Status == nil {
-		repository.Status = model.MakeJSONField(api.RepositoryStatus{Conditions: []api.Condition{}})
+		repository.Status = &api.RepositoryStatus{Conditions: []api.Condition{}}
 	}
-	if repository.Status.Data.Conditions == nil {
-		repository.Status.Data.Conditions = []api.Condition{}
+	if repository.Status.Conditions == nil {
+		repository.Status.Conditions = []api.Condition{}
 	}
-	changed := api.SetStatusConditionByError(&repository.Status.Data.Conditions, api.RepositoryAccessible, "Accessible", "Inaccessible", err)
-	if changed {
-		return r.repoStore.UpdateStatusIgnoreOrg(&repository)
+	changed := api.SetStatusConditionByError(&repository.Status.Conditions, api.RepositoryAccessible, "Accessible", "Inaccessible", err)
+	if !changed {
+		// Nothing to do
+		return nil
 	}
-	return nil
+	_, status := r.serviceHandler.ReplaceRepositoryStatus(ctx, *repository.Metadata.Name, *repository)
+	return service.ApiStatusToErr(status)
 }

@@ -11,6 +11,7 @@ import (
 	"text/template/parse"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
@@ -571,6 +572,17 @@ func (r ResourceSync) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&r.Spec.Repository, "spec.repository")...)
 	allErrs = append(allErrs, validation.ValidateGitRevision(&r.Spec.TargetRevision, "spec.targetRevision")...)
 	allErrs = append(allErrs, validation.ValidateString(&r.Spec.Path, "spec.path", 0, 2048, nil, "")...)
+	return allErrs
+}
+
+func (tv TemplateVersion) Validate() []error {
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateResourceName(tv.Metadata.Name)...)
+	allErrs = append(allErrs, validation.ValidateResourceOwner(tv.Metadata.Owner, lo.ToPtr(FleetKind))...)
+	_, passedOwnerResource, _ := util.GetResourceOwner(tv.Metadata.Owner)
+	if passedOwnerResource != tv.Spec.Fleet {
+		allErrs = append(allErrs, errors.New("metadata.owner and spec.fleet must match"))
+	}
 	return allErrs
 }
 
