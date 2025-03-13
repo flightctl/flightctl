@@ -121,7 +121,7 @@ func (o *CertificateOptions) Validate(args []string) error {
 	}
 
 	if errs := validation.ValidateSignerName(o.SignerName); len(errs) > 0 {
-		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca'")
+		return fmt.Errorf("invalid certificate type (signer): %s", errors.Join(errs...).Error())
 	}
 
 	// check if user updated output format while requesting a cert that is not an enrollment cert -
@@ -264,7 +264,20 @@ func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apicli
 			continue
 		default:
 			fmt.Fprintln(os.Stderr, " failed.")
-			return "", fmt.Errorf("submitting CSR failed with status %q: %w", response.HTTPResponse.Status, err)
+			var msg string
+			switch response.HTTPResponse.StatusCode {
+			case 400:
+				msg = response.JSON400.Message
+			case 403:
+				msg = response.JSON403.Message
+			case 409:
+				msg = response.JSON409.Message
+			case 503:
+				msg = response.JSON503.Message
+			default:
+				msg = "unknown error"
+			}
+			return "", fmt.Errorf("submitting CSR failed with status %q: %s", response.HTTPResponse.Status, msg)
 		}
 	}
 	return "", fmt.Errorf("submitting CSR failed after %d attempts, giving up", maxAttempts)

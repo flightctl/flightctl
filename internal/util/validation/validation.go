@@ -272,7 +272,11 @@ func ValidateSignerName(s string) []error {
 		return nil
 	}
 
-	errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, "must specify a valid signer"))
+	msg := "must specify a valid signer. options include: "
+	for k := range validSigners {
+		msg += k + ", "
+	}
+	errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, msg))
 	return asErrors(errs)
 }
 
