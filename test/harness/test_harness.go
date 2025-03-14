@@ -144,7 +144,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	cfg := agent.NewDefault()
 	// TODO: remove the cert/key modifications from default, and start storing
 	// the test harness files for those in the testDir/etc/flightctl/certs path
-	cfg.EnrollmentService = agent.EnrollmentService{
+	cfg.EnrollmentService = config.EnrollmentService{
 		Config:               *client.NewDefault(),
 		EnrollmentUIEndpoint: "https://flightctl.ui/",
 	}
