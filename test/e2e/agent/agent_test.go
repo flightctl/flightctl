@@ -29,23 +29,25 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("vm", func() {
-		It("should print QR output to console", func() {
-			// Wait for the top-most part of the QR output to appear
-			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
+		It("Verify VM agent", Label("80455"), func() {
+			By("should print QR output to console", func() {
+				// Wait for the top-most part of the QR output to appear
+				Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
 
-			fmt.Println("============ Console output ============")
-			lines := strings.Split(harness.VM.GetConsoleOutput(), "\n")
-			fmt.Println(strings.Join(lines[len(lines)-20:], "\n"))
-			fmt.Println("========================================")
+				fmt.Println("============ Console output ============")
+				lines := strings.Split(harness.VM.GetConsoleOutput(), "\n")
+				fmt.Println(strings.Join(lines[len(lines)-20:], "\n"))
+				fmt.Println("========================================")
+			})
+
+			By("should have flightctl-agent running", func() {
+				stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
+			})
 		})
 
-		It("should have flightctl-agent running", func() {
-			stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
-		})
-
-		It("should be reporting device status on enrollment request", func() {
+		It("should be reporting device status on enrollment request", Label("75518"), func() {
 			// Get the enrollment Request ID from the console output
 			enrollmentID := harness.GetEnrollmentIDFromConsole()
 			logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
@@ -66,141 +68,143 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 	})
 
-	Context("status", Label("75991"), func() {
-		It("should report the correct device status after an inline config is added", func() {
-			deviceId, device := harness.EnrollAndWaitForOnlineStatus()
+	Context("status", func() {
+		It("Device status tests", Label("75991"), func() {
+			By("should report the correct device status after an inline config is added", func() {
+				deviceId, device := harness.EnrollAndWaitForOnlineStatus()
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
-				// Create ConfigProviderSpec.
-				var configProviderSpec v1alpha1.ConfigProviderSpec
-				err := configProviderSpec.FromInlineConfigProviderSpec(validInlineConfig)
-				Expect(err).ToNot(HaveOccurred())
+					// Create ConfigProviderSpec.
+					var configProviderSpec v1alpha1.ConfigProviderSpec
+					err := configProviderSpec.FromInlineConfigProviderSpec(validInlineConfig)
+					Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
-				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
-			})
+					device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
+					logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+				})
 
-			logrus.Infof("Waiting for the device to pick the config")
-			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
-				func(device *v1alpha1.Device) bool {
-					for _, condition := range device.Status.Conditions {
-						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-							condition.Message == UpdateRenderedVersionSuccess.String() {
-							return true
+				logrus.Infof("Waiting for the device to pick the config")
+				harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
+					func(device *v1alpha1.Device) bool {
+						for _, condition := range device.Status.Conditions {
+							if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
+								condition.Message == UpdateRenderedVersionSuccess.String() {
+								return true
+							}
 						}
-					}
-					return false
-				}, TIMEOUT)
+						return false
+					}, TIMEOUT)
 
-			// The device should have the online config.
-			stdout, err := harness.VM.RunSSH([]string{"cat", "/etc/motd"}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring("This system is managed by flightctl."))
+				// The device should have the online config.
+				stdout, err := harness.VM.RunSSH([]string{"cat", "/etc/motd"}, nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(stdout.String()).To(ContainSubstring("This system is managed by flightctl."))
 
-			// The status should be "Online"
-			logrus.Infof("The device has the config %s", device.Spec.Config)
-			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-		})
-
-		It("should report the correct device status when trying to upgrade to a not existing image", func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-
-			var newImageReference string
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				currentImage := device.Status.Os.Image
-				logrus.Infof("Current image for %s is %s", deviceId, currentImage)
-				repo, _ := parseImageReference(currentImage)
-				newImageReference = repo + ":not-existing"
-				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
-				logrus.Infof("Updating %s to image %s", deviceId, device.Spec.Os.Image)
+				// The status should be "Online"
+				logrus.Infof("The device has the config %s", device.Spec.Config)
+				Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+					deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 			})
 
-			harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Error",
-				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
-				}, "2m")
+			By("should report the correct device status when trying to upgrade to a not existing image", func() {
+				deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
-			Eventually(harness.GetDeviceWithUpdateStatus, TIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceUpdatedStatusOutOfDate))
-		})
+				var newImageReference string
+				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+					currentImage := device.Status.Os.Image
+					logrus.Infof("Current image for %s is %s", deviceId, currentImage)
+					repo, _ := parseImageReference(currentImage)
+					newImageReference = repo + ":not-existing"
+					device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
+					logrus.Infof("Updating %s to image %s", deviceId, device.Spec.Os.Image)
+				})
 
-		It(`should show an error when trying to update a device with
-			"a reference to a not existing git repo, and report 'Online' status`, Label("git"), func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+				harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Error",
+					func(device *v1alpha1.Device) bool {
+						return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
+					}, "2m")
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				logrus.Infof("Current device is %s", deviceId)
+				Eventually(harness.GetDeviceWithUpdateStatus, TIMEOUT, POLLING).WithArguments(
+					deviceId).Should(Equal(v1alpha1.DeviceUpdatedStatusOutOfDate))
+			})
 
-				// Create ConfigProviderSpec.
-				var configProviderSpec v1alpha1.ConfigProviderSpec
-				err := configProviderSpec.FromGitConfigProviderSpec(gitConfigInvalidRepo)
+			By(`should show an error when trying to update a device with
+				"a reference to a not existing git repo, and report 'Online' status`, func() {
+				deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+
+				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+					logrus.Infof("Current device is %s", deviceId)
+
+					// Create ConfigProviderSpec.
+					var configProviderSpec v1alpha1.ConfigProviderSpec
+					err := configProviderSpec.FromGitConfigProviderSpec(gitConfigInvalidRepo)
+					Expect(err).ToNot(HaveOccurred())
+
+					device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
+					logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+				})
+
+				// Check the http config error is detected.
+				harness.WaitForDeviceContents(deviceId, `Error: failed fetching specified Repository definition`,
+					func(device *v1alpha1.Device) bool {
+						return conditionExists(device, "SpecValid", "False", "Invalid")
+					}, "2m")
+
+				// The behaviour will change after EDM-418.
+				harness.WaitForDeviceContents(deviceId, "the device is updated to renderedVersion: 1",
+					func(device *v1alpha1.Device) bool {
+						return conditionExists(device, "Updating", "False", "Updated")
+					}, "2m")
+				Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+					deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+			})
+
+			By(`should show an error when trying to update a device with a httpConfigProviderSpec
+				with invalid Path, and report 'Online' status`, func() {
+				deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+
+				// Create the http repository.
+				_, err := model.NewRepositoryFromApiResource(&httpRepo)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
-				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+				// Update the device with the http invalid config.
+				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+					logrus.Infof("current device is %s", deviceId)
+					// Create ConfigProviderSpec.
+					var configProviderSpec v1alpha1.ConfigProviderSpec
+					err := configProviderSpec.FromHttpConfigProviderSpec(httpConfigInvalidPath)
+					Expect(err).ToNot(HaveOccurred())
+
+					device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
+					logrus.Infof("updating %s with config %s", deviceId, device.Spec.Config)
+				})
+
+				// Check the http config error is detected.
+				harness.WaitForDeviceContents(deviceId, "Error: sending HTTP Request",
+					func(device *v1alpha1.Device) bool {
+						return conditionExists(device, "SpecValid", "False", "Invalid")
+					}, "2m")
+
+				// The behaviour will change after EDM-418.
+				harness.WaitForDeviceContents(deviceId, "the device is updated to renderedVersion: 1",
+					func(device *v1alpha1.Device) bool {
+						return conditionExists(device, "Updating", "False", "Updated")
+					}, "2m")
+				Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+					deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 			})
+			By("should report 'Unknown' after the device vm is powered-off", func() {
+				deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
-			// Check the http config error is detected.
-			harness.WaitForDeviceContents(deviceId, `Error: failed fetching specified Repository definition`,
-				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "SpecValid", "False", "Invalid")
-				}, "2m")
-
-			// The behaviour will change after EDM-418.
-			harness.WaitForDeviceContents(deviceId, "the device is updated to renderedVersion: 1",
-				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "False", "Updated")
-				}, "2m")
-			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-		})
-
-		It(`should show an error when trying to update a device with a httpConfigProviderSpec
-			with invalid Path, and report 'Online' status`, func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-
-			// Create the http repository.
-			_, err := model.NewRepositoryFromApiResource(&httpRepo)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Update the device with the http invalid config.
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				logrus.Infof("current device is %s", deviceId)
-				// Create ConfigProviderSpec.
-				var configProviderSpec v1alpha1.ConfigProviderSpec
-				err := configProviderSpec.FromHttpConfigProviderSpec(httpConfigInvalidPath)
+				// Shutdown the vm.
+				err := harness.VM.Shutdown()
 				Expect(err).ToNot(HaveOccurred())
-
-				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
-				logrus.Infof("updating %s with config %s", deviceId, device.Spec.Config)
+				Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+					deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
 			})
-
-			// Check the http config error is detected.
-			harness.WaitForDeviceContents(deviceId, "Error: sending HTTP Request",
-				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "SpecValid", "False", "Invalid")
-				}, "2m")
-
-			// The behaviour will change after EDM-418.
-			harness.WaitForDeviceContents(deviceId, "the device is updated to renderedVersion: 1",
-				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "False", "Updated")
-				}, "2m")
-			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 		})
 
-		It("should report 'Unknown' after the device vm is powered-off", func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-
-			// Shutdown the vm.
-			err := harness.VM.Shutdown()
-			Expect(err).ToNot(HaveOccurred())
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
-		})
 	})
 })
 

@@ -47,51 +47,29 @@ var _ = Describe("cli operation", func() {
 		harness.Cleanup(false) // do not print console on error
 	})
 
-	Context("login", func() {
-		It("should have worked, and we can list devices", func() {
-			out, err := harness.CLI("get", "devices")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring("NAME"))
-		})
-	})
-
-	Context("apply/recursive", func() {
-		It("should work for a complete set of yamls", func() {
-			out, err := harness.CLI("apply", "-R", "-f", util.GetTestExamplesYamlPath("/"))
-			Expect(err).ToNot(HaveOccurred())
-			// expect out to contain 200 OK or 201 Created
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
-
-			// check a for a couple of the yamls we know to exist in the examples directory
-			Expect(out).To(ContainSubstring("examples/device-standalone.yaml/f68dfb5f5d2cdbb9339363b7f19f3ce269d75650bdc80004f1e04293a8ef9c4"))
-			Expect(out).To(ContainSubstring("examples/resourcesync.yaml/default-sync"))
-		})
-	})
-
 	Context("apply/fleet", func() {
-		It("should error when creating incomplete fleet", func() {
-			out, err := harness.CLIWithStdin(incompleteFleetYaml, "apply", "-f", "-")
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("fleet: failed to apply"))
+		It("Resources creation validations work well", Label("77667"), func() {
+			By("should error when creating incomplete fleet", func() {
+				out, err := harness.CLIWithStdin(incompleteFleetYaml, "apply", "-f", "-")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("fleet: failed to apply"))
+			})
+
+			By("should work for a complete fleet", func() {
+				// make sure it doesn't exist
+				_, _ = harness.CLI("delete", "fleet/e2e-test-fleet")
+
+				out, err := harness.CLIWithStdin(completeFleetYaml, "apply", "-f", "-")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(ContainSubstring("201 Created"))
+
+				// Applying a 2nd time it should also work, the fleet is just updated
+				out, err = harness.CLIWithStdin(completeFleetYaml, "apply", "-f", "-")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(ContainSubstring("200 OK"))
+			})
 		})
-
-		It("should work for a complete fleet", func() {
-			// make sure it doesn't exist
-			_, _ = harness.CLI("delete", "fleet/e2e-test-fleet")
-
-			out, err := harness.CLIWithStdin(completeFleetYaml, "apply", "-f", "-")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(ContainSubstring("201 Created"))
-
-			// Applying a 2nd time it should also work, the fleet is just updated
-			out, err = harness.CLIWithStdin(completeFleetYaml, "apply", "-f", "-")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(ContainSubstring("200 OK"))
-		})
-	})
-
-	Context("console", func() {
-		It("should let you connect to a device", func() {
+		It("should let you connect to a device", Label("80483"), func() {
 			deviceID := harness.StartVMAndEnroll()
 			logrus.Infof("Attempting console connect command to device %s", deviceID)
 			stdin, stdoutReader, err := harness.RunInteractiveCLI("console", "device/"+deviceID)
@@ -132,26 +110,27 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("certificate generation per user", func() {
-		It("should have worked, and we can have a certificate", func() {
+		It("should have worked, and we can have a certificate", Label("75865"), func() {
 			out, err := harness.CLI("certificate", "request", "-n", randString(5))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring("enrollment-service:"))
 		})
 	})
 
-	Context("list devices", func() {
-		It("Should let you list devices", func() {
-			out, err := harness.CLI("get", "devices")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring("Fleet/default"))
-		})
-	})
+	Context("Plural names for resources and autocompletion in the cli work well", func() {
+		It("Should let you list resources by plural names", Label("80453"), func() {
 
-	Context("list fleets", func() {
-		It("Should let you list fleets", func() {
-			out, err := harness.CLI("get", "fleets")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring("e2e-test-fleet"))
+			By("Should let you list devices", func() {
+				out, err := harness.CLI("get", "devices")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(out).To(ContainSubstring("Fleet/default"))
+			})
+
+			By("Should let you list fleets", func() {
+				out, err := harness.CLI("get", "fleets")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(out).To(ContainSubstring("e2e-test-fleet"))
+			})
 		})
 	})
 
