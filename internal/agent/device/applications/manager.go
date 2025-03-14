@@ -105,7 +105,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec
 }
 
 // pullAppPackages pulls the images for the application packages to ensure authentication works and the images are available.
-func (m *manager) pullAppPackages(ctx context.Context, imageProviders []v1alpha1.ImageApplicationProvider) error {
+func (m *manager) pullAppPackages(ctx context.Context, imageProviders []v1alpha1.ImageApplicationProviderSpec) error {
 	for _, imageProvider := range imageProviders {
 		// pull the image if it does not exist. it is possible that the image
 		// tag such as latest in which case it will be pulled later. but we
@@ -135,7 +135,7 @@ func (m *manager) pullAppPackages(ctx context.Context, imageProviders []v1alpha1
 }
 
 // ensureApps validates and pulls images for image based applications.
-func (m *manager) ensureApps(ctx context.Context, imageBasedApps []*application[*v1alpha1.ImageApplicationProvider]) error {
+func (m *manager) ensureApps(ctx context.Context, imageBasedApps []*application[*v1alpha1.ImageApplicationProviderSpec]) error {
 	appTmpDir, err := os.MkdirTemp("", "app_temp")
 	if err != nil {
 		return fmt.Errorf("error creating tmp dir: %w", err)

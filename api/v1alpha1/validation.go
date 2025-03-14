@@ -19,7 +19,7 @@ import (
 
 const (
 	maxBase64CertificateLength = 20 * 1024 * 1024
-	maxInlineConfigLength      = 1024 * 1024
+	maxInlineLength            = 1024 * 1024
 )
 
 var ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
@@ -60,7 +60,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		}
 	}
 	if r.Applications != nil {
-		allErrs = append(allErrs, validateApplications(*r.Applications)...)
+		allErrs = append(allErrs, validateApplications(*r.Applications, fleetTemplate)...)
 	}
 	if r.Resources != nil {
 		for _, resource := range *r.Resources {
@@ -317,16 +317,16 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].Group, fmt.Sprintf("spec.config[].inline[%d].group", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxFileMode(c.Inline[i].Mode, fmt.Sprintf("spec.config[].inline[%d].mode", i))...)
 
-		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64 {
+		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == EncodingBase64 {
 			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
-			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
+			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineLength)...)
 			// Can ignore errors because we just validated it in the previous line
 			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
 			_, paramErrs = validateParametersInString(lo.ToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
-		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
+		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == EncodingPlain) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
-			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineConfigLength, nil, "")...)
+			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineLength, nil, "")...)
 			_, paramErrs = validateParametersInString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
 		} else {
@@ -656,7 +656,36 @@ func (a ApplicationProviderSpec) Validate() []error {
 	return allErrs
 }
 
-func validateApplications(apps []ApplicationProviderSpec) []error {
+func (a InlineApplicationProviderSpec) Validate(fleetTemplate bool) []error {
+	allErrs := []error{}
+	for i := range a.Inline {
+		containsParams, paramErrs := validateParametersInString(&a.Inline[i].Path, fmt.Sprintf("spec.applications[].inline[%d].path", i), fleetTemplate)
+		allErrs = append(allErrs, paramErrs...)
+		if !containsParams {
+			allErrs = append(allErrs, validation.ValidateRelativePath(&a.Inline[i].Path, fmt.Sprintf("spec.applications[].inline[%d].path", i), 253)...)
+		}
+
+		content := lo.FromPtr(a.Inline[i].Content)
+		if a.Inline[i].ContentEncoding != nil && *(a.Inline[i].ContentEncoding) == EncodingBase64 && content != "" {
+			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
+			allErrs = append(allErrs, validation.ValidateBase64Field(content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), maxInlineLength)...)
+			// Can ignore errors because we just validated it in the previous line
+			b, _ := base64.StdEncoding.DecodeString(content)
+			_, paramErrs := validateParametersInString(lo.ToPtr(string(b)), fmt.Sprintf("spec.applications[].inline.[%d].content", i), fleetTemplate)
+			allErrs = append(allErrs, paramErrs...)
+		} else if a.Inline[i].ContentEncoding == nil || (a.Inline[i].ContentEncoding != nil && *(a.Inline[i].ContentEncoding) == EncodingPlain) && content != "" {
+			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
+			allErrs = append(allErrs, validation.ValidateString(&content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), 0, maxInlineLength, nil, "")...)
+			_, paramErrs := validateParametersInString(&content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), fleetTemplate)
+			allErrs = append(allErrs, paramErrs...)
+		} else {
+			allErrs = append(allErrs, fmt.Errorf("unknown encoding type: %s", *(a.Inline[i].ContentEncoding)))
+		}
+	}
+	return allErrs
+}
+
+func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
 	seenName := make(map[string]struct{})
 	for _, app := range apps {
@@ -664,7 +693,7 @@ func validateApplications(apps []ApplicationProviderSpec) []error {
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
-		appName, err := getAppName(app, providerType)
+		appName, err := ensureAppName(app, providerType)
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
@@ -676,17 +705,17 @@ func validateApplications(apps []ApplicationProviderSpec) []error {
 			seenName[appName] = struct{}{}
 		}
 
-		allErrs = append(allErrs, validateAppProvider(app, providerType)...)
+		allErrs = append(allErrs, validateAppProvider(app, providerType, fleetTemplate)...)
 		allErrs = append(allErrs, app.Validate()...)
 	}
 	return allErrs
 }
 
-func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProviderType) []error {
+func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProviderType, fleetTemplate bool) []error {
 	var errs []error
 	switch appType {
 	case ImageApplicationProviderType:
-		provider, err := app.AsImageApplicationProvider()
+		provider, err := app.AsImageApplicationProviderSpec()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid image application provider: %w", err))
 			return errs
@@ -696,6 +725,16 @@ func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProvide
 			errs = append(errs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 		}
 		errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
+	case InlineApplicationProviderType:
+		provider, err := app.AsInlineApplicationProviderSpec()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid inline application provider: %w", err))
+			return errs
+		}
+		if app.AppType == nil {
+			errs = append(errs, fmt.Errorf("inline application type cannot be empty"))
+		}
+		errs = append(errs, provider.Validate(fleetTemplate)...)
 	default:
 		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
 	}
@@ -712,15 +751,17 @@ func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderTy
 	switch providerType {
 	case ImageApplicationProviderType:
 		return providerType, nil
+	case InlineApplicationProviderType:
+		return providerType, nil
 	default:
 		return "", fmt.Errorf("unknown application provider type: %s", providerType)
 	}
 }
 
-func getAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (string, error) {
+func ensureAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (string, error) {
 	switch appType {
 	case ImageApplicationProviderType:
-		provider, err := app.AsImageApplicationProvider()
+		provider, err := app.AsImageApplicationProviderSpec()
 		if err != nil {
 			return "", fmt.Errorf("invalid image application provider: %w", err)
 		}
@@ -733,6 +774,11 @@ func getAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (s
 			return provider.Image, nil
 		}
 
+		return *app.Name, nil
+	case InlineApplicationProviderType:
+		if app.Name == nil {
+			return "", fmt.Errorf("inline application name cannot be empty")
+		}
 		return *app.Name, nil
 	default:
 		return "", fmt.Errorf("unsupported application provider type: %s", appType)

@@ -109,7 +109,7 @@ var _ = Describe("RepoUpdate", func() {
 		inlineConfig := &api.InlineConfigProviderSpec{
 			Name: "inlineConfig",
 		}
-		base64 := api.Base64
+		base64 := api.EncodingBase64
 		inlineConfig.Inline = []api.FileSpec{
 			{Path: "/etc/base64encoded", Content: "SGVsbG8gd29ybGQsIHdoYXQncyB1cD8=", ContentEncoding: &base64},
 			{Path: "/etc/notencoded", Content: "Hello world, what's up?"},
