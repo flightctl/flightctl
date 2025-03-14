@@ -92,7 +92,7 @@ func (o *CertificateOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Expiration, "expiration", "x", o.Expiration, "Specify desired certificate expiration in days, example: 7d.")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, "Specify desired output format for an enrollment cert: either 'reference' to have the config file reference key and cert file paths, or 'embedded' to have the key and cert embedded in the config file.")
 	fs.StringVarP(&o.OutputDir, "output-dir", "d", o.OutputDir, "Specify desired output directory for key, cert, and ca files.")
-	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of certificate requested: 'enrollment' or 'ca'.")
+	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of certificate requested: 'enrollment' or 'renewal'.")
 	fs.BoolVarP(&o.EncryptKey, "encrypt", "e", o.EncryptKey, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime.")
 }
 
@@ -121,13 +121,17 @@ func (o *CertificateOptions) Validate(args []string) error {
 	}
 
 	if errs := validation.ValidateSignerName(o.SignerName); len(errs) > 0 {
-		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca'")
+		return fmt.Errorf("invalid certificate type (signer): %s", errors.Join(errs...).Error())
 	}
 
 	// check if user updated output format while requesting a cert that is not an enrollment cert -
 	// output format is only relevant for enrollment certs
 	if o.SignerName != "enrollment" && len(o.Output) > 0 {
 		return fmt.Errorf("output format cannot be set for certificate types other than 'enrollment'")
+	}
+
+	if errs := validation.ValidateOutputFormat(o.Output); len(errs) > 0 {
+		return fmt.Errorf("invalid output format type: %s", errors.Join(errs...).Error())
 	}
 
 	re := `^\d+d$`
@@ -264,7 +268,20 @@ func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apicli
 			continue
 		default:
 			fmt.Fprintln(os.Stderr, " failed.")
-			return "", fmt.Errorf("submitting CSR failed with status %q: %w", response.HTTPResponse.Status, err)
+			var msg string
+			switch response.HTTPResponse.StatusCode {
+			case 400:
+				msg = response.JSON400.Message
+			case 403:
+				msg = response.JSON403.Message
+			case 409:
+				msg = response.JSON409.Message
+			case 503:
+				msg = response.JSON503.Message
+			default:
+				msg = "unknown error"
+			}
+			return "", fmt.Errorf("submitting CSR failed with status %q: %s", response.HTTPResponse.Status, msg)
 		}
 	}
 	return "", fmt.Errorf("submitting CSR failed after %d attempts, giving up", maxAttempts)
