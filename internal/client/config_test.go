@@ -126,7 +126,9 @@ func TestClientConfig(t *testing.T) {
 			require.NoError(err)
 
 			// write client config to disk
-			err = WriteConfig(configFile, tt.server, tt.serverName, ca.Config, clientCert)
+			bundle, err := ca.GetCABundle()
+			require.NoError(err)
+			err = WriteConfig(configFile, tt.server, tt.serverName, bundle, clientCert)
 			require.NoError(err)
 
 			// read client config from disk and create API client from it
@@ -149,7 +151,7 @@ func TestClientConfig(t *testing.T) {
 			require.ElementsMatch(clientCert.Certs[0].Raw, httpTransport.TLSClientConfig.Certificates[0].Certificate[0])
 			require.NotNil(httpTransport.TLSClientConfig.RootCAs)
 			caPool := x509.NewCertPool()
-			for _, caCert := range ca.Config.Certs {
+			for _, caCert := range ca.GetCABundleX509() {
 				caPool.AddCert(caCert)
 			}
 			require.True(caPool.Equal(httpTransport.TLSClientConfig.RootCAs))
