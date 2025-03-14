@@ -1,0 +1,4 @@
+- if:
+  - path: /etc/ssh/sshd_config.d/
+    op: [created, updated, removed]
+  run: sudo systemctl reload sshd

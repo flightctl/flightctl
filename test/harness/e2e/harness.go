@@ -752,3 +752,33 @@ func (h Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metada
 	_, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
 	return err
 }
+
+// Check that the device summary status is equal to the status input
+func (h Harness) CheckDeviceStatus(deviceId string, status v1alpha1.DeviceSummaryStatusType) (*v1alpha1.Device, error) {
+	response := h.GetDeviceWithStatusSystem(deviceId)
+	if response == nil {
+		return nil, fmt.Errorf("device response is nil")
+	}
+	if response.JSON200 == nil {
+		return nil, fmt.Errorf("device.JSON200 response is nil")
+	}
+	device := response.JSON200
+	deviceStaus := device.Status.Summary.Status
+	if deviceStaus != status {
+		return nil, fmt.Errorf("the device status is notOnline but %s", deviceStaus)
+	}
+	return device, nil
+}
+
+// Get device with response
+func (h Harness) GetDevice(deviceId string) (*v1alpha1.Device, error) {
+	response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device with response: %s", err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("device response is nil")
+	}
+	device := response.JSON200
+	return device, nil
+}

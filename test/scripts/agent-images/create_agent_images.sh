@@ -7,7 +7,13 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/../functions
 
 REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST="base v2 v3 v4 v5"
+IMAGE_LIST="base v2 v3 v4 v5 v6"
+
+# Create the file and add the registry configuration
+cp "${SCRIPT_DIR}"/Containerfile-e2e-base.local.template "${SCRIPT_DIR}"/Containerfile-e2e-base.local
+sudo tee -a "${SCRIPT_DIR}"/Containerfile-e2e-base.local <<EOF
+RUN  mkdir -p /etc/containers/registries.conf.d/ && echo -e '[[registry]]\nlocation = "${REGISTRY_ADDRESS}"\ninsecure = true' > /etc/containers/registries.conf.d/flightctl-e2e.conf
+EOF
 
 # if FLIGHTCTL_RPM is not empty
 if [ -n "${FLIGHTCTL_RPM:-}" ]; then
