@@ -483,16 +483,12 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 		return nil
 	}
 
-	tokens := strings.Repeat("?,", len(deviceNames))
-	// trim tailing comma
-	tokens = tokens[:len(tokens)-1]
-
 	// https://www.postgresql.org/docs/current/functions-json.html
 	// jsonb_set(target jsonb, path text[], new_value jsonb, create_missing boolean)
 	createMissing := "false"
 	return s.db.WithContext(ctx).
 		Model(&model.Device{}).
-		Where("name IN ?", tokens).
+		Where("name IN ?", deviceNames).
 		UpdateColumns(map[string]interface{}{
 			"status": gorm.Expr(`
 				jsonb_set(
