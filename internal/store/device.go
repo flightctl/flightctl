@@ -492,7 +492,7 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 	createMissing := "false"
 	return s.db.WithContext(ctx).
 		Model(&model.Device{}).
-		Where("name IN ?", deviceNames).
+		Where("name IN ?", tokens).
 		UpdateColumns(map[string]interface{}{
 			"status": gorm.Expr(`
 				jsonb_set(
