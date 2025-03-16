@@ -138,6 +138,10 @@ The flightctl-services package provides installation and setup of files for runn
     cp deploy/scripts/post_install.sh %{buildroot}%{_datadir}/flightctl/post_install.sh
     cp deploy/scripts/secrets.sh %{buildroot}%{_datadir}/flightctl/secrets.sh
 
+    # Copy sos report flightctl plugin
+    mkdir -p %{buildroot}/usr/share/sosreport
+    cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
+
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
 
@@ -184,6 +188,15 @@ fi
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     %{_docdir}/%{NAME}/*
     %{_docdir}/%{NAME}/.markdownlint-cli2.yaml
+    /usr/share/sosreport/flightctl.py
+
+%post agent
+INSTALL_DIR="/usr/lib/python$(python3 --version | sed 's/^.* \(3[.][0-9]*\).*$/\1/')/site-packages/sos/report/plugins"
+mkdir -p $INSTALL_DIR
+cp /usr/share/sosreport/flightctl.py $INSTALL_DIR
+chmod 0644 $INSTALL_DIR/flightctl.py
+rm -rf /usr/share/sosreport
+
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
@@ -219,6 +232,8 @@ fi
 
 %changelog
 
+* Thu Apr 3 2025 Ori Amizur <oamizur@redhat.com> - 0.6.0-1
+- Add sos report plugin support
 * Mon Mar 31 2025 Dakota Crowder <dcrowder@redhat.com> - 0.6.0-1
 - Add services sub-package for installation of containerized flightctl services
 * Fri Feb 7 2025 Miguel Angel Ajo <majopela@redhat.com> - 0.4.0-1
