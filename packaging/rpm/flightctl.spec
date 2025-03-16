@@ -118,6 +118,9 @@ The flightctl-selinux package provides the SELinux policy modules required by th
         cp -vr "${DOC}" "%{buildroot}%{_docdir}/%{NAME}/${DOC}"
     done
 
+    mkdir -p %{buildroot}/usr/share/sosreport
+    cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
+
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
 
@@ -160,11 +163,23 @@ fi
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     %{_docdir}/%{NAME}/*
     %{_docdir}/%{NAME}/.markdownlint-cli2.yaml
+    /usr/share/sosreport/flightctl.py
+
+%post agent
+INSTALL_DIR="/usr/lib/python$(python3 --version | sed 's/^.* \(3[.][0-9]*\).*$/\1/')/site-packages/sos/report/plugins"
+mkdir -p $INSTALL_DIR
+cp /usr/share/sosreport/flightctl.py $INSTALL_DIR
+chmod 0644 $INSTALL_DIR/flightctl.py
+rm -rf /usr/share/sosreport
+
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
 %changelog
+
+* Thu Apr 3 2025 Ori Amizur <oamizur@redhat.com> - 0.6.0
+- Add sos report plugin support
 
 * Fri Feb 7 2025 Miguel Angel Ajo <majopela@redhat.com> - 0.4.0-1
 - Add selinux support for console pty access
