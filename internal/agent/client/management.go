@@ -52,6 +52,29 @@ func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device
 	return nil
 }
 
+// HeartBeat updates only the status of the device with the given name.
+func (m *management) HeartBeat(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
+	start := time.Now()
+	device.Spec = nil
+	resp, err := m.client.ReplaceDeviceStatusWithResponse(ctx, name, device, rcb...)
+	if err != nil {
+		return err
+	}
+	if resp.HTTPResponse != nil {
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
+	}
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("update_device_heartbeat_duration", time.Since(start).Seconds(), err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("device heartbeat failed: %s", resp.Status())
+	}
+
+	return nil
+}
+
 // GetRenderedDevice returns the rendered device spec for the given device
 // and the response code. If the server returns a 200, the rendered device spec
 // is returned. If the server returns a 204, the rendered device spec is nil,

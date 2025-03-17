@@ -52,7 +52,7 @@ func TestInitialization(t *testing.T) {
 				gomock.InOrder(
 					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
-					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
@@ -82,7 +82,7 @@ func TestInitialization(t *testing.T) {
 				gomock.InOrder(
 					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
-					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
@@ -113,7 +113,7 @@ func TestInitialization(t *testing.T) {
 				gomock.InOrder(
 					mockLifecycleInitializer.EXPECT().IsInitialized().Return(false),
 					mockSpecManager.EXPECT().Initialize(gomock.Any()).Return(nil),
-					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
