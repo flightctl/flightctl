@@ -45,7 +45,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			// Get the application url in the local registryand create the application config
 			extIP = harness.RegistryEndpoint()
 			sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
-			var applicationConfig = v1alpha1.ImageApplicationProvider{
+			var applicationConfig = v1alpha1.ImageApplicationProviderSpec{
 				Image: sleepAppImage,
 			}
 
@@ -54,7 +54,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 				// Create applicationSpec.
 				var applicationSpec v1alpha1.ApplicationProviderSpec
-				err := applicationSpec.FromImageApplicationProvider(applicationConfig)
+				err := applicationSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{applicationSpec}
@@ -90,7 +90,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			logrus.Infof("Updating from tag %s to v2", tag)
 
 			updateImage := repo + ":v2"
-			updateApplicationConfig := v1alpha1.ImageApplicationProvider{
+			updateApplicationConfig := v1alpha1.ImageApplicationProviderSpec{
 				Image: updateImage,
 			}
 
@@ -108,7 +108,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 				// Create applicationSpec.
 				var updateApplicationSpec v1alpha1.ApplicationProviderSpec
-				err := updateApplicationSpec.FromImageApplicationProvider(updateApplicationConfig)
+				err := updateApplicationSpec.FromImageApplicationProviderSpec(updateApplicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
 				updateApplicationSpec.EnvVars = &applicationVars

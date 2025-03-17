@@ -153,10 +153,10 @@ func newTestDeviceSpec(appSpecs []testApp) (*v1alpha1.DeviceSpec, error) {
 		app := v1alpha1.ApplicationProviderSpec{
 			Name: lo.ToPtr(spec.name),
 		}
-		provider := v1alpha1.ImageApplicationProvider{
+		provider := v1alpha1.ImageApplicationProviderSpec{
 			Image: spec.image,
 		}
-		if err := app.FromImageApplicationProvider(provider); err != nil {
+		if err := app.FromImageApplicationProviderSpec(provider); err != nil {
 			return nil, err
 		}
 		applications = append(applications, app)

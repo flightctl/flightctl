@@ -63,7 +63,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Device
 	return nil
 }
 
-func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps []*application[*v1alpha1.ImageApplicationProvider]) error {
+func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps []*application[*v1alpha1.ImageApplicationProviderSpec]) error {
 	diff, err := diffApps(currentApps, desiredApps)
 	if err != nil {
 		return err
@@ -102,7 +102,7 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 	return nil
 }
 
-func (c *Controller) removeImagePackage(app *application[*v1alpha1.ImageApplicationProvider]) error {
+func (c *Controller) removeImagePackage(app *application[*v1alpha1.ImageApplicationProviderSpec]) error {
 	c.log.Debugf("Removing image package from disk: %s", app.Name())
 	appPath, err := app.Path()
 	if err != nil {
@@ -112,7 +112,7 @@ func (c *Controller) removeImagePackage(app *application[*v1alpha1.ImageApplicat
 	return c.readWriter.RemoveAll(appPath)
 }
 
-func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v1alpha1.ImageApplicationProvider]) error {
+func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v1alpha1.ImageApplicationProviderSpec]) error {
 	appPath, err := app.Path()
 	if err != nil {
 		return err
@@ -158,7 +158,7 @@ func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.Device
 		}
 		switch providerType {
 		case v1alpha1.ImageApplicationProviderType:
-			provider, err := appSpec.AsImageApplicationProvider()
+			provider, err := appSpec.AsImageApplicationProviderSpec()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert application to image provider: %w", err)
 			}
