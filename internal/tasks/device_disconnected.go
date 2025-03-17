@@ -47,7 +47,6 @@ func (t *DeviceDisconnected) Poll() {
 
 		var batch []string
 		for _, device := range devices.Items {
-			device := device
 			changed := t.serviceHandler.UpdateServiceSideDeviceStatus(ctx, device)
 			if changed {
 				batch = append(batch, *device.Metadata.Name)

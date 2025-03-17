@@ -1,6 +1,6 @@
 module github.com/flightctl/flightctl
 
-go 1.21
+go 1.22
 
 require (
 	github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2
