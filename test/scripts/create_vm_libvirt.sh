@@ -64,8 +64,8 @@ virt-install \
   --vcpus $VM_CPUS \
   --disk path=$DISK_PATH,size=${VM_DISK_SIZE},format=qcow2 \
   --os-variant centos-stream9  \
-  --network network=$NETWORK_NAME,model=virtio \
   --network network="default" \
+  --network network=$NETWORK_NAME,model=virtio \
   --import \
   --cpu host-model \
   --graphics none \

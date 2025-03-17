@@ -3,10 +3,10 @@ package cli_test
 import (
 	"crypto/rand"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -36,33 +36,11 @@ func TestCLI(t *testing.T) {
 var _ = Describe("cli operation", func() {
 	var (
 		harness *e2e.Harness
-		token   string
 	)
 
 	BeforeEach(func() {
 		harness = e2e.NewTestHarness()
-
-		// construct the flightctl login arguments
-		loginArgs := []string{"login", "${API_ENDPOINT}", "--insecure-skip-tls-verify"}
-		if token != "" {
-			loginArgs = append(loginArgs, "--token", token)
-		}
-		// attempt login
-		out, err := harness.CLI(loginArgs...)
-
-		// if openshift authentication is required, try to obtain a token
-		if strings.Contains(out, "You must provide one of the following options to log in") {
-			token, err = harness.SH("oc", "whoami", "-t")
-			token = strings.Trim(token, "\n")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(token).ToNot(BeEmpty(), "token from oc whoami should not be empty")
-			loginArgs = append(loginArgs, "--token", token)
-			out, err = harness.CLI(loginArgs...)
-
-		}
-		Expect(err).ToNot(HaveOccurred())
-		out = strings.Trim(out, "\n.")
-		Expect(out).To(BeElementOf("Auth is disabled", "Login successful"))
+		login.LoginToAPIWithToken(harness)
 	})
 
 	AfterEach(func() {
