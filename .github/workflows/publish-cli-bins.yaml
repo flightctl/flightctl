@@ -22,40 +22,55 @@ jobs:
     name: Build Binaries
     strategy:
       matrix:
-        os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]
+        tag: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64", "windows-arm64" ]
+        include:
+          # Linux builds
+          - &linux-base
+            os: linux
+            zip: .tar.gz
+            ext: ""
+          - <<: *linux-base
+            tag: linux-amd64
+            arch: amd64
+          - <<: *linux-base
+            tag: linux-arm64
+            arch: arm64
+
+          # macOS builds
+          - &mac-base
+            os: darwin
+            zip: .zip
+            ext: ""
+          - <<: *mac-base
+            tag: mac-amd64
+            arch: amd64
+          - <<: *mac-base
+            tag: mac-arm64
+            arch: arm64
+
+          # Windows builds
+          - &windows-base
+            os: windows
+            zip: .zip
+            ext: .exe
+          - <<: *windows-base
+            tag: windows-amd64
+            arch: amd64
+          - <<: *windows-base
+            tag: windows-arm64
+            arch: arm64
     runs-on: ubuntu-latest
     needs: setup
     steps:
-      - name: Set up Environment Variables
-        run: |
-          # Split os-arch into os and arch
-          IFS="-" read -r GOOS GOARCH <<< "${{ matrix.os_arch }}"
-          # Export variables to GITHUB_ENV for subsequent steps
-          {
-            echo "GOOS=$GOOS"
-            echo "GOARCH=$GOARCH"
-          } >> $GITHUB_ENV
-
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: 1.21
 
-      # Cache Go modules
-      - name: Cache Go Modules
-        uses: actions/cache@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          fetch-depth: 0
 
       # Install dependencies
       - name: Install Dependencies
@@ -63,34 +78,51 @@ jobs:
 
       - name: Build
         run: |
-          GOOS="${GOOS}" GOARCH="${GOARCH}" make build-cli
-          SHA=$(shasum -a 256 bin/flightctl | awk '{ print $1 }')
-          echo "${SHA}" > "flightctl-${{ matrix.os_arch }}-sha256.txt"
-          mv bin/flightctl "flightctl-${{ matrix.os_arch }}"
-          tar cvf "flightctl-${{ matrix.os_arch }}.tar.gz" "flightctl-${{ matrix.os_arch }}"
+          GOOS="${{ matrix.os }}" GOARCH="${{ matrix.arch }}" make build-cli
+          mv "bin/flightctl${{ matrix.ext }}" "flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}"
+          SHA=$(shasum -a 256 flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }} | cut -d' ' -f1)
+          echo ${SHA} > flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+          if [ "${{ matrix.zip }}" = ".zip" ]; then
+            zip flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }} flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          else
+            tar cvf flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }} flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          fi
 
-      - name: Save tar binary
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Save zip
         uses: actions/upload-artifact@v4
         with:
-          name: flightctl-${{ matrix.os_arch }}.tar.gz
-          path: flightctl-${{ matrix.os_arch }}.tar.gz
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
 
       - name: Save binary
         uses: actions/upload-artifact@v4
         with:
-          name: flightctl-${{ matrix.os_arch }}
-          path: flightctl-${{ matrix.os_arch }}
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
 
       - name: Save checksum
         uses: actions/upload-artifact@v4
         with:
-          name: flightctl-${{ matrix.os_arch }}-sha256.txt
-          path: flightctl-${{ matrix.os_arch }}-sha256.txt
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+
+  verify-windows:
+    name: Verify Binaries on windows
+    strategy:
+      matrix:
+        arch: [ "amd64", "arm64" ]
+    runs-on: "windows-latest"
+    needs: build
+    steps:
+      - name: Load binary
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-windows-${{ matrix.arch }}.exe
+      - name: Verify
+        run: .\flightctl-windows-${{ matrix.arch }}.exe version
 
   verify:
-    name: Verify Binaries
+    name: Verify Binaries on linux/macos
     strategy:
       matrix:
         os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]
