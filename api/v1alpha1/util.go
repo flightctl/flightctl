@@ -46,8 +46,9 @@ const (
 type ApplicationProviderType string
 
 const (
-	ImageApplicationProviderType  ApplicationProviderType = "image"
-	InlineApplicationProviderType ApplicationProviderType = "inline"
+	ImageApplicationProviderType    ApplicationProviderType = "image"
+	InlineApplicationProviderType   ApplicationProviderType = "inline"
+	EmbeddedApplicationProviderType ApplicationProviderType = "embedded"
 )
 
 // Type returns the type of the action.
