@@ -317,24 +317,24 @@ func (a AppType) ActionHandler() (lifecycle.ActionHandlerType, error) {
 }
 
 type applications struct {
-	images []*application[*v1alpha1.ImageApplicationProvider]
+	images []*application[*v1alpha1.ImageApplicationProviderSpec]
 	// add other types of application providers here
 }
 
-func (a *applications) ImageBased() []*application[*v1alpha1.ImageApplicationProvider] {
+func (a *applications) ImageBased() []*application[*v1alpha1.ImageApplicationProviderSpec] {
 	return a.images
 }
 
 // ImageProvidersFromSpec returns a list of image application providers from a rendered device spec.
-func ImageProvidersFromSpec(spec *v1alpha1.DeviceSpec) ([]v1alpha1.ImageApplicationProvider, error) {
-	var providers []v1alpha1.ImageApplicationProvider
+func ImageProvidersFromSpec(spec *v1alpha1.DeviceSpec) ([]v1alpha1.ImageApplicationProviderSpec, error) {
+	var providers []v1alpha1.ImageApplicationProviderSpec
 	for _, appSpec := range *spec.Applications {
 		appProvider, err := appSpec.Type()
 		if err != nil {
 			return nil, err
 		}
 		if appProvider == v1alpha1.ImageApplicationProviderType {
-			provider, err := appSpec.AsImageApplicationProvider()
+			provider, err := appSpec.AsImageApplicationProviderSpec()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert application to image provider: %w", err)
 			}
