@@ -32,14 +32,6 @@ func NewGRPCClientFromConfig(config *baseclient.Config) (grpc_v1.RouterServiceCl
 	return baseclient.NewGRPCClientFromConfig(config, "")
 }
 
-type Config = baseclient.Config
-type AuthInfo = baseclient.AuthInfo
-type Service = baseclient.Service
-
-func NewDefault() *Config {
-	return baseclient.NewDefault()
-}
-
 // Management is the client interface for managing devices.
 type Management interface {
 	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error

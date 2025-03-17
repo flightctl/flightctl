@@ -40,7 +40,9 @@ type TestVMInterface interface {
 	WaitForSSHToBeReady() error
 	RunAndWaitForSSH() error
 	SSHCommand(inputArgs []string) *exec.Cmd
+	SSHCommandWithUser(nputArgs []string, user string) *exec.Cmd
 	RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
+	RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error)
 	Exists() (bool, error)
 	GetConsoleOutput() string
 }
@@ -75,10 +77,9 @@ func (v *TestVM) WaitForSSHToBeReady() error {
 	return fmt.Errorf("SSH did not become ready in %s seconds", sshWaitTimeout)
 }
 
-// RunSSH runs a command over ssh or starts an interactive ssh connection if no command is provided
-func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
+func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
 
-	sshDestination := v.VMUser + "@localhost"
+	sshDestination := user + "@localhost"
 	port := strconv.Itoa(v.SSHPort)
 
 	args := []string{"-p", v.SSHPassword, "ssh", "-p", port, sshDestination,
@@ -98,8 +99,14 @@ func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
 	return cmd
 }
 
-func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error) {
-	cmd := v.SSHCommand(inputArgs)
+// RunSSH runs a command over ssh or starts an interactive ssh connection if no command is provided
+func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
+
+	return v.SSHCommandWithUser(inputArgs, v.VMUser)
+}
+
+func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
+	cmd := v.SSHCommandWithUser(inputArgs, user)
 	var stderr bytes.Buffer
 	var stdout bytes.Buffer
 	cmd.Stderr = &stderr
@@ -114,6 +121,12 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 	}
 
 	return &stdout, nil
+}
+
+func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error) {
+
+	stdout, err := v.RunSSHWithUser(inputArgs, stdin, v.VMUser)
+	return stdout, err
 }
 
 func StartAndWaitForSSH(params TestVM) (vm TestVMInterface, err error) {
