@@ -139,7 +139,7 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 	}
 
 	updatingCondition := v1alpha1.Condition{
-		Type: v1alpha1.DeviceUpdating,
+		Type: v1alpha1.ConditionTypeDeviceUpdating,
 	}
 
 	if b.specManager.IsUpgrading() {
@@ -244,7 +244,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	b.log.Info("Spec rollback complete, resuming bootstrap")
 
 	updateErr = b.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceUpdating,
+		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.UpdateStateRollingBack),
 		Message: fmt.Sprintf("The device is rolling back to template version: %s", b.specManager.RenderedVersion(spec.Desired)),

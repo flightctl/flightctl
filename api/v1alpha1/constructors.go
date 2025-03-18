@@ -4,7 +4,7 @@ func NewDeviceStatus() DeviceStatus {
 	return DeviceStatus{
 		Conditions: []Condition{
 			{
-				Type:   DeviceUpdating,
+				Type:   ConditionTypeDeviceUpdating,
 				Status: ConditionStatusUnknown,
 			},
 		},

@@ -110,7 +110,7 @@ func (t *callbackManager) FleetUpdatedCallback(orgId uuid.UUID, before, after *a
 	}
 	if selectorUpdated {
 		op := FleetSelectorMatchOpUpdate
-		if fleet.Status != nil && fleet.Status.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Conditions, api.FleetOverlappingSelectors) {
+		if fleet.Status != nil && fleet.Status.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Conditions, api.ConditionTypeFleetOverlappingSelectors) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.submitTask(FleetSelectorMatchTask, ref, op)
@@ -189,7 +189,7 @@ func (t *callbackManager) DeviceUpdatedNoRenderCallback(orgId uuid.UUID, before 
 		// Check if the new labels cause the device to move to a different fleet
 		op := FleetSelectorMatchOpUpdate
 
-		if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
+		if api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
 		t.submitTask(FleetSelectorMatchTask, ref, op)

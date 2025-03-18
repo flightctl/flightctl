@@ -23,18 +23,18 @@ const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
 var nowFunc = time.Now
 
 func (h *ServiceHandler) autoApprove(ctx context.Context, orgId uuid.UUID, csr *api.CertificateSigningRequest) {
-	if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) {
 		return
 	}
 
 	api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
-		Type:    api.CertificateSigningRequestApproved,
+		Type:    api.ConditionTypeCertificateSigningRequestApproved,
 		Status:  api.ConditionStatusTrue,
 		Reason:  "Approved",
 		Message: "Auto-approved by enrollment signer",
 	})
-	api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestDenied)
-	api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestFailed)
+	api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)
+	api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed)
 
 	if _, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set approval condition")
@@ -49,7 +49,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *csr)
 	if err != nil {
 		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
-			Type:    api.CertificateSigningRequestFailed,
+			Type:    api.ConditionTypeCertificateSigningRequestFailed,
 			Status:  api.ConditionStatusTrue,
 			Reason:  "SigningFailed",
 			Message: fmt.Sprintf("Failed to sign certificate: %v", err),
@@ -208,8 +208,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 	if result.Spec.SignerName == "enrollment" {
 		h.autoApprove(ctx, orgId, result)
 	}
-
-	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if api.IsStatusConditionTrue(result.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
@@ -268,7 +267,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 	if result.Spec.SignerName == "enrollment" {
 		h.autoApprove(ctx, orgId, result)
 	}
-	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if api.IsStatusConditionTrue(result.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
@@ -302,7 +301,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 	if result.Spec.SignerName == "enrollment" {
 		h.autoApprove(ctx, orgId, result)
 	}
-	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if api.IsStatusConditionTrue(result.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
@@ -324,9 +323,9 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	if newCSR.Status == nil {
 		return nil, api.StatusBadRequest("status is required")
 	}
-	allowedConditionTypes := []api.ConditionType{api.CertificateSigningRequestApproved, api.CertificateSigningRequestDenied, api.CertificateSigningRequestFailed}
+	allowedConditionTypes := []api.ConditionType{api.ConditionTypeCertificateSigningRequestApproved, api.ConditionTypeCertificateSigningRequestDenied, api.ConditionTypeCertificateSigningRequestFailed}
 	trueConditions := allowedConditionTypes
-	exclusiveConditions := []api.ConditionType{api.CertificateSigningRequestApproved, api.CertificateSigningRequestDenied}
+	exclusiveConditions := []api.ConditionType{api.ConditionTypeCertificateSigningRequestApproved, api.ConditionTypeCertificateSigningRequestDenied}
 	errs := api.ValidateConditions(newCSR.Status.Conditions, allowedConditionTypes, trueConditions, exclusiveConditions)
 	if len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
@@ -338,10 +337,10 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	}
 
 	// do not approve a denied request, or recreate a cert for an already-approved request
-	if api.IsStatusConditionTrue(oldCSR.Status.Conditions, api.CertificateSigningRequestDenied) {
+	if api.IsStatusConditionTrue(oldCSR.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied) {
 		return nil, api.StatusConflict("The request has already been denied")
 	}
-	if api.IsStatusConditionTrue(oldCSR.Status.Conditions, api.CertificateSigningRequestApproved) && oldCSR.Status.Certificate != nil && len(*oldCSR.Status.Certificate) > 0 {
+	if api.IsStatusConditionTrue(oldCSR.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) && oldCSR.Status.Certificate != nil && len(*oldCSR.Status.Certificate) > 0 {
 		return nil, api.StatusConflict("The request has already been approved and the certificate issued")
 	}
 
@@ -358,7 +357,7 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 		return nil, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 	}
 
-	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if api.IsStatusConditionTrue(result.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 

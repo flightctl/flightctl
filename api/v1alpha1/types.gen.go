@@ -44,21 +44,21 @@ const (
 
 // Defines values for ConditionType.
 const (
-	CertificateSigningRequestApproved ConditionType = "Approved"
-	CertificateSigningRequestDenied   ConditionType = "Denied"
-	CertificateSigningRequestFailed   ConditionType = "Failed"
-	DeviceDecommissioning             ConditionType = "DeviceDecommissioning"
-	DeviceMultipleOwners              ConditionType = "MultipleOwners"
-	DeviceSpecValid                   ConditionType = "SpecValid"
-	DeviceUpdating                    ConditionType = "Updating"
-	EnrollmentRequestApproved         ConditionType = "Approved"
-	FleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
-	FleetRolloutInProgress            ConditionType = "RolloutInProgress"
-	FleetValid                        ConditionType = "Valid"
-	RepositoryAccessible              ConditionType = "Accessible"
-	ResourceSyncAccessible            ConditionType = "Accessible"
-	ResourceSyncResourceParsed        ConditionType = "ResourceParsed"
-	ResourceSyncSynced                ConditionType = "Synced"
+	ConditionTypeCertificateSigningRequestApproved ConditionType = "Approved"
+	ConditionTypeCertificateSigningRequestDenied   ConditionType = "Denied"
+	ConditionTypeCertificateSigningRequestFailed   ConditionType = "Failed"
+	ConditionTypeDeviceDecommissioning             ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceMultipleOwners              ConditionType = "MultipleOwners"
+	ConditionTypeDeviceSpecValid                   ConditionType = "SpecValid"
+	ConditionTypeDeviceUpdating                    ConditionType = "Updating"
+	ConditionTypeEnrollmentRequestApproved         ConditionType = "Approved"
+	ConditionTypeFleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
+	ConditionTypeFleetRolloutInProgress            ConditionType = "RolloutInProgress"
+	ConditionTypeFleetValid                        ConditionType = "Valid"
+	ConditionTypeRepositoryAccessible              ConditionType = "Accessible"
+	ConditionTypeResourceSyncAccessible            ConditionType = "Accessible"
+	ConditionTypeResourceSyncResourceParsed        ConditionType = "ResourceParsed"
+	ConditionTypeResourceSyncSynced                ConditionType = "Synced"
 )
 
 // Defines values for DeviceDecommissionTargetType.
@@ -110,6 +110,19 @@ const (
 	DeviceSummaryStatusUnknown    DeviceSummaryStatusType = "Unknown"
 )
 
+// Defines values for DeviceThresholdCrossedDetailsThresholdLevel.
+const (
+	DeviceThresholdCrossedDetailsThresholdLevelCritical DeviceThresholdCrossedDetailsThresholdLevel = "critical"
+	DeviceThresholdCrossedDetailsThresholdLevelWarning  DeviceThresholdCrossedDetailsThresholdLevel = "warning"
+)
+
+// Defines values for DeviceThresholdCrossedDetailsThresholdType.
+const (
+	CPU    DeviceThresholdCrossedDetailsThresholdType = "CPU"
+	Disk   DeviceThresholdCrossedDetailsThresholdType = "Disk"
+	Memory DeviceThresholdCrossedDetailsThresholdType = "Memory"
+)
+
 // Defines values for DeviceUpdatedStatusType.
 const (
 	DeviceUpdatedStatusOutOfDate DeviceUpdatedStatusType = "OutOfDate"
@@ -122,6 +135,47 @@ const (
 const (
 	EncodingBase64 EncodingType = "base64"
 	EncodingPlain  EncodingType = "plain"
+)
+
+// Defines values for EventSeverity.
+const (
+	EventSeverityCritical EventSeverity = "critical"
+	EventSeverityInfo     EventSeverity = "info"
+	EventSeverityWarning  EventSeverity = "warning"
+)
+
+// Defines values for EventSource.
+const (
+	DeviceAgent     EventSource = "device-agent"
+	ServiceApi      EventSource = "service-api"
+	ServicePeriodic EventSource = "service-periodic"
+	ServiceTask     EventSource = "service-task"
+)
+
+// Defines values for EventStatus.
+const (
+	Failure    EventStatus = "failure"
+	InProgress EventStatus = "in-progress"
+	Success    EventStatus = "success"
+)
+
+// Defines values for EventType.
+const (
+	EventTypeDeviceDecommissioningFailed    EventType = "DeviceDecommissioningFailed"
+	EventTypeDeviceDecommissioningSucceeded EventType = "DeviceDecommissioningSucceeded"
+	EventTypeDeviceDisconnected             EventType = "DeviceDisconnected"
+	EventTypeDeviceOnline                   EventType = "DeviceOnline"
+	EventTypeDeviceReconnected              EventType = "DeviceReconnected"
+	EventTypeDeviceThresholdCrossed         EventType = "DeviceThresholdCrossed"
+	EventTypeEnrollmentRequestApproved      EventType = "EnrollmentRequestApproved"
+	EventTypeRepositoryAccessible           EventType = "RepositoryAccessible"
+	EventTypeRepositoryNotAccessible        EventType = "RepositoryNotAccessible"
+	EventTypeResourceCreationFailed         EventType = "ResourceCreationFailed"
+	EventTypeResourceCreationSucceeded      EventType = "ResourceCreationSucceeded"
+	EventTypeResourceDeletionFailed         EventType = "ResourceDeletionFailed"
+	EventTypeResourceDeletionSucceeded      EventType = "ResourceDeletionSucceeded"
+	EventTypeResourceUpdateFailed           EventType = "ResourceUpdateFailed"
+	EventTypeResourceUpdateSucceeded        EventType = "ResourceUpdateSucceeded"
 )
 
 // Defines values for FileOperation.
@@ -159,9 +213,34 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
+// Defines values for ResourceKind.
+const (
+	ResourceKindCertificateSigningRequest ResourceKind = "CertificateSigningRequest"
+	ResourceKindDevice                    ResourceKind = "Device"
+	ResourceKindEnrollmentRequest         ResourceKind = "EnrollmentRequest"
+	ResourceKindFleet                     ResourceKind = "Fleet"
+	ResourceKindRepository                ResourceKind = "Repository"
+	ResourceKindResourceSync              ResourceKind = "ResourceSync"
+	ResourceKindTemplateVersion           ResourceKind = "TemplateVersion"
+)
+
+// Defines values for ResourceUpdatedDetailsUpdatedFields.
+const (
+	Labels ResourceUpdatedDetailsUpdatedFields = "labels"
+	Owner  ResourceUpdatedDetailsUpdatedFields = "owner"
+	Spec   ResourceUpdatedDetailsUpdatedFields = "spec"
+)
+
 // Defines values for RolloutStrategy.
 const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
+)
+
+// Defines values for ListEventsParamsSeverity.
+const (
+	Critical ListEventsParamsSeverity = "critical"
+	Info     ListEventsParamsSeverity = "info"
+	Warning  ListEventsParamsSeverity = "warning"
 )
 
 // Defines values for ListLabelsParamsKind.
@@ -438,6 +517,12 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
+// DeviceDecommissioningDetails defines model for DeviceDecommissioningDetails.
+type DeviceDecommissioningDetails struct {
+	// Target Specifies the desired decommissioning method of the device.
+	Target DeviceDecommissionTargetType `json:"target"`
+}
+
 // DeviceIntegrityStatus Summary status of the integrity of the device.
 type DeviceIntegrityStatus struct {
 	// Info Human readable information about the last integrity transition.
@@ -609,6 +694,21 @@ type DeviceSystemInfo struct {
 	OperatingSystem string `json:"operatingSystem"`
 }
 
+// DeviceThresholdCrossedDetails defines model for DeviceThresholdCrossedDetails.
+type DeviceThresholdCrossedDetails struct {
+	// ThresholdLevel The threshold level crossed.
+	ThresholdLevel DeviceThresholdCrossedDetailsThresholdLevel `json:"thresholdLevel"`
+
+	// ThresholdType The type of threshold crossed.
+	ThresholdType DeviceThresholdCrossedDetailsThresholdType `json:"thresholdType"`
+}
+
+// DeviceThresholdCrossedDetailsThresholdLevel The threshold level crossed.
+type DeviceThresholdCrossedDetailsThresholdLevel string
+
+// DeviceThresholdCrossedDetailsThresholdType The type of threshold crossed.
+type DeviceThresholdCrossedDetailsThresholdType string
+
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
 type DeviceUpdatePolicySpec struct {
 	// DownloadSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
@@ -726,6 +826,12 @@ type EnrollmentRequestApprovalStatus struct {
 	Labels *map[string]string `json:"labels,omitempty"`
 }
 
+// EnrollmentRequestDetails defines model for EnrollmentRequestDetails.
+type EnrollmentRequestDetails struct {
+	// ApprovedBy The name of the approver.
+	ApprovedBy string `json:"approvedBy"`
+}
+
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
 type EnrollmentRequestList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -793,6 +899,86 @@ type EnrollmentServiceService struct {
 
 	// Server Server is the address of the Flight Control enrollment service (https://hostname:port).
 	Server string `json:"server"`
+}
+
+// Event defines model for Event.
+type Event struct {
+	// ActorService Automated service or system that triggered the event (if applicable).
+	ActorService *string `json:"actorService"`
+
+	// ActorUser User who triggered the event (if applicable).
+	ActorUser *string `json:"actorUser"`
+
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// CorrelationId Correlation ID for tracking related events across multiple operations.
+	CorrelationId *string `json:"correlationId"`
+
+	// Details Event-specific details, structured based on event type.
+	Details *EventDetails `json:"details,omitempty"`
+
+	// Id Unique identifier for the event.
+	Id uint64 `json:"id"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Message A human-readable message describing the event.
+	Message string `json:"message"`
+
+	// ResourceKind Resource types exposed via the API.
+	ResourceKind ResourceKind `json:"resourceKind"`
+
+	// ResourceName Unique identifier of the resource associated with the event.
+	ResourceName string `json:"resourceName"`
+
+	// Severity The severity level of the event.
+	Severity EventSeverity `json:"severity"`
+
+	// Source The component or service that generated the event.
+	Source EventSource `json:"source"`
+
+	// Status Current state of the event, indicating whether the action was completed successfully, failed, or is still ongoing.
+	Status EventStatus `json:"status"`
+
+	// Timestamp Timestamp when the event occurred.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Type Type of event.
+	Type EventType `json:"type"`
+}
+
+// EventSeverity The severity level of the event.
+type EventSeverity string
+
+// EventSource The component or service that generated the event.
+type EventSource string
+
+// EventStatus Current state of the event, indicating whether the action was completed successfully, failed, or is still ongoing.
+type EventStatus string
+
+// EventType Type of event.
+type EventType string
+
+// EventDetails Event-specific details, structured based on event type.
+type EventDetails struct {
+	union json.RawMessage
+}
+
+// EventList EventList is a list of Events.
+type EventList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of Events.
+	Items []Event `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
 }
 
 // FileContent The content of a file.
@@ -1232,6 +1418,9 @@ type ResourceAlertRule struct {
 // ResourceAlertSeverityType Severity of the alert.
 type ResourceAlertSeverityType string
 
+// ResourceKind Resource types exposed via the API.
+type ResourceKind string
+
 // ResourceMonitor defines model for ResourceMonitor.
 type ResourceMonitor struct {
 	union json.RawMessage
@@ -1305,6 +1494,21 @@ type ResourceSyncStatus struct {
 	// ObservedGeneration The last generation that was synced.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
+
+// ResourceUpdatedDetails defines model for ResourceUpdatedDetails.
+type ResourceUpdatedDetails struct {
+	// NewOwner The new owner (if applicable).
+	NewOwner *string `json:"newOwner"`
+
+	// PreviousOwner The previous owner (if applicable).
+	PreviousOwner *string `json:"previousOwner"`
+
+	// UpdatedFields List of fields that were updated in the resource.
+	UpdatedFields []ResourceUpdatedDetailsUpdatedFields `json:"updatedFields"`
+}
+
+// ResourceUpdatedDetailsUpdatedFields defines model for ResourceUpdatedDetails.UpdatedFields.
+type ResourceUpdatedDetailsUpdatedFields string
 
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
@@ -1538,6 +1742,36 @@ type ListEnrollmentRequestsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// ListEventsParams defines parameters for ListEvents.
+type ListEventsParams struct {
+	// Kind Filter by resource type.
+	Kind *ResourceKind `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// Name Filter by resource name.
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// CorrelationId Filter by correlation ID (returns related events).
+	CorrelationId *string `form:"correlationId,omitempty" json:"correlationId,omitempty"`
+
+	// Severity Filter by event severity.
+	Severity *ListEventsParamsSeverity `form:"severity,omitempty" json:"severity,omitempty"`
+
+	// StartTime Filter events occurring after this timestamp (ISO 8601, UTC expected).
+	StartTime *time.Time `form:"startTime,omitempty" json:"startTime,omitempty"`
+
+	// EndTime Filter events occurring before this timestamp (ISO 8601, UTC expected).
+	EndTime *time.Time `form:"endTime,omitempty" json:"endTime,omitempty"`
+
+	// Limit The maximum number of events to return in the response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+}
+
+// ListEventsParamsSeverity defines parameters for ListEvents.
+type ListEventsParamsSeverity string
 
 // ListFleetsParams defines parameters for ListFleets.
 type ListFleetsParams struct {
@@ -2003,6 +2237,120 @@ func (t ConfigProviderSpec) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsResourceUpdatedDetails returns the union data inside the EventDetails as a ResourceUpdatedDetails
+func (t EventDetails) AsResourceUpdatedDetails() (ResourceUpdatedDetails, error) {
+	var body ResourceUpdatedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromResourceUpdatedDetails overwrites any union data inside the EventDetails as the provided ResourceUpdatedDetails
+func (t *EventDetails) FromResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeResourceUpdatedDetails performs a merge with any union data inside the EventDetails, using the provided ResourceUpdatedDetails
+func (t *EventDetails) MergeResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceThresholdCrossedDetails returns the union data inside the EventDetails as a DeviceThresholdCrossedDetails
+func (t EventDetails) AsDeviceThresholdCrossedDetails() (DeviceThresholdCrossedDetails, error) {
+	var body DeviceThresholdCrossedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceThresholdCrossedDetails overwrites any union data inside the EventDetails as the provided DeviceThresholdCrossedDetails
+func (t *EventDetails) FromDeviceThresholdCrossedDetails(v DeviceThresholdCrossedDetails) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceThresholdCrossedDetails performs a merge with any union data inside the EventDetails, using the provided DeviceThresholdCrossedDetails
+func (t *EventDetails) MergeDeviceThresholdCrossedDetails(v DeviceThresholdCrossedDetails) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceDecommissioningDetails returns the union data inside the EventDetails as a DeviceDecommissioningDetails
+func (t EventDetails) AsDeviceDecommissioningDetails() (DeviceDecommissioningDetails, error) {
+	var body DeviceDecommissioningDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceDecommissioningDetails overwrites any union data inside the EventDetails as the provided DeviceDecommissioningDetails
+func (t *EventDetails) FromDeviceDecommissioningDetails(v DeviceDecommissioningDetails) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceDecommissioningDetails performs a merge with any union data inside the EventDetails, using the provided DeviceDecommissioningDetails
+func (t *EventDetails) MergeDeviceDecommissioningDetails(v DeviceDecommissioningDetails) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsEnrollmentRequestDetails returns the union data inside the EventDetails as a EnrollmentRequestDetails
+func (t EventDetails) AsEnrollmentRequestDetails() (EnrollmentRequestDetails, error) {
+	var body EnrollmentRequestDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEnrollmentRequestDetails overwrites any union data inside the EventDetails as the provided EnrollmentRequestDetails
+func (t *EventDetails) FromEnrollmentRequestDetails(v EnrollmentRequestDetails) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeEnrollmentRequestDetails performs a merge with any union data inside the EventDetails, using the provided EnrollmentRequestDetails
+func (t *EventDetails) MergeEnrollmentRequestDetails(v EnrollmentRequestDetails) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t EventDetails) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *EventDetails) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

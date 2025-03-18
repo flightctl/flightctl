@@ -392,7 +392,6 @@ var _ = Describe("DeviceStore create", func() {
 			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
 
 			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback)
-
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 		})
@@ -401,7 +400,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Random Condition to make sure Conditions do get stored
 			status := api.NewDeviceStatus()
 			condition := api.Condition{
-				Type:               api.DeviceUpdating,
+				Type:               api.ConditionTypeDeviceUpdating,
 				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
 				Reason:             "reason",
@@ -425,7 +424,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Kind).To(Equal(api.DeviceKind))
 			Expect(dev.Spec.Os.Image).To(Equal("os"))
 			Expect(dev.Status.Conditions).ToNot(BeEmpty())
-			Expect(api.IsStatusConditionFalse(dev.Status.Conditions, api.DeviceUpdating)).To(BeTrue())
+			Expect(api.IsStatusConditionFalse(dev.Status.Conditions, api.ConditionTypeDeviceUpdating)).To(BeTrue())
 		})
 
 		It("UpdateOwner", func() {
