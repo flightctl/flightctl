@@ -212,10 +212,10 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 				Expect(err).To(HaveOccurred())
 				Expect(out).To(ContainSubstring(unknownSelector))
 			})
-			By("returns an error for an invalid operator", func() {
+			By("returns an error for an invalid field selector syntax", func() {
 				out, err := harness.CLI("get", "devices", "--field-selector", "metadata.name@=device1-name")
 				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(unknownSelector))
+				Expect(out).To(ContainSubstring(failedToParse))
 			})
 			By("returns an error for an incorrect field type", func() {
 				out, err := harness.CLI("get", "devices", "--field-selector", "metadata.name>10")
