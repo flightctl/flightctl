@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
@@ -22,7 +23,15 @@ const ClientBootstrapCommonNamePrefix = "client-enrollment-"
 const AdminCommonName = "flightctl-admin"
 const DeviceCommonNamePrefix = "device:"
 
+var Prefixes = [...]string{ClientBootstrapCommonNamePrefix, DeviceCommonNamePrefix}
+
 func BootstrapCNFromName(name string) string {
+
+	for _, prefix := range Prefixes {
+		if strings.HasPrefix(name, prefix) {
+			return name
+		}
+	}
 	return ClientBootstrapCommonNamePrefix + name
 }
 
