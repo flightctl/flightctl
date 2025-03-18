@@ -99,7 +99,7 @@ global:
   auth:
     type: oidc
     oidc:
-      oidcAuthority: https://oidc/realms/your_realm 
+      oidcAuthority: https://oidc/realms/your_realm
       externalOidcAuthority: https://external.oidc/realms/your_realm
 
 ```
@@ -162,7 +162,7 @@ You can access the Flight Control UI at <UI_URL>
 You can access the Flight Control API at <API_URL>
 
 You can login using the following CLI command:
-   
+
     flightctl login <API_URL> --insecure-skip-tls-verify --web
 
 ```
@@ -304,6 +304,9 @@ Note this is a regular `Containerfile` that you're used to from Docker/Podman, w
 
 For example, as a user of Quay who has the privileges to push images into the `quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl` repository, build the bootc image like this:
 
+> [!TIP]
+> In the following examples, as the image needs to be available in *root user* container store for disk creation, we are running all Podman commands with elevated privileges.
+
 ```console
 sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 .
 
@@ -312,7 +315,7 @@ sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 .
 Log in to your Quay account:
 
 ```console
-$ sudo podman login quay.io
+sudo podman login quay.io
 
 Username: ******
 Password: ******
@@ -352,7 +355,7 @@ When the Flight Control Agent first starts, it sends an enrollment request to th
 $ flightctl get enrollmentrequests
 
 NAME                                                  APPROVAL  APPROVER  APPROVED LABELS
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  Pending   <none>    <none>    
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  Pending   <none>    <none>
 ```
 
 You can approve an enrollment request and optionally add labels to the device:
