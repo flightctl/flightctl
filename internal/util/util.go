@@ -260,6 +260,10 @@ func Max[N Number](n1, n2 N) N {
 	return lo.Ternary(n1 > n2, n1, n2)
 }
 
+func Abs[N Number](n N) N {
+	return lo.Ternary(n > 0, n, -n)
+}
+
 func GetFromMap[K comparable, V any](in map[K]V, key K) (V, bool) {
 	if in == nil {
 		return lo.Empty[V](), false

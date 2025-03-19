@@ -89,7 +89,7 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 		}
 
 		m.log.Info("Waiting for enrollment to be approved")
-		err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func() (bool, error) {
+		err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
 			return m.verifyEnrollment(ctx)
 		})
 		if err != nil {
@@ -347,7 +347,7 @@ func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		},
 	}
 
-	err := wait.ExponentialBackoffWithContext(ctx, b.backoff, func() (bool, error) {
+	err := wait.ExponentialBackoffWithContext(ctx, b.backoff, func(ctx context.Context) (bool, error) {
 		_, err := b.enrollmentClient.CreateEnrollmentRequest(ctx, req)
 		if err != nil {
 			b.log.Warnf("failed to create enrollment request: %v", err)
