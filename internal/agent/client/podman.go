@@ -105,7 +105,7 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 	}()
 
 	if options.retry {
-		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func() (bool, error) {
+		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func(ctx context.Context) (bool, error) {
 			resp, err = p.pullImage(ctx, image, options.pullSecretPath)
 			if err != nil {
 				// fail fast if the error is not retryable

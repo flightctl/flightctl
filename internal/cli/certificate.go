@@ -185,7 +185,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Waiting for certificate to be approved and issued...")
 	var currentCsr *api.CertificateSigningRequest
-	err = wait.PollWithContext(ctx, time.Second, 2*time.Minute, func(ctx context.Context) (bool, error) {
+	err = wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, false, func(ctx context.Context) (bool, error) {
 		fmt.Fprint(os.Stderr, ".")
 		currentCsr, err = getCsr(csrName, c, ctx)
 		if err != nil {
@@ -196,7 +196,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	switch {
 	case err == nil:
 		fmt.Fprintln(os.Stderr, " success.")
-	case errors.Is(err, wait.ErrWaitTimeout):
+	case wait.Interrupted(err):
 		return fmt.Errorf("timeout polling for certificate")
 	default:
 		return fmt.Errorf("polling for certificate: %w", err)

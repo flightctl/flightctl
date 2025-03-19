@@ -1,30 +1,48 @@
 package transport
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow connections from any origin
-	},
+func (h *WebsocketHandler) injectProtocolsToMetadata(metadataStr string, protocols []string) (string, error) {
+	var metadata api.DeviceConsoleSessionMetadata
+	if err := json.Unmarshal([]byte(metadataStr), &metadata); err != nil {
+		return "", err
+	}
+	metadata.Protocols = protocols
+	b, err := json.Marshal(&metadata)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Request) {
 	orgId := store.NullOrgId
 	deviceName := chi.URLParam(r, "name")
 
-	h.log.Debugf("websocket console connection requested for device: %s", deviceName)
-	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName)
+	h.log.Infof("websocket console connection requested for device: %s", deviceName)
+
+	// Extract metadata
+	metadata, err := h.injectProtocolsToMetadata(r.URL.Query().Get(api.DeviceQueryConsoleSessionMetadata),
+		websocket.Subprotocols(r))
+	if err != nil {
+		h.log.Errorf("failed injecting protocols to metadata for device %s: %v", deviceName, err)
+		http.Error(w, "protocols injection error", http.StatusInternalServerError)
+		return
+	}
+	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName, metadata)
 	// check for errors
 	if err != nil {
 		switch {
@@ -36,6 +54,38 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 		return
+	}
+
+	timer := time.NewTimer(time.Minute)
+	defer timer.Stop()
+	var (
+		selectedProtocol string
+		ok               bool
+	)
+	select {
+	case selectedProtocol, ok = <-consoleSession.ProtocolCh:
+		if !ok {
+			h.log.Errorf("failed selecting protocol for device: %s", deviceName)
+			http.Error(w,
+				fmt.Sprintf("failed selecting protocol for device: %s", deviceName),
+				http.StatusInternalServerError)
+			return
+		}
+	case <-timer.C:
+		h.log.Errorf("timed out waiting for protocol for device: %s", deviceName)
+		http.Error(w,
+			fmt.Sprintf("timed out waiting for protocol for device: %s", deviceName),
+			http.StatusInternalServerError)
+		return
+	}
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow connections from any origin
+		},
+		Subprotocols: []string{
+			selectedProtocol, // Required for Kubernetes-compatible streaming
+		},
 	}
 
 	// Upgrade the HTTP connection to a WebSocket
@@ -71,7 +121,7 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 				break
 			}
 			// if it's binary or text message, forward it to the console session
-			if msgType == websocket.BinaryMessage || msgType == websocket.TextMessage {
+			if msgType == websocket.BinaryMessage {
 				consoleSession.SendCh <- message
 			} else {
 				h.log.Warningf("Received unexpected message type %d from console websocket session %s for device %s",
