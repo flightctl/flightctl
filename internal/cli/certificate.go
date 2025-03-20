@@ -6,6 +6,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -281,9 +282,14 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 		return nil, err
 	}
 
-	// the CN is going to be a FC-generated UUID, populated at signing time
+	if name == "" {
+		name = uuid.NewString()
+	}
 	template := &x509.CertificateRequest{
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
+		Subject: pkix.Name{
+			CommonName: name,
+		},
 	}
 
 	csrInner, err := x509.CreateCertificateRequest(rand.Reader, template, priv)
