@@ -8,6 +8,13 @@
 # * flightctl-agent configured to talk to our e2e kind flightctl-server
 # * greenboot and podman-compose installed with podman service enabled
 
+FROM quay.io/centos-bootc/centos-bootc:stream9 AS build
+RUN dnf install -y epel-release
+RUN dnf install -y python3 python3-pip
+RUN pip install build
+COPY deploy/sosreport sosreport
+RUN cd sosreport && python -m build
+
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
 ARG RPM_COPR=
@@ -41,3 +48,5 @@ RUN useradd -ms /bin/bash user && \
 ## Add your flightctl configuration and certificates
 ADD bin/agent/etc/flightctl/config.yaml /etc/flightctl/
 ADD bin/agent/etc/flightctl/certs/* /etc/flightctl/certs/
+COPY --from=build sosreport/dist/flightctl*.whl /tmp/
+RUN dnf install -y python3-pip && pip install --prefix=/usr /tmp/flightctl*.whl && rm -f /tmp/flightctl*.whl && dnf remove -y python3-pip

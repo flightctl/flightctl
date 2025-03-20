@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flightctl"
+version = "0.1.0"
+description = "A plugin for SOS report to collect FlightCTL data."
+requires-python = ">=3.6"
+
+[tool.setuptools]
+packages = ["sos.report.plugins"]  # Specify the exact module path
+include-package-data = true
+
+[tool.setuptools.package-data]
+"sos.report.plugins" = ["*.py"]  # Include all Python files in your plugin
+
