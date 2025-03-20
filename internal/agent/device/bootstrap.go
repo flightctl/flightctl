@@ -113,7 +113,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 }
 
 func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
-	err := b.statusManager.Collect(ctx)
+	_, err := b.statusManager.Collect(ctx)
 	if err != nil {
 		b.log.Warnf("Collecting device status: %v", err)
 	}
