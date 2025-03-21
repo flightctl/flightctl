@@ -3,8 +3,8 @@ package login
 import (
 	"crypto/tls"
 	"fmt"
-	"net/http"
 	"os"
+	"strings"
 
 	certutil "k8s.io/client-go/util/cert"
 )
@@ -14,11 +14,9 @@ type OauthServerResponse struct {
 	AuthEndpoint  string `json:"authorization_endpoint"`
 }
 
-func getAuthClientTransport(authCAFile string, insecureSkipVerify bool) (*http.Transport, error) {
-	authTransport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: insecureSkipVerify, //nolint:gosec
-		},
+func getAuthClientTlsConfig(authCAFile string, insecureSkipVerify bool) (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: insecureSkipVerify, //nolint:gosec
 	}
 
 	if authCAFile != "" {
@@ -31,19 +29,33 @@ func getAuthClientTransport(authCAFile string, insecureSkipVerify bool) (*http.T
 			return nil, fmt.Errorf("failed parsing Auth CA certs: %w", err)
 		}
 
-		authTransport.TLSClientConfig.RootCAs = caPool
+		tlsConfig.RootCAs = caPool
 	}
 
-	return authTransport, nil
+	return tlsConfig, nil
 }
 
 type AuthInfo struct {
 	AccessToken  string
 	RefreshToken string
-	ExpiresIn    *int32
+	ExpiresIn    *int64
+}
+
+type ValidateArgs struct {
+	ApiUrl      string
+	ClientId    string
+	AccessToken string
+	Username    string
+	Password    string
+	Web         bool
 }
 
 type AuthProvider interface {
 	Auth(web bool, username, password string) (AuthInfo, error)
 	Renew(refreshToken string) (AuthInfo, error)
+	Validate(args ValidateArgs) error
+}
+
+func StrIsEmpty(str string) bool {
+	return len(strings.TrimSpace(str)) == 0
 }

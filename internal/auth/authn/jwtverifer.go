@@ -55,20 +55,16 @@ func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, clientTlsCon
 	return jwtAuth, nil
 }
 
-func (j JWTAuth) ValidateToken(ctx context.Context, token string) (bool, error) {
+func (j JWTAuth) ValidateToken(ctx context.Context, token string) error {
 	client := &http.Client{Transport: &http.Transport{
 		TLSClientConfig: j.clientTlsConfig,
 	}}
 	jwkSet, err := jwk.Fetch(ctx, j.jwksUri, jwk.WithHTTPClient(client))
 	if err != nil {
-		return false, err
+		return err
 	}
 	_, err = jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
+	return err
 }
 
 func (j JWTAuth) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
@@ -78,7 +74,11 @@ func (j JWTAuth) GetIdentity(ctx context.Context, token string) (*common.Identit
 
 func (j JWTAuth) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
-		Type: "OIDC",
+		Type: common.AuthTypeOIDC,
 		Url:  j.externalOIDCAuthority,
 	}
+}
+
+func (j JWTAuth) GetAuthToken(r *http.Request) (string, error) {
+	return common.ExtractBearerToken(r)
 }

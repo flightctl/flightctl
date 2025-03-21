@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -22,7 +23,7 @@ func NewK8sAuthN(k8sClient k8sclient.K8SClient, externalOpenShiftApiUrl string) 
 	authN := &K8sAuthN{
 		k8sClient:               k8sClient,
 		externalOpenShiftApiUrl: externalOpenShiftApiUrl,
-		cache:                   ttlcache.New[string, *k8sAuthenticationV1.TokenReview](ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](time.Minute)),
+		cache:                   ttlcache.New[string, *k8sAuthenticationV1.TokenReview](ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
 	}
 	go authN.cache.Start()
 	return authN, nil
@@ -39,7 +40,7 @@ func (o K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthen
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshalling resource: %w", err)
+		return nil, fmt.Errorf("marshaling resource: %w", err)
 	}
 	res, err := o.k8sClient.PostCRD(ctx, "authentication.k8s.io/v1/tokenreviews", body)
 	if err != nil {
@@ -50,16 +51,23 @@ func (o K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthen
 	if err := json.Unmarshal(res, review); err != nil {
 		return nil, err
 	}
-	o.cache.Set(token, review, 5*time.Second)
+	o.cache.Set(token, review, ttlcache.DefaultTTL)
 	return review, nil
 }
 
-func (o K8sAuthN) ValidateToken(ctx context.Context, token string) (bool, error) {
+func (o K8sAuthN) ValidateToken(ctx context.Context, token string) error {
 	review, err := o.loadTokenReview(ctx, token)
 	if err != nil {
-		return false, err
+		return err
 	}
-	return review.Status.Authenticated, nil
+	if !review.Status.Authenticated {
+		return fmt.Errorf("user is not authenticated")
+	}
+	return nil
+}
+
+func (o K8sAuthN) GetAuthToken(r *http.Request) (string, error) {
+	return common.ExtractBearerToken(r)
 }
 
 func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
@@ -76,7 +84,7 @@ func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (*common.Identi
 
 func (o K8sAuthN) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
-		Type: "k8s",
+		Type: common.AuthTypeK8s,
 		Url:  o.externalOpenShiftApiUrl,
 	}
 }
