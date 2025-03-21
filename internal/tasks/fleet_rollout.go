@@ -257,46 +257,62 @@ func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *a
 	if templateVersion.Status.Applications == nil {
 		return nil, nil
 	}
-	errs := []error{}
 
 	deviceApps := []api.ApplicationProviderSpec{}
-	for appIndex, app := range *templateVersion.Status.Applications {
-		appType, err := app.Type()
+	appErrs := []error{}
+	for appIndex, appItem := range *templateVersion.Status.Applications {
+		var newAppItem *api.ApplicationProviderSpec
+		errs := []error{}
+		appType, err := appItem.Type()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("failed getting type for app %d: %w", appIndex, err))
+			appErrs = append(errs, fmt.Errorf("failed getting type for app %d: %w", appIndex, err))
 			continue
 		}
 		switch appType {
 		case api.ImageApplicationProviderType:
-			newApp, err := f.replaceEnvVarValueParameters(device, app)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("failed replacing parameters for app %d: %w", appIndex, err))
-				continue
-			}
-			deviceApps = append(deviceApps, *newApp)
+			newAppItem, errs = f.replaceEnvVarValueParameters(device, appItem)
+		case api.InlineApplicationProviderType:
+			newAppItem, errs = f.replaceInlineApplicationParameters(device, appItem)
 		default:
 			errs = append(errs, fmt.Errorf("unsupported type for app %d: %s", appIndex, appType))
 		}
+
+		appErrs = append(appErrs, errs...)
+		if newAppItem != nil {
+			deviceApps = append(deviceApps, *newAppItem)
+		}
 	}
 
-	return &deviceApps, errs
+	if len(appErrs) > 0 {
+		return nil, appErrs
+	}
+
+	return &deviceApps, nil
 }
 
-func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, error) {
+func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, []error) {
 	if app.EnvVars == nil {
 		return &app, nil
 	}
 
 	origEnvVars := *app.EnvVars
+	var errs []error
 	newEnvVars := make(map[string]string, len(origEnvVars))
 	for k, v := range origEnvVars {
 		newValue, err := replaceParametersInString(v, device)
 		if err != nil {
-			return nil, fmt.Errorf("failed replacing application parameters: %w", err)
+			errs = append(errs, fmt.Errorf("failed replacing parameters in env var %s: %w", k, err))
+			continue
 		}
 		newEnvVars[k] = newValue
 	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
 	app.EnvVars = &newEnvVars
+
 	return &app, nil
 }
 
@@ -469,6 +485,65 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 	}
 
 	return &newConfigItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceInlineApplicationParameters(device *api.Device, item api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, []error) {
+	appName := lo.FromPtr(item.Name)
+	inlineSpec, err := item.AsInlineApplicationProviderSpec()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to inline application provider: %w", err)}
+	}
+
+	errs := []error{}
+	for fileIndex, file := range inlineSpec.Inline {
+		var decodedBytes []byte
+		var err error
+
+		inlineSpec.Inline[fileIndex].Path, err = replaceParametersInString(file.Path, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline app %s: %w", fileIndex, appName, err))
+		}
+
+		content := lo.FromPtr(file.Content)
+		if file.ContentEncoding == nil {
+			decodedBytes = []byte(content)
+		} else {
+			decodedBytes, err = base64.StdEncoding.DecodeString(content)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline app %s: %w", fileIndex, appName, err))
+				continue
+			}
+		}
+
+		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in contents for file %d in inline app %s: %w", fileIndex, appName, err))
+			continue
+		}
+
+		if file.ContentEncoding != nil && (*file.ContentEncoding) == api.EncodingBase64 {
+			contentsReplaced = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
+			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
+		} else {
+			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
+		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	newItem := api.ApplicationProviderSpec{
+		Name:    &appName,
+		EnvVars: item.EnvVars,
+		AppType: item.AppType,
+	}
+	err = newItem.FromInlineApplicationProviderSpec(inlineSpec)
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed converting inline application: %w", err)}
+	}
+
+	return &newItem, nil
 }
 
 func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {

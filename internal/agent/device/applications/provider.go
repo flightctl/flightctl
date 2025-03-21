@@ -29,8 +29,10 @@ type ApplicationSpec struct {
 	EnvVars map[string]string
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
-	// ImageApplicationSpec is the spec for the image provider
+	// ImageProviderr is the spec for the image provider
 	ImageProvider *v1alpha1.ImageApplicationProviderSpec
+	// InlineProvider is the spec for the inline provider
+	InlineProvider *v1alpha1.InlineApplicationProviderSpec
 }
 
 type ImageProvider struct {
@@ -152,6 +154,115 @@ func (p *ImageProvider) Name() string {
 }
 
 func (p *ImageProvider) Spec() *ApplicationSpec {
+	return p.spec
+}
+
+type InlineProvider struct {
+	podman     *client.Podman
+	readWriter fileio.ReadWriter
+	log        *log.PrefixLogger
+	spec       *ApplicationSpec
+}
+
+func NewInlineProvider(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.ApplicationProviderSpec, readWriter fileio.ReadWriter) (*InlineProvider, error) {
+	provider, err := spec.AsInlineApplicationProviderSpec()
+	if err != nil {
+		return nil, fmt.Errorf("getting provider spec:%w", err)
+	}
+
+	p := &InlineProvider{
+		log:        log,
+		podman:     podman,
+		readWriter: readWriter,
+		spec: &ApplicationSpec{
+			Name:           lo.FromPtr(spec.Name),
+			AppType:        lo.FromPtr(spec.AppType),
+			EnvVars:        lo.FromPtr(spec.EnvVars),
+			Embedded:       false,
+			InlineProvider: &provider,
+		},
+	}
+
+	path, err := pathFromAppType(p.spec.AppType, p.spec.Name, p.spec.Embedded)
+	if err != nil {
+		return nil, fmt.Errorf("getting app path: %w", err)
+	}
+
+	p.spec.Path = path
+	p.spec.ID = newComposeID(p.spec.Name)
+
+	return p, nil
+
+}
+
+func (p *InlineProvider) Verify(ctx context.Context) error {
+	if err := ensureDependenciesFromType(p.spec.AppType); err != nil {
+		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+	}
+	// create a temporary directory to copy the image contents
+	tmpAppPath, err := os.MkdirTemp("", "app_temp")
+	if err != nil {
+		return fmt.Errorf("creating tmp dir: %w", err)
+	}
+
+	cleanup := func() {
+		if err := p.readWriter.RemoveAll(tmpAppPath); err != nil {
+			p.log.Errorf("Cleaning up temporary directory %q: %v", tmpAppPath, err)
+		}
+	}
+	defer cleanup()
+
+	// copy image contents to a tmp directory for further processing
+	if err := p.writeInlineContent(tmpAppPath, p.spec.InlineProvider.Inline); err != nil {
+		return err
+	}
+
+	switch p.spec.AppType {
+	case v1alpha1.AppTypeCompose:
+		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath, p.spec.EnvVars); err != nil {
+			return fmt.Errorf("ensuring compose: %w", err)
+		}
+	default:
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
+	}
+	return nil
+}
+
+func (p *InlineProvider) Install(ctx context.Context) error {
+	if err := p.writeInlineContent(p.spec.Path, p.spec.InlineProvider.Inline); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *InlineProvider) writeInlineContent(appPath string, contents []v1alpha1.ApplicationContent) error {
+	if err := p.readWriter.MkdirAll(appPath, fileio.DefaultDirectoryPermissions); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+	for _, content := range contents {
+		contentBytes, err := fileio.DecodeContent(lo.FromPtr(content.Content), content.ContentEncoding)
+		if err != nil {
+			return fmt.Errorf("decoding application content: %w", err)
+		}
+		if err := p.readWriter.WriteFile(filepath.Join(appPath, content.Path), contentBytes, fileio.DefaultFilePermissions); err != nil {
+			return fmt.Errorf("writing application content: %w", err)
+		}
+	}
+	return nil
+}
+
+func (p *InlineProvider) Remove(ctx context.Context) error {
+	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
+		return fmt.Errorf("removing application: %w", err)
+	}
+	return nil
+}
+
+func (p *InlineProvider) Name() string {
+	return p.spec.Name
+}
+
+func (p *InlineProvider) Spec() *ApplicationSpec {
 	return p.spec
 }
 

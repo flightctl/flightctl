@@ -55,7 +55,7 @@ func (m *managedFile) decodeFile() error {
 	if m.contents != nil {
 		return nil
 	}
-	contents, err := decodeFileContents(m.file.Content, m.file.ContentEncoding)
+	contents, err := DecodeContent(m.file.Content, m.file.ContentEncoding)
 	if err != nil {
 		return err
 	}

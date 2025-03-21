@@ -300,7 +300,10 @@ func lookupGID(group string) (int, error) {
 	return gid, nil
 }
 
-func decodeFileContents(content string, encoding *v1alpha1.EncodingType) ([]byte, error) {
+// DecodeContents decodes the content based on the encoding type and returns the
+// decoded content as a byte slice.
+func DecodeContent(content string, encoding *v1alpha1.EncodingType) ([]byte,
+	error) {
 	if encoding == nil || *encoding == "plain" {
 		return []byte(content), nil
 	}
