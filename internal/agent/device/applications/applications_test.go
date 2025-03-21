@@ -5,146 +5,151 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestApplicationStatus(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name                  string
-		containers            []Container
+		workloads             []Workload
 		expectedReady         string
 		expectedRestarts      int
 		expectedStatus        v1alpha1.ApplicationStatusType
 		expectedSummaryStatus v1alpha1.ApplicationsSummaryStatusType
-		expected              AppType
+		expected              v1alpha1.AppType
 	}{
 		{
-			name:                  "app created no containers",
+			name:                  "app created no workloads",
 			expectedReady:         "0/0",
 			expectedStatus:        v1alpha1.ApplicationStatusUnknown,
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusUnknown,
-			expected:              AppCompose,
+			expected:              v1alpha1.AppTypeCompose,
 		},
 		{
 			name: "app single container preparing to start init",
-			containers: []Container{
+			workloads: []Workload{
 				{
-					Status: ContainerStatusInit,
+					Status: StatusInit,
 				},
 			},
 			expectedReady:         "0/1",
 			expectedStatus:        v1alpha1.ApplicationStatusPreparing,
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusUnknown,
-			expected:              AppCompose,
+			expected:              v1alpha1.AppTypeCompose,
 		},
 		{
 			name: "app single container preparing to start created",
-			containers: []Container{
+			workloads: []Workload{
 				{
-					Status: ContainerStatusCreated,
+					Status: StatusCreated,
 				},
 			},
 			expectedReady:         "0/1",
 			expectedStatus:        v1alpha1.ApplicationStatusPreparing,
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusUnknown,
-			expected:              AppCompose,
+			expected:              v1alpha1.AppTypeCompose,
 		},
 		{
-			name: "app multiple containers starting init",
-			containers: []Container{
+			name: "app multiple workloads starting init",
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusInit,
+					Status: StatusInit,
 				},
 				{
 					Name:   "container2",
-					Status: ContainerStatusRunning,
+					Status: StatusRunning,
 				},
 			},
 			expectedReady:         "1/2",
 			expectedStatus:        v1alpha1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
-			expected:              AppCompose,
+			expected:              v1alpha1.AppTypeCompose,
 		},
 		{
-			name: "app multiple containers starting created",
-			containers: []Container{
+			name: "app multiple workloads starting created",
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusCreated,
+					Status: StatusCreated,
 				},
 				{
 					Name:   "container2",
-					Status: ContainerStatusRunning,
+					Status: StatusRunning,
 				},
 			},
 			expectedReady:         "1/2",
 			expectedStatus:        v1alpha1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
-			expected:              AppCompose,
+			expected:              v1alpha1.AppTypeCompose,
 		},
 		{
 			name: "app errored",
-			containers: []Container{
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusDie,
+					Status: StatusDie,
 				},
 				{
 					Name:   "container2",
-					Status: ContainerStatusDie,
+					Status: StatusDie,
 				},
 			},
 			expectedReady:         "0/2",
 			expectedStatus:        v1alpha1.ApplicationStatusError,
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusError,
-			expected:              AppCompose,
+			expected:              v1alpha1.AppTypeCompose,
 		},
 		{
 			name: "app running degraded",
-			containers: []Container{
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusDie,
+					Status: StatusDie,
 				},
 				{
 					Name:   "container2",
-					Status: ContainerStatusRunning,
+					Status: StatusRunning,
 				},
 			},
 			expectedReady:         "1/2",
 			expectedStatus:        v1alpha1.ApplicationStatusRunning,
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
-			expected:              AppCompose,
+			expected:              v1alpha1.AppTypeCompose,
 		},
 		{
 			name: "app running degraded",
-			containers: []Container{
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusDied,
+					Status: StatusDied,
 				},
 				{
 					Name:   "container2",
-					Status: ContainerStatusRunning,
+					Status: StatusRunning,
 				},
 			},
 			expectedReady:         "1/2",
 			expectedStatus:        v1alpha1.ApplicationStatusRunning,
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
-			expected:              AppCompose,
+			expected:              v1alpha1.AppTypeCompose,
 		},
 		{
 			name: "app running healthy",
-			containers: []Container{
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusRunning,
+					Status: StatusRunning,
 				},
 				{
 					Name:   "container2",
-					Status: ContainerStatusRunning,
+					Status: StatusRunning,
 				},
 			},
 			expectedReady:         "2/2",
@@ -153,15 +158,15 @@ func TestApplicationStatus(t *testing.T) {
 		},
 		{
 			name: "app running healthy with restarts",
-			containers: []Container{
+			workloads: []Workload{
 				{
 					Name:     "container1",
-					Status:   ContainerStatusRunning,
+					Status:   StatusRunning,
 					Restarts: 1,
 				},
 				{
 					Name:     "container2",
-					Status:   ContainerStatusRunning,
+					Status:   StatusRunning,
 					Restarts: 2,
 				},
 			},
@@ -171,15 +176,15 @@ func TestApplicationStatus(t *testing.T) {
 			expectedRestarts:      3,
 		},
 		{
-			name: "app has all containers exited",
-			containers: []Container{
+			name: "app has all workloads exited",
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusExited,
+					Status: StatusExited,
 				},
 				{
 					Name:   "container2",
-					Status: ContainerStatusExited,
+					Status: StatusExited,
 				},
 			},
 			expectedReady:         "0/2",
@@ -187,15 +192,15 @@ func TestApplicationStatus(t *testing.T) {
 			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "app has one containers exited",
-			containers: []Container{
+			name: "app has one workloads exited",
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusRunning,
+					Status: StatusRunning,
 				},
 				{
 					Name:   "container2",
-					Status: ContainerStatusExited,
+					Status: StatusExited,
 				},
 			},
 			expectedReady:         "1/2",
@@ -204,10 +209,10 @@ func TestApplicationStatus(t *testing.T) {
 		},
 		{
 			name: "app with single container has exited",
-			containers: []Container{
+			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: ContainerStatusExited,
+					Status: StatusExited,
 				},
 			},
 			expectedReady:         "0/1",
@@ -218,14 +223,31 @@ func TestApplicationStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := v1alpha1.ImageApplicationProvider{
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			tmpDir := t.TempDir()
+			readWriter := fileio.NewReadWriter()
+			readWriter.SetRootdir(tmpDir)
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			podman := client.NewPodman(log, mockExec, readWriter, newTestBackoff())
+
+			image := v1alpha1.ImageApplicationProviderSpec{
 				Image: "image",
 			}
-			name := "testApp"
-			id := client.SanitizePodmanLabel(name)
-			application := NewApplication(name, id, provider, AppCompose)
-			if len(tt.containers) > 0 {
-				application.containers = tt.containers
+			providerSpec := v1alpha1.ApplicationProviderSpec{}
+			err := providerSpec.FromImageApplicationProviderSpec(image)
+			require.NoError(err)
+			provider, err := NewImageProvider(log, podman, &providerSpec, readWriter)
+			require.NoError(err)
+
+			application := NewApplication(provider)
+			if len(tt.workloads) > 0 {
+				application.workloads = tt.workloads
 			}
 			status, summary, err := application.Status()
 			require.NoError(err)
@@ -236,5 +258,4 @@ func TestApplicationStatus(t *testing.T) {
 			require.Equal(tt.expectedSummaryStatus, summary.Status)
 		})
 	}
-
 }
