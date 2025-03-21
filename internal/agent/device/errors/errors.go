@@ -28,6 +28,7 @@ var (
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")
 	ErrNoComposeFile          = errors.New("no compose file found")
 	ErrNoComposeServices      = errors.New("no services found in compose spec")
+	ErrAppLabel               = errors.New("required label not found")
 
 	// container images
 	ErrImageShortName = errors.New("failed to resolve image short name: use the full name i.e registry/image:tag")

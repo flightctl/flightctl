@@ -33,13 +33,8 @@ func (c *Compose) add(ctx context.Context, action *Action) error {
 	projectName := action.ID
 	c.log.Debugf("Starting application: %s projectName: %s", appName, projectName)
 
-	appPath, err := action.ApplicationPath()
-	if err != nil {
-		return err
-	}
-
 	noRecreate := true
-	if err := c.podman.Compose().UpFromWorkDir(ctx, appPath, projectName, noRecreate); err != nil {
+	if err := c.podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
 		return err
 	}
 
@@ -63,11 +58,6 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 	appName := action.Name
 	c.log.Debugf("Updating application: %s projectName: %s", appName, action.ID)
 
-	appPath, err := action.ApplicationPath()
-	if err != nil {
-		return err
-	}
-
 	if err := c.stopAndRemoveContainers(ctx, action); err != nil {
 		return err
 	}
@@ -75,7 +65,7 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 	// change to work dir and run `docker compose up -d`
 	projectName := action.ID
 	noRecreate := true
-	if err := c.podman.Compose().UpFromWorkDir(ctx, appPath, projectName, noRecreate); err != nil {
+	if err := c.podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
 		return err
 	}
 

@@ -66,6 +66,99 @@ func (mr *MockMonitorMockRecorder) Status() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockMonitor)(nil).Status))
 }
 
+// MockProvider is a mock of Provider interface.
+type MockProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockProviderMockRecorder
+}
+
+// MockProviderMockRecorder is the mock recorder for MockProvider.
+type MockProviderMockRecorder struct {
+	mock *MockProvider
+}
+
+// NewMockProvider creates a new mock instance.
+func NewMockProvider(ctrl *gomock.Controller) *MockProvider {
+	mock := &MockProvider{ctrl: ctrl}
+	mock.recorder = &MockProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
+	return m.recorder
+}
+
+// Install mocks base method.
+func (m *MockProvider) Install(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Install", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Install indicates an expected call of Install.
+func (mr *MockProviderMockRecorder) Install(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Install", reflect.TypeOf((*MockProvider)(nil).Install), ctx)
+}
+
+// Name mocks base method.
+func (m *MockProvider) Name() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Name")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// Name indicates an expected call of Name.
+func (mr *MockProviderMockRecorder) Name() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockProvider)(nil).Name))
+}
+
+// Remove mocks base method.
+func (m *MockProvider) Remove(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Remove", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Remove indicates an expected call of Remove.
+func (mr *MockProviderMockRecorder) Remove(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockProvider)(nil).Remove), ctx)
+}
+
+// Spec mocks base method.
+func (m *MockProvider) Spec() *ApplicationSpec {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Spec")
+	ret0, _ := ret[0].(*ApplicationSpec)
+	return ret0
+}
+
+// Spec indicates an expected call of Spec.
+func (mr *MockProviderMockRecorder) Spec() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Spec", reflect.TypeOf((*MockProvider)(nil).Spec))
+}
+
+// Verify mocks base method.
+func (m *MockProvider) Verify(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Verify", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Verify indicates an expected call of Verify.
+func (mr *MockProviderMockRecorder) Verify(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verify", reflect.TypeOf((*MockProvider)(nil).Verify), ctx)
+}
+
 // MockManager is a mock of Manager interface.
 type MockManager struct {
 	ctrl     *gomock.Controller
@@ -118,31 +211,31 @@ func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
 }
 
 // Ensure mocks base method.
-func (m *MockManager) Ensure(app Application) error {
+func (m *MockManager) Ensure(ctx context.Context, provider Provider) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Ensure", app)
+	ret := m.ctrl.Call(m, "Ensure", ctx, provider)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Ensure indicates an expected call of Ensure.
-func (mr *MockManagerMockRecorder) Ensure(app any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Ensure(ctx, provider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ensure", reflect.TypeOf((*MockManager)(nil).Ensure), app)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ensure", reflect.TypeOf((*MockManager)(nil).Ensure), ctx, provider)
 }
 
 // Remove mocks base method.
-func (m *MockManager) Remove(app Application) error {
+func (m *MockManager) Remove(ctx context.Context, provider Provider) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Remove", app)
+	ret := m.ctrl.Call(m, "Remove", ctx, provider)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Remove indicates an expected call of Remove.
-func (mr *MockManagerMockRecorder) Remove(app any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Remove(ctx, provider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockManager)(nil).Remove), app)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockManager)(nil).Remove), ctx, provider)
 }
 
 // Status mocks base method.
@@ -174,17 +267,17 @@ func (mr *MockManagerMockRecorder) Stop(ctx any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockManager) Update(app Application) error {
+func (m *MockManager) Update(ctx context.Context, provider Provider) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Update", app)
+	ret := m.ctrl.Call(m, "Update", ctx, provider)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Update indicates an expected call of Update.
-func (mr *MockManagerMockRecorder) Update(app any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Update(ctx, provider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockManager)(nil).Update), app)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockManager)(nil).Update), ctx, provider)
 }
 
 // MockApplication is a mock of Application interface.
@@ -210,45 +303,30 @@ func (m *MockApplication) EXPECT() *MockApplicationMockRecorder {
 	return m.recorder
 }
 
-// AddContainer mocks base method.
-func (m *MockApplication) AddContainer(container Container) {
+// AddWorkload mocks base method.
+func (m *MockApplication) AddWorkload(Workload *Workload) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "AddContainer", container)
+	m.ctrl.Call(m, "AddWorkload", Workload)
 }
 
-// AddContainer indicates an expected call of AddContainer.
-func (mr *MockApplicationMockRecorder) AddContainer(container any) *gomock.Call {
+// AddWorkload indicates an expected call of AddWorkload.
+func (mr *MockApplicationMockRecorder) AddWorkload(Workload any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddContainer", reflect.TypeOf((*MockApplication)(nil).AddContainer), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddWorkload", reflect.TypeOf((*MockApplication)(nil).AddWorkload), Workload)
 }
 
-// Container mocks base method.
-func (m *MockApplication) Container(name string) (*Container, bool) {
+// AppType mocks base method.
+func (m *MockApplication) AppType() v1alpha1.AppType {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Container", name)
-	ret0, _ := ret[0].(*Container)
-	ret1, _ := ret[1].(bool)
-	return ret0, ret1
-}
-
-// Container indicates an expected call of Container.
-func (mr *MockApplicationMockRecorder) Container(name any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Container", reflect.TypeOf((*MockApplication)(nil).Container), name)
-}
-
-// EnvVars mocks base method.
-func (m *MockApplication) EnvVars() map[string]string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "EnvVars")
-	ret0, _ := ret[0].(map[string]string)
+	ret := m.ctrl.Call(m, "AppType")
+	ret0, _ := ret[0].(v1alpha1.AppType)
 	return ret0
 }
 
-// EnvVars indicates an expected call of EnvVars.
-func (mr *MockApplicationMockRecorder) EnvVars() *gomock.Call {
+// AppType indicates an expected call of AppType.
+func (mr *MockApplicationMockRecorder) AppType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnvVars", reflect.TypeOf((*MockApplication)(nil).EnvVars))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppType", reflect.TypeOf((*MockApplication)(nil).AppType))
 }
 
 // ID mocks base method.
@@ -294,12 +372,11 @@ func (mr *MockApplicationMockRecorder) Name() *gomock.Call {
 }
 
 // Path mocks base method.
-func (m *MockApplication) Path() (string, error) {
+func (m *MockApplication) Path() string {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Path")
 	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	return ret0
 }
 
 // Path indicates an expected call of Path.
@@ -308,32 +385,18 @@ func (mr *MockApplicationMockRecorder) Path() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Path", reflect.TypeOf((*MockApplication)(nil).Path))
 }
 
-// RemoveContainer mocks base method.
-func (m *MockApplication) RemoveContainer(name string) bool {
+// RemoveWorkload mocks base method.
+func (m *MockApplication) RemoveWorkload(name string) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RemoveContainer", name)
+	ret := m.ctrl.Call(m, "RemoveWorkload", name)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
-// RemoveContainer indicates an expected call of RemoveContainer.
-func (mr *MockApplicationMockRecorder) RemoveContainer(name any) *gomock.Call {
+// RemoveWorkload indicates an expected call of RemoveWorkload.
+func (mr *MockApplicationMockRecorder) RemoveWorkload(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveContainer", reflect.TypeOf((*MockApplication)(nil).RemoveContainer), name)
-}
-
-// SetEnvVars mocks base method.
-func (m *MockApplication) SetEnvVars(envVars map[string]string) bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetEnvVars", envVars)
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// SetEnvVars indicates an expected call of SetEnvVars.
-func (mr *MockApplicationMockRecorder) SetEnvVars(envVars any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEnvVars", reflect.TypeOf((*MockApplication)(nil).SetEnvVars), envVars)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveWorkload", reflect.TypeOf((*MockApplication)(nil).RemoveWorkload), name)
 }
 
 // Status mocks base method.
@@ -352,16 +415,17 @@ func (mr *MockApplicationMockRecorder) Status() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockApplication)(nil).Status))
 }
 
-// Type mocks base method.
-func (m *MockApplication) Type() AppType {
+// Workload mocks base method.
+func (m *MockApplication) Workload(name string) (*Workload, bool) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Type")
-	ret0, _ := ret[0].(AppType)
-	return ret0
+	ret := m.ctrl.Call(m, "Workload", name)
+	ret0, _ := ret[0].(*Workload)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
 }
 
-// Type indicates an expected call of Type.
-func (mr *MockApplicationMockRecorder) Type() *gomock.Call {
+// Workload indicates an expected call of Workload.
+func (mr *MockApplicationMockRecorder) Workload(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Type", reflect.TypeOf((*MockApplication)(nil).Type))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Workload", reflect.TypeOf((*MockApplication)(nil).Workload), name)
 }

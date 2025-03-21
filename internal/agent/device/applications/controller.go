@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
-	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -41,60 +40,46 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Device
 	c.log.Debug("Syncing device applications")
 	defer c.log.Debug("Finished syncing device applications")
 
-	currentApps, err := parseApps(ctx, c.podman, current)
+	currentAppProviders, err := parseAppProviders(ctx, c.log, c.podman, c.readWriter, current)
 	if err != nil {
 		return err
 	}
 
-	desiredApps, err := parseApps(ctx, c.podman, desired)
+	desiredAppProviders, err := parseAppProviders(ctx, c.log, c.podman, c.readWriter, desired, WithEmbedded())
 	if err != nil {
 		return err
 	}
 
-	if err := c.ensureEmbedded(); err != nil {
-		return err
-	}
-
-	// reconcile image based packages
-	if err := c.ensureImages(ctx, currentApps.ImageBased(), desiredApps.ImageBased()); err != nil {
+	if err := c.sync(ctx, currentAppProviders, desiredAppProviders); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps []*application[*v1alpha1.ImageApplicationProvider]) error {
-	diff, err := diffApps(currentApps, desiredApps)
+func (c *Controller) sync(ctx context.Context, currentApps, desiredApps []Provider) error {
+	diff, err := diffAppProviders(currentApps, desiredApps)
 	if err != nil {
 		return err
 	}
 
-	for _, app := range diff.Removed {
-		if err := c.removeImagePackage(app); err != nil {
-			return err
-		}
-		if err := c.manager.Remove(app); err != nil {
-			return err
-		}
-	}
-
-	for _, app := range diff.Ensure {
-		if err := c.ensureImagePackage(ctx, app); err != nil {
-			return err
-		}
-		if err := c.manager.Ensure(app); err != nil {
+	for _, provider := range diff.Removed {
+		c.log.Debugf("Removing application: %s", provider.Name())
+		if err := c.manager.Remove(ctx, provider); err != nil {
 			return err
 		}
 	}
 
-	for _, app := range diff.Changed {
-		if err := c.removeImagePackage(app); err != nil {
+	for _, provider := range diff.Ensure {
+		c.log.Debugf("Ensuring application: %s", provider.Name())
+		if err := c.manager.Ensure(ctx, provider); err != nil {
 			return err
 		}
-		if err := c.ensureImagePackage(ctx, app); err != nil {
-			return err
-		}
-		if err := c.manager.Update(app); err != nil {
+	}
+
+	for _, provider := range diff.Changed {
+		c.log.Debugf("Updating application: %s", provider.Name())
+		if err := c.manager.Update(ctx, provider); err != nil {
 			return err
 		}
 	}
@@ -102,140 +87,113 @@ func (c *Controller) ensureImages(ctx context.Context, currentApps, desiredApps 
 	return nil
 }
 
-func (c *Controller) removeImagePackage(app *application[*v1alpha1.ImageApplicationProvider]) error {
-	c.log.Debugf("Removing image package from disk: %s", app.Name())
-	appPath, err := app.Path()
-	if err != nil {
-		return err
-	}
-	// remove the application directory for compose.
-	return c.readWriter.RemoveAll(appPath)
-}
-
-func (c *Controller) ensureImagePackage(ctx context.Context, app *application[*v1alpha1.ImageApplicationProvider]) error {
-	appPath, err := app.Path()
-	if err != nil {
-		return err
+func parseAppProviders(
+	ctx context.Context,
+	log *log.PrefixLogger,
+	podman *client.Podman,
+	readWriter fileio.ReadWriter,
+	spec *v1alpha1.DeviceSpec,
+	opts ...ParseOpt,
+) ([]Provider, error) {
+	var cfg parseConfig
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
-	// TODO: consider using managed files or other mechanism to reduce disk I/O
-	// if the manifests are already present and as expected.
-
-	containerImage := app.provider.Image
-	// copy image manifests from container image to the application path
-	if err := copyImageManifests(ctx, c.log, c.readWriter, c.podman, containerImage, appPath); err != nil {
-		return err
-	}
-
-	// write env vars to file
-	envVars := app.EnvVars()
-	if len(envVars) > 0 {
-		var env strings.Builder
-		for k, v := range envVars {
-			env.WriteString(fmt.Sprintf("%s=%s\n", k, v))
-		}
-		envPath := fmt.Sprintf("%s/.env", appPath)
-		c.log.Debugf("writing env vars to %s", envPath)
-		if err := c.readWriter.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {
-			return err
-		}
-	}
-
-	// TODO: handle selinux labels
-	return nil
-}
-
-// parseApps parses applications from a rendered device spec.
-func parseApps(ctx context.Context, podman *client.Podman, spec *v1alpha1.DeviceSpec) (*applications, error) {
-	var apps applications
-	if spec.Applications == nil {
-		return &apps, nil
-	}
-	for _, appSpec := range *spec.Applications {
-		providerType, err := appSpec.Type()
+	var providers []Provider
+	for _, providerSpec := range lo.FromPtr(spec.Applications) {
+		providerType, err := providerSpec.Type()
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", errors.ErrUnsupportedAppProvider, err)
+			return nil, err
 		}
+		if cfg.providerTypes != nil {
+			if _, exists := cfg.providerTypes[providerType]; !exists {
+				continue
+			}
+		}
+
 		switch providerType {
 		case v1alpha1.ImageApplicationProviderType:
-			provider, err := appSpec.AsImageApplicationProvider()
+			provider, err := NewImageProvider(log, podman, &providerSpec, readWriter)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert application to image provider: %w", err)
+				return nil, err
 			}
-			name := lo.FromPtr(appSpec.Name)
-			if name == "" {
-				name = provider.Image
+			if err := provider.Verify(ctx); err != nil {
+				return nil, err
 			}
-
-			appType, err := typeFromImage(ctx, podman, provider.Image)
+			providers = append(providers, provider)
+		case v1alpha1.InlineApplicationProviderType:
+			provider, err := NewInlineProvider(log, podman, &providerSpec, readWriter)
 			if err != nil {
-				return nil, fmt.Errorf("%w from image: %w", errors.ErrParseAppType, err)
+				return nil, err
 			}
-			id := newComposeID(name)
-			application := NewApplication(
-				id,
-				name,
-				&provider,
-				appType,
-			)
-			application.SetEnvVars(lo.FromPtr(appSpec.EnvVars))
-			apps.images = append(apps.images, application)
+			if err := provider.Verify(ctx); err != nil {
+				return nil, err
+			}
+			providers = append(providers, provider)
 		default:
-			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, providerType)
+			return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
 		}
 	}
-	return &apps, nil
+
+	if cfg.embedded {
+		if err := parseEmbedded(ctx, log, podman, readWriter, &providers); err != nil {
+			return nil, err
+		}
+	}
+
+	return providers, nil
 }
 
-type diff[T any] struct {
-	// Ensure contains both newly added and unchanged apps
-	Ensure []*application[T]
-	// Removed contains apps that are no longer part of the desired state
-	Removed []*application[T]
-	// Changed contains apps that have changed between the current and desired state
-	Changed []*application[T]
+type diff struct {
+	// Ensure contains both newly added and unchanged app provders
+	Ensure []Provider
+	// Removed contains app providers that are no longer part of the desired state
+	Removed []Provider
+	// Changed contains app providers that have changed between the current and desired state
+	Changed []Provider
 }
 
-func diffApps[T any](
-	current []*application[T],
-	desired []*application[T],
-) (diff[T], error) {
-	var diff diff[T]
+func diffAppProviders(
+	current []Provider,
+	desired []Provider,
+) (diff, error) {
+	var diff diff
 
-	diff.Ensure = make([]*application[T], 0, len(desired))
-	diff.Removed = make([]*application[T], 0, len(current))
-	diff.Changed = make([]*application[T], 0, len(current))
+	diff.Ensure = make([]Provider, 0, len(desired))
+	diff.Removed = make([]Provider, 0, len(current))
+	diff.Changed = make([]Provider, 0, len(current))
 
-	desiredApps := make(map[string]*application[T])
-	for _, app := range desired {
-		if len(app.Name()) == 0 {
+	desiredProviders := make(map[string]Provider)
+	for _, provider := range desired {
+		if len(provider.Name()) == 0 {
 			return diff, errors.ErrAppNameRequired
 		}
-		desiredApps[app.Name()] = app
+		desiredProviders[provider.Name()] = provider
 	}
 
-	currentApps := make(map[string]*application[T])
-	for _, app := range current {
-		if len(app.Name()) == 0 {
+	currentProviders := make(map[string]Provider)
+	for _, provider := range current {
+		if len(provider.Name()) == 0 {
 			return diff, errors.ErrAppNameRequired
 		}
-		currentApps[app.Name()] = app
+		currentProviders[provider.Name()] = provider
 	}
 
-	for name, app := range currentApps {
-		if _, exists := desiredApps[name]; !exists {
-			diff.Removed = append(diff.Removed, app)
+	for name, provider := range currentProviders {
+		if _, exists := desiredProviders[name]; !exists {
+			diff.Removed = append(diff.Removed, provider)
 		}
 	}
 
-	for name, desiredApp := range desiredApps {
-		if currentApp, exists := currentApps[name]; !exists {
-			diff.Ensure = append(diff.Ensure, desiredApp)
+	for name, desiredProvider := range desiredProviders {
+		if currentProvider, exists := currentProviders[name]; !exists {
+			diff.Ensure = append(diff.Ensure, desiredProvider)
 		} else {
-			if isEqual(currentApp, desiredApp) {
-				diff.Ensure = append(diff.Ensure, desiredApp)
+			if isEqual(currentProvider, desiredProvider) {
+				diff.Ensure = append(diff.Ensure, desiredProvider)
 			} else {
-				diff.Changed = append(diff.Changed, desiredApp)
+				diff.Changed = append(diff.Changed, desiredProvider)
 			}
 		}
 	}
@@ -244,25 +202,14 @@ func diffApps[T any](
 }
 
 // isEqual compares two applications and returns true if they are equal.
-func isEqual[T any](a, b *application[T]) bool {
-	if a.appType != b.appType {
-		return false
-	}
-	if a.Name() != b.Name() {
-		return false
-	}
-	if !reflect.DeepEqual(a.EnvVars(), b.EnvVars()) {
-		return false
-	}
-	if !reflect.DeepEqual(a.provider, b.provider) {
-		return false
-	}
-	return true
+func isEqual(a, b Provider) bool {
+	return reflect.DeepEqual(a.Spec(), b.Spec())
 }
 
-func (c *Controller) ensureEmbedded() error {
+func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
 	// discover embedded compose applications
-	elements, err := c.readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
+	appType := v1alpha1.AppTypeCompose
+	elements, err := readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
 	if err != nil {
 		return err
 	}
@@ -274,25 +221,52 @@ func (c *Controller) ensureEmbedded() error {
 
 		suffixPatterns := []string{"*.yml", "*.yaml"}
 		for _, pattern := range suffixPatterns {
+			name := element.Name()
 			// search for compose files
-			files, err := filepath.Glob(c.readWriter.PathFor(filepath.Join(lifecycle.EmbeddedComposeAppPath, element.Name(), pattern)))
+			files, err := filepath.Glob(readWriter.PathFor(filepath.Join(lifecycle.EmbeddedComposeAppPath, name, pattern)))
 			if err != nil {
 				fmt.Printf("Error searching for pattern %s: %v\n", pattern, err)
 				continue
 			}
 			// TODO: we could do podman config here to verify further.
 			if len(files) > 0 {
+				log.Debugf("Discovered embedded compose application: %s", name)
 				// ensure the embedded application
-				provider := EmbeddedProvider{}
-				id := newComposeID(element.Name())
-				name := element.Name()
-				app := NewApplication(id, name, provider, AppCompose)
-				if err := c.manager.Ensure(app); err != nil {
+				provider, err := NewEmbeddedProvider(log, podman, readWriter, name, appType)
+				if err != nil {
 					return err
 				}
-				c.log.Infof("Observed embedded compose application %s", app.Name())
+				if err := provider.Verify(ctx); err != nil {
+					return err
+				}
+				*providers = append(*providers, provider)
+				break
 			}
 		}
 	}
 	return nil
+}
+
+type ParseOpt func(*parseConfig)
+
+type parseConfig struct {
+	embedded      bool
+	providerTypes map[v1alpha1.ApplicationProviderType]struct{}
+}
+
+func WithEmbedded() ParseOpt {
+	return func(c *parseConfig) {
+		c.embedded = true
+	}
+}
+
+func WithProviderTypes(providerTypes ...v1alpha1.ApplicationProviderType) ParseOpt {
+	return func(c *parseConfig) {
+		if c.providerTypes == nil {
+			c.providerTypes = make(map[v1alpha1.ApplicationProviderType]struct{})
+		}
+		for _, providerType := range providerTypes {
+			c.providerTypes[providerType] = struct{}{}
+		}
+	}
 }
