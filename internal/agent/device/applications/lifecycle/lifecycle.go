@@ -2,8 +2,8 @@ package lifecycle
 
 import (
 	"context"
-	"fmt"
-	"path/filepath"
+
+	"github.com/flightctl/flightctl/api/v1alpha1"
 )
 
 type ActionType string
@@ -31,27 +31,12 @@ type Action struct {
 	Name string
 	// Environment variables to be passed to the manifest handler at runtime
 	EnvVars map[string]string
-	// Manifest handler to be used
-	Handler ActionHandlerType
-	// Manifest action to be executed
+	// Type of the action
 	Type ActionType
+	// AppType of the application
+	AppType v1alpha1.AppType
+	// Path to the application
+	Path string
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
-}
-
-// ApplicationPath returns the path to the application on the device
-func (a *Action) ApplicationPath() (string, error) {
-	var typePath string
-	switch a.Handler {
-	case ActionHandlerCompose:
-		if a.Embedded {
-			typePath = EmbeddedComposeAppPath
-			break
-		}
-		typePath = ComposeAppPath
-	default:
-		return "", fmt.Errorf("unsupported handler type: %s", a.Handler)
-	}
-
-	return filepath.Join(typePath, a.Name), nil
 }
