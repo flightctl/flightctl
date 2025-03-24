@@ -113,6 +113,12 @@ var _ = Describe("VM Agent behavior", func() {
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
 			By("should report the correct device status when trying to upgrade to a not existing image")
+			previousRenderedVersion := newRenderedVersion
+			nextGeneration, err := harness.PrepareNextDeviceGeneration(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
 			var newImageReference string
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				currentImage := device.Status.Os.Image
@@ -123,9 +129,14 @@ var _ = Describe("VM Agent behavior", func() {
 				logrus.Infof("Updating %s to image %s", deviceId, device.Spec.Os.Image)
 			})
 
-			harness.WaitForDeviceContents(deviceId, "Failed to update to renderedVersion: 2. Error",
+			err = harness.WaitForDeviceNewGeneration(deviceId, nextGeneration)
+			Expect(err).ToNot(HaveOccurred())
+
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s. Error", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
+					// returning true if it is reported an error status or if the device is rolled back to the previous version
+					return (conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError)) ||
+						(conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated)) && (device.Status.Config.RenderedVersion == strconv.Itoa(previousRenderedVersion))))
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithUpdateStatus, TIMEOUT, POLLING).WithArguments(
