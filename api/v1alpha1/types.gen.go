@@ -268,7 +268,7 @@ type CertificateSigningRequestSpec struct {
 	// Request The base64-encoded PEM-encoded PKCS#10 CSR. Matches the spec.request field in a kubernetes CertificateSigningRequest resource.
 	Request []byte `json:"request"`
 
-	// SignerName Indicates the requested signer, and is a qualified name.
+	// SignerName Indicates the requested signer, and is a qualified name. Supported values are "enrollment" and "renewal".
 	SignerName string `json:"signerName"`
 
 	// Uid UID of the user that created the CSR, populated by the API server on creation and immutable.

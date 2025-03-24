@@ -259,20 +259,42 @@ func ValidateCSRUsages(u *[]string) []error {
 	return asErrors(errs)
 }
 
-// Currently every request is sent to the only signer, named "ca" and defined in cmd/flightctl-api/main.go
 func ValidateSignerName(s string) []error {
 	errs := field.ErrorList{}
 
 	validSigners := map[string]struct{}{
-		"ca":         {}, // general signer
-		"enrollment": {}, // special logic for enrollment certs, but afterwards fwds to same 'ca' signer internally
+		"enrollment": {}, // for issuing a certificate to be provisioned to a device and used during device enrollment
+		"renewal":    {}, // for renewing device's management certificate ("agent certificate")
 	}
 
 	if _, exists := validSigners[s]; exists {
 		return nil
 	}
 
-	errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, "must specify a valid signer"))
+	msg := "must specify a valid signer. options include: "
+	for k := range validSigners {
+		msg += k + ", "
+	}
+	errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, msg))
+	return asErrors(errs)
+}
+
+func ValidateOutputFormat(s string) []error {
+	validEnrollmentConfigOutputFormats := map[string]struct{}{
+		"embedded":  {}, // key and cert material is embedded in the config file
+		"reference": {}, // key and cert material file paths are referenced in the config file
+	}
+	errs := field.ErrorList{}
+
+	if _, exists := validEnrollmentConfigOutputFormats[s]; exists {
+		return nil
+	}
+
+	msg := "must specify a valid output format. options include: "
+	for k := range validEnrollmentConfigOutputFormats {
+		msg += k + ", "
+	}
+	errs = append(errs, field.Invalid(fieldPathFor("enrollment config output format"), s, msg))
 	return asErrors(errs)
 }
 
