@@ -324,7 +324,8 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	actions := m.actions
+	actions := make([]lifecycle.Action, len(m.actions))
+	copy(actions, m.actions)
 	// reset actions to ensure we don't execute the same actions again
 	m.actions = nil
 	return actions

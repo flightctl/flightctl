@@ -112,7 +112,8 @@ func parseAppProviders(
 			}
 		}
 
-		if providerType == v1alpha1.ImageApplicationProviderType {
+		switch providerType {
+		case v1alpha1.ImageApplicationProviderType:
 			provider, err := NewImageProvider(log, podman, &providerSpec, readWriter)
 			if err != nil {
 				return nil, err
@@ -120,8 +121,18 @@ func parseAppProviders(
 			if err := provider.Verify(ctx); err != nil {
 				return nil, err
 			}
-
 			providers = append(providers, provider)
+		case v1alpha1.InlineApplicationProviderType:
+			provider, err := NewInlineProvider(log, podman, &providerSpec, readWriter)
+			if err != nil {
+				return nil, err
+			}
+			if err := provider.Verify(ctx); err != nil {
+				return nil, err
+			}
+			providers = append(providers, provider)
+		default:
+			return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
 		}
 	}
 
