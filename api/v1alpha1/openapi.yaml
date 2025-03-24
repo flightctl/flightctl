@@ -96,6 +96,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Token invalid
           content:

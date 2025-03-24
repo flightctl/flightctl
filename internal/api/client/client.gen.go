@@ -4795,6 +4795,7 @@ type AuthValidateResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Status
+	JSON400      *Status
 	JSON401      *Status
 	JSON418      *Status
 	JSON500      *Status
@@ -7311,6 +7312,13 @@ func ParseAuthValidateResponse(rsp *http.Response) (*AuthValidateResponse, error
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status

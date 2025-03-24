@@ -58,6 +58,10 @@ data:
             apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
             externalOpenShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
             rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+        {{- else if eq .Values.global.auth.type "aap"}}
+        aap:
+          apiUrl: {{ .Values.global.auth.aap.apiUrl }}
+          externalApiUrl: {{ .Values.global.auth.aap.externalApiUrl }}
         {{- else }}
         oidc:
             oidcAuthority: {{ .Values.global.auth.oidc.oidcAuthority }}
