@@ -373,7 +373,7 @@ func TestApplicationAddRemove(t *testing.T) {
 }
 
 func createTestApplication(name string, status v1alpha1.ApplicationStatusType) Application {
-	var provider v1alpha1.ImageApplicationProvider
+	var provider v1alpha1.ImageApplicationProviderSpec
 	id := client.SanitizePodmanLabel(name)
 	app := NewApplication(id, name, provider, AppCompose)
 	app.status.Status = status
