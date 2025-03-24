@@ -47,8 +47,8 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, 
 	return &ResourceSync{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, nil),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, nil),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),

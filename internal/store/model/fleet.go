@@ -49,8 +49,8 @@ func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
 	return &Fleet{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, nil),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, nil),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
