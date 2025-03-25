@@ -8,11 +8,11 @@ service:
     address: flightctl-api:3443
     agentEndpointAddress: flightctl-api:7443
     agentGrpcAddress: flightctl-api:7444
-    baseUrl: https://$BASE_DOMAIN:3443/
-    baseAgentEndpointUrl: https://$BASE_DOMAIN:7443/
-    baseUIUrl: https://$BASE_DOMAIN:8080
+    baseUrl: https://test.org:3443/
+    baseAgentEndpointUrl: https://test.org:7443/
+    baseUIUrl: https://test.org:8080
     altNames:
-      - $BASE_DOMAIN
+      - test.org
       - flightctl-api
 kv:
     hostname: flightctl-kv
