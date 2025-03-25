@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -25,11 +26,14 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	AfterEach(func() {
+		err := harness.CleanUpAllResources()
+		Expect(err).ToNot(HaveOccurred())
 		harness.Cleanup(true)
 	})
 
 	Context("vm", func() {
-		It("should print QR output to console", func() {
+		It("Verify VM agent", Label("80455"), func() {
+			By("should print QR output to console")
 			// Wait for the top-most part of the QR output to appear
 			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
 
@@ -37,15 +41,15 @@ var _ = Describe("VM Agent behavior", func() {
 			lines := strings.Split(harness.VM.GetConsoleOutput(), "\n")
 			fmt.Println(strings.Join(lines[len(lines)-20:], "\n"))
 			fmt.Println("========================================")
-		})
 
-		It("should have flightctl-agent running", func() {
+			By("should have flightctl-agent running")
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 		})
 
-		It("should be reporting device status on enrollment request", func() {
+		It("Verifying geneartion of enrollment request link", Label("75518"), func() {
+			By("should be reporting device status on enrollment request")
 			// Get the enrollment Request ID from the console output
 			enrollmentID := harness.GetEnrollmentIDFromConsole()
 			logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
@@ -66,9 +70,14 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 	})
 
-	Context("status", Label("75991"), func() {
-		It("should report the correct device status after an inline config is added", func() {
+	Context("status", func() {
+		It("Device status tests", Label("75991"), func() {
 			deviceId, device := harness.EnrollAndWaitForOnlineStatus()
+			// Get the next expected rendered version
+			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("should report the correct device status after an inline config is added")
 
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
@@ -82,7 +91,7 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 
 			logrus.Infof("Waiting for the device to pick the config")
-			harness.WaitForDeviceContents(deviceId, "the device is upgrading to renderedVersion: 2",
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("the device is updated to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
 					for _, condition := range device.Status.Conditions {
 						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
@@ -102,11 +111,8 @@ var _ = Describe("VM Agent behavior", func() {
 			logrus.Infof("The device has the config %s", device.Spec.Config)
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-		})
 
-		It("should report the correct device status when trying to upgrade to a not existing image", func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-
+			By("should report the correct device status when trying to upgrade to a not existing image")
 			var newImageReference string
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				currentImage := device.Status.Os.Image
@@ -124,11 +130,9 @@ var _ = Describe("VM Agent behavior", func() {
 
 			Eventually(harness.GetDeviceWithUpdateStatus, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceUpdatedStatusOutOfDate))
-		})
 
-		It(`should show an error when trying to update a device with
-			"a reference to a not existing git repo, and report 'Online' status`, Label("git"), func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+			By(`should show an error when trying to update a device with
+				"a reference to a not existing git repo, and report 'Online' status`)
 
 			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				logrus.Infof("Current device is %s", deviceId)
@@ -149,20 +153,17 @@ var _ = Describe("VM Agent behavior", func() {
 				}, "2m")
 
 			// The behaviour will change after EDM-418.
-			harness.WaitForDeviceContents(deviceId, "the device is updated to renderedVersion: 1",
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("the device is updated to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
 					return conditionExists(device, "Updating", "False", "Updated")
 				}, "2m")
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
-		})
 
-		It(`should show an error when trying to update a device with a httpConfigProviderSpec
-			with invalid Path, and report 'Online' status`, func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-
+			By(`should show an error when trying to update a device with a httpConfigProviderSpec
+			with invalid Path, and report 'Online' status`)
 			// Create the http repository.
-			_, err := model.NewRepositoryFromApiResource(&httpRepo)
+			_, err = model.NewRepositoryFromApiResource(&httpRepo)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update the device with the http invalid config.
@@ -184,22 +185,21 @@ var _ = Describe("VM Agent behavior", func() {
 				}, "2m")
 
 			// The behaviour will change after EDM-418.
-			harness.WaitForDeviceContents(deviceId, "the device is updated to renderedVersion: 1",
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("the device is updated to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
 					return conditionExists(device, "Updating", "False", "Updated")
 				}, "2m")
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
-		})
 
-		It("should report 'Unknown' after the device vm is powered-off", func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+			By("should report 'Unknown' after the device vm is powered-off")
 
 			// Shutdown the vm.
-			err := harness.VM.Shutdown()
+			err = harness.VM.Shutdown()
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
+
 		})
 	})
 })

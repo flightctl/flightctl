@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -74,17 +75,25 @@ type PodmanMonitor struct {
 	compose  lifecycle.ActionHandler
 	client   *client.Podman
 	bootTime string
+	writer   fileio.Writer
 
 	log *log.PrefixLogger
 }
 
-func NewPodmanMonitor(log *log.PrefixLogger, exec executer.Executer, podman *client.Podman, bootTime string) *PodmanMonitor {
+func NewPodmanMonitor(
+	log *log.PrefixLogger,
+	exec executer.Executer,
+	podman *client.Podman,
+	bootTime string,
+	writer fileio.Writer,
+) *PodmanMonitor {
 	return &PodmanMonitor{
 		client:   podman,
 		compose:  lifecycle.NewCompose(log, podman),
 		apps:     make(map[string]Application),
 		bootTime: bootTime,
 		log:      log,
+		writer:   writer,
 	}
 }
 
@@ -125,7 +134,7 @@ func (m *PodmanMonitor) Stop(ctx context.Context) error {
 		// initialized
 		if m.cmd != nil {
 			if err := m.cmd.Wait(); err != nil {
-				errs = append(errs, fmt.Errorf("failed to wait for podman events: %v", err))
+				errs = append(errs, fmt.Errorf("failed to wait for podman events: %w", err))
 			}
 		}
 		m.log.Info("Podman monitor stopped")
@@ -155,7 +164,7 @@ func (m *PodmanMonitor) drain(ctx context.Context) error {
 	apps := m.getApps()
 	m.log.Infof("Draining %d applications", len(apps))
 	for _, app := range apps {
-		if err := m.remove(app); err != nil {
+		if err := m.Remove(app); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -171,10 +180,20 @@ func (m *PodmanMonitor) drain(ctx context.Context) error {
 	return nil
 }
 
-// ensures that and application is added to the monitor. if the application
+func (m *PodmanMonitor) Has(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.apps[id]; ok {
+		return true
+	}
+	return false
+}
+
+// Ensures that and application is added to the monitor. if the application
 // is added for the first time an Add action is queued to be executed by the
 // lifecycle manager. so additional adds for the same app will be idempotent.
-func (m *PodmanMonitor) ensure(app Application) error {
+func (m *PodmanMonitor) Ensure(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -186,17 +205,13 @@ func (m *PodmanMonitor) ensure(app Application) error {
 	}
 	m.apps[appID] = app
 
-	handler, err := app.Type().ActionHandler()
-	if err != nil {
-		return err
-	}
-
 	appName := app.Name()
 	action := lifecycle.Action{
-		Handler:  handler,
+		AppType:  app.AppType(),
 		Type:     lifecycle.ActionAdd,
 		Name:     appName,
 		ID:       appID,
+		Path:     app.Path(),
 		Embedded: app.IsEmbedded(),
 	}
 
@@ -204,7 +219,7 @@ func (m *PodmanMonitor) ensure(app Application) error {
 	return nil
 }
 
-func (m *PodmanMonitor) remove(app Application) error {
+func (m *PodmanMonitor) Remove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -215,16 +230,11 @@ func (m *PodmanMonitor) remove(app Application) error {
 		return nil
 	}
 
-	handler, err := app.Type().ActionHandler()
-	if err != nil {
-		return err
-	}
-
 	delete(m.apps, appID)
 
 	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
-		Handler: handler,
+		AppType: app.AppType(),
 		Type:    lifecycle.ActionRemove,
 		Name:    app.Name(),
 		ID:      appID,
@@ -234,29 +244,22 @@ func (m *PodmanMonitor) remove(app Application) error {
 	return nil
 }
 
-func (m *PodmanMonitor) update(app Application) error {
+func (m *PodmanMonitor) Update(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	appID := app.ID()
 	appName := app.Name()
-	existingApp, ok := m.apps[appID]
+	_, ok := m.apps[appID]
 	if !ok {
 		return errors.ErrAppNotFound
 	}
 
-	if updated := existingApp.SetEnvVars(app.EnvVars()); updated {
-		m.log.Debugf("Updated environment variables for application: %s", appName)
-	}
-
-	handler, err := existingApp.Type().ActionHandler()
-	if err != nil {
-		return err
-	}
+	m.apps[appID] = app
 
 	// currently we don't support updating embedded applications
 	action := lifecycle.Action{
-		Handler: handler,
+		AppType: app.AppType(),
 		Type:    lifecycle.ActionUpdate,
 		Name:    appName,
 		ID:      appID,
@@ -294,7 +297,7 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 	actions := m.drainActions()
 	for i := range actions {
 		action := actions[i]
-		if action.Handler == lifecycle.ActionHandlerCompose {
+		if action.AppType == v1alpha1.AppTypeCompose {
 			if err := m.compose.Execute(ctx, &action); err != nil {
 				// this error should result in a failed status for the revision
 				// and not retried.
@@ -321,7 +324,8 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	actions := m.actions
+	actions := make([]lifecycle.Action, len(m.actions))
+	copy(actions, m.actions)
 	// reset actions to ensure we don't execute the same actions again
 	m.actions = nil
 	return actions
@@ -440,9 +444,9 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	}
 
 	status := m.resolveStatus(event.Status, inspectData)
-	if status == ContainerStatusRemove {
+	if status == StatusRemove {
 		// remove existing container
-		if removed := app.RemoveContainer(event.Name); removed {
+		if removed := app.RemoveWorkload(event.Name); removed {
 			m.log.Debugf("Removed container: %s", event.Name)
 		}
 		return
@@ -453,7 +457,7 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	container, exists := app.Container(event.Name)
+	container, exists := app.Workload(event.Name)
 	if exists {
 		// update existing container
 		container.Status = status
@@ -461,14 +465,14 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 		if restarts > container.Restarts {
 			container.Restarts = restarts
 		}
+
 		return
 	}
 
 	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
-	app.AddContainer(Container{
+	app.AddWorkload(&Workload{
 		ID:       event.ID,
-		Image:    event.Image,
 		Name:     event.Name,
 		Status:   status,
 		Restarts: restarts,
@@ -497,12 +501,12 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 	return inspectData, nil
 }
 
-func (m *PodmanMonitor) resolveStatus(status string, inspectData []PodmanInspect) ContainerStatusType {
-	initialStatus := ContainerStatusType(status)
+func (m *PodmanMonitor) resolveStatus(status string, inspectData []PodmanInspect) StatusType {
+	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
-	if initialStatus == ContainerStatusDie || initialStatus == ContainerStatusDied {
+	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return ContainerStatusExited
+			return StatusExited
 		}
 	}
 	return initialStatus

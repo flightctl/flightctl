@@ -131,6 +131,33 @@ func ValidateFilePath(s *string, path string) []error {
 	return asErrors(errs)
 }
 
+func ValidateRelativePath(s *string, path string, maxLength int) []error {
+	if s == nil {
+		return []error{}
+	}
+
+	value := *s
+	errs := field.ErrorList{}
+	if len(value) > maxLength {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be less than max characters: "+strconv.Itoa(maxLength)))
+	}
+	if filepath.IsAbs(value) {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be a relative path"))
+	}
+
+	if strings.HasPrefix(value, "..") || strings.Contains(value, "/../") {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must not contain '..' (parent directory references)"))
+	}
+
+	cleaned := filepath.Clean(value)
+
+	if cleaned != value && !strings.HasPrefix(value, "./") {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be a clean path without redundant separators or internal '..'"))
+	}
+
+	return asErrors(errs)
+}
+
 func ValidateFileOrDirectoryPath(s *string, path string) []error {
 	if s == nil {
 		return []error{}

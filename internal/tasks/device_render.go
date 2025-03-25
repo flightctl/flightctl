@@ -255,28 +255,12 @@ func renderApplication(_ context.Context, app *api.ApplicationProviderSpec) (*st
 	}
 	switch appType {
 	case api.ImageApplicationProviderType:
-		return renderImageApplicationProvider(app)
+		return app.Name, app, nil
+	case api.InlineApplicationProviderType:
+		return app.Name, app, nil
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
-}
-
-func renderImageApplicationProvider(app *api.ApplicationProviderSpec) (*string, *api.ApplicationProviderSpec, error) {
-	imageProvider, err := app.AsImageApplicationProvider()
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed getting application as ImageApplicationProvider: %w", ErrUnknownApplicationType, err)
-	}
-
-	appName := lo.FromPtr(app.Name)
-	renderedApp := api.ApplicationProviderSpec{
-		Name:    app.Name,
-		EnvVars: app.EnvVars,
-	}
-	if err := renderedApp.FromImageApplicationProvider(imageProvider); err != nil {
-		return &appName, nil, fmt.Errorf("failed rendering application %s: %w", appName, err)
-	}
-
-	return &appName, &renderedApp, nil
 }
 
 func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
@@ -399,7 +383,7 @@ func (t *DeviceRenderLogic) renderInlineConfig(configItem *api.ConfigProviderSpe
 		}
 
 		isBase64 := false
-		if file.ContentEncoding != nil && *file.ContentEncoding == api.Base64 {
+		if file.ContentEncoding != nil && *file.ContentEncoding == api.EncodingBase64 {
 			isBase64 = true
 		}
 		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User, file.Group)
@@ -611,11 +595,11 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 	var files []api.FileSpec
 	for _, file := range ignition.Storage.Files {
 		content := lo.FromPtr(file.Contents.Source)
-		encoding := api.Plain
+		encoding := api.EncodingPlain
 
 		// parse encoding
 		if strings.HasPrefix(content, "data:") {
-			encoding = api.Base64
+			encoding = api.EncodingBase64
 			if commaIndex := strings.Index(content, ","); commaIndex != -1 {
 				content = content[commaIndex+1:]
 			}

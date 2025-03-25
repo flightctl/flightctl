@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
@@ -22,13 +23,27 @@ const ClientBootstrapCommonNamePrefix = "client-enrollment-"
 const AdminCommonName = "flightctl-admin"
 const DeviceCommonNamePrefix = "device:"
 
+var allowedPrefixes = [...]string{
+	DeviceCommonNamePrefix,
+	ClientBootstrapCommonNamePrefix,
+}
+
 func BootstrapCNFromName(name string) string {
+
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return name
+		}
+	}
 	return ClientBootstrapCommonNamePrefix + name
 }
 
 func CNFromDeviceFingerprint(fingerprint string) (string, error) {
 	if len(fingerprint) < 16 {
 		return "", errors.New("device fingerprint must have 16 characters at least")
+	}
+	if strings.HasPrefix(fingerprint, DeviceCommonNamePrefix) {
+		return fingerprint, nil
 	}
 	return DeviceCommonNamePrefix + fingerprint, nil
 }

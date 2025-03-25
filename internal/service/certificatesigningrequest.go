@@ -8,6 +8,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -77,11 +78,18 @@ func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.Certificat
 	}
 
 	// the CN will need the enrollment prefix applied;
-	// if a CN is not specified in the CSR, generate a UUID to represent the future device
+	// if the certificate is being renewed, the name will have an existing prefix.
+	// we do not touch in this case.
+
 	u := csr.Subject.CommonName
-	if u == "" {
-		u = uuid.NewString()
+
+	// Once we move all prefixes/name formation to the client this can become a simple
+	// comparison of u and *request.Metadata.Name
+
+	if crypto.BootstrapCNFromName(u) != crypto.BootstrapCNFromName(*request.Metadata.Name) {
+		return nil, fmt.Errorf("%w - CN %s Metadata %s mismatch", flterrors.ErrSignCert, u, *request.Metadata.Name)
 	}
+
 	csr.Subject.CommonName = crypto.BootstrapCNFromName(u)
 
 	expiry := DefaultEnrollmentCertExpirySeconds
@@ -155,6 +163,27 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, par
 	}
 }
 
+func (h *ServiceHandler) verifyCSRParameters(ctx context.Context, csr api.CertificateSigningRequest) error {
+
+	// Crypto validation
+	cn, ok := ctx.Value(middleware.TLSCommonNameContextKey).(string)
+
+	// Note - if auth is disabled and there is no mTLS handshake we get ok == False.
+	// We cannot check anything in that case.
+
+	if ok {
+		if csr.Spec.SignerName != "enrollment" {
+			if csr.Metadata.Name == nil {
+				return errors.New("invalid csr record - no name in metadata")
+			}
+			if cn != crypto.BootstrapCNFromName(*csr.Metadata.Name) {
+				return errors.New("denied attempt to renew other entity certificate")
+			}
+		}
+	}
+	return nil
+}
+
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
 	orgId := store.NullOrgId
 
@@ -166,6 +195,11 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	err := h.verifyCSRParameters(ctx, csr)
+	if err != nil {
+		return nil, api.StatusUnauthorized(err.Error())
+	}
+
 	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, &csr)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, true, api.CertificateSigningRequestKind, csr.Metadata.Name)
@@ -174,6 +208,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 	if result.Spec.SignerName == "enrollment" {
 		h.autoApprove(ctx, orgId, result)
 	}
+
 	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
@@ -252,6 +287,11 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 	}
 	if name != *csr.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	err := h.verifyCSRParameters(ctx, csr)
+	if err != nil {
+		return nil, api.StatusUnauthorized(err.Error())
 	}
 
 	result, created, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, &csr)

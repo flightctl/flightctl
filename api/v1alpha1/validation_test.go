@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"encoding/base64"
 	"testing"
 
 	"github.com/robfig/cron/v3"
@@ -373,6 +374,81 @@ func TestValidateParametersInString(t *testing.T) {
 			require.Len(errs, tt.expectError)
 			if len(errs) == 0 {
 				require.Equal(tt.containsParams, containsParams)
+			}
+		})
+	}
+}
+
+func TestValidateInlineApplicationProviderSpec(t *testing.T) {
+	plain := EncodingPlain
+	base64Enc := EncodingBase64
+
+	base64Content := base64.StdEncoding.EncodeToString([]byte("hello world"))
+	tests := []struct {
+		name          string
+		spec          InlineApplicationProviderSpec
+		fleetTemplate bool
+		expectErr     bool
+	}{
+		{
+			name: "valid plain content",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{
+						Path:            "app/valid/path",
+						Content:         lo.ToPtr("some plain content"),
+						ContentEncoding: &plain,
+					},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name: "duplicate path",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "app/path", Content: lo.ToPtr("abc"), ContentEncoding: &plain},
+					{Path: "app/path", Content: lo.ToPtr("def"), ContentEncoding: &plain},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid base64 content",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "app/base64", Content: lo.ToPtr("###"), ContentEncoding: &base64Enc},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "valid base64 content",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "app/base64", Content: &base64Content, ContentEncoding: &base64Enc},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name: "unknown encoding",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "app/unknown", Content: lo.ToPtr("abc"), ContentEncoding: lo.ToPtr(EncodingType("unknown"))},
+				},
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.spec.Validate(tt.fleetTemplate)
+			if tt.expectErr {
+				require.NotEmpty(t, errs, "expected errors but got none")
+			} else {
+				require.Empty(t, errs, "expected no errors but got: %v", errs)
 			}
 		})
 	}
