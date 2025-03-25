@@ -195,6 +195,10 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) 
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
 
+	// don't set fields that are managed by the service
+	er.Status = nil
+	NilOutManagedObjectMetaProperties(&er.Metadata)
+
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
