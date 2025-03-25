@@ -255,31 +255,12 @@ func renderApplication(_ context.Context, app *api.ApplicationProviderSpec) (*st
 	}
 	switch appType {
 	case api.ImageApplicationProviderType:
-		return renderImageApplicationProviderSpec(app)
+		return app.Name, app, nil
 	case api.InlineApplicationProviderType:
-		// TODO: implement
-		return nil, nil, nil
+		return app.Name, app, nil
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
-}
-
-func renderImageApplicationProviderSpec(app *api.ApplicationProviderSpec) (*string, *api.ApplicationProviderSpec, error) {
-	imageProvider, err := app.AsImageApplicationProviderSpec()
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed getting application as ImageApplicationProviderSpec: %w", ErrUnknownApplicationType, err)
-	}
-
-	appName := lo.FromPtr(app.Name)
-	renderedApp := api.ApplicationProviderSpec{
-		Name:    app.Name,
-		EnvVars: app.EnvVars,
-	}
-	if err := renderedApp.FromImageApplicationProviderSpec(imageProvider); err != nil {
-		return &appName, nil, fmt.Errorf("failed rendering application %s: %w", appName, err)
-	}
-
-	return &appName, &renderedApp, nil
 }
 
 func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
