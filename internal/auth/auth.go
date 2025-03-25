@@ -100,7 +100,7 @@ func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
 	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
 	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
-	authZ = NilAuth{}
+	authZ = authz.AapAuthZ{}
 	authN = authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
 	return nil
 }
