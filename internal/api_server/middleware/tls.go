@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -82,22 +81,4 @@ func ValidateClientTlsCert(ctx context.Context) (context.Context, error) {
 		return ctx, status.Error(codes.Unauthenticated, "failed to verify client certificate")
 	}
 	return ctx, nil
-}
-
-// RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
-func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if len(r.URL.String()) > maxURLLength {
-				http.Error(w, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength), http.StatusRequestURITooLong)
-				return
-			}
-			if len(r.Header) > maxNumHeaders {
-				http.Error(w, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders), http.StatusRequestEntityTooLarge)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
 }

@@ -12,7 +12,7 @@ import (
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/middleware"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 // NewFromConfig returns a new Flight Control API client from the given config.
@@ -22,7 +22,7 @@ func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, erro
 		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
 	}
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
-		req.Header.Set(middleware.RequestIDHeader, reqid.GetReqID())
+		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
 		return nil
 	})
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
