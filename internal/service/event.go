@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
@@ -57,4 +58,9 @@ func (h *ServiceHandler) ListEvents(ctx context.Context, params api.ListEventsPa
 
 	result, err := h.store.Event().List(ctx, orgId, listParams)
 	return result, StoreErrorToApiStatus(err, false, api.EventKind, nil)
+}
+
+func (h *ServiceHandler) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status) {
+	numDeleted, err := h.store.Event().DeleteOlderThan(ctx, cutoffTime)
+	return numDeleted, StoreErrorToApiStatus(err, false, api.EventKind, nil)
 }

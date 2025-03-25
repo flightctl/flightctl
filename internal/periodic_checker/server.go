@@ -97,6 +97,13 @@ func (s *Server) Run() error {
 	disruptionBudgetThread.Start()
 	defer disruptionBudgetThread.Stop()
 
+	// Event cleanup
+	eventCleanup := tasks.NewEventCleanup(s.log, serviceHandler, s.cfg.Service.EventRetentionPeriod)
+	eventCleanupThread := thread.New(
+		s.log.WithField("pkg", "event-cleanup"), "Event cleanup", tasks.EventCleanupPollingInterval, eventCleanup.Poll)
+	eventCleanupThread.Start()
+	defer eventCleanupThread.Stop()
+
 	sigShutdown := make(chan os.Signal, 1)
 
 	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)

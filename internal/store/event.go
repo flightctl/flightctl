@@ -17,6 +17,7 @@ type Event interface {
 
 	Create(ctx context.Context, orgId uuid.UUID, event *api.Event) error
 	List(ctx context.Context, orgId uuid.UUID, listParams ListEventsParams) (*api.EventList, error)
+	DeleteOlderThan(ctx context.Context, cutoffTime time.Time) (int64, error)
 }
 
 type EventStore struct {
@@ -102,7 +103,7 @@ func (s *EventStore) List(ctx context.Context, orgId uuid.UUID, listParams ListE
 
 		// Count remaining items
 		var remaining int64
-		countQuery := s.db.Model(&model.Event{}).Where("org_id = ?", orgId)
+		countQuery := s.db.WithContext(ctx).Model(&model.Event{}).Where("org_id = ?", orgId)
 		countQuery = applyFilters(countQuery, listParams)
 		countQuery = countQuery.Where("id <= ?", lastEvent.ID)
 
@@ -137,4 +138,16 @@ func applyFilters(query *gorm.DB, listParams ListEventsParams) *gorm.DB {
 		query = query.Where("timestamp <= ?", *listParams.EndTime)
 	}
 	return query
+}
+
+// DeleteEventsOlderThan deletes events older than the provided timestamp
+func (s *EventStore) DeleteOlderThan(ctx context.Context, cutoffTime time.Time) (int64, error) {
+	// Delete events older than the cutoff time
+	result := s.db.WithContext(ctx).Unscoped().Where("timestamp < ?", cutoffTime).Delete(&model.Event{})
+
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to delete events: %w", result.Error)
+	}
+
+	return result.RowsAffected, nil
 }
