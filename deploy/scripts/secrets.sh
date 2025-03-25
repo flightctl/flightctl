@@ -1,30 +1,18 @@
 #!/usr/bin/env bash
 
-export SYSTEMD_DIR="$HOME/.config/containers/systemd"
-export CONFIG_DIR="$HOME/.config/flightctl"
-
-postgres_secrets=("flightctl-postgresql-password" "flightctl-postgresql-master-password" "flightctl-postgresql-user-password")
-kv_secrets=("flightctl-kv-password")
-export SECRETS=("${postgres_secrets[@]}" "${kv_secrets[@]}")
-
-# Reloads systemd config and start the service
-start_service() {
-    local service_name=$1
-    systemctl --user daemon-reload
-
-    echo "Starting $service_name"
-    systemctl --user start "$service_name"
-}
-
+# Generate a random password
+# Returns: A random password string
 generate_password() {
     echo "$(dd bs=512 if=/dev/urandom count=1 2>/dev/null | LC_ALL=C tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd '-')"
 }
 
+# Ensure all required secrets exist
 ensure_secrets() {
     ensure_postgres_secrets
     ensure_kv_secrets
 }
 
+# Ensure PostgreSQL secrets exist
 ensure_postgres_secrets() {
     echo "Ensuring secrets for PostgreSQL"
     ensure_secret "flightctl-postgresql-password" "FLIGHTCTL_POSTGRESQL_PASSWORD"
@@ -32,16 +20,21 @@ ensure_postgres_secrets() {
     ensure_secret "flightctl-postgresql-user-password" "FLIGHTCTL_POSTGRESQL_USER_PASSWORD"
 }
 
+# Ensure KV secrets exist
 ensure_kv_secrets() {
     echo "Ensuring secrets for KV"
     ensure_secret "flightctl-kv-password" "FLIGHTCTL_KV_PASSWORD"
 }
 
+# Ensure a specific secret exists
+# Args:
+#   $1: Secret name
+#   $2: Environment variable name to store the secret
 ensure_secret() {
-    local secret_name=$1
-    local env_var_name=$2
+    local secret_name="$1"
+    local env_var_name="$2"
 
-    if ! podman secret exists "$secret_name"; then
+    if ! sudo podman secret exists "$secret_name"; then
         echo "Creating secret $secret_name"
         if [ -z "${!env_var_name}" ]; then
             echo "Generating password for $env_var_name"
@@ -49,8 +42,10 @@ ensure_secret() {
         else
             echo "Using existing environment variable $env_var_name"
         fi
-        if ! podman secret create --env "$secret_name" "$env_var_name"; then
+        if ! sudo -E podman secret create --env "$secret_name" "$env_var_name"; then
             echo "Error creating secret $secret_name"
+            return 1
         fi
     fi
+    return 0
 }

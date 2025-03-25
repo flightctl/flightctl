@@ -1,0 +1,18 @@
+[Container]
+Image=registry.access.redhat.com/ubi9/ubi-minimal
+ContainerName=flightctl-ui-init
+Volume=/etc/flightctl/pki:/certs-source:ro,z
+Volume=flightctl-ui-certs:/certs-destination:rw,z
+Volume=/etc/flightctl/flightctl-ui:/config:rw,Z
+Volume=/etc/flightctl/values.yaml:/values.yaml:ro,Z
+Exec=/bin/sh /config/init.sh
+
+[Service]
+Type=oneshot
+RemainAfterExit=false
+TimeoutStartSec=5s
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=flightctl.slice

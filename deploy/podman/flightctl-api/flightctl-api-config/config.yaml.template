@@ -7,20 +7,20 @@ database:
 service:
     address: flightctl-api:3443
     agentEndpointAddress: flightctl-api:7443
-    agentGrpcAddress: flightctl-api:7444
-    baseUrl: https://api.flightctl.$PRIMARY_IP.nip.io:3443/
-    baseAgentEndpointUrl: https://agent-api.flightctl.$PRIMARY_IP.nip.io:7443/
-    baseAgentGrpcUrl: grpcs://agent-grpc.flightctl.$PRIMARY_IP.nip.io:7444/
-    baseUIUrl: http://ui.flightctl.$PRIMARY_IP.nip.io:8080
+    baseUrl: https://{{BASE_DOMAIN}}:3443/
+    baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
+    baseUIUrl: https://{{BASE_DOMAIN}}:443
     altNames:
-      - api.localhost
-      - agent-api.localhost
-      - agent-grpc.localhost
+      - {{BASE_DOMAIN}}
       - flightctl-api
-      - flightctl-api-agent-grpc
-      - agent-grpc.flightctl.$PRIMARY_IP.nip.io
-      - agent-api.flightctl.$PRIMARY_IP.nip.io
-      - api.flightctl.$PRIMARY_IP.nip.io
+    srvCertFile: {{SRV_CERT_FILE}}
+    srvKeyFile: {{SRV_KEY_FILE}}
 kv:
     hostname: flightctl-kv
     port: 6379
+auth:
+    insecureSkipTlsVerify: {{INSECURE_SKIP_TLS_VERIFY}}
+    caCert: {{AUTH_CA_CERT}}
+    aap:
+        apiUrl: {{AAP_API_URL}}
+        externalApiUrl: {{AAP_EXTERNAL_API_URL}}
