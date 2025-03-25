@@ -21,6 +21,7 @@ import (
 type Device interface {
 	InitialMigration() error
 
+	// Exposed to users
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
 	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, error)
@@ -30,19 +31,27 @@ type Device interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
-	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
-	UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error
-	MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error
-	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]CompletionCount, error)
-	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error)
-	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
-	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
+	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
+
+	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
-	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+
+	// Used only by rollout
+	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
+	UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error
+	MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error
+	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, error)
+	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error)
+	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
+
+	// Used only by device_disconnected
+	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
+
+	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
 
@@ -237,7 +246,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error) {
 	var labels []model.DeviceLabel
 
-	resolver, err := selector.NewCompositeSelectorResolver(&model.Device{}, &model.DeviceLabel{})
+	resolver, err := selector.NewCompositeSelectorResolver(&model.DeviceLabel{}, &model.Device{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create selector resolver: %w", err)
 	}
@@ -290,14 +299,6 @@ func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams Lis
 	return devicesCount, nil
 }
 
-type CompletionCount struct {
-	Count               int64
-	SameRenderedVersion bool
-	SameTemplateVersion bool
-	UpdatingReason      api.UpdateState
-	UpdateTimedOut      bool
-}
-
 // CompletionCounts is used for finding if a rollout batch is complete or to set the success percentage of the batch.
 // The result is a count of devices grouped by some fields:
 // - rendered_template_version: taken from the annotation 'device-controller/renderedTemplateVersion'
@@ -305,9 +306,9 @@ type CompletionCount struct {
 // - updating_reason: it is the reason field from a condition having type 'Updating'
 // - same_rendered_version: it is the result of comparison for equality between the annotation 'device-controller/renderedVersion' and the field 'status.config.renderedVersion'
 // - update_timed_out: it is a boolean value indicating if the update of the device has been timed out
-func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]CompletionCount, error) {
+func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, error) {
 	var (
-		results            []CompletionCount
+		results            []api.DeviceCompletionCount
 		updateTimeoutValue any
 	)
 

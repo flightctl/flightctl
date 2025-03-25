@@ -20,11 +20,8 @@ type Repository interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback RepositoryStoreAllDeletedCallback) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error)
 
-	ListIgnoreOrg() ([]model.Repository, error)
-	GetInternal(ctx context.Context, orgId uuid.UUID, name string) (*model.Repository, error)
-
-	UpdateStatusIgnoreOrg(repository *model.Repository) error
 	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error)
 	GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceList, error)
 }
@@ -137,14 +134,8 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	return &repository, nil
 }
 
-func (s *RepositoryStore) UpdateStatusIgnoreOrg(resource *model.Repository) error {
-	repository := model.Repository{
-		Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name},
-	}
-	result := s.db.Model(&repository).Updates(map[string]interface{}{
-		"status": model.MakeJSONField(resource.Status),
-	})
-	return ErrorFromGormError(result.Error)
+func (s *RepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error) {
+	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
 func (s *RepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error) {

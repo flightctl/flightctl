@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
@@ -28,6 +29,7 @@ type LoginOptions struct {
 	Username           string
 	Password           string
 	authConfig         *v1alpha1.AuthConfig
+	authProvider       login.AuthProvider
 	clientConfig       *client.Config
 }
 
@@ -58,7 +60,15 @@ func NewCmdLogin() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			if err := o.Init(args); err != nil {
+				return err
+			}
+			if err := o.ValidateAuthProvider(args); err != nil {
+				return err
+			}
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -87,6 +97,42 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func (o *LoginOptions) Init(args []string) error {
+	var err error
+	o.clientConfig, err = o.getClientConfig(args[0])
+	if err != nil {
+		return err
+	}
+	o.authConfig, err = o.getAuthConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get auth info: %w", err)
+	}
+	if o.authConfig == nil {
+		// auth disabled
+		return nil
+	}
+
+	if o.ClientId == "" {
+		switch o.authConfig.AuthType {
+		case common.AuthTypeK8s:
+			if o.Username != "" {
+				o.ClientId = "openshift-challenging-client"
+			} else {
+				o.ClientId = "openshift-cli-client"
+			}
+		case common.AuthTypeOIDC:
+			o.ClientId = "flightctl"
+		}
+	}
+	o.authProvider, err = client.CreateAuthProvider(client.AuthInfo{
+		AuthType:   o.authConfig.AuthType,
+		AuthCAFile: o.AuthCAFile,
+		ClientId:   o.ClientId,
+		AuthURL:    o.authConfig.AuthURL,
+	}, o.InsecureSkipVerify)
+	return err
+}
+
 func (o *LoginOptions) Validate(args []string) error {
 	if err := o.GlobalOptions.ValidateCmd(args); err != nil {
 		return err
@@ -102,51 +148,41 @@ func (o *LoginOptions) Validate(args []string) error {
 		return fmt.Errorf("API URL is not a valid URL")
 	}
 
-	clientConfig, err := o.getClientConfig(args[0])
-	if err != nil {
-		return err
-	}
-	o.clientConfig = clientConfig
-	authConfig, err := o.getAuthConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get auth info: %w", err)
-	}
-	if authConfig == nil || authConfig.AuthType == "" {
-		// auth disabled
-		return nil
-	}
-	o.authConfig = authConfig
-
-	if strIsEmpty(o.AccessToken) && strIsEmpty(o.Password) && strIsEmpty(o.Username) && !o.Web {
-		fmt.Println("You must provide one of the following options to log in:")
-		fmt.Println("  --token=<token>")
-		fmt.Println("  --username=<username> and --password=<password>")
-		fmt.Print("  --web (to log in via your browser)\n\n")
-		if o.authConfig.AuthType == "k8s" && !strIsEmpty(o.authConfig.AuthURL) {
-			oauth2 := login.NewK8sOAuth2Config(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
-			oauthConfig, err := oauth2.GetOAuth2Config()
-			if err != nil {
-				return fmt.Errorf("could not get oauth config: %w", err)
-			}
-			fmt.Printf("To obtain the token, you can visit %s/request\n", oauthConfig.TokenEndpoint)
-			fmt.Printf("Then login via \"flightctl login %s --token=<token>\"\n\n", args[0])
-			fmt.Printf("Alternatively, use \"flightctl login %s --web\" to login via your browser\n\n", args[0])
-		}
-		return fmt.Errorf("not enough options specified")
-	}
-
-	if !strIsEmpty(o.AccessToken) && (!strIsEmpty(o.Username) || !strIsEmpty(o.Password) || o.Web) {
+	if !login.StrIsEmpty(o.AccessToken) && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || o.Web) {
 		return fmt.Errorf("--token cannot be used along with --username, --password or --web")
 	}
 
-	if o.Web && (!strIsEmpty(o.Username) || !strIsEmpty(o.Password) || !strIsEmpty(o.AccessToken)) {
+	if o.Web && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || !login.StrIsEmpty(o.AccessToken)) {
 		return fmt.Errorf("--web cannot be used along with --username, --password or --token")
 	}
 
-	if (!strIsEmpty(o.Username) && strIsEmpty(o.Password)) || (strIsEmpty(o.Username) && !strIsEmpty(o.Password)) {
+	if (!login.StrIsEmpty(o.Username) && login.StrIsEmpty(o.Password)) || (login.StrIsEmpty(o.Username) && !login.StrIsEmpty(o.Password)) {
 		return fmt.Errorf("both --username and --password need to be provided")
 	}
 
+	return nil
+}
+
+func (o *LoginOptions) ValidateAuthProvider(args []string) error {
+	if o.authProvider == nil {
+		return nil
+	}
+	validateArgs := login.ValidateArgs{
+		ApiUrl:      args[0],
+		ClientId:    o.ClientId,
+		AccessToken: o.AccessToken,
+		Username:    o.Username,
+		Password:    o.Password,
+		Web:         o.Web,
+	}
+	if err := o.authProvider.Validate(validateArgs); err != nil {
+		return err
+	}
+
+	if o.AccessToken == "" && o.authConfig.AuthURL == "" {
+		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
+		return fmt.Errorf("must provide --token")
+	}
 	return nil
 }
 
@@ -155,7 +191,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		authCAFile string
 		err        error
 	)
-	if o.authConfig == nil {
+	if o.authProvider == nil {
 		fmt.Println("Auth is disabled")
 		if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
 			return fmt.Errorf("persisting client config: %w", err)
@@ -164,57 +200,32 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	token := o.AccessToken
-	var authInfo login.AuthInfo
 	if token == "" {
-		if o.authConfig.AuthURL == "" {
-			fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
-			return fmt.Errorf("must provide --token")
-		}
-		var authProvider login.AuthProvider
-		switch o.authConfig.AuthType {
-		case "OIDC":
-			if o.ClientId == "" {
-				o.ClientId = "flightctl"
-			}
-			authProvider = login.NewOIDCConfig(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
-		case "k8s":
-			if o.ClientId == "" {
-				if o.Username != "" {
-					o.ClientId = "openshift-challenging-client"
-				} else {
-					o.ClientId = "openshift-cli-client"
-				}
-			}
-			authProvider = login.NewK8sOAuth2Config(o.AuthCAFile, o.ClientId, o.authConfig.AuthURL, o.InsecureSkipVerify)
-		}
-
-		if authProvider == nil {
-			return fmt.Errorf("unknown auth provider. You can try logging in using \"flightctl login %s --token=<token>\"", o.clientConfig.Service.Server)
-		}
-
-		authInfo, err = authProvider.Auth(o.Web, o.Username, o.Password)
+		authInfo, err := o.authProvider.Auth(o.Web, o.Username, o.Password)
 		if err != nil {
 			return err
 		}
 		token = authInfo.AccessToken
 		o.clientConfig.AuthInfo.RefreshToken = authInfo.RefreshToken
 		if authInfo.ExpiresIn != nil {
-			o.clientConfig.AuthInfo.AccessTokenExpiry = time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
+			o.clientConfig.AuthInfo.AccessTokenExpiry = time.Unix(time.Now().Unix()+*authInfo.ExpiresIn, 0).Format(time.RFC3339Nano)
 		}
 	}
 	if token == "" {
 		return fmt.Errorf("failed to retrieve auth token")
 	}
-	authCAFile, err = filepath.Abs(o.AuthCAFile)
-	if err != nil && authCAFile != "" {
-		return fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
+	if o.AuthCAFile != "" {
+		authCAFile, err = filepath.Abs(o.AuthCAFile)
+		if err != nil {
+			return fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
+		}
 	}
 	o.clientConfig.AuthInfo.AuthType = o.authConfig.AuthType
 	o.clientConfig.AuthInfo.AccessToken = token
 	o.clientConfig.AuthInfo.AuthCAFile = authCAFile
 	o.clientConfig.AuthInfo.ClientId = o.ClientId
 	o.clientConfig.AuthInfo.AuthURL = o.authConfig.AuthURL
-	c, err := client.NewFromConfig(o.clientConfig)
+	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -224,19 +235,8 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("validating token: %w", err)
 	}
-
-	statusCode := res.StatusCode()
-
-	if statusCode == http.StatusUnauthorized {
-		return fmt.Errorf("the token provided is invalid or expired")
-	}
-
-	if statusCode == http.StatusInternalServerError && res.JSON500 != nil {
-		return fmt.Errorf("%v: %v", statusCode, res.JSON500.Message)
-	}
-
-	if statusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %v", res.StatusCode())
+	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
+		return err
 	}
 
 	err = o.clientConfig.Persist(o.ConfigFilePath)

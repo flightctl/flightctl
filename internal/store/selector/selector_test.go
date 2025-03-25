@@ -49,28 +49,21 @@ func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, 
 	if strings.EqualFold("customfield2", selector.String()) {
 		return &SelectorField{
 			Type:      Timestamp,
-			FieldName: "goodfield.key",
+			FieldName: "goodfield ->> 'key'",
 			FieldType: "jsonb",
 		}, nil
 	}
 	if strings.EqualFold("customfield3", selector.String()) {
 		return &SelectorField{
 			Type:      Jsonb,
-			FieldName: "goodfield.key",
-			FieldType: "jsonb",
-		}, nil
-	}
-	if strings.EqualFold("customfield4.some.array[5]", selector.String()) {
-		return &SelectorField{
-			Type:      String,
-			FieldName: "goodfield.some.array[5]",
+			FieldName: "goodfield -> 'key'",
 			FieldType: "jsonb",
 		}, nil
 	}
 	if strings.EqualFold("customfield5.approved", selector.String()) {
 		return &SelectorField{
 			Type:      Bool,
-			FieldName: "goodfield.path.approved",
+			FieldName: "goodfield -> 'path' ->> 'approved'",
 			FieldType: "jsonb",
 		}, nil
 	}
@@ -83,7 +76,6 @@ func (m *goodTestModel) ListSelectors() SelectorNameSet {
 		NewSelectorName("customfield1"),
 		NewSelectorName("customfield2"),
 		NewSelectorName("customfield3"),
-		NewSelectorName("customfield4.some.array[5]"),
 		NewSelectorName("customfield5.approved"),
 	)
 }

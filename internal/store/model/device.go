@@ -44,8 +44,8 @@ type Device struct {
 type DeviceLabel struct {
 	OrgID      uuid.UUID `gorm:"primaryKey;type:uuid;index:,composite:device_label_org_device" selector:"metadata.orgid,hidden,private"`
 	DeviceName string    `gorm:"primaryKey;index:,composite:device_label_org_device" selector:"metadata.name"`
-	LabelKey   string    `gorm:"primaryKey;index:,composite:device_label_key" selector:"metadata.label.key"`
-	LabelValue string    `gorm:"index" selector:"metadata.label.value"`
+	LabelKey   string    `gorm:"primaryKey;index:,composite:device_label_key" selector:"metadata.labels.key"`
+	LabelValue string    `gorm:"index" selector:"metadata.labels.value"`
 
 	// Foreign Key Constraint with CASCADE DELETE
 	Device Device `gorm:"foreignKey:OrgID,DeviceName;references:OrgID,Name;constraint:OnDelete:CASCADE"`
@@ -95,8 +95,8 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	return &Device{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, nil),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, nil),
 			Generation:      resource.Metadata.Generation,
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,

@@ -6,12 +6,30 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
+	"github.com/google/uuid"
 )
+
+func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, tv api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
+	orgId := store.NullOrgId
+
+	if errs := tv.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	var callback store.TemplateVersionStoreCallback = func(u uuid.UUID, before *api.TemplateVersion, after *api.TemplateVersion) {
+		h.log.Infof("fleet %s: template version %s created with rollout device selection, not executing task for immediate rollout", tv.Spec.Fleet, *tv.Metadata.Name)
+	}
+	if immediateRollout {
+		callback = h.callbackManager.TemplateVersionCreatedCallback
+	}
+
+	result, err := h.store.TemplateVersion().Create(ctx, orgId, &tv, callback)
+	return result, StoreErrorToApiStatus(err, true, api.TemplateVersionKind, tv.Metadata.Name)
+}
 
 func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string, params api.ListTemplateVersionsParams) (*api.TemplateVersionList, api.Status) {
 	orgId := store.NullOrgId
@@ -48,9 +66,9 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string,
 		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	} else if listParams.Limit > store.MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))
+		listParams.Limit = MaxRecordsPerListRequest
+	} else if listParams.Limit > MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
 	} else if listParams.Limit < 0 {
 		return nil, api.StatusBadRequest("limit cannot be negative")
 	}
@@ -108,29 +126,17 @@ func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, fleet strin
 	}
 
 	err = h.store.TemplateVersion().DeleteAll(ctx, orgId, &fleet)
-	switch err {
-	case nil:
-		return api.StatusOK()
-	default:
-		return api.StatusInternalServerError(err.Error())
-	}
+	return StoreErrorToApiStatus(err, false, api.TemplateVersionKind, nil)
 }
 
 func (h *ServiceHandler) GetTemplateVersion(ctx context.Context, fleet string, name string) (*api.TemplateVersion, api.Status) {
 	orgId := store.NullOrgId
 
 	result, err := h.store.TemplateVersion().Get(ctx, orgId, fleet, name)
-	switch {
-	case err == nil:
-		return result, api.StatusOK()
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return nil, api.StatusResourceNotFound(api.TemplateVersionKind, name)
-	default:
-		return nil, api.StatusInternalServerError(err.Error())
-	}
+	return result, StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
 }
 
-func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string, name string) (*api.TemplateVersion, api.Status) {
+func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string, name string) api.Status {
 	orgId := store.NullOrgId
 
 	tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: fleet, TemplateVersion: name}
@@ -140,12 +146,12 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string
 	}
 
 	err = h.store.TemplateVersion().Delete(ctx, orgId, fleet, name)
-	switch {
-	case err == nil:
-		return &api.TemplateVersion{}, api.StatusOK()
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return nil, api.StatusResourceNotFound("TemplateVersion", name)
-	default:
-		return nil, api.StatusInternalServerError(err.Error())
-	}
+	return StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
+}
+
+func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, fleet string) (*api.TemplateVersion, api.Status) {
+	orgId := store.NullOrgId
+
+	result, err := h.store.TemplateVersion().GetLatest(ctx, orgId, fleet)
+	return result, StoreErrorToApiStatus(err, false, api.TemplateVersionKind, nil)
 }

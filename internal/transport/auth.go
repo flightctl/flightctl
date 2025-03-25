@@ -27,28 +27,6 @@ func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 
 // (GET /api/v1/auth/validate)
 func (h *TransportHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params api.AuthValidateParams) {
-	authn := auth.GetAuthN()
-	if _, ok := authn.(auth.NilAuth); ok {
-		SetResponse(w, nil, api.StatusAuthNotConfigured("Auth not configured"))
-		return
-	}
-	if params.Authorization == nil {
-		SetResponse(w, nil, api.StatusUnauthorized("Authorization not specified"))
-		return
-	}
-	token, ok := auth.ParseAuthHeader(*params.Authorization)
-	if !ok {
-		SetResponse(w, nil, api.StatusUnauthorized("Failed parsing authorization"))
-		return
-	}
-	valid, err := authn.ValidateToken(r.Context(), token)
-	if err != nil {
-		SetResponse(w, nil, api.StatusInternalServerError(err.Error()))
-		return
-	}
-	if !valid {
-		SetResponse(w, nil, api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized)))
-		return
-	}
+	// auth middleware already checked the token validity
 	SetResponse(w, nil, api.StatusOK())
 }

@@ -5,6 +5,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -27,6 +29,7 @@ var _ = Describe("FleetSelector", func() {
 		deviceStore     store.Device
 		fleetStore      store.Fleet
 		storeInst       store.Store
+		serviceHandler  *service.ServiceHandler
 		cfg             *config.Config
 		dbName          string
 		callbackManager tasks_client.CallbackManager
@@ -34,8 +37,8 @@ var _ = Describe("FleetSelector", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
-		orgId, _ = uuid.NewUUID()
+		ctx = context.WithValue(context.Background(), service.InternalRequestCtxKey, true)
+		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		deviceStore = storeInst.Device()
@@ -44,7 +47,10 @@ var _ = Describe("FleetSelector", func() {
 		publisher := queues.NewMockPublisher(ctrl)
 		publisher.EXPECT().Publish(gomock.Any()).Return(nil).AnyTimes()
 		callbackManager = tasks_client.NewCallbackManager(publisher, log)
-		logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, storeInst, tasks_client.ResourceReference{OrgID: orgId, Name: "fleet", Kind: api.FleetKind})
+		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		Expect(err).ToNot(HaveOccurred())
+		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
+		logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "fleet", Kind: api.FleetKind})
 		logic.SetItemsPerPage(2)
 	})
 
@@ -159,7 +165,6 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(fleets.Items)).To(Equal(3))
 			for _, fleet := range fleets.Items {
-				fleet := fleet
 				fleet.Status.Conditions = []api.Condition{}
 				cond := api.SetStatusCondition(&fleet.Status.Conditions, condition)
 				Expect(cond).To(BeTrue())
@@ -258,7 +263,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(len(devices.Items)).To(Equal(5))
 			for _, device := range devices.Items {
 				resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: *device.Metadata.Name, Kind: api.DeviceKind}
-				logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, storeInst, resourceRef)
+				logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, serviceHandler, resourceRef)
 				logic.SetItemsPerPage(2)
 
 				err = logic.CompareFleetsAndSetDeviceOwner(ctx)

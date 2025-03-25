@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -129,7 +130,6 @@ func TestInitialization(t *testing.T) {
 		},
 	}
 	for _, tt := range testCases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
@@ -148,7 +148,7 @@ func TestInitialization(t *testing.T) {
 				hookManager:             mockHookManager,
 				lifecycle:               mockLifecycleInitializer,
 				deviceReadWriter:        mockReadWriter,
-				managementServiceConfig: &client.Config{},
+				managementServiceConfig: &baseclient.Config{},
 				systemClient:            mockSystemClient,
 				log:                     log.NewPrefixLogger("test"),
 			}
@@ -255,7 +255,6 @@ func TestBootstrapCheckRollback(t *testing.T) {
 		},
 	}
 	for _, tt := range testCases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
@@ -331,7 +330,6 @@ func TestEnsureBootedOS(t *testing.T) {
 	}
 
 	for _, tt := range testCases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()

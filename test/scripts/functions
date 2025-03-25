@@ -135,11 +135,11 @@ function get_endpoints() {
 
 function get_token() {
   if ! oc whoami -t 2>/dev/null; then
-    if [ -z "${KUBEADMIN_PASSWORD}" ]; then
-      echo "KUBEADMIN_PASSWORD is not set. Please set it to the kubeadmin password, or login as kubeadmin before calling this script" >&2
+    if [ -z "${KUBEADMIN_PASS}" ]; then
+      echo "KUBEADMIN_PASS is not set. Please set it to the kubeadmin password, or login as kubeadmin before calling this script" >&2
       exit 1
     fi
-    oc login -u kubeadmin -p ${KUBEADMIN_PASSWORD} >/dev/null
+    oc login -u kubeadmin -p ${KUBEADMIN_PASS} >/dev/null
     oc whoami -t
   fi
 }

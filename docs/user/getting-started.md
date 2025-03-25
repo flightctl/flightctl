@@ -17,7 +17,6 @@ $ kind create cluster
 
 enabling experimental podman provider
 Creating cluster "kind" ...
-[...]
 ```
 
 Verify the cluster is up and you can access it:
@@ -40,9 +39,8 @@ local-path-storage   local-path-provisioner-7577fdbbfb-wxbck      1/1     Runnin
 Verify Helm is installed and can access the cluster:
 
 ```console
-$ helm list
+helm list
 
-NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
 ```
 
 ## Deploying the Flight Control Service
@@ -52,16 +50,16 @@ NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
 Start your k8s/KIND cluster. For KIND cluster you can use [example config](../../deploy/kind.yaml).
 
 ```console
-$ kind create cluster --config kind.yaml
+kind create cluster --config kind.yaml
 
-[...]
 ```
 
 Install a released version of the Flight Control Service into the cluster by running:
 
 ```console
-$ helm upgrade --install --version=<version-to-install> \
-    --namespace flightctl --create-namespace \
+FC_NAMESPACE=flightctl
+helm upgrade --install --version=<version-to-install> \
+    --namespace $FC_NAMESPACE --create-namespace \
     flightctl oci://quay.io/flightctl/charts/flightctl \
     --set global.baseDomain=${YOUR_IP}.nip.io \
     --set global.exposeServicesMethod=nodePort
@@ -78,8 +76,9 @@ Available versions can be found in [quay.io](https://quay.io/repository/flightct
 Install a released version of the Flight Control Service into the cluster by running:
 
 ```console
-$ helm upgrade --install --version=<version-to-install> \
-    --namespace flightctl --create-namespace \
+FC_NAMESPACE=flightctl
+helm upgrade --install --version=<version-to-install> \
+    --namespace $FC_NAMESPACE --create-namespace \
     flightctl oci://quay.io/flightctl/charts/flightctl
 
 ```
@@ -87,9 +86,8 @@ $ helm upgrade --install --version=<version-to-install> \
 Verify your Flight Control Service is up and running:
 
 ```console
-$ kubectl get pods -n flightctl
+kubectl get pods -n flightctl
 
-[...]
 ```
 
 #### Standalone Flight Control with external OIDC
@@ -109,7 +107,7 @@ global:
 Install a released version of the Flight Control Service into the cluster by running:
 
 ```console
-$ helm upgrade --install --version=<version-to-install> \
+helm upgrade --install --version=<version-to-install> \
     --namespace flightctl --create-namespace \
     flightctl oci://quay.io/flightctl/charts/flightctl \
     --values values.yaml
@@ -119,9 +117,8 @@ $ helm upgrade --install --version=<version-to-install> \
 Verify your Flight Control Service is up and running:
 
 ```console
-$ kubectl get pods -n flightctl
+kubectl get pods -n flightctl
 
-[...]
 ```
 
 #### Flight Control in ACM
@@ -133,7 +130,7 @@ If you are not running helm from the base directory of this repository, you can 
 Then run the following command, making sure to specify the correct path to `values.acm.yaml`:
 
 ```console
-$ helm upgrade --install --version=<version-to-install> \
+helm upgrade --install --version=<version-to-install> \
     --namespace flightctl --create-namespace \
     flightctl oci://quay.io/flightctl/charts/flightctl \
     --values deploy/helm/flightctl/values.acm.yaml
@@ -145,22 +142,45 @@ Available versions can be found in [quay.io](https://quay.io/repository/flightct
 Verify your Flight Control Service is up and running:
 
 ```console
-$ kubectl get pods -n flightctl
+kubectl get pods -n flightctl
 
-[...]
 ```
 
 After deploying the Flight Control ACM UI plugin, it needs to be manually enabled. Open your OpenShift Console -> Home -> Overview -> Status card -> Dynamic plugins and enable the Flight Control ACM UI plugin.
 After enabling the plugin, you will need to wait for the Console operator to rollout a new deployment.
+
+## Gathering deployment information
+
+After the helm install command succeeded, it will print out a block of helpful information.
+It will look similar to:
+
+```console
+Thank you for installing Flight Control.
+
+
+You can access the Flight Control UI at <UI_URL>
+You can access the Flight Control API at <API_URL>
+
+You can login using the following CLI command:
+   
+    flightctl login <API_URL> --insecure-skip-tls-verify --web
+
+```
+
+Lets store the API_URL as environment variable for later use.
+
+```console
+FC_API_URL=<API_URL>
+
+```
 
 ## Installing the Flight Control CLI
 
 In a terminal, select the appropriate Flight Control CLI binary for your OS (linux or darwin) and CPU architecture (amd64 or arm64), for example:
 
 ```console
-$ FC_CLI_BINARY=flightctl-linux-amd64
+FC_CLI_BINARY=flightctl-linux-amd64
 
-[...]
 ```
 
 Download the `flightctl` binary to your machine:
@@ -185,9 +205,8 @@ flightctl-linux-amd64: OK
 If the checksum is correct, rename it to `flightctl` and make it executable:
 
 ```console
-$ mv "${FC_CLI_BINARY}" flightctl && chmod +x flightctl
+mv "${FC_CLI_BINARY}" flightctl && chmod +x flightctl
 
-[...]
 ```
 
 Finally, move it into a location within your shell's search path.
@@ -199,52 +218,43 @@ Finally, move it into a location within your shell's search path.
 Retrieve the password for the "demouser" account that's been automatically generated for you during installation:
 
 ```console
-$ kubectl get secret/keycloak-demouser-secret -n flightctl -o=jsonpath='{.data.password}' | base64 -d
+FC_PASS=$(kubectl get secret/keycloak-demouser-secret -n $FC_NAMESPACE -o=jsonpath='{.data.password}' | base64 -d)
 
-[...]
 ```
 
-Use the CLI to log into the Flight Control Service:
+Headless login:
 
 ```console
-$ flightctl login https://api.flightctl.127.0.0.1.nip.io/ --web --insecure-skip-tls-verify
+flightctl login ${FC_API_URL} -u demouser -p ${FC_PASS}
 
-[...]
 ```
 
-In the web browser that opens, use the login "demouser" and the password you retrieved in the previous step.
+> 📌 For headless login to work, the OIDC provider of your choice needs to have Direct Access grant enabled
 
-Verify you can now access the service via the CLI:
+Login using web browser:
 
 ```console
-$ flightctl get devices
+flightctl login ${FC_API_URL} --web
 
-NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
 ```
 
 ### ACM deployment
 
-Use the CLI to log into the Flight Control Service:
+Login using a user token:
 
 ```console
-$ flightctl login https://api.flightctl.127.0.0.1.nip.io/ --web --insecure-skip-tls-verify
+flightctl login ${FC_API_URL} -t $(oc whoami -t)
 
-[...]
 ```
 
-In the web browser that opens, use your ACM login credentials.
+> 📌 You can also login with your ACM login credentials using the `--web` or `--username` and `--password` flags
 
-Verify you can now access the service via the CLI:
+### Self-signed certificates
 
-```console
-$ flightctl get devices
+The CLI uses the host's certificate authority (CA) pool to verify the Flight Control service's identity. When using self-signed certificates, this can lead to a TLS verification error if you have not added your CA's certificate to that pool. You can:
 
-NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
-```
-
-## Login into the Flight Control Service from the standalone UI
-
-Browse to `ui.flightctl.MY.DOMAIN` and use the login "demouser" and the password you retrieved in the previous step.
+* add the path for the CA certificate via the `--certificate-authority=<path_to_ca_crt>` flag to your command
+* or bypass the server verification (insecure!) by adding the `--insecure-skip-tls-verify` flag to your command
 
 ## Building a Bootable Container Image including the Flight Control Agent
 
@@ -295,9 +305,8 @@ Note this is a regular `Containerfile` that you're used to from Docker/Podman, w
 For example, as a user of Quay who has the privileges to push images into the `quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl` repository, build the bootc image like this:
 
 ```console
-$ sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 .
+sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 .
 
-[...]
 ```
 
 Log in to your Quay account:
@@ -313,9 +322,8 @@ Login Succeeded!
 Push your bootc image to Quay:
 
 ```console
-$ sudo podman push quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
+sudo podman push quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
 
-[...]
 ```
 
 ## Provisioning a Device with a Bootable Container Image
@@ -325,13 +333,11 @@ A bootc image is a file system image, i.e. it contains the files to be written i
 Use the [`bootc-image-builder`](https://github.com/osbuild/bootc-image-builder) tool to generate that disk image as follows:
 
 ```console
-$ mkdir -p output && \
+mkdir -p output && \
   sudo podman run --rm -it --privileged --pull=newer --security-opt label=type:unconfined_t \
-    -v $(pwd)/output:/output -v /var/lib/containers/storage:/var/lib/containers/storage \
+    -v ${PWD}/output:/output -v /var/lib/containers/storage:/var/lib/containers/storage \
     quay.io/centos-bootc/bootc-image-builder:latest \
     --type raw quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
-
-[...]
 ```
 
 Once `bootc-image-builder` completes, you'll find the raw disk image under `output/image/disk.raw`. Now you can flash this image to a device using standard tools like [arm-image-installer](https://docs.fedoraproject.org/en-US/iot/physical-device-setup/#_scripted_image_transfer_with_arm_image_installer), [Etcher](https://etcher.balena.io/), or [`dd`](https://docs.fedoraproject.org/en-US/iot/physical-device-setup/#_manual_image_transfer_with_dd).

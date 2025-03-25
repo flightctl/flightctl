@@ -18,7 +18,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	deviceStatus.Os.Image = "quay.io/flightctl/test-osimage:latest"
 
 	gitConfig := &api.GitConfigProviderSpec{
-		Name: "paramGitConfig",
+		Name: "param-git-config",
 	}
 	gitConfig.GitRef.Path = "path-{{ device.metadata.labels[key] }}"
 	gitConfig.GitRef.Repository = "repo"
@@ -27,9 +27,9 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	_ = gitItem.FromGitConfigProviderSpec(*gitConfig)
 
 	inlineConfig := &api.InlineConfigProviderSpec{
-		Name: "paramInlineConfig",
+		Name: "param-inline-config",
 	}
-	enc := api.Base64
+	enc := api.EncodingBase64
 	inlineConfig.Inline = []api.FileSpec{
 		// Unencoded: My version is {{ device.metadata.labels[version] }}
 		{Path: "/etc/withparams", ContentEncoding: &enc, Content: "TXkgdmVyc2lvbiBpcyB7eyBkZXZpY2UubWV0YWRhdGEubGFiZWxzW3ZlcnNpb25dIH19"},
@@ -38,10 +38,10 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	_ = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 
 	httpConfig := &api.HttpConfigProviderSpec{
-		Name: "paramHttpConfig",
+		Name: "param-http-config",
 	}
 	httpConfig.HttpRef.Repository = "http-repo"
-	httpConfig.HttpRef.FilePath = "http-path-{{ device.metadata.labels[key] }}"
+	httpConfig.HttpRef.FilePath = "/http-path-{{ device.metadata.labels[key] }}"
 	httpConfig.HttpRef.Suffix = lo.ToPtr("/http-suffix")
 	httpItem := api.ConfigProviderSpec{}
 	_ = httpItem.FromHttpConfigProviderSpec(*httpConfig)

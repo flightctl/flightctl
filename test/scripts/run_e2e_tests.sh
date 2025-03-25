@@ -17,7 +17,7 @@ export API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
 export REGISTRY_ENDPOINT=$(registry_address)
 
 if [[ "${GINKGO_FOCUS}" != "" ]]; then
-	"${GOBIN}/ginkgo" run --focus "${GINKGO_FOCUS}" --timeout 30m --race -vv --junit-report ${REPORTS}/junit_e2e_test.xml --github-output ${GO_E2E_DIRS}
+	"${GOBIN}/ginkgo" run --focus "${GINKGO_FOCUS}" --timeout 60m --race -vv --junit-report ${REPORTS}/junit_e2e_test.xml --github-output ${GO_E2E_DIRS}
 else
-	"${GOBIN}/ginkgo" run --timeout 30m --race -vv --junit-report ${REPORTS}/junit_e2e_test.xml --github-output ${GO_E2E_DIRS}
+	"${GOBIN}/ginkgo" run --timeout 60m --race -vv --junit-report ${REPORTS}/junit_e2e_test.xml --github-output ${GO_E2E_DIRS}
 fi

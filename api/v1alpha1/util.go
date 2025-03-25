@@ -13,6 +13,14 @@ import (
 	"github.com/samber/lo"
 )
 
+type DeviceCompletionCount struct {
+	Count               int64
+	SameRenderedVersion bool
+	SameTemplateVersion bool
+	UpdatingReason      UpdateState
+	UpdateTimedOut      bool
+}
+
 type HookActionType string
 
 const (
@@ -38,7 +46,8 @@ const (
 type ApplicationProviderType string
 
 const (
-	ImageApplicationProviderType ApplicationProviderType = "image"
+	ImageApplicationProviderType  ApplicationProviderType = "image"
+	InlineApplicationProviderType ApplicationProviderType = "inline"
 )
 
 // Type returns the type of the action.
@@ -118,6 +127,10 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 
 	if _, exists := data[ImageApplicationProviderType]; exists {
 		return ImageApplicationProviderType, nil
+	}
+
+	if _, exists := data[InlineApplicationProviderType]; exists {
+		return InlineApplicationProviderType, nil
 	}
 
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
@@ -215,11 +228,11 @@ func applicationsAreEqual(c1, c2 *[]ApplicationProviderSpec) bool {
 
 		switch type1 {
 		case ImageApplicationProviderType:
-			imageSpec1, err := item1.AsImageApplicationProvider()
+			imageSpec1, err := item1.AsImageApplicationProviderSpec()
 			if err != nil {
 				return false
 			}
-			imageSpec2, err := item2.AsImageApplicationProvider()
+			imageSpec2, err := item2.AsImageApplicationProviderSpec()
 			if err != nil {
 				return false
 			}

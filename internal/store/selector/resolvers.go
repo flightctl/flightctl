@@ -1,7 +1,6 @@
 package selector
 
 import (
-	"fmt"
 	"sort"
 
 	gormschema "gorm.io/gorm/schema"
@@ -25,14 +24,19 @@ func (r EmptyResolver) List() []SelectorName {
 	return []SelectorName{}
 }
 
+type compositeResolver struct {
+	table    string
+	resolver Resolver
+}
+
 // CompositeSelectorResolver combines multiple resolvers to support multiple models
 type CompositeSelectorResolver struct {
-	resolvers map[string]Resolver
+	resolvers []compositeResolver
 }
 
 // NewCompositeSelectorResolver initializes a resolver that can handle multiple models
 func NewCompositeSelectorResolver(dest ...any) (*CompositeSelectorResolver, error) {
-	resolvers := make(map[string]Resolver)
+	resolvers := make([]compositeResolver, 0, len(dest))
 
 	for _, model := range dest {
 		// Parse schema to retrieve the table name
@@ -49,7 +53,7 @@ func NewCompositeSelectorResolver(dest ...any) (*CompositeSelectorResolver, erro
 			return nil, err
 		}
 
-		resolvers[schema.Table] = fs
+		resolvers = append(resolvers, compositeResolver{schema.Table, fs})
 	}
 
 	return &CompositeSelectorResolver{resolvers: resolvers}, nil
@@ -59,13 +63,13 @@ func NewCompositeSelectorResolver(dest ...any) (*CompositeSelectorResolver, erro
 func (r *CompositeSelectorResolver) ResolveNames(name SelectorName) ([]string, error) {
 	var fields []string
 
-	for table, resolver := range r.resolvers {
-		names, err := resolver.ResolveNames(name)
+	for _, cr := range r.resolvers {
+		names, err := cr.resolver.ResolveNames(name)
 		if err != nil {
 			return nil, err
 		}
 		for _, n := range names {
-			fields = append(fields, fmt.Sprintf("%s.%s", table, n))
+			fields = append(fields, cr.table+"."+n)
 		}
 	}
 
@@ -74,14 +78,14 @@ func (r *CompositeSelectorResolver) ResolveNames(name SelectorName) ([]string, e
 
 // ResolveFields retrieves field metadata from resolvers, prefixing them with the table name
 func (r *CompositeSelectorResolver) ResolveFields(name SelectorName) ([]*SelectorField, error) {
-	for table, resolver := range r.resolvers {
-		fields, err := resolver.ResolveFields(name)
+	for _, cr := range r.resolvers {
+		fields, err := cr.resolver.ResolveFields(name)
 		if err != nil {
 			return nil, err
 		}
 		if len(fields) > 0 {
-			for _, field := range fields {
-				field.FieldName = fmt.Sprintf("%s.%s", table, field.FieldName)
+			for i := range fields {
+				fields[i].FieldName = cr.table + "." + fields[i].FieldName
 			}
 			return fields, nil
 		}
@@ -94,8 +98,8 @@ func (r *CompositeSelectorResolver) ResolveFields(name SelectorName) ([]*Selecto
 func (r *CompositeSelectorResolver) List() []SelectorName {
 	set := NewSelectorFieldNameSet()
 
-	for _, resolver := range r.resolvers {
-		set.Add(resolver.List()...)
+	for _, cr := range r.resolvers {
+		set.Add(cr.resolver.List()...)
 	}
 
 	list := set.List()

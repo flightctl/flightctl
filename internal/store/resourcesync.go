@@ -23,9 +23,7 @@ type ResourceSync interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error
-
-	ListIgnoreOrg() ([]model.ResourceSync, error)
-	UpdateStatusIgnoreOrg(resourceSync *model.ResourceSync) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error)
 }
 
 type ResourceSyncStore struct {
@@ -140,24 +138,6 @@ func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, call
 	})
 }
 
-func (s *ResourceSyncStore) UpdateStatusIgnoreOrg(resource *model.ResourceSync) error {
-	resourcesync := model.ResourceSync{
-		Resource: model.Resource{OrgID: resource.OrgID, Name: resource.Name},
-	}
-	result := s.db.Model(&resourcesync).Updates(map[string]interface{}{
-		"status":           model.MakeJSONField(resource.Status),
-		"resource_version": gorm.Expr("resource_version + 1"),
-	})
-	return ErrorFromGormError(result.Error)
-}
-
-// A method to get all ResourceSyncs , regardless of ownership. Used internally by the the ResourceSync monitor.
-// TODO: Add pagination, perhaps via gorm scopes.
-func (s *ResourceSyncStore) ListIgnoreOrg() ([]model.ResourceSync, error) {
-	var resourcesyncs []model.ResourceSync
-	result := s.db.Model(&resourcesyncs).Find(&resourcesyncs)
-	if result.Error != nil {
-		return nil, ErrorFromGormError(result.Error)
-	}
-	return resourcesyncs, nil
+func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
+	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }

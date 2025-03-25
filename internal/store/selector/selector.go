@@ -3,11 +3,9 @@ package selector
 import (
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -63,6 +61,10 @@ func (sr *selectorFieldResolver) ResolveNames(name SelectorName) ([]string, erro
 // It supports resolving JSONB fields and custom field resolutions if selectorNameMapping or selectorResolver are present.
 // It returns a slice of resolved SelectorField or an error if the selector cannot be resolved.
 func (sr *selectorFieldResolver) ResolveFields(name SelectorName) ([]*SelectorField, error) {
+	if name == nil || name.String() == "" {
+		return nil, fmt.Errorf("empty selector name")
+	}
+
 	selectorNames := []SelectorName{name}
 	if sr.selectorNameMapping != nil && sr.selectorNameMapping.ListSelectors().Contains(name) {
 		if refs := sr.selectorNameMapping.MapSelectorName(name); len(refs) > 0 {
@@ -147,44 +149,17 @@ func (sr *selectorFieldResolver) resolveSelector(name SelectorName) (*SelectorFi
 				return nil, fmt.Errorf("unknown or unsupported schema type for field: %s", schemaField.DBName)
 			}
 
-			if selectorType.IsArray() && selectorName[len(sn.String())] == '[' {
-				if !arrayPattern.MatchString(selectorName) {
-					return nil, fmt.Errorf(
-						"array access must specify a valid index (e.g., 'conditions[0]'); invalid selector: %s", selectorName)
-				}
-
-				fieldKind := schemaField.StructField.Type.Kind()
-				if fieldKind != reflect.Array && fieldKind != reflect.Slice {
-					return nil, fmt.Errorf("field %s is expected to be an array or slice, but got %s", schemaField.DBName, fieldKind.String())
-				}
-
-				arrayIndex, err := strconv.Atoi(selectorName[strings.Index(selectorName, "[")+1 : len(selectorName)-1])
-				if err != nil {
-					return nil, err
-				}
-
-				if arrayIndex == math.MaxInt {
-					return nil, fmt.Errorf("array index overflow for selector %s", selectorName)
-				}
-
-				// 1-based indexing for PostgreSQL
-				arrayIndex += 1
-
-				// Parse the selector tag from the field's struct tag.
-				// Safe to call because we only process fields with the `selector` tag.
-				_, opt := parseSelectorTag(schemaField.StructField.Tag.Get("selector"))
-
-				return &SelectorField{
-					Type:      selectorType.ArrayType(),
-					FieldName: fmt.Sprintf("%s[%d]", schemaField.DBName, arrayIndex),
-					FieldType: schemaField.DataType,
-					Options:   opt,
-				}, nil
-
-			}
-
 			if selectorType == Jsonb && selectorName[len(sn.String())] == '.' {
-				keyPath := schemaField.DBName + selectorName[len(sn.String()):]
+				var params strings.Builder
+				parts := strings.Split(selectorName[len(sn.String()):], ".")
+				params.WriteString(parts[0])
+				for _, part := range parts[1:] {
+					params.WriteString(" -> '")
+					params.WriteString(part)
+					params.WriteString("'")
+				}
+
+				keyPath := schemaField.DBName + params.String()
 				if strings.Contains(keyPath, "::") {
 					return nil, fmt.Errorf("casting is not permitted: %s", selectorName)
 				}

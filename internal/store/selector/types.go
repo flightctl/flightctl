@@ -1,7 +1,6 @@
 package selector
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/flightctl/flightctl/pkg/k8s/selector/selection"
@@ -61,8 +60,6 @@ var operatorsMap = map[selection.Operator]string{
 	selection.GreaterThan:         "GT",
 	selection.GreaterThanOrEquals: "GTE",
 }
-
-var arrayPattern = regexp.MustCompile(`^[A-Za-z0-9_.]+\[\d+\]$`)
 
 // Resolver is an interface that provides methods for dynamically resolving
 // selector names and fields in a database model.
@@ -145,31 +142,6 @@ func (t SelectorType) IsArray() bool {
 	}
 }
 
-func (t SelectorType) ArrayType() SelectorType {
-	if !t.IsArray() {
-		return Unknown
-	}
-
-	switch t {
-	case BoolArray:
-		return Bool
-	case IntArray:
-		return Int
-	case SmallIntArray:
-		return SmallInt
-	case BigIntArray:
-		return BigInt
-	case FloatArray:
-		return Float
-	case TextArray:
-		return String
-	case TimestampArray:
-		return Timestamp
-	default:
-		return Unknown
-	}
-}
-
 func (t SelectorType) String() string {
 	switch t {
 	case UUID:
@@ -223,18 +195,6 @@ type SelectorField struct {
 // IsJSONBCast returns true if the field's data type is 'jsonb' and the expected type is not Jsonb.
 func (sf *SelectorField) IsJSONBCast() bool {
 	return sf.FieldType == "jsonb" && sf.Type != Jsonb
-}
-
-// IsArrayElement returns true if the selector is an element within an array.
-func (sf *SelectorField) IsArrayElement() bool {
-	// Check if the schema type exists in the resolution map
-	t, exists := schemaTypeResolution[sf.FieldType]
-	if !exists {
-		return false
-	}
-
-	// Check if the schema type is an array and the array type matches the selector's type
-	return t.IsArray() && t.ArrayType() == sf.Type
 }
 
 type SelectorNameSet struct {

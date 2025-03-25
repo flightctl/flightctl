@@ -36,7 +36,7 @@ jobs:
       - name: Create cluster
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make cluster
-      
+
       - name: Deploy
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make deploy

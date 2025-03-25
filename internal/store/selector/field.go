@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/queryparser"
 	"github.com/flightctl/flightctl/pkg/queryparser/sql"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
@@ -129,6 +129,10 @@ func NewFieldSelector(input string, opts ...FieldSelectorOption) (*FieldSelector
 				fmt.Sprintf("keysets with multiple selectors are not supported: %v", r.Key())))
 			continue
 		}
+
+		if errs := validation.IsQualifiedName(r.Key().String()); len(errs) != 0 {
+			allErrs = append(allErrs, field.Invalid(field.ToPath().Child("key"), r.Key(), strings.Join(errs, "; ")))
+		}
 	}
 
 	// If validation errors exist, aggregate and return them as a single error.
@@ -223,6 +227,10 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 	session, ok := input.(selectorParserSession)
 	if !ok {
 		return nil, fmt.Errorf("invalid input type: expected selectorParserSession, got %T", input)
+	}
+
+	if session.selector == nil {
+		return nil, fmt.Errorf("selector is not defined")
 	}
 
 	if session.resolver == nil {
@@ -358,64 +366,11 @@ func (fs *FieldSelector) createOperatorToken(operator selection.Operator, select
 	})
 }
 
-var fieldRegex = regexp.MustCompile(`^[A-Za-z0-9][-A-Za-z0-9_.*\[\]0-9]*[A-Za-z0-9\]]$`)
-
 func (fs *FieldSelector) resolveField(selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
 	if _, ok := selectorField.Options["private"]; ok && !fs.privateSelectors {
 		return nil, fmt.Errorf("field is marked as private and cannot be selected")
 	}
 
-	if !fieldRegex.MatchString(selectorField.FieldName) {
-		return nil, fmt.Errorf(
-			"field must consist of alphanumeric characters, '-', '_', or '.', "+
-				"and must start with an alphanumeric character and end with either an alphanumeric character or an array index "+
-				"(e.g., 'MyField', 'my.field', '123-abc', or 'arrayField[0]'); "+
-				"regex used for validation is '%s'",
-			fieldRegex.String())
-	}
-
-	if selectorField.FieldType == "jsonb" {
-		var params strings.Builder
-		parts := strings.Split(selectorField.FieldName, ".")
-		params.WriteString(parts[0])
-
-		for i, part := range parts[1:] {
-			// Handle array indexing in JSONB fields if applicable
-			if openBracketIdx, closeBracketIdx := strings.Index(part, "["), strings.Index(part, "]"); openBracketIdx > -1 || closeBracketIdx > -1 {
-				if !arrayPattern.MatchString(part) {
-					return nil, fmt.Errorf(
-						"array access must specify a valid index (e.g., 'conditions[0]'); invalid part: %s", part)
-				}
-				// Parse the array field and index
-				arrayKey := part[:openBracketIdx]
-				arrayIndex := part[openBracketIdx+1 : len(part)-1]
-
-				params.WriteString(" -> '")
-				params.WriteString(arrayKey)
-				params.WriteString("'")
-
-				// Use '->>' if casting to text is needed for the final part
-				if i == len(parts[1:])-1 && selectorField.IsJSONBCast() {
-					params.WriteString(" ->> ")
-				} else {
-					params.WriteString(" -> ")
-				}
-				params.WriteString(arrayIndex)
-			} else {
-				// Handle regular JSON key access
-				if i == len(parts[1:])-1 && selectorField.IsJSONBCast() {
-					params.WriteString(" ->> '")
-				} else {
-					params.WriteString(" -> '")
-				}
-				params.WriteString(part)
-				params.WriteString("'")
-			}
-		}
-		return resolve(params.String()), nil
-	}
-
-	// For non-JSONB fields, directly use the FieldName
 	return resolve(selectorField.FieldName), nil
 }
 
@@ -617,9 +572,6 @@ func (fs *FieldSelector) applyStringOperator(operator selection.Operator, select
 	case selection.Contains, selection.NotContains:
 		if selectorField.IsJSONBCast() {
 			return nil, fmt.Errorf("the operator %q is not supported for partial string matching when the field is of type JSONB with string casting", operator)
-		}
-		if selectorField.IsArrayElement() {
-			return nil, fmt.Errorf("the operator %q is not supported for partial string matching when the selector is an element within an array", operator)
 		}
 		return resolve(operatorsMap[operator]), nil
 	default:

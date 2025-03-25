@@ -33,10 +33,20 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.Enrol
 		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
 	}
 
-	csr.Subject.CommonName, err = crypto.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
+	supplied, err := crypto.CNFromDeviceFingerprint(csr.Subject.CommonName)
+	if err != nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: invalid CN supplied in CSR: %w", err)
+	}
+
+	desired, err := crypto.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: error setting CN in CSR: %w", err)
 	}
+
+	if desired != supplied {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: attempt to supply a fake CN, possible identity theft, csr: %s, metadata %s", supplied, desired)
+	}
+	csr.Subject.CommonName = desired
 
 	if err := csr.CheckSignature(); err != nil {
 		return fmt.Errorf("failed to verify signature of CSR: %w", err)
@@ -146,9 +156,9 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.
 		LabelSelector: labelSelector,
 	}
 	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	} else if listParams.Limit > store.MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest))
+		listParams.Limit = MaxRecordsPerListRequest
+	} else if listParams.Limit > MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
 	} else if listParams.Limit < 0 {
 		return nil, api.StatusBadRequest("limit cannot be negative")
 	}
@@ -184,6 +194,10 @@ func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) 
 
 func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
+
+	// don't set fields that are managed by the service
+	er.Status = nil
+	NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())

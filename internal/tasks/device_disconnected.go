@@ -3,12 +3,12 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/service/common"
-	"github.com/flightctl/flightctl/internal/store"
-	"github.com/google/uuid"
+	"github.com/flightctl/flightctl/internal/service"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -18,14 +18,14 @@ const (
 )
 
 type DeviceDisconnected struct {
-	log   logrus.FieldLogger
-	store store.Store
+	log            logrus.FieldLogger
+	serviceHandler *service.ServiceHandler
 }
 
-func NewDeviceDisconnected(log logrus.FieldLogger, store store.Store) *DeviceDisconnected {
+func NewDeviceDisconnected(log logrus.FieldLogger, serviceHandler *service.ServiceHandler) *DeviceDisconnected {
 	return &DeviceDisconnected{
-		log:   log,
-		store: store,
+		log:            log,
+		serviceHandler: serviceHandler,
 	}
 }
 
@@ -36,21 +36,18 @@ func (t *DeviceDisconnected) Poll() {
 	defer cancel()
 
 	statusInfoMessage := fmt.Sprintf("Did not check in for more than %d minutes", int(api.DeviceDisconnectedTimeout.Minutes()))
-	// TODO: one thread per org?
-	orgID := uuid.UUID{}
-	// batch of 1000 devices
-	listParams := store.ListParams{Limit: ItemsPerPage}
+
+	listParams := api.ListDevicesParams{Limit: lo.ToPtr(int32(ItemsPerPage))}
 	for {
-		devices, err := t.store.Device().List(ctx, orgID, listParams)
-		if err != nil {
-			t.log.WithError(err).Error("failed to list devices")
+		devices, status := t.serviceHandler.ListDevices(ctx, listParams, nil)
+		if status.Code != http.StatusOK {
+			t.log.WithError(service.ApiStatusToErr(status)).Error("failed to list devices")
 			return
 		}
 
 		var batch []string
 		for _, device := range devices.Items {
-			device := device
-			changed := common.UpdateServiceSideStatus(ctx, t.store, t.log, orgID, &device)
+			changed := t.serviceHandler.UpdateServiceSideDeviceStatus(ctx, device)
 			if changed {
 				batch = append(batch, *device.Metadata.Name)
 			}
@@ -58,20 +55,14 @@ func (t *DeviceDisconnected) Poll() {
 
 		t.log.Infof("Updating %d devices to unknown status", len(batch))
 		// TODO: This is MVP and needs to be properly evaluated for performance and race conditions
-		if err := t.store.Device().UpdateSummaryStatusBatch(ctx, orgID, batch, api.DeviceSummaryStatusUnknown, statusInfoMessage); err != nil {
-			t.log.WithError(err).Error("failed to update device summary status")
+		if status := t.serviceHandler.UpdateDeviceSummaryStatusBatch(ctx, batch, api.DeviceSummaryStatusUnknown, statusInfoMessage); status.Code != http.StatusOK {
+			t.log.WithError(service.ApiStatusToErr(status)).Error("failed to update device summary status")
 			return
 		}
 
 		if devices.Metadata.Continue == nil {
 			break
-		} else {
-			cont, err := store.ParseContinueString(devices.Metadata.Continue)
-			if err != nil {
-				t.log.WithError(err).Error("failed to parse continuation for paging")
-				return
-			}
-			listParams.Continue = cont
 		}
+		listParams.Continue = devices.Metadata.Continue
 	}
 }

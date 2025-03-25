@@ -42,9 +42,10 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
 			},
-			expectedReady:   "1/1",
-			expectedStatus:  v1alpha1.ApplicationStatusRunning,
-			expectedSummary: v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedReady:    "1/1",
+			expectedStatus:   v1alpha1.ApplicationStatusRunning,
+			expectedSummary:  v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedRestarts: 0,
 		},
 		{
 			name: "single app multiple containers started then one manual stop exit code 0",
@@ -194,8 +195,8 @@ func TestListenForEvents(t *testing.T) {
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
 			tmpDir := t.TempDir()
-			r := fileio.NewReader()
-			r.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
 			var testInspect []PodmanInspect
@@ -204,12 +205,12 @@ func TestListenForEvents(t *testing.T) {
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
-			podman := client.NewPodman(log, execMock, r, newTestBackoff())
-			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "")
+			podman := client.NewPodman(log, execMock, rw, newTestBackoff())
+			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "", rw)
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
-				err = podmanMonitor.ensure(testApp)
+				err := podmanMonitor.Ensure(testApp)
 				require.NoError(err)
 			}
 
@@ -267,7 +268,6 @@ func TestListenForEvents(t *testing.T) {
 					return true
 				}, timeoutDuration, retryDuration, "data was not processed in time")
 			}
-
 		})
 	}
 }
@@ -285,56 +285,56 @@ func TestApplicationAddRemove(t *testing.T) {
 		{
 			name:           "add app with '@' character",
 			appName:        "app1@2",
-			expectedName:   "app1_2",
+			expectedName:   "app1_2-819634",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "add app with ':' character",
 			appName:        "app-2:v2",
-			expectedName:   "app-2_v2",
+			expectedName:   "app-2_v2-721985",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "remove app1",
 			appName:        "app1@2",
-			expectedName:   "app1_2",
+			expectedName:   "app1_2-819634",
 			action:         "remove",
 			expectedExists: false,
 		},
 		{
 			name:           "remove app2",
 			appName:        "app-2:v2",
-			expectedName:   "app-2_v2",
+			expectedName:   "app-2_v2-721985",
 			action:         "remove",
 			expectedExists: false,
 		},
 		{
 			name:           "add app with '.' character",
 			appName:        "quay.io/test/app:v2.1",
-			expectedName:   "quay_io_test_app_v2_1",
+			expectedName:   "quay_io_test_app_v2_1-736341",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "add app with leading special characters",
 			appName:        "@app",
-			expectedName:   "_app",
+			expectedName:   "_app-221494",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "add app with trailing special characters",
 			appName:        "app@",
-			expectedName:   "app_",
+			expectedName:   "app_-583275",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "add app with special characters in sequence",
 			appName:        "app!!",
-			expectedName:   "app__",
+			expectedName:   "app__-260528",
 			action:         "add",
 			expectedExists: true,
 		},
@@ -348,20 +348,20 @@ func TestApplicationAddRemove(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			tmpDir := t.TempDir()
-			reader := fileio.NewReader()
-			reader.SetRootdir(tmpDir)
+			readWriter := fileio.NewReadWriter()
+			readWriter.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
-			podman := client.NewPodman(log, execMock, reader, newTestBackoff())
-			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "")
+			podman := client.NewPodman(log, execMock, readWriter, newTestBackoff())
+			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "", readWriter)
 			testApp := createTestApplication(tc.appName, v1alpha1.ApplicationStatusPreparing)
 
 			switch tc.action {
 			case "add":
-				err := podmanMonitor.ensure(testApp)
+				err := podmanMonitor.Ensure(testApp)
 				require.NoError(err)
 			case "remove":
-				err := podmanMonitor.remove(testApp)
+				err := podmanMonitor.Remove(testApp)
 				require.NoError(err)
 			}
 
@@ -373,9 +373,8 @@ func TestApplicationAddRemove(t *testing.T) {
 }
 
 func createTestApplication(name string, status v1alpha1.ApplicationStatusType) Application {
-	var provider v1alpha1.ImageApplicationProvider
-	id := client.SanitizePodmanLabel(name)
-	app := NewApplication(id, name, provider, AppCompose)
+	provider := newMockProvider(name)
+	app := NewApplication(provider)
 	app.status.Status = status
 	return app
 }
@@ -408,7 +407,7 @@ func createMockPodmanEvent(name, service, status string, exitCode int) PodmanEve
 		Attributes: map[string]string{
 			"PODMAN_SYSTEMD_UNIT":                     "podman-compose@user.service",
 			"com.docker.compose.container-number":     "1",
-			"com.docker.compose.project":              name,
+			"com.docker.compose.project":              newComposeID(name),
 			"com.docker.compose.project.config_files": "podman-compose.yaml",
 			"com.docker.compose.project.working_dir":  path.Join("/usr/local/lib/compose", name),
 			"com.docker.compose.service":              service,
@@ -482,4 +481,35 @@ func TestNewComposeID(t *testing.T) {
 			require.Equal(tc.expected, result)
 		})
 	}
+}
+
+func newMockProvider(name string) Provider {
+	return &mockProvider{name: name}
+}
+
+type mockProvider struct {
+	name string
+}
+
+func (m *mockProvider) Name() string {
+	return m.name
+}
+
+func (m *mockProvider) Spec() *ApplicationSpec {
+	return &ApplicationSpec{
+		ID:   newComposeID(m.name),
+		Name: m.name,
+	}
+}
+
+func (m *mockProvider) Verify(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockProvider) Install(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockProvider) Remove(ctx context.Context) error {
+	return nil
 }

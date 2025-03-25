@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	k8sapivalidation "k8s.io/apimachinery/pkg/api/validation"
 	k8smetav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	k8sutilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -31,6 +33,22 @@ func ValidateResourceNameReference(name *string, path string) []error {
 		}
 	}
 	return asErrors(errs)
+}
+
+// ValidateResourceOwner validates that metadata.owner is not empty and is a valid reference.
+func ValidateResourceOwner(owner *string, kind *string) []error {
+	path := "metadata.owner"
+	if owner == nil {
+		return asErrors(field.ErrorList{field.Required(fieldPathFor(path), "")})
+	}
+	passedKind, passedOwnerResource, err := util.GetResourceOwner(owner)
+	if err != nil {
+		return asErrors(field.ErrorList{field.Invalid(fieldPathFor(path), lo.FromPtr(owner), "must set valid owner")})
+	}
+	if kind != nil && passedKind != *kind {
+		return asErrors(field.ErrorList{field.Invalid(fieldPathFor(path), lo.FromPtr(owner), fmt.Sprintf("owner kind must be %s", *kind))})
+	}
+	return ValidateResourceNameReference(&passedOwnerResource, "metadata.owner")
 }
 
 // ValidateLabels validates that a set of labels are valid K8s labels.
@@ -108,6 +126,33 @@ func ValidateFilePath(s *string, path string) []error {
 	}
 	if filepath.Clean(*s) != *s {
 		errs = append(errs, field.Invalid(fieldPathFor(path), *s, "must be clean (without consecutive separators, . or .. elements)"))
+	}
+
+	return asErrors(errs)
+}
+
+func ValidateRelativePath(s *string, path string, maxLength int) []error {
+	if s == nil {
+		return []error{}
+	}
+
+	value := *s
+	errs := field.ErrorList{}
+	if len(value) > maxLength {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be less than max characters: "+strconv.Itoa(maxLength)))
+	}
+	if filepath.IsAbs(value) {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be a relative path"))
+	}
+
+	if strings.HasPrefix(value, "..") || strings.Contains(value, "/../") {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must not contain '..' (parent directory references)"))
+	}
+
+	cleaned := filepath.Clean(value)
+
+	if cleaned != value && !strings.HasPrefix(value, "./") {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be a clean path without redundant separators or internal '..'"))
 	}
 
 	return asErrors(errs)

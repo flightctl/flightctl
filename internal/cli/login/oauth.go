@@ -1,68 +1,20 @@
 package login
 
 import (
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"reflect"
+	"strconv"
 
-	"github.com/RangelReale/osincli"
+	"github.com/openshift/osincli"
 	"github.com/pkg/browser"
 )
 
-const (
-	csrfTokenHeader = "X-CSRF-Token" //nolint:gosec
-)
-
-type OAuth2 struct {
-	ConfigUrl          string
-	ClientId           string
-	CAFile             string
-	InsecureSkipVerify bool
-}
-
-func NewK8sOAuth2Config(caFile, clientId, authUrl string, insecure bool) OAuth2 {
-	return OAuth2{
-		CAFile:             caFile,
-		InsecureSkipVerify: insecure,
-		ConfigUrl:          fmt.Sprintf("%s/.well-known/oauth-authorization-server", authUrl),
-		ClientId:           clientId,
-	}
-}
-
-func (o OAuth2) GetOAuth2Config() (OauthServerResponse, error) {
-	oauthResponse := OauthServerResponse{}
-	req, err := http.NewRequest(http.MethodGet, o.ConfigUrl, nil)
-	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to create http request: %w", err)
-	}
-
-	transport, err := getAuthClientTransport(o.CAFile, o.InsecureSkipVerify)
-	if err != nil {
-		return oauthResponse, err
-	}
-
-	httpClient := http.Client{
-		Transport: transport,
-	}
-
-	res, err := httpClient.Do(req)
-	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to fetch oidc config: %w", err)
-	}
-
-	defer res.Body.Close()
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to read oidc config: %w", err)
-	}
-	if err := json.Unmarshal(bodyBytes, &oauthResponse); err != nil {
-		return oauthResponse, fmt.Errorf("failed to parse oidc config: %w", err)
-	}
-	return oauthResponse, nil
-}
+type GetClientFunc func(callbackURL string) (*osincli.Client, error)
 
 func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.AuthorizeRequest, r *http.Request) (AuthInfo, error) {
 	areqdata, err := authorizeRequest.HandleRequest(r)
@@ -78,80 +30,20 @@ func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.Auth
 		return AuthInfo{}, err
 	}
 
+	expiresIn, err := getExpiresIn(ad.ResponseData)
+	if err != nil {
+		return AuthInfo{}, err
+	}
+
 	return AuthInfo{
 		AccessToken:  ad.AccessToken,
 		RefreshToken: ad.RefreshToken,
-		ExpiresIn:    ad.Expiration,
+		ExpiresIn:    expiresIn,
 	}, nil
 }
 
-func (o OAuth2) getOAuth2Client(scope string, callback string) (*osincli.Client, *osincli.AuthorizeRequest, error) {
-	oauthResponse, err := o.GetOAuth2Config()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	redirectUrl := callback
-	if redirectUrl == "" {
-		redirectUrl = oauthResponse.TokenEndpoint + "/implicit"
-	}
-
-	config := &osincli.ClientConfig{
-		ClientId:           o.ClientId,
-		AuthorizeUrl:       oauthResponse.AuthEndpoint,
-		TokenUrl:           oauthResponse.TokenEndpoint,
-		ErrorsInStatusCode: true,
-		Scope:              scope,
-		RedirectUrl:        redirectUrl,
-	}
-
-	client, err := osincli.NewClient(config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create oauth2 client: %w", err)
-	}
-
-	transport, err := getAuthClientTransport(o.CAFile, o.InsecureSkipVerify)
-	if err != nil {
-		return nil, nil, err
-	}
-	client.Transport = transport
-
-	return client, client.NewAuthorizeRequest(osincli.CODE), nil
-}
-
-func (o OAuth2) authHeadless(username, password string) (AuthInfo, error) {
-	client, authorizeRequest, err := o.getOAuth2Client("", "")
-	if err != nil {
-		return AuthInfo{}, err
-	}
-	requestURL := authorizeRequest.GetAuthorizeUrl().String()
-	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
-	if err != nil {
-		return AuthInfo{}, err
-	}
-	req.Header.Set(csrfTokenHeader, "1")
-	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(username+":"+password)))
-	resp, err := client.Transport.RoundTrip(req)
-
-	if err != nil {
-		return AuthInfo{}, err
-	}
-
-	if resp.StatusCode == http.StatusFound {
-		redirectURL := resp.Header.Get("Location")
-
-		req, err := http.NewRequest(http.MethodGet, redirectURL, nil)
-		if err != nil {
-			return AuthInfo{}, err
-		}
-
-		return getOAuth2AccessToken(client, authorizeRequest, req)
-	}
-	return AuthInfo{}, fmt.Errorf("unexpected http code: %v", resp.StatusCode)
-}
-
-func (o OAuth2) authWeb(scope string) (AuthInfo, error) {
-	var ret AuthInfo
+func oauth2AuthCodeFlow(getClient GetClientFunc) (AuthInfo, error) {
+	ret := AuthInfo{}
 
 	// find free port
 	listener, err := net.Listen("tcp", "")
@@ -167,10 +59,11 @@ func (o OAuth2) authWeb(scope string) (AuthInfo, error) {
 	defer server.Close()
 	callback := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
-	client, authorizeRequest, err := o.getOAuth2Client(scope, callback)
+	client, err := getClient(callback)
 	if err != nil {
 		return ret, err
 	}
+	authorizeRequest := client.NewAuthorizeRequest(osincli.CODE)
 
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		ret, err = getOAuth2AccessToken(client, authorizeRequest, r)
@@ -191,7 +84,7 @@ func (o OAuth2) authWeb(scope string) (AuthInfo, error) {
 
 	go func() {
 		err = server.Serve(listener) // #nosec G114
-		if err != nil {
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fmt.Printf("failed to start local http server %s\n", err.Error())
 		}
 	}()
@@ -207,38 +100,97 @@ func (o OAuth2) authWeb(scope string) (AuthInfo, error) {
 	return ret, err
 }
 
-func (o OAuth2) Renew(refreshToken string) (AuthInfo, error) {
+func oauth2RefreshTokenFlow(refreshToken string, getClient GetClientFunc) (AuthInfo, error) {
+	ret := AuthInfo{}
+
 	if refreshToken == "" {
-		return AuthInfo{}, fmt.Errorf("refresh token is required")
+		return ret, fmt.Errorf("refresh token is required")
 	}
 
-	client, _, err := o.getOAuth2Client("", "")
+	// callback url is not used in refresh token flow, but has to be set, otherwise osincli fails
+	// the value should not matter
+	client, err := getClient("http://127.0.0.1")
 	if err != nil {
-		return AuthInfo{}, err
+		return ret, err
 	}
 
 	// Create a refresh token request
-	req := client.NewAccessRequest(osincli.REFRESH_TOKEN, nil)
-
-	// Set the refresh token parameter
-	req.CustomParameters["refresh_token"] = refreshToken
+	req := client.NewAccessRequest(osincli.REFRESH_TOKEN, &osincli.AuthorizeData{Code: refreshToken})
 
 	// Exchange refresh token for a new access token
 	accessData, err := req.GetToken()
 	if err != nil {
-		return AuthInfo{}, fmt.Errorf("failed to refresh token: %w", err)
+		return ret, fmt.Errorf("failed to refresh token: %w", err)
+	}
+	expiresIn, err := getExpiresIn(accessData.ResponseData)
+	if err != nil {
+		return ret, fmt.Errorf("failed to refresh token: %w", err)
 	}
 
-	return AuthInfo{
-		AccessToken:  accessData.AccessToken,
-		RefreshToken: accessData.RefreshToken, // May be empty if not returned
-		ExpiresIn:    accessData.Expiration,
-	}, nil
+	ret.AccessToken = accessData.AccessToken
+	ret.RefreshToken = accessData.RefreshToken // May be empty if not returned
+	ret.ExpiresIn = expiresIn
+
+	return ret, nil
 }
 
-func (o OAuth2) Auth(web bool, username, password string) (AuthInfo, error) {
-	if web {
-		return o.authWeb("")
+func getOAuth2Config(configUrl, caFile string, insecure bool) (OauthServerResponse, error) {
+	oauthResponse := OauthServerResponse{}
+	req, err := http.NewRequest(http.MethodGet, configUrl, nil)
+	if err != nil {
+		return oauthResponse, fmt.Errorf("failed to create http request: %w", err)
 	}
-	return o.authHeadless(username, password)
+
+	tlsConfig, err := getAuthClientTlsConfig(caFile, insecure)
+	if err != nil {
+		return oauthResponse, err
+	}
+
+	httpClient := http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return oauthResponse, fmt.Errorf("failed to fetch oauth2 config: %w", err)
+	}
+
+	if res.StatusCode != http.StatusOK {
+		return oauthResponse, fmt.Errorf("failed to fetch oauth2 config, status: %d", res.StatusCode)
+	}
+
+	defer res.Body.Close()
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return oauthResponse, fmt.Errorf("failed to read oauth2 config: %w", err)
+	}
+	if err := json.Unmarshal(bodyBytes, &oauthResponse); err != nil {
+		return oauthResponse, fmt.Errorf("failed to parse oauth2 config: %w", err)
+	}
+	return oauthResponse, nil
+}
+
+// based on GetToken() from osincli which parses the expires_in to int32 that may overflow
+func getExpiresIn(ret osincli.ResponseData) (*int64, error) {
+	expires_in_raw, ok := ret["expires_in"]
+	if ok {
+		rv := reflect.ValueOf(expires_in_raw)
+		switch rv.Kind() {
+		case reflect.Float64:
+			expiration := int64(rv.Float())
+			return &expiration, nil
+		case reflect.String:
+			// if string convert to integer
+			ei, err := strconv.ParseInt(rv.String(), 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			return &ei, nil
+		default:
+			return nil, errors.New("invalid parameter value")
+		}
+	}
+	return nil, nil
 }

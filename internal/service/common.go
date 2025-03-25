@@ -18,6 +18,21 @@ import (
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 )
 
+type ctxKey string
+
+const (
+	MaxRecordsPerListRequest        = 1000
+	InternalRequestCtxKey    ctxKey = "internal_request"
+	DelayDeviceRenderCtxKey  ctxKey = "delayDeviceRender"
+)
+
+func IsInternalRequest(ctx context.Context) bool {
+	if internal, ok := ctx.Value(InternalRequestCtxKey).(bool); ok && internal {
+		return true
+	}
+	return false
+}
+
 func NilOutManagedObjectMetaProperties(om *v1alpha1.ObjectMeta) {
 	if om == nil {
 		return
@@ -134,8 +149,15 @@ func StoreErrorToApiStatus(err error, created bool, kind string, name *string) a
 	case badRequestErrors[err]:
 		return api.StatusBadRequest(err.Error())
 	case conflictErrors[err]:
-		return api.StatusResourceVersionConflict("")
+		return api.StatusResourceVersionConflict(err.Error())
 	default:
 		return api.StatusInternalServerError(err.Error())
 	}
+}
+
+func ApiStatusToErr(status api.Status) error {
+	if status.Code >= 200 && status.Code < 300 {
+		return nil
+	}
+	return errors.New(status.Message)
 }

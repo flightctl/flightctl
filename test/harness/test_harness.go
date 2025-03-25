@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
@@ -118,7 +119,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	}()
 
 	go func() {
-		err := workerServer.Run(ctx)
+		err := workerServer.Run(context.WithValue(ctx, service.InternalRequestCtxKey, true))
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
 			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))
@@ -143,7 +144,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	cfg := agent.NewDefault()
 	// TODO: remove the cert/key modifications from default, and start storing
 	// the test harness files for those in the testDir/etc/flightctl/certs path
-	cfg.EnrollmentService = agent.EnrollmentService{
+	cfg.EnrollmentService = config.EnrollmentService{
 		Config:               *client.NewDefault(),
 		EnrollmentUIEndpoint: "https://flightctl.ui/",
 	}

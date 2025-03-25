@@ -1,18 +1,24 @@
 package tasks
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	gomock "go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 )
 
@@ -25,8 +31,17 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 	log.Level = logrus.ErrorLevel
 	for _, deviceCount := range []int{1000, 2000, 5000} {
 		dbStore, cfg, dbName, db := store.PrepareDBForUnitTests(log)
+
+		ctrl := gomock.NewController(b)
+		mockPublisher := queues.NewMockPublisher(ctrl)
+		callbackManager := tasks_client.NewCallbackManager(mockPublisher, log)
+		mockPublisher.EXPECT().Publish(gomock.Any()).AnyTimes()
+		kvStore, err := kvstore.NewKVStore(context.Background(), log, "localhost", 6379, "adminpass")
+		require.NoError(err)
+		serviceHandler := service.NewServiceHandler(dbStore, callbackManager, kvStore, nil, log, "", "")
+
 		devices := generateMockDevices(deviceCount)
-		err := batchCreateDevices(db, devices, deviceCount)
+		err = batchCreateDevices(db, devices, deviceCount)
 		require.NoError(err)
 
 		deviceNames := make([]string, deviceCount)
@@ -38,15 +53,15 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 			store.DeleteTestDB(log, cfg, dbStore, dbName)
 		}
 		b.Run(fmt.Sprintf("update_summary_status_%d_devices", deviceCount), func(b *testing.B) {
-			err := benchmarkUpdateSummaryStatusBatch(b, log, db, dbStore, deviceNames)
+			err := benchmarkUpdateSummaryStatusBatch(b, log, db, serviceHandler, deviceNames)
 			require.NoError(err)
 		})
 		cleanupFn()
 	}
 }
 
-func benchmarkUpdateSummaryStatusBatch(b *testing.B, log *logrus.Logger, db *gorm.DB, dbStore store.Store, deviceNames []string) error {
-	disconnected := NewDeviceDisconnected(log, dbStore)
+func benchmarkUpdateSummaryStatusBatch(b *testing.B, log *logrus.Logger, db *gorm.DB, serviceHandler *service.ServiceHandler, deviceNames []string) error {
+	disconnected := NewDeviceDisconnected(log, serviceHandler)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StartTimer()

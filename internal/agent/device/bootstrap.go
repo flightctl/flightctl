@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -32,7 +33,7 @@ type Bootstrap struct {
 	lifecycle        lifecycle.Initializer
 	systemClient     client.System
 
-	managementServiceConfig *client.Config
+	managementServiceConfig *baseclient.Config
 	managementClient        client.Management
 
 	log *log.PrefixLogger
@@ -46,7 +47,7 @@ func NewBootstrap(
 	statusManager status.Manager,
 	hookManager hook.Manager,
 	lifecycleInitializer lifecycle.Initializer,
-	managementServiceConfig *client.Config,
+	managementServiceConfig *baseclient.Config,
 	systemClient client.System,
 	log *log.PrefixLogger,
 ) *Bootstrap {

@@ -6,6 +6,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -22,12 +23,13 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/config"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
@@ -76,7 +78,9 @@ func NewCmdCertificate() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -278,9 +282,14 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 		return nil, err
 	}
 
-	// the CN is going to be a FC-generated UUID, populated at signing time
+	if name == "" {
+		name = uuid.NewString()
+	}
 	template := &x509.CertificateRequest{
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
+		Subject: pkix.Name{
+			CommonName: name,
+		},
 	}
 
 	csrInner, err := x509.CreateCertificateRequest(rand.Reader, template, priv)
@@ -349,7 +358,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 		return fmt.Errorf("base64 decoding CA data: %w", err)
 	}
 
-	config := &agent.Config{}
+	config := lo.ToPtr(config.NewServiceConfig())
 	config.EnrollmentService.AuthInfo.ClientCertificateData = *currentCsr.Status.Certificate
 	config.EnrollmentService.AuthInfo.ClientKeyData = pemPriv
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
@@ -357,7 +366,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
 	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling agent config: %w", err)
+		return fmt.Errorf("marshalling agent service config: %w", err)
 	}
 
 	fmt.Print(string(marshalled))
@@ -365,7 +374,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 }
 
 func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigResponse) error {
-	config := &agent.Config{}
+	config := lo.ToPtr(config.NewServiceConfig())
 	config.EnrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
 	config.EnrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
@@ -373,7 +382,7 @@ func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigR
 	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
 	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling agent config: %w", err)
+		return fmt.Errorf("marshalling agent service config: %w", err)
 	}
 
 	fmt.Print(string(marshalled))
