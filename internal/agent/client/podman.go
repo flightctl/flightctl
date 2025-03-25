@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,24 +23,24 @@ const (
 )
 
 type Podman struct {
-	exec    executer.Executer
-	log     *log.PrefixLogger
-	timeout time.Duration
-	reader  fileio.Reader
-	backoff wait.Backoff
+	exec       executer.Executer
+	log        *log.PrefixLogger
+	timeout    time.Duration
+	readWriter fileio.ReadWriter
+	backoff    wait.Backoff
 }
 
 type ImageConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
-func NewPodman(log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, backoff wait.Backoff) *Podman {
+func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff wait.Backoff) *Podman {
 	return &Podman{
-		log:     log,
-		exec:    exec,
-		timeout: defaultPodmanTimeout,
-		reader:  reader,
-		backoff: backoff,
+		log:        log,
+		exec:       exec,
+		timeout:    defaultPodmanTimeout,
+		readWriter: readWriter,
+		backoff:    backoff,
 	}
 }
 
@@ -102,7 +103,7 @@ func (p *Podman) pullImage(ctx context.Context, image string, pullSecretPath str
 
 	args := []string{"pull", image}
 	if pullSecretPath != "" {
-		exists, err := p.reader.PathExists(pullSecretPath)
+		exists, err := p.readWriter.PathExists(pullSecretPath)
 		if err != nil {
 			return "", fmt.Errorf("check pull secret path: %w", err)
 		}
@@ -334,6 +335,10 @@ func (p *Podman) Unshare(ctx context.Context, args ...string) (string, error) {
 	return out, nil
 }
 
+func (p *Podman) CopyContainerData(ctx context.Context, image, destPath string) error {
+	return copyContainerData(ctx, p.log, p.readWriter, p, image, destPath)
+}
+
 func (p *Podman) Compose() *Compose {
 	return &Compose{
 		Podman: p,
@@ -342,6 +347,69 @@ func (p *Podman) Compose() *Compose {
 
 func IsPodmanRootless() bool {
 	return os.Geteuid() != 0
+}
+
+func copyContainerData(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *Podman, image, destPath string) (err error) {
+	var mountPoint string
+
+	rootless := IsPodmanRootless()
+	if rootless {
+		log.Warnf("Running in rootless mode this is for testing only")
+		mountPoint, err = podman.Unshare(ctx, "podman", "image", "mount", image)
+		if err != nil {
+			return fmt.Errorf("failed to execute podman share: %w", err)
+		}
+	} else {
+		mountPoint, err = podman.Mount(ctx, image)
+		if err != nil {
+			return fmt.Errorf("failed to mount image: %w", err)
+		}
+	}
+
+	if err := writer.MkdirAll(destPath, fileio.DefaultDirectoryPermissions); err != nil {
+		return fmt.Errorf("failed to dest create directory: %w", err)
+	}
+
+	defer func() {
+		if err := podman.Unmount(ctx, image); err != nil {
+			log.Errorf("failed to unmount image: %s %v", image, err)
+		}
+	}()
+
+	// recursively copy image files to agent destination
+	err = filepath.Walk(writer.PathFor(mountPoint), func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			if info.Name() == "merged" {
+				log.Debugf("Skipping merged directory: %s", filePath)
+				return nil
+			}
+			log.Debugf("Creating directory: %s", info.Name())
+
+			// ensure any directories in the image are also created
+			return writer.MkdirAll(filepath.Join(destPath, info.Name()), fileio.DefaultDirectoryPermissions)
+		}
+
+		return copyContainerFile(filePath, writer.PathFor(destPath))
+	})
+	if err != nil {
+		return fmt.Errorf("error during copy: %w", err)
+	}
+
+	return nil
+}
+
+func copyContainerFile(from, to string) error {
+	// local writer ensures that the container from directory is correct.
+	writer := fileio.NewWriter()
+	if err := writer.CopyFile(from, to); err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	return nil
 }
 
 // SanitizePodmanLabel sanitizes a string to be used as a label in Podman.
