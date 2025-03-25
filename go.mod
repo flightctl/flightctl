@@ -11,6 +11,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/dustin/go-humanize v1.0.1
 	github.com/evanphx/json-patch v5.9.0+incompatible
+	github.com/fsnotify/fsnotify v1.8.0
 	github.com/getkin/kin-openapi v0.124.0
 	github.com/gliderlabs/ssh v0.3.8
 	github.com/go-chi/chi/v5 v5.0.12

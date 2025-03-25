@@ -13,8 +13,16 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 )
 
+const (
+	AdminGroup    = "admin"
+	OperatorGroup = "operator"
+	AuditorGroup  = "auditor"
+)
+
 type AAPUser struct {
-	Username string `json:"username,omitempty"`
+	Username          string `json:"username,omitempty"`
+	IsSuperuser       bool   `json:"is_superuser,omitempty"`
+	IsPlatformAuditor bool   `json:"is_platform_auditor,omitempty"`
 }
 
 type AAPUserInfo struct {
@@ -108,7 +116,21 @@ func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (*common.
 		return nil, fmt.Errorf("failed to get identity: %w", err)
 	}
 
-	return &common.Identity{
+	identity := common.Identity{
 		Username: userInfo.Username,
-	}, nil
+		Groups:   []string{},
+	}
+
+	if !userInfo.IsSuperuser && !userInfo.IsPlatformAuditor {
+		identity.Groups = append(identity.Groups, OperatorGroup)
+	} else {
+		if userInfo.IsSuperuser {
+			identity.Groups = append(identity.Groups, AdminGroup)
+		}
+		if userInfo.IsPlatformAuditor {
+			identity.Groups = append(identity.Groups, AuditorGroup)
+		}
+	}
+
+	return &identity, nil
 }

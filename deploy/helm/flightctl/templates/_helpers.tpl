@@ -101,3 +101,43 @@ Generates a random alphanumeric password in the format xxxxx-xxxxx-xxxxx-xxxxx.
 {{- $pass := printf "%s-%s-%s-%s" (substr 0 5 $password) (substr 5 10 $password) (substr 10 15 $password) (substr 15 20 $password) }}
 {{- print ($pass | b64enc) }}
 {{- end }}
+
+
+{{- define "flightctl.operatorPermissions" }}
+- verbs:
+    - get
+    - list
+    - create
+    - delete
+    - update
+    - patch
+  apiGroups:
+    - flightctl.io
+  resources:
+    - devices
+    - fleets
+    - resourcesyncs
+- verbs:
+    - get
+  apiGroups:
+    - flightctl.io
+  resources:
+    - devices/console
+- verbs:
+    - get
+    - list
+  apiGroups:
+    - flightctl.io
+  resources:
+    - repositories
+    - fleets/templateversions
+{{- end }}
+
+{{- define "flightctl.adminPermissions" }}
+- verbs:
+    - '*'
+  apiGroups:
+    - flightctl.io
+  resources:
+    - '*'
+{{- end }}
