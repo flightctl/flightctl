@@ -4,8 +4,7 @@ on:
   push:
     branches:
       - main
-    tags:
-      - '*'
+      - 'release-*'
   pull_request:
 
 jobs:
@@ -25,40 +24,40 @@ jobs:
         tag: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64", "windows-arm64" ]
         include:
           # Linux builds
-          - &linux-base
+          - tag: linux-amd64
+            arch: amd64
             os: linux
             zip: .tar.gz
             ext: ""
-          - <<: *linux-base
-            tag: linux-amd64
-            arch: amd64
-          - <<: *linux-base
-            tag: linux-arm64
+          - tag: linux-arm64
             arch: arm64
+            os: linux
+            zip: .tar.gz
+            ext: ""
 
           # macOS builds
-          - &mac-base
+          - tag: darwin-amd64
+            arch: amd64
             os: darwin
             zip: .zip
             ext: ""
-          - <<: *mac-base
-            tag: mac-amd64
-            arch: amd64
-          - <<: *mac-base
-            tag: mac-arm64
+          - tag: darwin-arm64
             arch: arm64
+            os: darwin
+            zip: .zip
+            ext: ""
 
           # Windows builds
-          - &windows-base
+          - tag: windows-amd64
+            arch: amd64
             os: windows
             zip: .zip
             ext: .exe
-          - <<: *windows-base
-            tag: windows-amd64
-            arch: amd64
-          - <<: *windows-base
-            tag: windows-arm64
+          - tag: windows-arm64
             arch: arm64
+            os: windows
+            zip: .zip
+            ext: .exe
     runs-on: ubuntu-latest
     needs: setup
     steps:
@@ -110,7 +109,9 @@ jobs:
     name: Verify Binaries on windows
     strategy:
       matrix:
-        arch: [ "amd64", "arm64" ]
+        # Support of "windows-arm64" will be removed from 1.26
+        # Windows 11 dropped support of arm64
+        arch: [ "amd64" ]
     runs-on: "windows-latest"
     needs: build
     steps:
