@@ -3,7 +3,7 @@
 ## If you are deploying UI chart separately, there is no need to use the global section.
 ## @descriptionEnd
 
-## @param global.flightctl.auth.caCert A custom CA cert for OIDC TLS.
+## @param global.flightctl.auth.caCert A custom CA cert for Auth TLS.
 ## @param global.flightctl.auth.internalOidcAuthority URL of OIDC authority that is accessible by UI backend.
 ## @param global.flightctl.auth.insecureSkipTlsVerify Set to true if OIDC TLS certificate validation should be skipped.
 ## @param global.flightctl.baseDomain Base domain to construct the FQDN for the service endpoints.
@@ -23,20 +23,22 @@ image:
   pullPolicy: Always
 ## @param baseURL Base URL of UI.
 baseURL: ""
-## @param auth.internalOidcAuthority URL of OIDC authority that is accessible by UI backend.
+## @param isRHEM Set to true if RHEM branding should be used
+isRHEM: false
+## @param auth.internalAuthUrl URL of Auth authority that is accessible by UI backend.
 ## @param auth.insecureSkipTlsVerify Set to true if OIDC TLS certificate validation should be skipped.
-## @param auth.caCert A custom CA cert for OIDC TLS.
+## @param auth.caCert A custom CA cert for Auth TLS.
+## @param auth.clientId Id of OAuth2 Client.
 auth:
-  internalOidcAuthority: ""
+  internalAuthUrl: ""
   insecureSkipTlsVerify: false
   caCert: ""
+  clientId: flightctl
 ## @param api.url URL of Flightctl API endpoint accessible by UI backend.
-## @param api.grpcUrl URL of Flightctl GRPC endpoint accessible by UI backend.
 ## @param api.insecureSkipTlsVerify Set to true if Flightctl TLS certificate validation should be skipped.
 ## @param api.caCert A custom CA cert for Flightctl TLS.
 api:
   url: https://flightctl-api:3443/
-  grpcUrl: grpcs://flightctl-api-agent-grpc:7444/
   insecureSkipTlsVerify: false
   caCert: ""
 
