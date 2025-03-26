@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -85,6 +86,18 @@ func (w *writer) RemoveAll(path string) error {
 
 func (w *writer) MkdirAll(path string, perm os.FileMode) error {
 	return os.MkdirAll(filepath.Join(w.rootDir, path), perm)
+}
+
+func (w *writer) MkdirTemp(prefix string) (string, error) {
+	baseDir := filepath.Join(w.rootDir, os.TempDir())
+	if err := os.MkdirAll(baseDir, DefaultDirectoryPermissions); err != nil {
+		return "", err
+	}
+	path, err := os.MkdirTemp(baseDir, prefix)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(path, w.rootDir), nil
 }
 
 func (w *writer) CopyFile(src, dst string) error {

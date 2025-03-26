@@ -8,7 +8,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -23,14 +22,13 @@ type manager struct {
 func NewManager(
 	log *log.PrefixLogger,
 	readWriter fileio.ReadWriter,
-	exec executer.Executer,
 	podmanClient *client.Podman,
 	systemClient client.System,
 ) Manager {
 	bootTime := systemClient.BootTime()
 	return &manager{
 		readWriter:    readWriter,
-		podmanMonitor: NewPodmanMonitor(log, exec, podmanClient, bootTime, readWriter),
+		podmanMonitor: NewPodmanMonitor(log, podmanClient, bootTime, readWriter),
 		log:           log,
 	}
 }

@@ -18,7 +18,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util/validation"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
@@ -82,7 +81,6 @@ type PodmanMonitor struct {
 
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
-	exec executer.Executer,
 	podman *client.Podman,
 	bootTime string,
 	writer fileio.Writer,
@@ -249,7 +247,6 @@ func (m *PodmanMonitor) Update(app Application) error {
 	defer m.mu.Unlock()
 
 	appID := app.ID()
-	appName := app.Name()
 	_, ok := m.apps[appID]
 	if !ok {
 		return errors.ErrAppNotFound
@@ -261,8 +258,9 @@ func (m *PodmanMonitor) Update(app Application) error {
 	action := lifecycle.Action{
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionUpdate,
-		Name:    appName,
+		Name:    app.Name(),
 		ID:      appID,
+		Path:    app.Path(),
 	}
 
 	m.actions = append(m.actions, action)
