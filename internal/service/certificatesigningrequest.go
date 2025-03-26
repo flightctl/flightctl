@@ -66,7 +66,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	}
 }
 
-func signApprovedCertificateSigningRequest(ca *crypto.CA, request api.CertificateSigningRequest) ([]byte, error) {
+func signApprovedCertificateSigningRequest(ca *crypto.CAClient, request api.CertificateSigningRequest) ([]byte, error) {
 
 	csr, err := crypto.ParseCSR(request.Spec.Request)
 	if err != nil {

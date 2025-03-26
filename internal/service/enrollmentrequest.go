@@ -19,7 +19,7 @@ import (
 
 const ClientCertExpiryDays = 365
 
-func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
+func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
