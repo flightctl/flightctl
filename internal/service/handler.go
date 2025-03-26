@@ -10,7 +10,7 @@ import (
 
 type ServiceHandler struct {
 	store           store.Store
-	ca              *crypto.CA
+	ca              *crypto.CAClient
 	log             logrus.FieldLogger
 	callbackManager tasks_client.CallbackManager
 	kvStore         kvstore.KVStore
@@ -18,7 +18,7 @@ type ServiceHandler struct {
 	uiUrl           string
 }
 
-func NewServiceHandler(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CA, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CAClient, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
 	return &ServiceHandler{
 		store:           store,
 		ca:              ca,

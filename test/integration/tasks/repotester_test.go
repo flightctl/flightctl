@@ -53,7 +53,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), crypto.AdminCommonName, 1)
 	require.NoError(err)
 
-	_, tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	require.NoError(err)
 
 	go startHttpsMTLSRepo(tlsConfig, require)
@@ -61,7 +61,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 
 	clientCertPEM, clientKeyPEM, err := adminCert.GetPEMBytes()
 	require.NoError(err)
-	caCertPEM, _, err := ca.Config.GetPEMBytes()
+	caCertPEM, err := ca.GetCABundle()
 	require.NoError(err)
 
 	clientCrtB64 := b64.StdEncoding.EncodeToString(clientCertPEM)

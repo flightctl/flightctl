@@ -81,7 +81,7 @@ func main() {
 				cfg.Service.AltNames = []string{"localhost"}
 			}
 
-			serverCerts, err = ca.MakeAndWriteServerCert(srvCertFile, srvKeyFile, cfg.Service.AltNames, serverCertValidityDays)
+			serverCerts, err = ca.MakeAndWriteServerCertificate(srvCertFile, srvKeyFile, cfg.Service.AltNames, serverCertValidityDays)
 			if err != nil {
 				log.Fatalf("failed to create self-signed certificate: %v", err)
 			}
@@ -106,7 +106,13 @@ func main() {
 	}
 
 	// also write out a client config file
-	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", ca.Config, nil)
+
+	caPemBytes, err := ca.GetCABundle()
+	if err != nil {
+		log.Fatalf("loading CA certificate bundle: %v", err)
+	}
+
+	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", caPemBytes, nil)
 	if err != nil {
 		log.Fatalf("writing client config: %v", err)
 	}
@@ -124,7 +130,7 @@ func main() {
 		log.Fatalf("running initial migration: %v", err)
 	}
 
-	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}

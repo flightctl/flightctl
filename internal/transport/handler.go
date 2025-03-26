@@ -14,7 +14,7 @@ type TransportHandler struct {
 }
 
 type WebsocketHandler struct {
-	ca                    *crypto.CA
+	ca                    *crypto.CAClient
 	log                   logrus.FieldLogger
 	consoleSessionManager *console.ConsoleSessionManager
 }
@@ -27,7 +27,7 @@ func NewTransportHandler(serviceHandler *service.ServiceHandler) *TransportHandl
 	return &TransportHandler{serviceHandler: serviceHandler}
 }
 
-func NewWebsocketHandler(ca *crypto.CA, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {
+func NewWebsocketHandler(ca *crypto.CAClient, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {
 	return &WebsocketHandler{
 		ca:                    ca,
 		log:                   log,
