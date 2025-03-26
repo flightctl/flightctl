@@ -369,16 +369,22 @@ func (o *GetOptions) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.
 
 	fmt.Fprintln(w, "\nSTATUS TYPE\tSTATUS\tCOUNT")
 
-	for k, v := range *summary.SummaryStatus {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", "SYSTEM", k, fmt.Sprintf("%d", v))
+	if summary.SummaryStatus != nil {
+		for k, v := range *summary.SummaryStatus {
+			fmt.Fprintf(w, "%s\t%s\t%s\n", "SYSTEM", k, fmt.Sprintf("%d", v))
+		}
 	}
 
-	for k, v := range *summary.UpdateStatus {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", "UPDATED", k, fmt.Sprintf("%d", v))
+	if summary.UpdateStatus != nil {
+		for k, v := range *summary.UpdateStatus {
+			fmt.Fprintf(w, "%s\t%s\t%s\n", "UPDATED", k, fmt.Sprintf("%d", v))
+		}
 	}
 
-	for k, v := range *summary.ApplicationStatus {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", "APPLICATIONS", k, fmt.Sprintf("%d", v))
+	if summary.ApplicationStatus != nil {
+		for k, v := range *summary.ApplicationStatus {
+			fmt.Fprintf(w, "%s\t%s\t%s\n", "APPLICATIONS", k, fmt.Sprintf("%d", v))
+		}
 	}
 }
 

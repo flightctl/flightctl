@@ -223,9 +223,9 @@ var _ = Describe("DeviceStore create", func() {
 			allDevices, err = devStore.List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(allDevices.Items).To(HaveLen(3))
-			Expect(allDevices.Summary.ApplicationStatus).To(Equal(expectedApplicationMap))
-			Expect(allDevices.Summary.SummaryStatus).To(Equal(expectedSummaryMap))
-			Expect(allDevices.Summary.UpdateStatus).To(Equal(expectedUpdatedMap))
+			Expect(*allDevices.Summary.ApplicationStatus).To(Equal(expectedApplicationMap))
+			Expect(*allDevices.Summary.SummaryStatus).To(Equal(expectedSummaryMap))
+			Expect(*allDevices.Summary.UpdateStatus).To(Equal(expectedUpdatedMap))
 			Expect(allDevices.Summary.Total).To(Equal(int64(3)))
 
 			allDevicesSummary, err := devStore.Summary(ctx, orgId, store.ListParams{})
