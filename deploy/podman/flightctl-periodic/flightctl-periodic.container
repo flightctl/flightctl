@@ -5,12 +5,12 @@ Requires=flightctl-db.service
 
 [Container]
 ContainerName=flightctl-periodic
-Image=quay.io/flightctl/flightctl-periodic:0.4.0
+Image=quay.io/flightctl/flightctl-periodic:0.5.0
 Network=flightctl.network
 Environment=HOME=/root
 Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-Volume=%h/.config/flightctl/flightctl-periodic-config/config.yaml:/root/.flightctl/config.yaml:Z
+Volume=$CONFIG_OUTPUT_DIR/flightctl-periodic/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Restart=always
