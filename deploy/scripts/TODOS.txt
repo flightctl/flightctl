@@ -1,7 +1,0 @@
-- Pass certs as secrets or volumes
-- align scripts / fix todos there
-- add logic to restart containers on reboot
-- align ui with https://github.com/flightctl/flightctl/pull/1018/files
-- build rpm
-- test
-- delete this tle and test dirs :)

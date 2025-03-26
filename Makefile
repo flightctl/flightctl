@@ -152,6 +152,9 @@ bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging
 
 rpm: bin/.rpm
 
+rpm-installer:
+	./hack/build_rpms.sh
+
 .PHONY: rpm build build-api build-periodic build-worker
 
 # cross-building for deb pkg
