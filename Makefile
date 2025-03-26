@@ -83,7 +83,7 @@ build: bin build-cli
 
 bin/flightctl-agent: bin $(GO_FILES)
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
-		./cmd/flightctl-agent 
+		./cmd/flightctl-agent
 
 build-cli: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
@@ -145,6 +145,9 @@ bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging
 	touch bin/.rpm
 
 rpm: bin/.rpm
+
+rpm-installer:
+	./hack/build_rpms.sh
 
 .PHONY: rpm build build-api build-periodic build-worker
 
