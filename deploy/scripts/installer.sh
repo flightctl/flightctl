@@ -9,11 +9,12 @@
 # : ${QUADLET_FILES_OUTPUT_DIR:="/etc/containers/systemd/users"}
 : ${TEMPLATE_DIR:="/home/dcrowder/Workspace/flightctl/deploy/podman"}
 : ${CONFIG_OUTPUT_DIR:="/home/dcrowder/Workspace/flightctl/deploy/test-config"}
-: ${QUADLET_FILES_OUTPUT_DIR:="/home/dcrowder/Workspace/flightctl/deploy/test-quadlets"}
+# : ${QUADLET_FILES_OUTPUT_DIR:="/home/dcrowder/Workspace/flightctl/deploy/test-quadlets"}
+: ${QUADLET_FILES_OUTPUT_DIR:="$HOME/.config/containers/systemd"}
 
 # Load common functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-# TODO rename env,sh to utils or something else
+# TODO rename env.sh to utils or something else
 source "${SCRIPT_DIR}"/env.sh
 
 export CONFIG_OUTPUT_DIR
@@ -40,11 +41,15 @@ validate_inputs() {
     fi
 }
 
+inject_vars() {
+    envsubst '$BASE_DOMAIN $CONFIG_OUTPUT_DIR' < "$1" > "$2"
+}
+
 render_service() {
     local service_name="$1"
 
     # Process container template
-    envsubst < "${TEMPLATE_DIR}/flightctl-${service_name}/flightctl-${service_name}.container" > "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
+    inject_vars "${TEMPLATE_DIR}/flightctl-${service_name}/flightctl-${service_name}.container" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
 
     # Ensure config output directory exists
     mkdir -p "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}"
@@ -52,7 +57,7 @@ render_service() {
     # Process all files in the config directory
     for config_file in "${TEMPLATE_DIR}/flightctl-${service_name}/flightctl-${service_name}-config"/*; do
         if [[ -f "$config_file" ]]; then
-            envsubst < "$config_file" > "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}/$(basename "$config_file")"
+            inject_vars "$config_file" "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}/$(basename "$config_file")"
         fi
     done
 
@@ -76,7 +81,6 @@ render_files() {
     render_service "db"
     render_service "kv"
     render_service "ui"
-
 }
 
 # Execution
