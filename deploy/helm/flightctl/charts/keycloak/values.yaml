@@ -6,7 +6,7 @@ global:
   storageClassName: ""
 
 ## @param image The container image to use for Keycloak
-image: quay.io/keycloak/keycloak:25.0.1
+image: quay.io/keycloak/keycloak:25.0.6
 ## @param imagePullPolicy The container imagePullPolicy to use for Keycloak
 imagePullPolicy: IfNotPresent
 service:
