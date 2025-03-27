@@ -50,36 +50,37 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Device
 		return err
 	}
 
-	if err := c.sync(ctx, currentAppProviders, desiredAppProviders); err != nil {
-		return err
-	}
-
-	return nil
+	return syncProviders(ctx, c.log, c.manager, currentAppProviders, desiredAppProviders)
 }
 
-func (c *Controller) sync(ctx context.Context, currentApps, desiredApps []Provider) error {
-	diff, err := diffAppProviders(currentApps, desiredApps)
+func syncProviders(
+	ctx context.Context,
+	log *log.PrefixLogger,
+	manager Manager,
+	currentProviders, desiredProviders []Provider,
+) error {
+	diff, err := diffAppProviders(currentProviders, desiredProviders)
 	if err != nil {
 		return err
 	}
 
 	for _, provider := range diff.Removed {
-		c.log.Debugf("Removing application: %s", provider.Name())
-		if err := c.manager.Remove(ctx, provider); err != nil {
+		log.Debugf("Removing application: %s", provider.Name())
+		if err := manager.Remove(ctx, provider); err != nil {
 			return err
 		}
 	}
 
 	for _, provider := range diff.Ensure {
-		c.log.Debugf("Ensuring application: %s", provider.Name())
-		if err := c.manager.Ensure(ctx, provider); err != nil {
+		log.Debugf("Ensuring application: %s", provider.Name())
+		if err := manager.Ensure(ctx, provider); err != nil {
 			return err
 		}
 	}
 
 	for _, provider := range diff.Changed {
-		c.log.Debugf("Updating application: %s", provider.Name())
-		if err := c.manager.Update(ctx, provider); err != nil {
+		log.Debugf("Updating application: %s", provider.Name())
+		if err := manager.Update(ctx, provider); err != nil {
 			return err
 		}
 	}
@@ -201,7 +202,7 @@ func diffAppProviders(
 	return diff, nil
 }
 
-// isEqual compares two applications and returns true if they are equal.
+// isEqual compares two application providers and returns true if they are equal.
 func isEqual(a, b Provider) bool {
 	return reflect.DeepEqual(a.Spec(), b.Spec())
 }

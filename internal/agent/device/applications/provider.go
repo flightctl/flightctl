@@ -3,7 +3,6 @@ package applications
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -94,7 +93,7 @@ func (p *ImageProvider) Verify(ctx context.Context) error {
 	}
 
 	// create a temporary directory to copy the image contents
-	tmpAppPath, err := os.MkdirTemp("", "app_temp")
+	tmpAppPath, err := p.readWriter.MkdirTemp("app_temp")
 	if err != nil {
 		return fmt.Errorf("creating tmp dir: %w", err)
 	}
@@ -121,7 +120,7 @@ func (p *ImageProvider) Verify(ctx context.Context) error {
 		p.spec.Path = path
 
 		// ensure the compose application content in tmp dir is valid
-		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath, p.spec.EnvVars); err != nil {
+		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
 	default:
@@ -139,6 +138,11 @@ func (p *ImageProvider) Install(ctx context.Context) error {
 	if err := p.podman.CopyContainerData(ctx, p.spec.ImageProvider.Image, p.spec.Path); err != nil {
 		return fmt.Errorf("copy image contents: %w", err)
 	}
+
+	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
+		return fmt.Errorf("writing env file: %w", err)
+	}
+
 	return nil
 }
 
@@ -200,7 +204,7 @@ func (p *InlineProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
 	}
 	// create a temporary directory to copy the image contents
-	tmpAppPath, err := os.MkdirTemp("", "app_temp")
+	tmpAppPath, err := p.readWriter.MkdirTemp("app_temp")
 	if err != nil {
 		return fmt.Errorf("creating tmp dir: %w", err)
 	}
@@ -219,7 +223,7 @@ func (p *InlineProvider) Verify(ctx context.Context) error {
 
 	switch p.spec.AppType {
 	case v1alpha1.AppTypeCompose:
-		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath, p.spec.EnvVars); err != nil {
+		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
 	default:
@@ -232,6 +236,11 @@ func (p *InlineProvider) Install(ctx context.Context) error {
 	if err := p.writeInlineContent(p.spec.Path, p.spec.InlineProvider.Inline); err != nil {
 		return err
 	}
+
+	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
+		return fmt.Errorf("writing env file: %w", err)
+	}
+
 	return nil
 }
 
@@ -296,7 +305,7 @@ func (p *EmbeddedProvider) Verify(ctx context.Context) error {
 	case v1alpha1.AppTypeCompose:
 		p.spec.ID = newComposeID(p.spec.Name)
 		p.spec.Path = appPath
-		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, appPath, p.spec.EnvVars); err != nil {
+		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, appPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
 	default:
@@ -335,7 +344,10 @@ func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (stri
 	return filepath.Join(typePath, name), nil
 }
 
-func ensureCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, appPath string, envVars map[string]string) error {
+func ensureCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, appPath string) error {
+	// note: errors like "error converting YAML to JSON: yaml: line 5: found
+	// character that cannot start any token" is often improperly formatted yaml
+	// (double check the yaml spacing)
 	spec, err := client.ParseComposeSpecFromDir(readWriter, appPath)
 	if err != nil {
 		return fmt.Errorf("parsing compose spec: %w", err)
@@ -350,14 +362,18 @@ func ensureCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 			return fmt.Errorf("pulling service image: %w", err)
 		}
 	}
+	return nil
+}
 
+// writeENVFile writes the environment variables to a .env file in the appPath
+func writeENVFile(appPath string, writer fileio.Writer, envVars map[string]string) error {
 	if len(envVars) > 0 {
 		var env strings.Builder
 		for k, v := range envVars {
 			env.WriteString(fmt.Sprintf("%s=%s\n", k, v))
 		}
 		envPath := fmt.Sprintf("%s/.env", appPath)
-		if err := readWriter.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {
+		if err := writer.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {
 			return err
 		}
 	}

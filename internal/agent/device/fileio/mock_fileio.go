@@ -164,6 +164,21 @@ func (mr *MockWriterMockRecorder) MkdirAll(path, perm any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirAll", reflect.TypeOf((*MockWriter)(nil).MkdirAll), path, perm)
 }
 
+// MkdirTemp mocks base method.
+func (m *MockWriter) MkdirTemp(prefix string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MkdirTemp", prefix)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MkdirTemp indicates an expected call of MkdirTemp.
+func (mr *MockWriterMockRecorder) MkdirTemp(prefix any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirTemp", reflect.TypeOf((*MockWriter)(nil).MkdirTemp), prefix)
+}
+
 // OverwriteAndWipe mocks base method.
 func (m *MockWriter) OverwriteAndWipe(file string) error {
 	m.ctrl.T.Helper()
@@ -409,6 +424,21 @@ func (m *MockReadWriter) MkdirAll(path string, perm fs.FileMode) error {
 func (mr *MockReadWriterMockRecorder) MkdirAll(path, perm any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirAll", reflect.TypeOf((*MockReadWriter)(nil).MkdirAll), path, perm)
+}
+
+// MkdirTemp mocks base method.
+func (m *MockReadWriter) MkdirTemp(prefix string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MkdirTemp", prefix)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MkdirTemp indicates an expected call of MkdirTemp.
+func (mr *MockReadWriterMockRecorder) MkdirTemp(prefix any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirTemp", reflect.TypeOf((*MockReadWriter)(nil).MkdirTemp), prefix)
 }
 
 // OverwriteAndWipe mocks base method.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -139,7 +140,7 @@ func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*ComposeSpec, er
 		return nil, err
 	}
 	if !found {
-		return nil, errors.ErrNoComposeFile
+		return nil, fmt.Errorf("%w found in: %s supported file names: %s", errors.ErrNoComposeFile, dir, strings.Join(baseFiles, ", "))
 	}
 
 	// merge override

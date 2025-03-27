@@ -146,7 +146,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	applicationManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
-		executer,
 		podmanClient,
 		systemClient,
 	)

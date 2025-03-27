@@ -206,7 +206,7 @@ func TestListenForEvents(t *testing.T) {
 			require.NoError(err)
 
 			podman := client.NewPodman(log, execMock, rw, newTestBackoff())
-			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "", rw)
+			podmanMonitor := NewPodmanMonitor(log, podman, "", rw)
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
@@ -353,7 +353,7 @@ func TestApplicationAddRemove(t *testing.T) {
 			execMock := executer.NewMockExecuter(ctrl)
 
 			podman := client.NewPodman(log, execMock, readWriter, newTestBackoff())
-			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "", readWriter)
+			podmanMonitor := NewPodmanMonitor(log, podman, "", readWriter)
 			testApp := createTestApplication(tc.appName, v1alpha1.ApplicationStatusPreparing)
 
 			switch tc.action {
