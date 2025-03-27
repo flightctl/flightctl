@@ -21,19 +21,19 @@ The flightctl-installer package provides quadlet files and setup for running Fli
 # No compilation needed for this package
 
 %install
-echo "install"
 # Create the target directory
 mkdir -p %{buildroot}/etc/flightctl/
 
 # Copy files into the build root
-ls -lR
 cp -r deploy/podman %{buildroot}/etc/flightctl/templates
 cp deploy/scripts/installer.sh %{buildroot}/etc/flightctl/installer.sh
+cp deploy/scripts/shared.sh %{buildroot}/etc/flightctl/shared.sh
 
 %files
 %defattr(0755,root,root,-)
 /etc/flightctl/templates
 /etc/flightctl/installer.sh
+/etc/flightctl/shared.sh
 
 %changelog
 * Wed Mar 26 2025 Dakota Crowder <dcrowder@redhat.com> - 0.0.1

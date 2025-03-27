@@ -1,21 +1,14 @@
 : ${BASE_DONAIN:=""}
-: ${BASE_DOMAIN_TLS_CERT:=""}
-: ${BASE_DOMAIN_TLS_KEY:=""}
 : ${AUTH_TYPE:="none"}
 
-# TODO fix this
-# : ${TEMPLATE_DIR:="/etc/flightctl/templates"}
-# : ${CONFIG_OUTPUT_DIR:="/etc/flightctl/config"}
-# : ${QUADLET_FILES_OUTPUT_DIR:="/etc/containers/systemd/users"}
+# Input and ouput directories
+: ${CONFIG_OUTPUT_DIR:="/etc/flightctl/config"}
 : ${TEMPLATE_DIR:="/home/dcrowder/Workspace/flightctl/deploy/podman"}
-: ${CONFIG_OUTPUT_DIR:="/home/dcrowder/Workspace/flightctl/deploy/test-config"}
-# : ${QUADLET_FILES_OUTPUT_DIR:="/home/dcrowder/Workspace/flightctl/deploy/test-quadlets"}
-: ${QUADLET_FILES_OUTPUT_DIR:="$HOME/.config/containers/systemd"}
+: ${QUADLET_FILES_OUTPUT_DIR:="/etc/containers/systemd/users"}
 
-# Load common functions
+# Load functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-# TODO rename env.sh to utils or something else
-source "${SCRIPT_DIR}"/env.sh
+source "${SCRIPT_DIR}"/shared.sh
 
 export CONFIG_OUTPUT_DIR
 # Conditionally set FLIGHTCTL_DISABLE_AUTH if AUTH_TYPE="none"
@@ -28,15 +21,6 @@ fi
 validate_inputs() {
     if [ -z "$BASE_DOMAIN" ]; then
         echo "Error: BASE_DOMAIN is not set"
-        exit 1
-    fi
-
-    # If tls cert and key are provided, both must be provided
-    if [ -z "$BASE_DOMAIN_TLS_CERT" ] && [ -n "$BASE_DOMAIN_TLS_KEY" ]; then
-        echo "Error: BASE_DOMAIN_TLS_CERT is set but BASE_DOMAIN_TLS_KEY is not set"
-        exit 1
-    elif [ -n "$BASE_DOMAIN_TLS_CERT" ] && [ -z "$BASE_DOMAIN_TLS_KEY" ]; then
-        echo "Error: BASE_DOMAIN_TLS_KEY is set but BASE_DOMAIN_TLS_CERT is not set"
         exit 1
     fi
 }
@@ -89,4 +73,6 @@ set -e
 
 validate_inputs
 ensure_secrets
+# TODO - handle certs
+# TODO - handle auth
 render_files
