@@ -1,4 +1,6 @@
-: ${BASE_DONAIN:=""}
+#!/usr/bin/env bash
+
+: ${BASE_DOMAIN:=""}
 : ${AUTH_TYPE:="none"}
 
 # Input and ouput directories
@@ -19,7 +21,7 @@ else
 fi
 
 validate_inputs() {
-    if [ -z "$BASE_DOMAIN" ]; then
+    if [ -z "$BASE_DOMAIN" ] || [ -z "$(echo "$BASE_DOMAIN" | xargs)" ]; then
         echo "Error: BASE_DOMAIN is not set"
         exit 1
     fi

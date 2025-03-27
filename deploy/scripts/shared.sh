@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
 
-export SYSTEMD_DIR="$HOME/.config/containers/systemd"
-export CONFIG_DIR="$HOME/.config/flightctl"
-
-postgres_secrets=("flightctl-postgresql-password" "flightctl-postgresql-master-password" "flightctl-postgresql-user-password")
-kv_secrets=("flightctl-kv-password")
-export SECRETS=("${postgres_secrets[@]}" "${kv_secrets[@]}")
-
 # Reloads systemd config and start the service
 start_service() {
     local service_name=$1
