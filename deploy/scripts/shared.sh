@@ -1,5 +1,49 @@
 #!/usr/bin/env bash
 
+: ${BASE_DOMAIN:=""}
+: ${AUTH_TYPE:="none"}
+
+# Input and ouput directories
+: ${TEMPLATE_DIR:="/etc/flightctl/templates"}
+: ${CONFIG_OUTPUT_DIR:="$HOME/.config/flightctl"}
+: ${QUADLET_FILES_OUTPUT_DIR:="$HOME/.config/containers/systemd"}
+
+export BASE_DOMAIN CONFIG_OUTPUT_DIR FLIGHTCTL_DISABLE_AUTH TEMPLATE_DIR QUADLET_FILES_OUTPUT_DIR
+inject_vars() {
+    envsubst '$BASE_DOMAIN $CONFIG_OUTPUT_DIR $FLIGHTCTL_DISABLE_AUTH' < "$1" > "$2"
+}
+
+render_service() {
+    local service_name="$1"
+    local standalone="$2"
+
+    # Determine container template file
+    local container_file="${TEMPLATE_DIR}/flightctl-${service_name}/flightctl-${service_name}.container"
+    if [[ "$standalone" == "standalone" ]]; then
+        container_file="${TEMPLATE_DIR}/flightctl-${service_name}/flightctl-${service_name}-standalone.container"
+    fi
+
+    # Process container template
+    inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
+
+    # Ensure config output directory exists
+    mkdir -p "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}"
+
+    # Process all files in the config directory
+    for config_file in "${TEMPLATE_DIR}/flightctl-${service_name}/flightctl-${service_name}-config"/*; do
+        if [[ -f "$config_file" ]]; then
+            inject_vars "$config_file" "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}/$(basename "$config_file")"
+        fi
+    done
+
+    # Move any .volume file if it exists
+    for volume in "${TEMPLATE_DIR}/flightctl-${service_name}"/*.volume; do
+        if [[ -f "$volume" ]]; then
+            cp "$volume" "${QUADLET_FILES_OUTPUT_DIR}"
+        fi
+    done
+}
+
 # Reloads systemd config and start the service
 start_service() {
     local service_name=$1

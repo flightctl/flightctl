@@ -2,45 +2,32 @@
 
 set -eo pipefail
 
-source deploy/scripts/env.sh
+source deploy/scripts/shared.sh
+TEMPLATE_DIR="deploy/podman"
 
 deploy_service() {
     local service_name=$1
-    local service_full_name="flightctl-${service_name}-standalone.service"
+    local service_full_name="flightctl-${service_name}.service"
 
     echo "Starting Deployment for $service_full_name"
 
     # Stop the service if it's running
     systemctl --user stop "$service_full_name" || true
 
-    echo "Performing pre-install for $service_full_name"
+    echo "Performing install for $service_full_name"
     # Handle pre-startup logic for each service
     if [[ "$service_name" == "db" ]]; then
         podman volume rm flightctl-db || true
         podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
         ensure_postgres_secrets
     else
-        # Copy configuration files
-        mkdir -p "$CONFIG_DIR/flightctl-$service_name-config"
-        cp deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf "$CONFIG_DIR/flightctl-kv-config/redis.conf"
         ensure_kv_secrets
     fi
 
     echo "Moving quadlet files for $service_full_name"
-    mkdir -p "$SYSTEMD_DIR"
-    cp deploy/podman/flightctl-$service_name/flightctl-$service_name-standalone.container "$SYSTEMD_DIR"
-    cp deploy/podman/flightctl-$service_name/flightctl-$service_name.volume "$SYSTEMD_DIR"
-    cp deploy/podman/flightctl.network "$SYSTEMD_DIR"
+    render_service "$service_name" "standalone"
 
-    start_service $service_full_name
-
-    # Handle post-startup logic for db service
-    if [[ "$service_name" == "db" ]]; then
-        echo "Waiting for PostgreSQL to start"
-        test/scripts/wait_for_postgres.sh podman
-        podman exec flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
-        podman exec flightctl-db createdb admin || true
-    fi
+    start_service "$service_full_name"
 
     echo "Deployment completed for $service_full_name"
 }
