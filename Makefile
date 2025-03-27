@@ -146,14 +146,11 @@ bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
+bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/rpm/flightctl-quadlet-installer.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
 	./hack/build_rpms.sh
 	touch bin/.rpm
 
 rpm: bin/.rpm
-
-rpm-installer:
-	./hack/build_rpms.sh
 
 .PHONY: rpm build build-api build-periodic build-worker
 
