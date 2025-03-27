@@ -23,11 +23,14 @@ render_service() {
         container_file="${TEMPLATE_DIR}/flightctl-${service_name}/flightctl-${service_name}-standalone.container"
     fi
 
-    # Process container template
-    inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
 
+    # Ensure quadlet output directory exists
+    mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
     # Ensure config output directory exists
     mkdir -p "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}"
+
+    # Process container template
+    inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
 
     # Process all files in the config directory
     for config_file in "${TEMPLATE_DIR}/flightctl-${service_name}/flightctl-${service_name}-config"/*; do
