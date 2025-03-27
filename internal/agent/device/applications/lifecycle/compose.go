@@ -31,7 +31,7 @@ func NewCompose(log *log.PrefixLogger, podman *client.Podman) *Compose {
 func (c *Compose) add(ctx context.Context, action *Action) error {
 	appName := action.Name
 	projectName := action.ID
-	c.log.Debugf("Starting application: %s projectName: %s", appName, projectName)
+	c.log.Debugf("Starting application: %s projectName: %s path: %s", appName, projectName, action.Path)
 
 	noRecreate := true
 	if err := c.podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
@@ -56,7 +56,7 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 
 func (c *Compose) update(ctx context.Context, action *Action) error {
 	appName := action.Name
-	c.log.Debugf("Updating application: %s projectName: %s", appName, action.ID)
+	c.log.Debugf("Updating application: %s projectName: %s path: %s", appName, action.ID, action.Path)
 
 	if err := c.stopAndRemoveContainers(ctx, action); err != nil {
 		return err

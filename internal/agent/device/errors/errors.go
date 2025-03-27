@@ -26,7 +26,7 @@ var (
 	ErrParseAppType           = errors.New("failed to parse application type")
 	ErrAppDependency          = errors.New("failed to resolve application dependency")
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")
-	ErrNoComposeFile          = errors.New("no compose file found")
+	ErrNoComposeFile          = errors.New("no valid compose file found")
 	ErrNoComposeServices      = errors.New("no services found in compose spec")
 	ErrAppLabel               = errors.New("required label not found")
 

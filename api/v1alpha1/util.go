@@ -237,6 +237,16 @@ func applicationsAreEqual(c1, c2 *[]ApplicationProviderSpec) bool {
 				return false
 			}
 			return reflect.DeepEqual(imageSpec1, imageSpec2)
+		case InlineApplicationProviderType:
+			inlineSpec1, err := item1.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return false
+			}
+			inlineSpec2, err := item2.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return false
+			}
+			return reflect.DeepEqual(inlineSpec1, inlineSpec2)
 		default:
 			return false
 		}

@@ -209,13 +209,13 @@ func TestSync(t *testing.T) {
 }
 
 func newVersionedDevice(version string) *v1alpha1.Device {
-	deice := &v1alpha1.Device{
+	device := &v1alpha1.Device{
 		Metadata: v1alpha1.ObjectMeta{
 			Annotations: lo.ToPtr(map[string]string{
 				v1alpha1.DeviceAnnotationRenderedVersion: version,
 			}),
 		},
 	}
-	deice.Spec = &v1alpha1.DeviceSpec{}
-	return deice
+	device.Spec = &v1alpha1.DeviceSpec{}
+	return device
 }
