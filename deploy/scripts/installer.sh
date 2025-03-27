@@ -2,9 +2,9 @@
 : ${AUTH_TYPE:="none"}
 
 # Input and ouput directories
-: ${CONFIG_OUTPUT_DIR:="/etc/flightctl/config"}
-: ${TEMPLATE_DIR:="/home/dcrowder/Workspace/flightctl/deploy/podman"}
-: ${QUADLET_FILES_OUTPUT_DIR:="/etc/containers/systemd/users"}
+: ${TEMPLATE_DIR:="/etc/flightctl/templates"}
+: ${CONFIG_OUTPUT_DIR:="$HOME/.config/flightctl"}
+: ${QUADLET_FILES_OUTPUT_DIR:="$HOME/.config/containers/systemd"}
 
 # Load functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
