@@ -36,8 +36,8 @@ render_files() {
 
 set -e
 
-validate_inputs
-ensure_secrets
 # TODO - handle certs
 # TODO - handle auth
+validate_inputs
+ensure_secrets
 render_files
