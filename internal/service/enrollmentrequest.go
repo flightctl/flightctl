@@ -82,7 +82,7 @@ func AddStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
 	}
 }
 
-func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
+func (h *ServiceHandler) createOrUpdateDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
 	status := api.NewDeviceStatus()
 	status.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
 	apiResource := &api.Device{
@@ -97,8 +97,23 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback)
-	return err
+	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
+	delayDeviceRender, ok := ctx.Value(DelayDeviceRenderCtxKey).(bool)
+	if ok && delayDeviceRender {
+		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
+	}
+	_, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, true, DeviceVerificationCallback, callback)
+	if err != nil {
+		return err
+	}
+
+	if created {
+		h.log.Infof("device %s created successfully.", enrollmentRequest.Metadata.Name)
+	} else {
+		h.log.Infof("device %s updated successfully.", enrollmentRequest.Metadata.Name)
+	}
+
+	return nil
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
@@ -249,7 +264,6 @@ func (h *ServiceHandler) GetEnrollmentRequestStatus(ctx context.Context, name st
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
-
 func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name string, approval api.EnrollmentRequestApproval) (*api.EnrollmentRequestApprovalStatus, api.Status) {
 	orgId := store.NullOrgId
 
@@ -265,9 +279,6 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 
 	// if the enrollment request was already approved we should not try to approve it one more time
 	if approval.Approved {
-		if api.IsStatusConditionTrue(enrollmentReq.Status.Conditions, api.EnrollmentRequestApproved) {
-			return nil, api.StatusBadRequest("Enrollment request is already approved")
-		}
 
 		identity, err := authcommon.GetIdentity(ctx)
 		if err != nil {
@@ -292,7 +303,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
-		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
+		if err := h.createOrUpdateDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
 			return nil, api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
 		}
 	}
