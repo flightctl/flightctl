@@ -13,7 +13,7 @@ COPY ./Makefile .
 COPY .git .git
 
 USER 0
-RUN make multiarch-build-cli
+RUN make build-multiarch-clis
 
 FROM registry.access.redhat.com/ubi9/ubi as certs
 RUN dnf install --nodocs -y nginx && dnf clean all
@@ -31,8 +31,8 @@ USER root
 RUN mkdir -p ${HOME} && \
     chown ${USER_UID}:0 ${HOME} && \
     chmod ug+rwx ${HOME} && \
-    sed '/^\s*listen\s*\[::\]:8080/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv4 && \
-    sed '/^\s*listen\s*8080/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv6 && \
+    sed '/^\s*listen\s*\[::\]:80/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv4 && \
+    sed '/^\s*listen\s*80/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv6 && \
     chmod a+rwx ${NGINX_CONF_PATH} && \
     chmod a+rwx ${NGINX_CONF_PATH}.ipv* && \
     chmod -R a+rwx /var/lib/nginx && \

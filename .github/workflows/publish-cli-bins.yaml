@@ -109,8 +109,7 @@ jobs:
     name: Verify Binaries on windows
     strategy:
       matrix:
-        # Support of "windows-arm64" will be removed from 1.26
-        # Windows 11 dropped support of arm64
+        # GitHub Actions does not provide a native Windows ARM64 runner
         arch: [ "amd64" ]
     runs-on: "windows-latest"
     needs: build

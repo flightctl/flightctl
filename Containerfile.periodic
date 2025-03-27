@@ -9,6 +9,8 @@ COPY ./go.* ./
 COPY ./pkg pkg
 COPY ./test test
 COPY ./Makefile .
+# make sure that version extraction works
+COPY .git .git
 
 USER 0
 RUN make build-periodic
