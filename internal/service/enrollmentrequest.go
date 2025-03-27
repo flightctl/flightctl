@@ -82,7 +82,7 @@ func AddStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
 	}
 }
 
-func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
+func (h *ServiceHandler) createOrUpdateDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
 	status := api.NewDeviceStatus()
 	status.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
 	apiResource := &api.Device{
@@ -97,7 +97,13 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback)
+	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
+	delayDeviceRender, ok := ctx.Value(DelayDeviceRenderCtxKey).(bool)
+	if ok && delayDeviceRender {
+		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
+	}
+
+	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, true, DeviceVerificationCallback, callback)
 	return err
 }
 
@@ -292,7 +298,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
-		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
+		if err := h.createOrUpdateDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
 			return nil, api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
 		}
 	}
