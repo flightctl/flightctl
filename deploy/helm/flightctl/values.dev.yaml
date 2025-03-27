@@ -25,6 +25,13 @@ api:
     tag: latest
     pullPolicy: IfNotPresent
   baseUIUrl: "http://localhost:9000"
+cliArtifacts:
+  enabled: true
+  image:
+    image: localhost/flightctl-cli-artifacts
+    tag: latest
+    pullPolicy: IfNotPresent
+  baseUrl: "http://localhost:8090"
 worker:
   image:
     image: localhost/flightctl-worker

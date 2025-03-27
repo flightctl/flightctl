@@ -12,6 +12,9 @@ nodes:
   - containerPort: 3443 # flightctl API
     hostPort: 3443
     protocol: TCP
+  - containerPort: 8090 # flightctl CLI artifacts
+    hostPort: 8090
+    protocol: TCP
   - containerPort: 7443 # flightctl agent endpoint API
     hostPort: 7443
     protocol: TCP

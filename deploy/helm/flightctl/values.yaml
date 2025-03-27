@@ -63,6 +63,7 @@ global:
   gatewayClass: ""
   nodePorts:
     api: 3443
+    cliArtifacts: 8090
     agent: 7443
     grpc: 7444
     ui: 9000
@@ -110,6 +111,13 @@ api:
     tag: ""
   agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
   baseUIUrl: "" # ui.flightctl.example.com
+cliArtifacts:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-cli-artifacts
+    pullPolicy: Always
+    tag: ""
+  baseUrl: https://cli.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.cliArtifacts }}/
 worker:
   enabled: true
   image:

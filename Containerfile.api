@@ -3,7 +3,6 @@ WORKDIR /app
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
-COPY ./.git .git
 COPY ./api api
 COPY ./cmd cmd
 COPY ./deploy deploy
@@ -13,6 +12,8 @@ COPY ./go.* ./
 COPY ./pkg pkg
 COPY ./test test
 COPY ./Makefile .
+# make sure that version extraction works
+COPY .git .git
 
 USER 0
 RUN git config --global --add safe.directory /app
