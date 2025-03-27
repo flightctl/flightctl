@@ -102,18 +102,9 @@ func (h *ServiceHandler) createOrUpdateDeviceFromEnrollmentRequest(ctx context.C
 	if ok && delayDeviceRender {
 		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
 	}
-	_, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, true, DeviceVerificationCallback, callback)
-	if err != nil {
-		return err
-	}
 
-	if created {
-		h.log.Infof("device %s created successfully.", enrollmentRequest.Metadata.Name)
-	} else {
-		h.log.Infof("device %s updated successfully.", enrollmentRequest.Metadata.Name)
-	}
-
-	return nil
+	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, true, DeviceVerificationCallback, callback)
+	return err
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
