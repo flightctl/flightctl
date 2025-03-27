@@ -2,9 +2,13 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/sirupsen/logrus"
 )
 
@@ -37,7 +41,41 @@ var defaultActions = map[string]action{
 	http.MethodDelete: actionDelete,
 }
 
-func CreatePermissionsMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
+var apiVersionPattern = regexp.MustCompile(`^v[1-9]+$`)
+
+func CreateAuthNMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/auth/config" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			authToken, err := authN.GetAuthToken(r)
+			if err != nil {
+				log.WithError(err).Error("failed to get auth token")
+				writeResponse(w, api.StatusBadRequest("failed to get auth token"), log)
+				return
+			}
+			err = authN.ValidateToken(r.Context(), authToken)
+			if err != nil {
+				log.WithError(err).Error("failed to validate token")
+				writeResponse(w, api.StatusUnauthorized("failed to validate token"), log)
+				return
+			}
+			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
+			identity, err := authN.GetIdentity(ctx, authToken)
+			if err != nil {
+				log.WithError(err).Error("failed to get identity")
+			} else {
+				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		}
+		return http.HandlerFunc(fn)
+	}
+}
+
+func CreateAuthZMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			var (
@@ -46,23 +84,30 @@ func CreatePermissionsMiddleware(log logrus.FieldLogger) func(http.Handler) http
 			)
 			if r.URL.Path == "/api/version" {
 				resource = "version"
-				action = actionGet
+				var ok bool
+				if action, ok = defaultActions[r.Method]; !ok {
+					action = actionNil
+				}
 			} else {
 				parts := strings.Split(r.URL.Path, "/")
-				// /, /api, /api/v{api-version} and /api/v{version}/auth don't require permissions
-				if len(parts) < 3 || (len(parts) >= 4 && parts[3] == "auth") {
+				// /, /api, /api/v{api-version} and /api/v{api-version}/auth don't require permissions
+				matchesAPIVPath := false
+				if len(parts) == 3 {
+					matchesAPIVPath = apiVersionPattern.MatchString(parts[2])
+				}
+				if len(parts) < 3 || matchesAPIVPath || (len(parts) >= 4 && parts[3] == "auth") {
 					next.ServeHTTP(w, r)
 					return
 				}
 
-				// Extract resource and action from the request
-				// Skip /api/v{api-version}, but not for /api/version does
-				resource, action = extractResourceAndAction(parts[3:], r.Method)
-				if resource == resourceNil || action == actionNil {
-					log.Errorf("Unable to extract resource and action from %s and %s", r.URL.Path, r.Method)
-					http.Error(w, errBadRequest, http.StatusBadRequest)
-					return
-				}
+				parts = parts[3:]
+				resource, action = extractResourceAndAction(parts, r.Method)
+			}
+
+			if resource == resourceNil || action == actionNil {
+				log.Errorf("Unable to extract resource and action from %s and %s", r.URL.Path, r.Method)
+				http.Error(w, errBadRequest, http.StatusBadRequest)
+				return
 			}
 
 			if !isAllowed(r.Context(), resource, action, w) {
@@ -93,6 +138,10 @@ func isAllowed(ctx context.Context, resource string, action action, w http.Respo
 }
 
 func extractResourceAndAction(parts []string, method string) (string, action) {
+	if len(parts) == 0 {
+		return resourceNil, actionNil
+	}
+
 	// Handle according to the URL structure
 	// e.g., "device", "devices", "devices/{name}", "devices/{name}/sub-action", "devices/{name}/sub-action/{sub-name}"
 	resource := strings.ToLower(parts[0])
@@ -124,4 +173,17 @@ func extractResourceAndAction(parts []string, method string) (string, action) {
 	}
 
 	return resource, action
+}
+
+func writeResponse(w http.ResponseWriter, status api.Status, log logrus.FieldLogger) {
+	resp, err := json.Marshal(status)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(int(status.Code))
+	if _, err := w.Write(resp); err != nil {
+		log.WithError(err).Warn("failed to write response")
+	}
 }
