@@ -3,18 +3,15 @@
 source deploy/scripts/shared.sh
 
 # Stop services running from the slice or standalone
-for service in flightctl.slice 'flightctl-*-standalone.service'; do
+for service in flightctl.slice 'flightctl-*.service'; do
     if systemctl --user is-active --quiet "$service"; then
         echo "Stopping $service..."
         systemctl stop --user "$service" || echo "Warning: Failed to stop $service"
     fi
 done
 
-# Remove copied files
-if [ -d "$HOME/.config/flightctl" ]; then
-    rm -rf "$HOME/.config/flightctl" || echo "Warning: Failed to remove quadlet files"
-    rm -rf "$HOME/.config/containers/systemd/flightctl*" || echo "Warning: Failed to remove quadlet config files"
-fi
+rm -rf "$CONFIG_OUTPUT_DIR" || echo "Warning: Failed to remove quadlet files"
+rm -rf "$QUADLET_FILES_OUTPUT_DIR/flightctl"* || echo "Warning: Failed to remove quadlet config files"
 
 # Remove volumes
 for volume in flightctl-db flightctl-api-certs flightctl-kv; do
