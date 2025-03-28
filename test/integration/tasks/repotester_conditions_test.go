@@ -116,7 +116,7 @@ var _ = Describe("RepoTester", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(HaveLen(1))
-			Expect(repo.Status.Conditions[0].Type).To(Equal(api.RepositoryAccessible))
+			Expect(repo.Status.Conditions[0].Type).To(Equal(api.ConditionTypeRepositoryAccessible))
 			Expect(repo.Status.Conditions[0].Status).To(Equal(api.ConditionStatusTrue))
 			Expect(repo.Status.Conditions[0].LastTransitionTime).ToNot(Equal(time.Time{}))
 
@@ -124,7 +124,7 @@ var _ = Describe("RepoTester", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(HaveLen(1))
-			Expect(repo.Status.Conditions[0].Type).To(Equal(api.RepositoryAccessible))
+			Expect(repo.Status.Conditions[0].Type).To(Equal(api.ConditionTypeRepositoryAccessible))
 			Expect(repo.Status.Conditions[0].Status).To(Equal(api.ConditionStatusTrue))
 			Expect(repo.Status.Conditions[0].LastTransitionTime).ToNot(Equal(time.Time{}))
 
@@ -132,7 +132,7 @@ var _ = Describe("RepoTester", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo.Status.Conditions).ToNot(BeNil())
 			Expect(repo.Status.Conditions).To(HaveLen(1))
-			Expect(repo.Status.Conditions[0].Type).To(Equal(api.RepositoryAccessible))
+			Expect(repo.Status.Conditions[0].Type).To(Equal(api.ConditionTypeRepositoryAccessible))
 			Expect(repo.Status.Conditions[0].Status).To(Equal(api.ConditionStatusFalse))
 			Expect(repo.Status.Conditions[0].LastTransitionTime).ToNot(Equal(time.Time{}))
 		})

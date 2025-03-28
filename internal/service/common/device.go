@@ -91,7 +91,7 @@ func updateServerSideLifecycleStatus(device *api.Device) bool {
 	lastLifecycleInfo := device.Status.Lifecycle.Info
 
 	// check device-reported Conditions to see if lifecycle status needs update
-	condition := api.FindStatusCondition(device.Status.Conditions, api.DeviceDecommissioning)
+	condition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceDecommissioning)
 	if condition == nil {
 		return false
 	}
@@ -127,7 +127,7 @@ func updateServerSideDeviceUpdatedStatus(ctx context.Context, st store.Store, lo
 			device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s) and had an update in progress at that time.", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		} else {
 			var agentInfoMessage string
-			if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.DeviceUpdating); updateCondition != nil {
+			if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceUpdating); updateCondition != nil {
 				agentInfoMessage = updateCondition.Message
 			}
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating

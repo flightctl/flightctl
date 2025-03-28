@@ -500,6 +500,7 @@ rules:
 overrides:
   - files:
       - "**#/paths/~1api~1v1~1labels"
+      - "**#/paths/~1api~1v1~1events"
       - "**#/paths/~1api~1v1~1enrollmentconfig"
     rules:
       collection-verbs-required: off
