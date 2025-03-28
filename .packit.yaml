@@ -11,7 +11,7 @@ packages:
     downstream_package_name: flightctl
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
   flightctl-quadlet-installer:
-    specfile_path: packaging/rpm/flightctl-quadlet-installer.spec
+    specfile_path: packaging/rpm-installer/flightctl-quadlet-installer.spec
 
     # add or remove files that should be synced
     files_to_sync:
@@ -31,6 +31,9 @@ jobs:
     targets:
       - fedora-eln-aarch64
       - centos-stream-9-x86_64
+    packages:
+      - flightctl
+      - flightctl-quadlet-installer
 
   - job: copr_build
     trigger: commit
@@ -53,6 +56,8 @@ jobs:
       - rhel-9-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
+    packages:
+      - flightctl
 
 
   - job: copr_build
@@ -76,3 +81,5 @@ jobs:
       - rhel-9-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
+    packages:
+      - flightctl
