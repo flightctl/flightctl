@@ -2,7 +2,9 @@
 
 set -eo pipefail
 
-source deploy/scripts/shared.sh
+# Load shared functions first to get the constant directory paths
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}"/shared.sh
 
 echo "Starting Deployment"
 
@@ -13,7 +15,11 @@ if ! PRIMARY_IP=$(bash -c 'source ./test/scripts/functions && get_ext_ip'); then
 fi
 export PRIMARY_IP
 
-BASE_DOMAIN="$PRIMARY_IP.nip.io" TEMPLATE_DIR="deploy/podman" deploy/scripts/installer.sh
+export BASE_DOMAIN="$PRIMARY_IP.nip.io"
+export TEMPLATE_DIR="deploy/podman"
+
+# Run installation script
+deploy/scripts/installer.sh
 
 start_service "flightctl.slice"
 

@@ -1,10 +1,23 @@
 #!/usr/bin/env bash
 
-# Load shared code
+set -eo pipefail
+
+# Define environment variables with defaults
+# Configuration variables
+: ${BASE_DOMAIN:=""}
+: ${AUTH_TYPE:="none"}
+
+# Directory path for templates
+: ${TEMPLATE_DIR:="/etc/flightctl/templates"}
+
+# Export variables needed by functions in shared.sh
+export BASE_DOMAIN
+
+# Load shared functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
-# Conditionally set FLIGHTCTL_DISABLE_AUTH if AUTH_TYPE="none"
+# Configure authentication based on AUTH_TYPE
 if [[ "$AUTH_TYPE" == "none" ]]; then
     export FLIGHTCTL_DISABLE_AUTH="true"
 else
@@ -19,25 +32,29 @@ validate_inputs() {
 }
 
 render_files() {
+    # Render service configurations - passing TEMPLATE_DIR explicitly
+    render_service "api" "${TEMPLATE_DIR}"
+    render_service "periodic" "${TEMPLATE_DIR}"
+    render_service "worker" "${TEMPLATE_DIR}"
+    render_service "db" "${TEMPLATE_DIR}"
+    render_service "kv" "${TEMPLATE_DIR}"
+    render_service "ui" "${TEMPLATE_DIR}"
+
     # Copy the network and slice files
-    mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
     cp "${TEMPLATE_DIR}/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
     cp "${TEMPLATE_DIR}/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
-
-    render_service "api"
-    render_service "periodic"
-    render_service "worker"
-    render_service "db"
-    render_service "kv"
-    render_service "ui"
 }
 
-# Execution
+# Main execution
+main() {
+    echo "Starting installation"
 
-set -e
+    validate_inputs
+    ensure_secrets
+    render_files
 
-# TODO - handle certs
-# TODO - handle auth
-validate_inputs
-ensure_secrets
-render_files
+    echo "Installation complete"
+}
+
+# Execute the main function
+main

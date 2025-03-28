@@ -12,7 +12,7 @@ BuildRequires:  make
 Requires:       bash
 
 %description
-The flightctl-installer package provides quadlet files and setup for running Flight Control services
+The flightctl-quadlet-installer package provides quadlet files and setup for running Flight Control services
 
 %prep
 %setup -q

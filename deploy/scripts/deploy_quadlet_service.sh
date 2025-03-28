@@ -2,8 +2,12 @@
 
 set -eo pipefail
 
-source deploy/scripts/shared.sh
+# Directory path for templates
 TEMPLATE_DIR="deploy/podman"
+
+# Load shared functions
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}"/shared.sh
 
 deploy_service() {
     local service_name=$1
@@ -24,18 +28,24 @@ deploy_service() {
         ensure_kv_secrets
     fi
 
-    echo "Moving quadlet files for $service_full_name"
-    render_service "$service_name" "standalone"
+    echo "Installing quadlet files for $service_full_name"
 
+    render_service "$service_name" "${TEMPLATE_DIR}" "standalone"
     start_service "$service_full_name"
 
     echo "Deployment completed for $service_full_name"
 }
 
-if [[ $# -ne 1 ]]; then
-    echo "Usage: $0 <service_name>"
-    echo "Available services: db, kv"
-    exit 1
-fi
+# Main execution
+main() {
+    if [[ $# -ne 1 ]]; then
+        echo "Usage: $0 <service_name>"
+        echo "Available services: db, kv"
+        exit 1
+    fi
 
-deploy_service "$1"
+    deploy_service "$1"
+}
+
+# Execute the main function with all command line arguments
+main "$@"
