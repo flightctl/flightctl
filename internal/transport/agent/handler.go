@@ -18,19 +18,20 @@ import (
 
 type AgentTransportHandler struct {
 	serviceHandler *service.ServiceHandler
+	ca             *crypto.CAClient
 	log            logrus.FieldLogger
 }
 
 // Make sure we conform to servers Service interface
 var _ agentServer.Transport = (*AgentTransportHandler)(nil)
 
-func ValidateDeviceAccessFromContext(ctx context.Context, name string, log logrus.FieldLogger) error {
+func ValidateDeviceAccessFromContext(ctx context.Context, name string, ca *crypto.CAClient, log logrus.FieldLogger) error {
 	cn, ok := ctx.Value(middleware.TLSCommonNameContextKey).(string)
 	if !ok {
 		log.Warningf("an attempt to access device %q without a CN in tls certificate has been detected", name)
 		return errors.New("no common name in certificate")
 	}
-	if expectedCn, err := crypto.CNFromDeviceFingerprint(name); err != nil {
+	if expectedCn, err := ca.CNFromDeviceFingerprint(name); err != nil {
 		return err
 	} else if cn != expectedCn {
 		log.Warningf("an attempt to access device %q with a certificate with CN %q has been detected", name, cn)
@@ -40,13 +41,13 @@ func ValidateDeviceAccessFromContext(ctx context.Context, name string, log logru
 	return nil
 }
 
-func ValidateEnrollmentAccessFromContext(ctx context.Context, log logrus.FieldLogger) error {
+func ValidateEnrollmentAccessFromContext(ctx context.Context, ca *crypto.CAClient, log logrus.FieldLogger) error {
 	cn, ok := ctx.Value(middleware.TLSCommonNameContextKey).(string)
 	if !ok {
 		return errors.New("no common name in certificate")
 	}
-	if cn != crypto.ClientBootstrapCommonName &&
-		!strings.HasPrefix(cn, crypto.ClientBootstrapCommonNamePrefix) {
+	if cn != ca.Cfg.ClientBootstrapCommonName &&
+		!strings.HasPrefix(cn, ca.Cfg.ClientBootstrapCommonNamePrefix) {
 		log.Errorf("an attempt to perform enrollment with a certificate with CN %q has been detected", cn)
 		return errors.New("invalid tls CN for enrollment request")
 	}
@@ -54,14 +55,14 @@ func ValidateEnrollmentAccessFromContext(ctx context.Context, log logrus.FieldLo
 	return nil
 }
 
-func NewAgentTransportHandler(serviceHandler *service.ServiceHandler, log logrus.FieldLogger) *AgentTransportHandler {
-	return &AgentTransportHandler{serviceHandler: serviceHandler, log: log}
+func NewAgentTransportHandler(serviceHandler *service.ServiceHandler, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
+	return &AgentTransportHandler{serviceHandler: serviceHandler, ca: ca, log: log}
 }
 
 // (GET /api/v1/devices/{name}/rendered)
 func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params api.GetRenderedDeviceParams) {
 
-	if err := ValidateDeviceAccessFromContext(r.Context(), name, s.log); err != nil {
+	if err := ValidateDeviceAccessFromContext(r.Context(), name, s.ca, s.log); err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
@@ -74,7 +75,7 @@ func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http
 // (PUT /api/v1/devices/{name}/status)
 func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 
-	if err := ValidateDeviceAccessFromContext(r.Context(), name, s.log); err != nil {
+	if err := ValidateDeviceAccessFromContext(r.Context(), name, s.ca, s.log); err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
@@ -93,7 +94,7 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 // (PATCH) /api/v1/devices/{name}/status)
 func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 
-	if err := ValidateDeviceAccessFromContext(r.Context(), name, s.log); err != nil {
+	if err := ValidateDeviceAccessFromContext(r.Context(), name, s.ca, s.log); err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
@@ -112,7 +113,7 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 // (POST /api/v1/enrollmentrequests)
 func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 
-	if err := ValidateEnrollmentAccessFromContext(r.Context(), s.log); err != nil {
+	if err := ValidateEnrollmentAccessFromContext(r.Context(), s.ca, s.log); err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
@@ -131,7 +132,7 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 // (GET /api/v1/enrollmentrequests/{name})
 func (s *AgentTransportHandler) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 
-	if err := ValidateEnrollmentAccessFromContext(r.Context(), s.log); err != nil {
+	if err := ValidateEnrollmentAccessFromContext(r.Context(), s.ca, s.log); err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
