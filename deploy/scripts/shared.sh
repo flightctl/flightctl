@@ -3,6 +3,7 @@
 # Output directory paths
 readonly CONFIG_OUTPUT_DIR="$HOME/.config/flightctl"
 readonly QUADLET_FILES_OUTPUT_DIR="$HOME/.config/containers/systemd"
+export CONFIG_OUTPUT_DIR
 
 # Function to substitute environment variables in a template
 # Args:
