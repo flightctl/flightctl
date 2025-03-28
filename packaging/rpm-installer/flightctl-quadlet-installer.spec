@@ -30,11 +30,11 @@ cp deploy/scripts/installer.sh %{buildroot}/etc/flightctl/installer.sh
 cp deploy/scripts/shared.sh %{buildroot}/etc/flightctl/shared.sh
 
 %files
-%defattr(0755,root,root,-)
+%defattr(0644,root,root,-)
 /etc/flightctl/templates
-/etc/flightctl/installer.sh
-/etc/flightctl/shared.sh
+%attr(0755,root,root) /etc/flightctl/installer.sh
+%attr(0755,root,root) /etc/flightctl/shared.sh
 
 %changelog
-* Wed Mar 26 2025 Dakota Crowder <dcrowder@redhat.com> - 0.0.1
+* Wed Mar 26 2025 Dakota Crowder <dcrowder@redhat.com> - 0.5.0
 - Initial spec definition

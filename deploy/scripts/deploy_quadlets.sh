@@ -19,7 +19,10 @@ export BASE_DOMAIN="$PRIMARY_IP.nip.io"
 export TEMPLATE_DIR="deploy/podman"
 
 # Run installation script
-deploy/scripts/installer.sh
+if ! deploy/scripts/installer.sh; then
+    echo "Error: Installation failed"
+    exit 1
+fi
 
 start_service "flightctl.slice"
 

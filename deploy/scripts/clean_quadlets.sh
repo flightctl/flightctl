@@ -7,7 +7,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
 clean_services() {
-    # Stop services running from the slice or standalone
+    # Stop any running services
     for service in flightctl.slice 'flightctl-*.service'; do
         if systemctl --user is-active --quiet "$service"; then
             echo "Stopping $service..."
@@ -54,7 +54,6 @@ clean_secrets() {
     done
 }
 
-# Main execution
 main() {
     echo "Starting cleanup"
 
@@ -67,5 +66,4 @@ main() {
     echo "Cleanup completed"
 }
 
-# Execute the main function
 main
