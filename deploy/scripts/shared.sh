@@ -109,7 +109,9 @@ ensure_secret() {
             echo "Using existing environment variable $env_var_name"
         fi
         if ! podman secret create --env "$secret_name" "$env_var_name"; then
+            return 1
             echo "Error creating secret $secret_name"
         fi
     fi
+    return 0
 }
