@@ -124,18 +124,18 @@ var _ = Describe("FleetStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
 			Expect(fleet.Status.DevicesSummary.Total).To(Equal(int64(5)))
-			applicationStatus := *fleet.Status.DevicesSummary.ApplicationStatus
+			applicationStatus := fleet.Status.DevicesSummary.ApplicationStatus
 			Expect(applicationStatus).ToNot(BeNil())
 			Expect(applicationStatus[string(api.ApplicationsSummaryStatusHealthy)]).To(Equal(int64(3)))
 			Expect(applicationStatus[string(api.ApplicationsSummaryStatusDegraded)]).To(Equal(int64(1)))
 			Expect(applicationStatus[string(api.ApplicationsSummaryStatusError)]).To(Equal(int64(1)))
-			summaryStatus := *fleet.Status.DevicesSummary.SummaryStatus
+			summaryStatus := fleet.Status.DevicesSummary.SummaryStatus
 			Expect(summaryStatus).ToNot(BeNil())
 			Expect(summaryStatus[string(api.DeviceSummaryStatusOnline)]).To(Equal(int64(2)))
 			Expect(summaryStatus[string(api.DeviceSummaryStatusDegraded)]).To(Equal(int64(1)))
 			Expect(summaryStatus[string(api.DeviceSummaryStatusRebooting)]).To(Equal(int64(1)))
 			Expect(summaryStatus[string(api.DeviceSummaryStatusError)]).To(Equal(int64(1)))
-			updateStatus := *fleet.Status.DevicesSummary.UpdateStatus
+			updateStatus := fleet.Status.DevicesSummary.UpdateStatus
 			Expect(updateStatus).ToNot(BeNil())
 			Expect(updateStatus[string(api.DeviceUpdatedStatusUpToDate)]).To(Equal(int64(2)))
 			Expect(updateStatus[string(api.DeviceUpdatedStatusUpdating)]).To(Equal(int64(2)))

@@ -210,9 +210,9 @@ func DevicesToApiResource(devices []Device, cont *string, numRemaining *int64) (
 		Items:      deviceList,
 		Metadata:   api.ListMeta{},
 		Summary: &api.DevicesSummary{
-			ApplicationStatus: &applicationStatuses,
-			SummaryStatus:     &summaryStatuses,
-			UpdateStatus:      &updateStatuses,
+			ApplicationStatus: applicationStatuses,
+			SummaryStatus:     summaryStatuses,
+			UpdateStatus:      updateStatuses,
 			Total:             int64(len(devices)),
 		},
 	}

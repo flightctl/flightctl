@@ -172,13 +172,13 @@ func (s *FleetStore) addStatusSummary(ctx context.Context, orgId uuid.UUID, flee
 	}
 
 	applicationStatus := statusCount.List("status.applicationsSummary.status")
-	summary.ApplicationStatus = &applicationStatus
+	summary.ApplicationStatus = applicationStatus
 
 	summaryStatus := statusCount.List("status.summary.status")
-	summary.SummaryStatus = &summaryStatus
+	summary.SummaryStatus = summaryStatus
 
 	updateStatus := statusCount.List("status.updated.status")
-	summary.UpdateStatus = &updateStatus
+	summary.UpdateStatus = updateStatus
 
 	return nil
 }

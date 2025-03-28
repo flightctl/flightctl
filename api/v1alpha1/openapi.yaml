@@ -4700,7 +4700,6 @@ components:
         applicationStatus:
           type: object
           default: {}
-          nullable: true
           additionalProperties:
             type: integer
             format: int64
@@ -4708,7 +4707,6 @@ components:
         summaryStatus:
           type: object
           default: {}
-          nullable: true
           additionalProperties:
             type: integer
             format: int64
@@ -4716,7 +4714,6 @@ components:
         updateStatus:
           type: object
           default: {}
-          nullable: true
           additionalProperties:
             type: integer
             format: int64
