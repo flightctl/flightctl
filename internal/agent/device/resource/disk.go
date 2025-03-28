@@ -140,6 +140,7 @@ func (m *DiskMonitor) ensureAlerts(percentageUsed int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	m.log.Tracef("Disk usage: %d%%", percentageUsed)
 	for _, alert := range m.alerts {
 		alert.Sync(percentageUsed)
 	}

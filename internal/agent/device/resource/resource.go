@@ -36,8 +36,11 @@ type Manager interface {
 type Monitor[T any] interface {
 	Run(ctx context.Context)
 	Update(monitor *v1alpha1.ResourceMonitor) (bool, error)
-	CollectUsage(ctx context.Context, usage *T) error
 	Alerts() []v1alpha1.ResourceAlertRule
+}
+
+type Collector[T any] interface {
+	CollectUsage(ctx context.Context, usage *T) error
 }
 
 type ResourceManager struct {

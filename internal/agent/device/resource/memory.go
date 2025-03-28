@@ -115,6 +115,7 @@ func (m *MemoryMonitor) ensureAlerts(percentageUsed int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	m.log.Tracef("Memory usage: %d%%", percentageUsed)
 	for _, alert := range m.alerts {
 		alert.Sync(percentageUsed)
 	}
