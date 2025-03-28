@@ -15,7 +15,7 @@ packages:
 
     # add or remove files that should be synced
     files_to_sync:
-      - packaging/rpm/flightctl-quadlet-installer.spec
+      - packaging/rpm-installer/flightctl-quadlet-installer.spec
       - .packit.yaml
 
     upstream_package_name: flightctl-quadlet-installer
