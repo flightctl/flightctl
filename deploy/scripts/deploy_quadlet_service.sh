@@ -36,7 +36,6 @@ deploy_service() {
     echo "Deployment completed for $service_full_name"
 }
 
-# Main execution
 main() {
     if [[ $# -ne 1 ]]; then
         echo "Usage: $0 <service_name>"
@@ -44,7 +43,15 @@ main() {
         exit 1
     fi
 
-    deploy_service "$1"
+    # Validate service name
+    local service_name="$1"
+    if [[ ! "$service_name" =~ ^(db|kv)$ ]]; then
+        echo "Error: Invalid service name: $service_name"
+        echo "Available services: db, kv"
+        exit 1
+    fi
+
+    deploy_service "$service_name"
 }
 
 # Execute the main function with all command line arguments

@@ -45,7 +45,6 @@ render_files() {
     cp "${TEMPLATE_DIR}/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
 }
 
-# Main execution
 main() {
     echo "Starting installation"
 
@@ -56,5 +55,4 @@ main() {
     echo "Installation complete"
 }
 
-# Execute the main function
 main
