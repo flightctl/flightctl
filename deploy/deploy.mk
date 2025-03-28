@@ -49,9 +49,12 @@ deploy-quadlets:
 	deploy/scripts/deploy_quadlets.sh
 
 kill-db:
-	systemctl --user stop flightctl-db-standalone.service
+	systemctl --user stop flightctl-db.service
 
 kill-kv:
-	systemctl --user stop flightctl-kv-standalone.service
+	systemctl --user stop flightctl-kv.service
+
+show-podman-secret:
+	podman secret inspect $(SECRET_NAME) --showsecret | jq '.[] | .SecretData'
 
 .PHONY: deploy-db deploy cluster

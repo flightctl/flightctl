@@ -12,7 +12,6 @@ import (
 
 func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *gorm.DB) {
 	cfg := config.NewDefault()
-	cfg.Database.Name = ""
 	dbTemp, err := InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
@@ -50,7 +49,7 @@ func DeleteTestDB(log *logrus.Logger, cfg *config.Config, store Store, dbName st
 	if err != nil {
 		log.Fatalf("closing data store: %v", err)
 	}
-	cfg.Database.Name = ""
+	cfg.Database.Name = "flightctl"
 	db, err := InitDB(cfg, logrus.New())
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)

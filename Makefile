@@ -83,7 +83,7 @@ build: bin build-cli
 
 bin/flightctl-agent: bin $(GO_FILES)
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
-		./cmd/flightctl-agent 
+		./cmd/flightctl-agent
 
 build-cli: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
@@ -140,7 +140,7 @@ bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
+bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/rpm-installer/flightctl-quadlet-installer.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
 	./hack/build_rpms.sh
 	touch bin/.rpm
 
