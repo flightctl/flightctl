@@ -80,6 +80,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 
 	// create certs
 	serverCfg.Service.CertStore = filepath.Join(testDirPath, "etc", "flightctl", "certs")
+	serverCfg.CAConfig.InternalCAConfig.CACertStore = serverCfg.Service.CertStore
 	ca, serverCerts, _, err := testutil.NewTestCerts(&serverCfg)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
