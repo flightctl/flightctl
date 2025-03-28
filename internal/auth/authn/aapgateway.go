@@ -14,7 +14,8 @@ import (
 )
 
 type AAPUser struct {
-	Username string `json:"username,omitempty"`
+	Username    string `json:"username,omitempty"`
+	IsSuperuser bool   `json:"is_superuser,omitempty"`
 }
 
 type AAPUserInfo struct {
@@ -108,7 +109,13 @@ func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (*common.
 		return nil, fmt.Errorf("failed to get identity: %w", err)
 	}
 
-	return &common.Identity{
+	identity := common.Identity{
 		Username: userInfo.Username,
-	}, nil
+	}
+
+	if userInfo.IsSuperuser {
+		identity.Groups = []string{"admin"}
+	}
+
+	return &identity, nil
 }
