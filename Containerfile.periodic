@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.22 as build
+FROM registry.access.redhat.com/ubi9/go-toolset:9.5-1743094161 as build
 WORKDIR /app
 COPY ./api api
 COPY ./cmd cmd
