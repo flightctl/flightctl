@@ -1,6 +1,8 @@
 module github.com/flightctl/flightctl/tools
 
-go 1.22
+go 1.23
+
+toolchain go1.23.7
 
 require (
 	github.com/oapi-codegen/oapi-codegen/v2 v2.3.0
@@ -20,7 +22,7 @@ require (
 	github.com/go-openapi/jsonpointer v0.20.2 // indirect
 	github.com/go-openapi/swag v0.22.8 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
-	github.com/google/pprof v0.0.0-20240424215950-a892ee059fd6 // indirect
+	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/invopop/yaml v0.2.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
