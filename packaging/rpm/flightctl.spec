@@ -12,7 +12,7 @@
     restorecon -v /usr/bin/flightctl-agent
 
 Name:           flightctl
-Version:        0.4.0
+Version:        0.3.0~679~g016a4f5
 Release:        1%{?dist}
 Summary:        Flight Control service
 
@@ -21,7 +21,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        1%{?dist}
+Source0:        flightctl-0.3.0~679~g016a4f5.tar.gz
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -50,7 +50,7 @@ Requires: bootc
 %description agent
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
 
-
+# selinux sub-package
 %package selinux
 Summary: SELinux policies for the Flight Control management agent
 BuildRequires: selinux-policy >= %{selinux_policyver}
@@ -61,10 +61,17 @@ Requires: selinux-policy >= %{selinux_policyver}
 %description selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
 
+# services sub-package
+%package services
+Summary: Flight Contol services
+Requires: bash
+
+%description services
+The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs}
+%setup -q %{forgesetupargs} -n flightctl-0.3.0~679~g016a4f5
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -118,6 +125,15 @@ The flightctl-selinux package provides the SELinux policy modules required by th
         cp -vr "${DOC}" "%{buildroot}%{_docdir}/%{NAME}/${DOC}"
     done
 
+    # flightctl-services sub-package steps
+    # Create the target directory
+    mkdir -p %{buildroot}%{_sysconfdir}/flightctl/
+
+    # Copy files into the build root
+    cp -r deploy/podman %{buildroot}%{_sysconfdir}/flightctl/templates
+    cp deploy/scripts/installer.sh %{buildroot}%{_sysconfdir}/flightctl/installer.sh
+    cp deploy/scripts/shared.sh %{buildroot}%{_sysconfdir}/flightctl/shared.sh
+
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
 
@@ -164,8 +180,16 @@ fi
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
+%files services
+    %defattr(0644,root,root,-)
+    %{_sysconfdir}/flightctl/templates
+    %attr(0755,root,root) %{_sysconfdir}/flightctl/installer.sh
+    %attr(0755,root,root) %{_sysconfdir}/flightctl/shared.sh
+
 %changelog
 
+* Mon Mar 31 2025 Dakota Crowder <dcrowder@redhat.com> - 0.5.0-1
+- Add services sub-package for installation of containerized flightctl services
 * Fri Feb 7 2025 Miguel Angel Ajo <majopela@redhat.com> - 0.4.0-1
 - Add selinux support for console pty access
 
