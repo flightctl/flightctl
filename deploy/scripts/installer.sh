@@ -32,7 +32,6 @@ set_defaults() {
 }
 
 render_files() {
-    # Render service configurations - passing TEMPLATE_DIR explicitly
     render_service "api" "${TEMPLATE_DIR}"
     render_service "periodic" "${TEMPLATE_DIR}"
     render_service "worker" "${TEMPLATE_DIR}"
