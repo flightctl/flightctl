@@ -40,9 +40,7 @@ render_files() {
     render_service "kv" "${TEMPLATE_DIR}"
     render_service "ui" "${TEMPLATE_DIR}"
 
-    # Copy the network and slice files
-    cp "${TEMPLATE_DIR}/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
-    cp "${TEMPLATE_DIR}/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
+    render_shared_files
 }
 
 main() {

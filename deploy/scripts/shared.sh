@@ -34,8 +34,6 @@ render_service() {
 
     # Ensure quadlet output directory exists
     mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
-    # Ensure config output directory exists
-    mkdir -p "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}"
 
     # Process container template
     inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
@@ -43,6 +41,8 @@ render_service() {
     # Process all files in the config directory
     for config_file in "${template_dir}/flightctl-${service_name}/flightctl-${service_name}-config"/*; do
         if [[ -f "$config_file" ]]; then
+            # Ensure config output directory exists
+            mkdir -p "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}"
             inject_vars "$config_file" "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}/$(basename "$config_file")"
         fi
     done
@@ -53,6 +53,15 @@ render_service() {
             cp "$volume" "${QUADLET_FILES_OUTPUT_DIR}"
         fi
     done
+}
+
+render_shared_files() {
+    # Copy the network and slice files
+    cp "${TEMPLATE_DIR}/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
+    cp "${TEMPLATE_DIR}/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
+
+    # Process the shared config file
+    inject_vars "${TEMPLATE_DIR}/config.yaml" "${CONFIG_OUTPUT_DIR}/config.yaml"
 }
 
 # Start a systemd service

@@ -20,7 +20,7 @@ PublishPort=7444:7444
 PublishPort=15690:15690
 PublishPort=15691:15691
 Volume=flightctl-api-certs:/root/.flightctl/certs:z
-Volume=$CONFIG_OUTPUT_DIR/flightctl-api/config.yaml:/root/.flightctl/config.yaml:Z
+Volume=$CONFIG_OUTPUT_DIR/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Slice=flightctl.slice

@@ -10,7 +10,7 @@ Network=flightctl.network
 Environment=HOME=/root
 Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-Volume=$CONFIG_OUTPUT_DIR/flightctl-periodic/config.yaml:/root/.flightctl/config.yaml:Z
+Volume=$CONFIG_OUTPUT_DIR/config.yaml:/root/.flightctl/config.yaml:Z
 
 [Service]
 Restart=always
