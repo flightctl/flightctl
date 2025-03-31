@@ -11,6 +11,8 @@ Image=quay.io/flightctl/flightctl-api:0.4.0
 Network=flightctl.network
 Environment=HOME=/root
 Environment=FLIGHTCTL_DISABLE_AUTH=true
+Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 
 PublishPort=3443:3443
 PublishPort=7443:7443
