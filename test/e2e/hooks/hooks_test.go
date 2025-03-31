@@ -10,6 +10,124 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	inlinePath                = "/etc/ssh/sshd_config.d/custom-ssh.conf"
+	inlineConfigName          = "sshd-inline-config"
+	inlineConfigName3         = "sshd-hook-inline-config"
+	inlineConfigLifecycleName = "lifecycle-hook-inline-config"
+	rootUser                  = "root"
+	hookPath                  = "/etc/flightctl/hooks.d/afterupdating/custom-hook.yaml"
+	deviceSpec                v1alpha1.DeviceSpec
+	noPasswordLoginError      = "user@localhost: Permission denied"
+	tooManyAuthFailuresError  = "Too many authentication failures"
+)
+
+// sshdConfigurationContent defines the inline SSH configuration content for customizing the sshd settings on a device.
+var sshdConfigurationContent = `
+# Custom SSH Configuration
+PasswordAuthentication yes
+ClientAliveInterval 300
+MaxAuthTries 1
+`
+
+// sshdConfigurationContent2 defines a multi-line string containing custom SSH server configuration settings.
+var sshdConfigurationContent2 = `
+# Custom SSH Configuration
+PermitRootLogin yes
+PasswordAuthentication no
+ClientAliveInterval 300
+MaxAuthTries 2
+`
+
+// sshdHook defines a YAML configuration string that triggers a validation of SSH daemon configuration upon certain file events.
+var sshdHook = `
+- if:
+  - path: /etc/ssh/sshd_config.d/
+    op: [created, updated, removed]
+  run: sudo sshd -t
+`
+var mode = 0644
+var modePointer = &mode
+var inlineConfigSpec = v1alpha1.FileSpec{
+	Path:    inlinePath,
+	Mode:    modePointer,
+	Content: sshdConfigurationContent,
+}
+
+// inlineConfigValid is an instance of InlineConfigProviderSpec configured with inline file specifications and a provider name.
+var inlineConfigValid = v1alpha1.InlineConfigProviderSpec{
+	Inline: []v1alpha1.FileSpec{inlineConfigSpec},
+	Name:   inlineConfigName,
+}
+
+// inlineConfigSpec2 defines a file specification for creating a custom SSH server configuration file at a specified path.
+var inlineConfigSpec2 = v1alpha1.FileSpec{
+	Path:    inlinePath,
+	Mode:    modePointer,
+	Content: sshdConfigurationContent2,
+}
+var inlineConfigValid2 = v1alpha1.InlineConfigProviderSpec{
+	Inline: []v1alpha1.FileSpec{inlineConfigSpec2},
+	Name:   inlineConfigName,
+}
+
+var inlineConfigSpec3 = v1alpha1.FileSpec{
+	Path:    hookPath,
+	Mode:    modePointer,
+	Content: sshdHook,
+}
+
+var inlineConfigValid3 = v1alpha1.InlineConfigProviderSpec{
+	Inline: []v1alpha1.FileSpec{inlineConfigSpec3},
+	Name:   inlineConfigName3,
+}
+
+var (
+	afterUpdatingContent = `
+- run: /usr/bin/logger "this is a test message from afterupdating hook"
+`
+	afterUpdatingPath     = "/etc/flightctl/hooks.d/afterupdating/display-hook.yaml"
+	afterRebootingContent = `
+- run: /usr/bin/logger "this is a test message from afterrebooting hook"
+`
+	afterRebootingPath     = "/etc/flightctl/hooks.d/afterrebooting/display-hook.yaml"
+	beforeRebootingContent = `
+- run: /usr/bin/logger "this is a test message from beforerebooting hook"
+`
+	beforeRebootingPath   = "/etc/flightctl/hooks.d/beforerebooting/display-hook.yaml"
+	beforeUpdatingContent = `
+- run: /usr/bin/logger "this is a test message from beforeupdating hook"
+`
+	beforeUpdatingPath = "/etc/flightctl/hooks.d/beforeupdating/display-hook.yaml"
+)
+
+// inlineConfigSpec4 defines a file specification with path, mode, and content for the after-updating lifecycle hook.
+var inlineConfigSpec4 = v1alpha1.FileSpec{
+	Path:    afterUpdatingPath,
+	Mode:    modePointer,
+	Content: afterUpdatingContent,
+}
+var inlineConfigSpec5 = v1alpha1.FileSpec{
+	Path:    afterRebootingPath,
+	Mode:    modePointer,
+	Content: afterRebootingContent,
+}
+var inlineConfigSpec6 = v1alpha1.FileSpec{
+	Path:    beforeRebootingPath,
+	Mode:    modePointer,
+	Content: beforeRebootingContent,
+}
+var inlineConfigSpec7 = v1alpha1.FileSpec{
+	Path:    beforeUpdatingPath,
+	Mode:    modePointer,
+	Content: beforeUpdatingContent,
+}
+
+var inlineConfigValidLifecycle = v1alpha1.InlineConfigProviderSpec{
+	Inline: []v1alpha1.FileSpec{inlineConfigSpec4, inlineConfigSpec5, inlineConfigSpec6, inlineConfigSpec7},
+	Name:   inlineConfigLifecycleName,
+}
+
 var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	var (
 		harness  *e2e.Harness
@@ -19,6 +137,9 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	BeforeEach(func() {
 		harness = e2e.NewTestHarness()
 		deviceId = harness.StartVMAndEnroll()
+		if deviceId == "" {
+			Skip("Skipping test: suite failed to create device")
+		}
 	})
 
 	AfterEach(func() {
@@ -173,117 +294,8 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	})
 })
 
-var (
-	inlinePath                = "/etc/ssh/sshd_config.d/custom-ssh.conf"
-	inlineConfigName          = "sshd-inline-config"
-	inlineConfigName3         = "sshd-hook-inline-config"
-	inlineConfigLifecycleName = "lifecycle-hook-inline-config"
-	rootUser                  = "root"
-	hookPath                  = "/etc/flightctl/hooks.d/afterupdating/custom-hook.yaml"
-	deviceSpec                v1alpha1.DeviceSpec
-	noPasswordLoginError      = "user@localhost: Permission denied"
-	tooManyAuthFailuresError  = "Too many authentication failures"
-)
-
-var sshdConfigurationContent = `
-# Custom SSH Configuration
-PasswordAuthentication yes
-ClientAliveInterval 300
-MaxAuthTries 1
-`
-
-var sshdConfigurationContent2 = `
-# Custom SSH Configuration
-PermitRootLogin yes
-PasswordAuthentication no
-ClientAliveInterval 300
-MaxAuthTries 2
-`
-var sshdHook = `
-- if:
-  - path: /etc/ssh/sshd_config.d/
-    op: [created, updated, removed]
-  run: sudo sshd -t
-`
-var mode = 0644
-var modePointer = &mode
-var inlineConfigSpec = v1alpha1.FileSpec{
-	Path:    inlinePath,
-	Mode:    modePointer,
-	Content: sshdConfigurationContent,
-}
-
-var inlineConfigValid = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec},
-	Name:   inlineConfigName,
-}
-
-var inlineConfigSpec2 = v1alpha1.FileSpec{
-	Path:    inlinePath,
-	Mode:    modePointer,
-	Content: sshdConfigurationContent2,
-}
-var inlineConfigValid2 = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec2},
-	Name:   inlineConfigName,
-}
-
-var inlineConfigSpec3 = v1alpha1.FileSpec{
-	Path:    hookPath,
-	Mode:    modePointer,
-	Content: sshdHook,
-}
-
-var inlineConfigValid3 = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec3},
-	Name:   inlineConfigName3,
-}
-
-var (
-	afterUpdatingContent = `
-- run: /usr/bin/logger "this is a test message from afterupdating hook"
-`
-	afterUpdatingPath     = "/etc/flightctl/hooks.d/afterupdating/display-hook.yaml"
-	afterRebootingContent = `
-- run: /usr/bin/logger "this is a test message from afterrebooting hook"
-`
-	afterRebootingPath     = "/etc/flightctl/hooks.d/afterrebooting/display-hook.yaml"
-	beforeRebootingContent = `
-- run: /usr/bin/logger "this is a test message from beforerebooting hook"
-`
-	beforeRebootingPath   = "/etc/flightctl/hooks.d/beforerebooting/display-hook.yaml"
-	beforeUpdatingContent = `
-- run: /usr/bin/logger "this is a test message from beforeupdating hook"
-`
-	beforeUpdatingPath = "/etc/flightctl/hooks.d/beforeupdating/display-hook.yaml"
-)
-
-var inlineConfigSpec4 = v1alpha1.FileSpec{
-	Path:    afterUpdatingPath,
-	Mode:    modePointer,
-	Content: afterUpdatingContent,
-}
-var inlineConfigSpec5 = v1alpha1.FileSpec{
-	Path:    afterRebootingPath,
-	Mode:    modePointer,
-	Content: afterRebootingContent,
-}
-var inlineConfigSpec6 = v1alpha1.FileSpec{
-	Path:    beforeRebootingPath,
-	Mode:    modePointer,
-	Content: beforeRebootingContent,
-}
-var inlineConfigSpec7 = v1alpha1.FileSpec{
-	Path:    beforeUpdatingPath,
-	Mode:    modePointer,
-	Content: beforeUpdatingContent,
-}
-
-var inlineConfigValidLifecycle = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec4, inlineConfigSpec5, inlineConfigSpec6, inlineConfigSpec7},
-	Name:   inlineConfigLifecycleName,
-}
-
+// UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
+// It applies the provided configuration and waits for the device to reach the specified rendered version.
 func UpdateDeviceConfigWithRetries(harness *e2e.Harness, deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
 	harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 		device.Spec.Config = &configs

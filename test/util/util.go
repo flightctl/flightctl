@@ -2,6 +2,7 @@ package util
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
 	"fmt"
 	"net"
@@ -25,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
 
@@ -263,4 +265,18 @@ func GetEnrollmentIdFromText(text string) string {
 		return valuesRe.FindStringSubmatch(text)[1]
 	}
 	return ""
+}
+
+// RandString generates a random string of length 'n' using lowercase alphabetic characters.
+func RandString(n int) string {
+	const alphanum = "abcdefghijklmnopqrstuvwxyz"
+	var bytes = make([]byte, n)
+	if _, err := rand.Read(bytes); err != nil {
+		Expect(err).ToNot(HaveOccurred())
+		return ""
+	}
+	for i, b := range bytes {
+		bytes[i] = alphanum[b%byte(len(alphanum))]
+	}
+	return string(bytes)
 }

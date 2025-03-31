@@ -32,7 +32,11 @@ func GetTestExamplesYamlPath(yamlName string) string {
 	if yamlName == "" {
 		return ""
 	}
-	return GetTopLevelDir() + "/test/data/examples/" + yamlName
+	return GetYamlPath(GetTopLevelDir()+"/test/data/examples/", yamlName)
+}
+
+func GetYamlPath(path string, fileName string) string {
+	return path + fileName
 }
 
 func GetExtIP() string {

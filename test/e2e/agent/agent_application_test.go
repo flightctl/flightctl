@@ -5,12 +5,23 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	. "github.com/flightctl/flightctl/test/common"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
 
+const (
+
+	// ApplicationRunningStatus represents the status string used to signify that an application is currently running.
+	ApplicationRunningStatus = "status: Running"
+
+	// ComposeManifestPath defines the file system path where compose manifests are stored, typically used in deployment setups.
+	ComposeManifestPath = "/etc/compose/manifests"
+)
+
+// _ is used as a blank identifier to ignore the return value of Describe function.
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
 		harness  *e2e.Harness
@@ -22,6 +33,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	BeforeEach(func() {
 		harness = e2e.NewTestHarness()
 		deviceId = harness.StartVMAndEnroll()
+		if deviceId == "" {
+			Skip("Skipping test: suite failed to create device")
+		}
 	})
 
 	AfterEach(func() {
@@ -66,7 +80,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the application compose is copied to the device")
-			manifestPath := fmt.Sprintf("/etc/compose/manifests/%s", sleepAppImage)
+			manifestPath := fmt.Sprintf("%s/%s", ComposeManifestPath, sleepAppImage)
 			stdout, err := harness.VM.RunSSH([]string{"ls", manifestPath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(ComposeFile))
@@ -78,9 +92,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(device.Status.ApplicationsSummary.Status).To(Equal(v1alpha1.ApplicationsSummaryStatusHealthy))
 
 			By("Check the containers are running in the device")
-			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(ExpectedNumSleepAppV1Containers))
+			CheckRunningContainers(harness, ExpectedNumSleepAppV1Containers)
 
 			By("Update an application image tag")
 			repo, tag := parseImageReference(sleepAppImage)
@@ -125,9 +137,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			WaitForApplicationRunningStatus(harness, deviceId, updateImage)
 
 			By("Check that the new application containers are running")
-			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(ExpectedNumSleepAppV2Containers))
+			CheckRunningContainers(harness, ExpectedNumSleepAppV2Containers)
 
 			By("Check that the envs of v2 app are present in the containers")
 			containerName, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "\"{{.Names}} {{.Names}}\"", "|", "head", "-n", "1", "|", "awk", "'{print $1}'"}, nil)
@@ -155,16 +165,15 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check all the containers are deleted")
-			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(ZeroContainers))
+			CheckRunningContainers(harness, ZeroContainers)
 		})
 	})
 })
 
+// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status within a timeout.
 func WaitForApplicationRunningStatus(h *e2e.Harness, deviceId string, applicationImage string) {
 	logrus.Infof("Waiting for the application ready status")
-	h.WaitForDeviceContents(deviceId, "status: Running",
+	h.WaitForDeviceContents(deviceId, ApplicationRunningStatus,
 		func(device *v1alpha1.Device) bool {
 			for _, application := range device.Status.Applications {
 				if application.Name == applicationImage && application.Status == v1alpha1.ApplicationStatusRunning {

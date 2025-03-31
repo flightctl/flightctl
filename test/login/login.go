@@ -9,45 +9,43 @@ import (
 )
 
 func LoginToAPIWithToken(harness *e2e.Harness) {
-
-	// Login Arguments and token
 	var token string
+
+	// Try retrieving an existing token
+	token, err := harness.SH("oc", "whoami", "-t")
+	if err == nil {
+		token = strings.TrimSpace(token)
+	}
+
+	// Build initial login arguments
 	loginArgs := []string{"login", "${API_ENDPOINT}", "--insecure-skip-tls-verify"}
 	if token != "" {
 		loginArgs = append(loginArgs, "--token", token)
 	}
-	// login
+
+	// Attempt login
 	out, err := harness.CLI(loginArgs...)
-	if strings.Contains(out, "You must provide one of the following options to log in") {
-		token, err = harness.SH("oc", "whoami", "-t")
-		token = strings.TrimSpace(token)
-		// Validate Token Retrieval
-		Expect(err).ToNot(HaveOccurred(), "Failed to retrieve token")
-		Expect(token).ToNot(BeEmpty(), "Token from 'oc whoami' should not be empty")
-
-		// Retry login with the retrieved token
-		loginArgsOcp := append(loginArgs, "--token", token)
-		out, err = harness.CLI(loginArgsOcp...)
+	if err != nil {
+		Expect(err).ToNot(HaveOccurred(), "Initial login failed")
 	}
-	// Case standalone
+
+	// If login fails due to an invalid or missing token, retry with a password
 	if strings.Contains(out, "the token provided is invalid or expired") || strings.Contains(out, "invalid JWT") {
-		password, e := harness.SH("oc", "get", "secret/keycloak-demouser-secret", "-n", "flightctl", "-o=jsonpath='{.data.password}'")
-		Expect(e).ToNot(HaveOccurred(), "Failed to retrieve password")
-		Expect(password).ToNot(BeEmpty(), "Password of demouser should not be empty")
+		password, err := harness.SH("oc", "get", "secret/keycloak-demouser-secret", "-n", "flightctl", "-o=jsonpath={.data.password}")
+		Expect(err).ToNot(HaveOccurred(), "Failed to retrieve password")
 
-		// Decode password from base64
-		password = strings.ReplaceAll(password, "'", "")
-		decodedBytes, e := base64.StdEncoding.DecodeString(password)
-		Expect(e).ToNot(HaveOccurred(), "Failed to convert password")
+		password = strings.Trim(password, "'") // Clean up single quotes
+		decodedBytes, err := base64.StdEncoding.DecodeString(password)
+		Expect(err).ToNot(HaveOccurred(), "Failed to decode password")
 
-		// Convert the decoded bytes to a string
-		password = string(decodedBytes)
-
-		// Retry login with the retrieved password
-		loginArgs = append(loginArgs, "-k", "-u", "demouser", "-p", password)
+		// Retry login with username/password
+		loginArgs = []string{"login", "${API_ENDPOINT}", "-k", "-u", "demouser", "-p", string(decodedBytes)}
 		out, err = harness.CLI(loginArgs...)
+		Expect(err).ToNot(HaveOccurred(), "Login with username/password failed") // <-- Added error check
 	}
-	// Validate Login
-	Expect(err).ToNot(HaveOccurred())
+
+	// Validate final login result
+	Expect(err).ToNot(HaveOccurred(), "Login process encountered an error")
 	Expect(strings.TrimSpace(out)).To(BeElementOf("Auth is disabled", "Login successful", "Login successful."))
+
 }
