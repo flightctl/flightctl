@@ -24,10 +24,10 @@ else
     unset FLIGHTCTL_DISABLE_AUTH
 fi
 
-validate_inputs() {
+set_defaults() {
     if [ -z "$BASE_DOMAIN" ] || [ -z "$(echo "$BASE_DOMAIN" | xargs)" ]; then
-        echo "Error: BASE_DOMAIN is not set"
-        exit 1
+        # By default, use the external IP address as the base domain
+        export BASE_DOMAIN="$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')"
     fi
 }
 
@@ -48,7 +48,7 @@ render_files() {
 main() {
     echo "Starting installation"
 
-    validate_inputs
+    set_defaults
     ensure_secrets
     render_files
 
