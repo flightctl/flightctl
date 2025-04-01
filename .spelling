@@ -133,6 +133,8 @@ namespaces
 USB
 quay.io.
 API_URL
+madrid
+paris
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -216,3 +218,6 @@ disk.vmdk
 iso
 ISOs
 yaml
+ - docs/user/rollout-policies.md
+rollouts
+BatchSequence
