@@ -1,7 +1,8 @@
 [Unit]
 Description=Flight Control UI
-After=flightctl-api.service
+After=flightctl-api.service flightctl-ui-init.service
 Requires=flightctl-api.service
+Wants=flightctl-ui-init.service
 
 [Container]
 ContainerName=flightctl-ui
@@ -16,11 +17,10 @@ Environment=FLIGHTCTL_SERVER="https://flightctl-api:3443/"
 
 PublishPort=8080:8080
 
-Volume=flightctl-api-certs:/app/certs:ro,z
+Volume=flightctl-ui-certs:/app/certs:ro,z
 
 [Service]
 Restart=always
-RestartSec=30
 Slice=flightctl.slice
 
 [Install]

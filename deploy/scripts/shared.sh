@@ -26,17 +26,27 @@ render_service() {
     local template_dir="$2"
     local standalone="$3"
 
-    # Determine container template file
-    local container_file="${template_dir}/flightctl-${service_name}/flightctl-${service_name}.container"
+    # Process container templates
     if [[ "$standalone" == "standalone" ]]; then
-        container_file="${template_dir}/flightctl-${service_name}/flightctl-${service_name}-standalone.container"
+        # Standalone mode - use only the standalone container file
+        local container_file="${template_dir}/flightctl-${service_name}/flightctl-${service_name}-standalone.container"
+
+        # Ensure quadlet output directory exists
+        mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
+
+        # Process standalone container template
+        inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
+    else
+        # Normal mode - process all container files except standalone ones
+        mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
+
+        for container_file in "${template_dir}/flightctl-${service_name}"/*.container; do
+            if [[ -f "$container_file" ]] && [[ ! "$container_file" == *"-standalone.container" ]]; then
+                local base_filename=$(basename "$container_file")
+                inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/${base_filename}"
+            fi
+        done
     fi
-
-    # Ensure quadlet output directory exists
-    mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
-
-    # Process container template
-    inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
 
     # Process all files in the config directory
     for config_file in "${template_dir}/flightctl-${service_name}/flightctl-${service_name}-config"/*; do

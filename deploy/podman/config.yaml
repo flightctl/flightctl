@@ -13,6 +13,8 @@ service:
     altNames:
       - $BASE_DOMAIN
       - flightctl-api
+    # srvCertFile: /root/.flightctl/server.crt
+    # srvKeyFile: /root/.flightctl/server.key
 kv:
     hostname: flightctl-kv
     port: 6379

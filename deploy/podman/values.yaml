@@ -1,0 +1,3 @@
+global:
+  srvCertFile: /etc/ssl/certs/flightctl.crt
+  srvKeyFile: /etc/ssl/private/flightctl.key
