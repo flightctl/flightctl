@@ -3,6 +3,8 @@ package cli_test
 import (
 	"crypto/rand"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -274,6 +276,49 @@ var _ = Describe("cli operation", func() {
 
 			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrNewName))
 			Expect(err).ToNot(HaveOccurred())
+		})
+	})
+})
+
+var _ = Describe("cli login", func() {
+	var (
+		harness *e2e.Harness
+	)
+
+	Context("login validation", func() {
+		BeforeEach(func() {
+			harness = e2e.NewTestHarness()
+		})
+
+		It("Validations work when logging into flightctl CLI", Label("78748"), func() {
+			By("Prepare invalid API endpoint")
+			invalid_endpoint := "https://not-existing.lab.redhat.com"
+			loginArgs := []string{"login", invalid_endpoint}
+
+			By("Try login using a wrong API endpoint without --insecure-skip-tls-verify flag")
+			out, err := harness.CLI(loginArgs...)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("failed to get auth info"))
+
+			By("Retry login using invalid API endpoint with  --insecure-skip-tls-verify flag")
+			loginArgs = append(loginArgs, "--insecure-skip-tls-verify")
+			out, err = harness.CLI(loginArgs...)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("failed to get auth info"))
+
+			By("Retry login using an invalid token")
+			loginArgs = []string{"login", os.Getenv("API_ENDPOINT"), "--insecure-skip-tls-verify", "--token", "fake-token"}
+			out, _ = harness.CLI(loginArgs...)
+			if strings.Contains(out, "the token provided is invalid or expired") || strings.Contains(out, "invalid JWT") {
+				By("Retry login with the invalid password")
+				invalid_password := "passW0RD"
+
+				loginArgs = append(loginArgs, "-k", "-u", "demouser", "-p", invalid_password)
+				out, _ = harness.CLI(loginArgs...)
+				Expect(out).To(ContainSubstring("Invalid user credentials"))
+			} else {
+				Expect(out).To(Or(ContainSubstring("Auth is disabled")))
+			}
 		})
 	})
 })
