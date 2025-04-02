@@ -39,7 +39,7 @@ if [ -n "$SRV_CERT_FILE" ] && [ -n "$SRV_KEY_FILE" ]; then
   # Template the configuration file with certificate paths
   # These are relative to the container's filesystem and should have been mounted by the ExecStartPre script
   cat "$CONFIG_TEMPLATE" | \
-    sed 's|{{BASE_DOMAIN}}|'"$BASE_DOMAIN"'|g' | \
+    sed "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" | \
     sed "s|{{SRV_CERT_FILE}}|/root/.flightctl/certs/provided/server.crt|g" | \
     sed "s|{{SRV_KEY_FILE}}|/root/.flightctl/certs/provided/server.key|g" \
     > "$CONFIG_OUTPUT"
@@ -47,7 +47,7 @@ else
   echo "No certificates provided"
   # Template the configuration file with empty certificate paths
   cat "$CONFIG_TEMPLATE" | \
-    sed "s|{{BASE_DOMAIN}}|'"$BASE_DOMAIN"'|g" | \
+    sed "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" | \
     sed "s|{{SRV_CERT_FILE}}||g" | \
     sed "s|{{SRV_KEY_FILE}}||g" \
     > "$CONFIG_OUTPUT"

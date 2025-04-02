@@ -8,7 +8,7 @@ set -eo pipefail
 : ${AUTH_TYPE:="none"}
 
 # Directory path for templates
-: ${TEMPLATE_DIR:="/etc/flightctl/templates"}
+: ${TEMPLATE_DIR:="deploy/podman"}
 
 # Export variables needed by functions in shared.sh
 export BASE_DOMAIN

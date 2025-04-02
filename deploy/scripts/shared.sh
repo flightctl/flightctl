@@ -1,20 +1,9 @@
 #!/usr/bin/env bash
 
 # Output directory paths
-readonly CONFIG_OUTPUT_DIR="$HOME/.config/flightctl"
-readonly QUADLET_FILES_OUTPUT_DIR="$HOME/.config/containers/systemd"
+readonly CONFIG_OUTPUT_DIR="/etc/flightctl"
+readonly QUADLET_FILES_OUTPUT_DIR="/usr/share/containers/systemd"
 export CONFIG_OUTPUT_DIR
-
-# Function to substitute environment variables in a template
-# Args:
-#   $1: Source template file
-#   $2: Destination file
-inject_vars() {
-    local source_file="$1"
-    local dest_file="$2"
-
-    envsubst '$BASE_DOMAIN $CONFIG_OUTPUT_DIR $FLIGHTCTL_DISABLE_AUTH' < "$source_file" > "$dest_file"
-}
 
 # Render a service configuration
 # Args:
@@ -35,7 +24,7 @@ render_service() {
         mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
 
         # Process standalone container template
-        inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
+        cp "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
     else
         # Normal mode - process all container files except standalone ones
         mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
@@ -43,7 +32,7 @@ render_service() {
         for container_file in "${template_dir}/flightctl-${service_name}"/*.container; do
             if [[ -f "$container_file" ]] && [[ ! "$container_file" == *"-standalone.container" ]]; then
                 local base_filename=$(basename "$container_file")
-                inject_vars "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/${base_filename}"
+                cp "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/${base_filename}"
             fi
         done
     fi
@@ -53,7 +42,7 @@ render_service() {
         if [[ -f "$config_file" ]]; then
             # Ensure config output directory exists
             mkdir -p "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}"
-            inject_vars "$config_file" "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}/$(basename "$config_file")"
+            cp "$config_file" "${CONFIG_OUTPUT_DIR}/flightctl-${service_name}/$(basename "$config_file")"
         fi
     done
 
@@ -77,10 +66,10 @@ render_shared_files() {
 #   $1: Service name
 start_service() {
     local service_name="$1"
-    systemctl --user daemon-reload
+    sudo systemctl daemon-reload
 
     echo "Starting $service_name"
-    systemctl --user start "$service_name"
+    sudo systemctl start "$service_name"
 }
 
 # Generate a random password

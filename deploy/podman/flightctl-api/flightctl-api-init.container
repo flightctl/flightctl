@@ -2,8 +2,8 @@
 Image=registry.access.redhat.com/ubi9/ubi-minimal
 ContainerName=flightctl-api-init
 Volume=flightctl-api-certs:/certs:rw
-Volume=$CONFIG_OUTPUT_DIR/flightctl-api:/config:rw,Z
-Volume=$CONFIG_OUTPUT_DIR/values.yaml:/values/values.yaml:ro,Z
+Volume=/etc/flightctl/flightctl-api:/config:rw,Z
+Volume=/etc/flightctl/values.yaml:/values/values.yaml:ro,Z
 Exec=/bin/sh /config/init.sh
 
 [Service]
@@ -13,7 +13,7 @@ TimeoutStartSec=30s
 Restart=on-failure
 RestartSec=5s
 ExecStartPre=/bin/bash -c '\
-  VALUES_FILE="$CONFIG_OUTPUT_DIR/values.yaml"; \
+  VALUES_FILE="/etc/flightctl/values.yaml"; \
   if [ -f "$VALUES_FILE" ]; then \
     SRV_CERT_FILE=$(grep -A10 "global:" "$VALUES_FILE" | grep "srvCertFile:" | awk "{print \$2}"); \
     SRV_KEY_FILE=$(grep -A10 "global:" "$VALUES_FILE" | grep "srvKeyFile:" | awk "{print \$2}"); \

@@ -3,8 +3,8 @@ Image=registry.access.redhat.com/ubi9/ubi-minimal
 ContainerName=flightctl-ui-init
 Volume=flightctl-api-certs:/certs-source:ro
 Volume=flightctl-ui-certs:/certs-destination:rw
-Volume=$CONFIG_OUTPUT_DIR/flightctl-ui:/config:rw,Z
-Volume=$CONFIG_OUTPUT_DIR/values.yaml:/values.yaml:ro,Z
+Volume=/etc/flightctl/flightctl-ui:/config:rw,Z
+Volume=/etc/flightctl/values.yaml:/values.yaml:ro,Z
 Exec=/bin/sh /config/init.sh
 
 [Service]

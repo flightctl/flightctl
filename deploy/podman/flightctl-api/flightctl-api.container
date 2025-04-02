@@ -17,7 +17,7 @@ Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 PublishPort=3443:3443
 PublishPort=7443:7443
 Volume=flightctl-api-certs:/root/.flightctl/certs:z
-Volume=$CONFIG_OUTPUT_DIR/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,Z
+Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,Z
 
 [Service]
 Slice=flightctl.slice

@@ -19,7 +19,7 @@ export BASE_DOMAIN="$PRIMARY_IP.nip.io"
 export TEMPLATE_DIR="deploy/podman"
 
 # Run installation script
-if ! deploy/scripts/installer.sh; then
+if ! sudo deploy/scripts/installer.sh; then
     echo "Error: Installation failed"
     exit 1
 fi
@@ -30,7 +30,7 @@ echo "Checking if all services are running..."
 
 timeout --foreground 300s bash -c '
     while true; do
-        if podman ps --quiet \
+        if sudo podman ps --quiet \
             --filter "name=flightctl-api" \
             --filter "name=flightctl-worker" \
             --filter "name=flightctl-periodic" \
