@@ -8,21 +8,17 @@ source "${SCRIPT_DIR}"/shared.sh
 
 echo "Starting Deployment"
 
-PRIMARY_IP=''
-if ! PRIMARY_IP=$(bash -c 'source ./test/scripts/functions && get_ext_ip'); then
-    echo "Error: Failed to get external IP"
-    exit 1
-fi
-export PRIMARY_IP
-
-export BASE_DOMAIN="$PRIMARY_IP.nip.io"
-export TEMPLATE_DIR="deploy/podman"
-
 # Run installation script
 if ! sudo deploy/scripts/installer.sh; then
     echo "Error: Installation failed"
     exit 1
 fi
+
+# Write base domain to the config file
+base_domain="$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')"
+echo "Setting base domain to: ${base_domain}"
+VALUES_FILE="${CONFIG_OUTPUT_DIR}/values.yaml"
+sudo sed -i "s/^\(\s*baseDomain\s*\):\s*.*$/\1: ${base_domain}/" "${VALUES_FILE}"
 
 start_service "flightctl.slice"
 

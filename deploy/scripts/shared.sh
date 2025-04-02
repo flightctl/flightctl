@@ -3,7 +3,6 @@
 # Output directory paths
 readonly CONFIG_OUTPUT_DIR="/etc/flightctl"
 readonly QUADLET_FILES_OUTPUT_DIR="/usr/share/containers/systemd"
-export CONFIG_OUTPUT_DIR
 
 # Render a service configuration
 # Args:

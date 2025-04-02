@@ -1,10 +1,10 @@
 global:
-  baseDomain: 192.168.86.27
+  baseDomain:
   srvCertFile:
   srvKeyFile:
   auth:
     type: none # aap or none
-    insecureSkipTlsVerify: true
+    insecureSkipTlsVerify: false
     aap:
       apiUrl:
       externalApiUrl:
