@@ -26,9 +26,12 @@ var (
 	ErrParseAppType           = errors.New("failed to parse application type")
 	ErrAppDependency          = errors.New("failed to resolve application dependency")
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")
+	ErrAppLabel               = errors.New("required label not found")
+
+	// compose
+	ErrHardCodedContainerName = errors.New("hard coded container name")
 	ErrNoComposeFile          = errors.New("no valid compose file found")
 	ErrNoComposeServices      = errors.New("no services found in compose spec")
-	ErrAppLabel               = errors.New("required label not found")
 
 	// container images
 	ErrImageShortName = errors.New("failed to resolve image short name: use the full name i.e registry/image:tag")

@@ -140,7 +140,7 @@ func (a HookAction) Validate(path string) []error {
 		}
 		allErrs = append(allErrs, validation.ValidateString(&runAction.Run, path+".run", 1, 2048, nil, "")...)
 		// TODO: pull the extra validation done by the agent up here
-		allErrs = append(allErrs, validation.ValidateStringMap(runAction.EnvVars, path+".envVars", 1, 256, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateStringMap(runAction.EnvVars, path+".envVars", 1, 256, nil, nil, "")...)
 		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(runAction.WorkDir, path+".workDir")...)
 	default:
 		// if we hit this case, it means that the type should be added to the switch statement above
@@ -651,26 +651,27 @@ func (a ApplicationProviderSpec) Validate() []error {
 	// name must be 1–253 characters long, start with a letter or number, and contain no whitespace
 	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, validation.DNS1123MaxLength, validation.GenericNameRegexp, validation.Dns1123LabelFmt)...)
 	// envVars keys and values must be between 1 and 253 characters
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, validation.DNS1123MaxLength, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, validation.DNS1123MaxLength, nil, nil, "")...)
 	return allErrs
 }
 
-func (a InlineApplicationProviderSpec) Validate(fleetTemplate bool) []error {
+func (a InlineApplicationProviderSpec) Validate(appType *AppType, fleetTemplate bool) []error {
 	allErrs := []error{}
 
-	seenPath := make(map[string]struct{})
+	seenPath := make(map[string]struct{}, len(a.Inline))
 	for i := range a.Inline {
+		path := a.Inline[i].Path
 		// ensure uniqueness of path per application
-		if _, exists := seenPath[a.Inline[i].Path]; exists {
-			allErrs = append(allErrs, fmt.Errorf("duplicate inline path: %s", a.Inline[i].Path))
+		if _, exists := seenPath[path]; exists {
+			allErrs = append(allErrs, fmt.Errorf("duplicate inline path: %s", path))
 		} else {
-			seenPath[a.Inline[i].Path] = struct{}{}
+			seenPath[path] = struct{}{}
 		}
 
-		containsParams, paramErrs := validateParametersInString(&a.Inline[i].Path, fmt.Sprintf("spec.applications[].inline[%d].path", i), fleetTemplate)
+		containsParams, paramErrs := validateParametersInString(&path, fmt.Sprintf("spec.applications[].inline[%d].path", i), fleetTemplate)
 		allErrs = append(allErrs, paramErrs...)
 		if !containsParams {
-			allErrs = append(allErrs, validation.ValidateRelativePath(&a.Inline[i].Path, fmt.Sprintf("spec.applications[].inline[%d].path", i), 253)...)
+			allErrs = append(allErrs, validation.ValidateRelativePath(&path, fmt.Sprintf("spec.applications[].inline[%d].path", i), 253)...)
 		}
 
 		content := lo.FromPtr(a.Inline[i].Content)
@@ -690,6 +691,17 @@ func (a InlineApplicationProviderSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, fmt.Errorf("unknown encoding type: %s", *(a.Inline[i].ContentEncoding)))
 		}
 	}
+
+	if appType != nil && *appType == AppTypeCompose {
+		paths := make([]string, 0, len(seenPath))
+		for path := range seenPath {
+			paths = append(paths, path)
+		}
+		if err := validation.ValidateComposePaths(paths); err != nil {
+			allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", err))
+		}
+	}
+
 	return allErrs
 }
 
@@ -742,7 +754,8 @@ func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProvide
 		if app.AppType == nil {
 			errs = append(errs, fmt.Errorf("inline application type cannot be empty"))
 		}
-		errs = append(errs, provider.Validate(fleetTemplate)...)
+
+		errs = append(errs, provider.Validate(app.AppType, fleetTemplate)...)
 	default:
 		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
 	}

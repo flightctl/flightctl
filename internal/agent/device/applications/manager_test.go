@@ -8,9 +8,12 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -65,7 +68,7 @@ func TestManager(t *testing.T) {
 			}),
 			desired: &v1alpha1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter) {
-				id := newComposeID("app-remove")
+				id := lifecycle.NewComposeID("app-remove")
 				gomock.InOrder(
 					// start current app
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
@@ -91,7 +94,7 @@ func TestManager(t *testing.T) {
 				{Content: compose2, Path: "podman-compose.yaml"},
 			}),
 			setupMocks: func(mockExec *executer.MockExecuter) {
-				id := newComposeID("app-update")
+				id := lifecycle.NewComposeID("app-update")
 				gomock.InOrder(
 					// verify current app
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
@@ -128,14 +131,14 @@ func TestManager(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockExec := executer.NewMockExecuter(ctrl)
-			mockPodmanClient := client.NewPodman(log, mockExec, readWriter, newTestBackoff())
+			mockPodmanClient := client.NewPodman(log, mockExec, readWriter, util.NewBackoff())
 
 			tmpDir := t.TempDir()
 			readWriter.SetRootdir(tmpDir)
 
 			tc.setupMocks(mockExec)
 
-			currentProviders, err := parseAppProviders(ctx, log, mockPodmanClient, readWriter, tc.current)
+			currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.current)
 			require.NoError(err)
 
 			manager := &manager{
@@ -150,7 +153,7 @@ func TestManager(t *testing.T) {
 				require.NoError(err)
 			}
 
-			desiredProviders, err := parseAppProviders(ctx, log, mockPodmanClient, readWriter, tc.desired)
+			desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.desired)
 			require.NoError(err)
 
 			err = syncProviders(ctx, log, manager, currentProviders, desiredProviders)
@@ -160,7 +163,7 @@ func TestManager(t *testing.T) {
 			require.NoError(err)
 
 			for _, appName := range tc.wantAppNames {
-				id := newComposeID(appName)
+				id := lifecycle.NewComposeID(appName)
 				log.Debugf("Checking for app: %v", manager.podmanMonitor.apps)
 				_, ok := manager.podmanMonitor.apps[id]
 				require.True(ok)
@@ -194,7 +197,7 @@ func mockExecPodmanEvents(mockExec *executer.MockExecuter) *gomock.Call {
 
 func mockExecPodmanComposeUp(mockExec *executer.MockExecuter, name string) *gomock.Call {
 	workDir := fmt.Sprintf("/etc/compose/manifests/%s", name)
-	id := newComposeID(name)
+	id := lifecycle.NewComposeID(name)
 	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", []string{"compose", "-p", id, "up", "-d", "--no-recreate"}).Return("", "", 0)
 }
 
@@ -207,7 +210,7 @@ func mockExecPodmanNetworkList(mockExec *executer.MockExecuter, name string) *go
 			[]string{
 				"network", "ls",
 				"--format", "{{.Network.ID}}",
-				"--filter", "label=com.docker.compose.project=" + newComposeID(name),
+				"--filter", "label=com.docker.compose.project=" + lifecycle.NewComposeID(name),
 			},
 		).
 		Return("", "", 0)

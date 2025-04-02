@@ -8,9 +8,13 @@ const (
 	Dns1123LabelFmt       string = `[a-z0-9]([-a-z0-9]*[a-z0-9])?`
 	dns1123LabelMaxLength int    = 63
 	DNS1123MaxLength      int    = 253
+	envVarNameFmt         string = `[A-Za-z_][A-Za-z0-9_]*`
 )
 
-var GenericNameRegexp = regexp.MustCompile("^" + Dns1123LabelFmt + "$")
+var (
+	GenericNameRegexp = regexp.MustCompile("^" + Dns1123LabelFmt + "$")
+	EnvVarNameRegexp  = regexp.MustCompile("^" + envVarNameFmt + "$")
+)
 
 func ValidateGenericName(name *string, path string) []error {
 	return ValidateString(name, path, 1, dns1123LabelMaxLength, GenericNameRegexp, Dns1123LabelFmt)

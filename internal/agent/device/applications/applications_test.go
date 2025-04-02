@@ -1,13 +1,17 @@
 package applications
 
 import (
+	"context"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -15,6 +19,7 @@ import (
 
 func TestApplicationStatus(t *testing.T) {
 	require := require.New(t)
+
 	tests := []struct {
 		name                  string
 		workloads             []Workload
@@ -234,18 +239,35 @@ func TestApplicationStatus(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 
 			mockExec := executer.NewMockExecuter(ctrl)
-			podman := client.NewPodman(log, mockExec, readWriter, newTestBackoff())
+			podman := client.NewPodman(log, mockExec, readWriter, util.NewBackoff())
 
-			image := v1alpha1.ImageApplicationProviderSpec{
-				Image: "image",
+			appImage := "quay.io/flightctl-tests/alpine:v1"
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0)
+
+			spec := v1alpha1.InlineApplicationProviderSpec{
+				Inline: []v1alpha1.ApplicationContent{
+					{
+						Content: lo.ToPtr(util.NewComposeSpec()),
+						Path:    "docker-compose.yml",
+					},
+				},
 			}
-			providerSpec := v1alpha1.ApplicationProviderSpec{}
-			err := providerSpec.FromImageApplicationProviderSpec(image)
-			require.NoError(err)
-			provider, err := NewImageProvider(log, podman, &providerSpec, readWriter)
-			require.NoError(err)
 
-			application := NewApplication(provider)
+			providerSpec := v1alpha1.ApplicationProviderSpec{
+				Name:    lo.ToPtr("app"),
+				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+			}
+			err := providerSpec.FromInlineApplicationProviderSpec(spec)
+			require.NoError(err)
+			desired := v1alpha1.DeviceSpec{
+				Applications: &[]v1alpha1.ApplicationProviderSpec{
+					providerSpec,
+				},
+			}
+			providers, err := provider.FromDeviceSpec(context.Background(), log, podman, readWriter, &desired)
+			require.NoError(err)
+			require.Len(providers, 1)
+			application := NewApplication(providers[0])
 			if len(tt.workloads) > 0 {
 				application.workloads = tt.workloads
 			}

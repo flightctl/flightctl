@@ -6,10 +6,8 @@ import (
 	"strconv"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const (
@@ -39,30 +37,15 @@ type Monitor interface {
 	Status() []v1alpha1.DeviceApplicationStatus
 }
 
-// Provider defines the interface for supplying and managing an application's spec
-// and lifecycle operations for installation to disk.
-type Provider interface {
-	// Verify the application content is valid and dependencies are met.
-	Verify(ctx context.Context) error
-	// Install the application content to the device.
-	Install(ctx context.Context) error
-	// Remove the application content from the device.
-	Remove(ctx context.Context) error
-	// Name returns the name of the application.
-	Name() string
-	// Spec returns the application spec.
-	Spec() *ApplicationSpec
-}
-
 // Manager coordinates the lifecycle of an application by interacting with its Provider
 // and ensuring it is properly handed off to the appropriate runtime Monitor.
 type Manager interface {
 	// Ensure installs and starts the application on the device using the given provider.
-	Ensure(ctx context.Context, provider Provider) error
+	Ensure(ctx context.Context, provider provider.Provider) error
 	// Remove uninstalls the application from the device using the given provider.
-	Remove(ctx context.Context, provider Provider) error
+	Remove(ctx context.Context, provider provider.Provider) error
 	// Update replaces the current application with a new version provided by the given provider.
-	Update(ctx context.Context, provider Provider) error
+	Update(ctx context.Context, provider provider.Provider) error
 	// BeforeUpdate is called prior to installing an application to ensure the
 	// application is valid and dependencies are met.
 	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
@@ -120,7 +103,7 @@ type application struct {
 }
 
 // NewApplication creates a new application from an application provider.
-func NewApplication(provider Provider) *application {
+func NewApplication(provider provider.Provider) *application {
 	spec := provider.Spec()
 	return &application{
 		id:       spec.ID,
@@ -268,63 +251,4 @@ func isRunningHealthy(total, healthy, initializing, exited int) bool {
 
 func isErrored(total, healthy, initializing int) bool {
 	return total > 0 && healthy == 0 && initializing == 0
-}
-
-func ParseAppType(s string) (v1alpha1.AppType, error) {
-	appType := v1alpha1.AppType(s)
-	if appType == "" {
-		return "", fmt.Errorf("invalid app type: %s", s)
-	}
-	return appType, nil
-}
-
-// typeFromImage returns the app type from the image label take from the image in local container storage.
-func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1alpha1.AppType, error) {
-	labels, err := podman.InspectLabels(ctx, image)
-	if err != nil {
-		return "", err
-	}
-	appTypeLabel, ok := labels[AppTypeLabel]
-	if !ok {
-		return "", fmt.Errorf("%w: %s, %s", errors.ErrAppLabel, AppTypeLabel, image)
-	}
-	return ParseAppType(appTypeLabel)
-}
-
-// ensureDependenciesFromType ensures that the dependencies required for the given app type are available.
-func ensureDependenciesFromType(appType v1alpha1.AppType) error {
-	var deps []string
-	switch appType {
-	case v1alpha1.AppTypeCompose:
-		deps = []string{"docker-compose", "podman-compose"}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-	}
-
-	for _, dep := range deps {
-		if client.IsCommandAvailable(dep) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%w: %v", errors.ErrAppDependency, deps)
-}
-
-// ensureImageExists ensures that the image exists in the container storage.
-func ensureImageExists(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, image string) error {
-	// pull the image if it does not exist. it is possible that the image
-	// tag such as latest in which case it will be pulled later. but we
-	// don't want to require calling out the network on every sync.
-	if podman.ImageExists(ctx, image) {
-		log.Tracef("Image already exists in container storage: %s", image)
-		return nil
-	}
-
-	_, err := podman.Pull(ctx, image, client.WithRetry())
-	if err != nil {
-		log.Warnf("Failed to pull image %q: %v", image, err)
-		return err
-	}
-
-	return nil
 }
