@@ -9,7 +9,7 @@ Before=flightctl-periodic.service flightctl-worker.service
 ContainerName=flightctl-api
 Image=quay.io/flightctl/flightctl-api:0.6.0-main-35-g6e173b7
 Network=flightctl.network
-Environment=HOME=/root
+EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 

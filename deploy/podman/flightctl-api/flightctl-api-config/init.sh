@@ -9,6 +9,8 @@ VALUES_FILE="/values/values.yaml"
 CONFIG_TEMPLATE="/config/config.yaml.template"
 CONFIG_OUTPUT="/config/config.yaml"
 CERTS_DIR="/certs"
+ENV_TEMPLATE="/config/env.template"
+ENV_FILE="/config/env"
 
 # Check if values file exists
 if [ ! -f "$VALUES_FILE" ]; then
@@ -32,6 +34,7 @@ AUTH_TYPE=$(grep -A20 'global:' "$VALUES_FILE" | grep -A2 'auth:' | grep 'type:'
 INSECURE_SKIP_TLS_VERIFY=$(grep -A20 'global:' "$VALUES_FILE" | grep 'insecureSkipTlsVerify:' | awk '{print $2}')
 AAP_API_URL=""
 AAP_EXTERNAL_API_URL=""
+FLIGHTCTL_DISABLE_AUTH="false"
 
 # Process auth settings based on auth type
 if [ "$AUTH_TYPE" == "aap" ]; then
@@ -40,6 +43,7 @@ if [ "$AUTH_TYPE" == "aap" ]; then
   AAP_EXTERNAL_API_URL=$(grep -A20 'global:' "$VALUES_FILE" | grep -A10 'aap:' | grep 'externalApiUrl:' | awk '{print $2}')
 else
   echo "Auth not configured"
+  FLIGHTCTL_DISABLE_AUTH="true"
 fi
 
 # Set defaults for empty values
@@ -76,5 +80,8 @@ else
     sed "s|{{AAP_EXTERNAL_API_URL}}|$AAP_EXTERNAL_API_URL|g" \
     > "$CONFIG_OUTPUT"
 fi
+
+# Template the environment file
+sed "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" "$ENV_TEMPLATE" > "$ENV_FILE"
 
 echo "Initialization complete"
