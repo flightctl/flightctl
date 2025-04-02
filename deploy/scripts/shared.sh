@@ -70,9 +70,6 @@ render_shared_files() {
     cp "${TEMPLATE_DIR}/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
     cp "${TEMPLATE_DIR}/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
     cp "${TEMPLATE_DIR}/values.yaml" "${CONFIG_OUTPUT_DIR}/values.yaml"
-
-    # Process the shared config file
-    inject_vars "${TEMPLATE_DIR}/config.yaml" "${CONFIG_OUTPUT_DIR}/config.yaml"
 }
 
 # Start a systemd service
