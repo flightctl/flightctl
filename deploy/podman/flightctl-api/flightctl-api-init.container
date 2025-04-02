@@ -1,0 +1,34 @@
+[Container]
+Image=registry.access.redhat.com/ubi9/ubi-minimal
+ContainerName=flightctl-api-init
+Volume=flightctl-api-certs:/certs:rw
+Volume=$CONFIG_OUTPUT_DIR/flightctl-api:/config:rw,Z
+Volume=$CONFIG_OUTPUT_DIR/values.yaml:/values/values.yaml:ro,Z
+Exec=/bin/sh /config/init.sh
+
+[Service]
+Type=oneshot
+RemainAfterExit=false
+TimeoutStartSec=30s
+Restart=on-failure
+RestartSec=5s
+ExecStartPre=/bin/bash -c '\
+  VALUES_FILE="$CONFIG_OUTPUT_DIR/values.yaml"; \
+  if [ -f "$VALUES_FILE" ]; then \
+    SRV_CERT_FILE=$(grep -A10 "global:" "$VALUES_FILE" | grep "srvCertFile:" | awk "{print \$2}"); \
+    SRV_KEY_FILE=$(grep -A10 "global:" "$VALUES_FILE" | grep "srvKeyFile:" | awk "{print \$2}"); \
+    if [ -n "$SRV_CERT_FILE" ] && [ -n "$SRV_KEY_FILE" ]; then \
+        echo "Running container to copy cert and key to volume"; \
+        /usr/bin/podman run --rm \
+          --volume flightctl-api-certs:/certs:rw \
+          --volume "$SRV_CERT_FILE:/server.crt:ro,Z" \
+          --volume "$SRV_KEY_FILE:/server.key:ro,Z" \
+          registry.access.redhat.com/ubi9/ubi-minimal \
+          sh -c "mkdir -p /certs/provided && cp /server.crt /certs/provided/server.crt && cp /server.key /certs/provided/server.key"; \
+    else \
+      echo "srvCertFile or srvKeyFile is not defined in $VALUES_FILE"; \
+    fi; \
+  fi'
+
+[Install]
+WantedBy=flightctl.slice

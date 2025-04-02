@@ -1,0 +1,20 @@
+database:
+    hostname: flightctl-db
+    type: pgsql
+    port: 5432
+    name: flightctl
+    user: admin
+service:
+    address: flightctl-api:3443
+    agentEndpointAddress: flightctl-api:7443
+    baseUrl: https://{{BASE_DOMAIN}}:3443/
+    baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
+    baseUIUrl: https://{{BASE_DOMAIN}}:8080
+    altNames:
+      - {{BASE_DOMAIN}}
+      - flightctl-api
+    srvCertFile: {{SRV_CERT_FILE}}
+    srvKeyFile: {{SRV_KEY_FILE}}
+kv:
+    hostname: flightctl-kv
+    port: 6379

@@ -1,3 +1,4 @@
 global:
-  srvCertFile: /etc/ssl/certs/flightctl.crt
-  srvKeyFile: /etc/ssl/private/flightctl.key
+  baseDomain: 192.168.86.27
+  srvCertFile:
+  srvKeyFile:
