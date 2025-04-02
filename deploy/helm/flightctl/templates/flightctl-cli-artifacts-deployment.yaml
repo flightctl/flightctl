@@ -1,0 +1,33 @@
+{{- if .Values.cliArtifacts.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-cli-artifacts
+  name: flightctl-cli-artifacts
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-cli-artifacts
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-cli-artifacts
+    spec:
+      containers:
+        - name: flightctl-cli-artifacts
+          image: {{ .Values.cliArtifacts.image.image }}:{{ default .Chart.AppVersion .Values.cliArtifacts.image.tag }}
+          imagePullPolicy: {{ .Values.cliArtifacts.image.pullPolicy }}
+          ports:
+            - containerPort: 8090
+              name: cli-artifacts
+              protocol: TCP
+          env:
+            - name: CLI_ARTIFACTS_BASE_URL
+              value: {{ quote .Values.cliArtifacts.baseUrl }}
+      restartPolicy: Always
+{{- end }}

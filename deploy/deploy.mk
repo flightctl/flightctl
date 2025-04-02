@@ -28,7 +28,7 @@ redeploy-worker: flightctl-worker-container
 redeploy-periodic: flightctl-periodic-container
 	test/scripts/redeploy.sh periodic
 
-deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container
+deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-multiarch-cli-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)

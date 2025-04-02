@@ -83,12 +83,12 @@ build: bin build-cli
 
 bin/flightctl-agent: bin $(GO_FILES)
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
-		./cmd/flightctl-agent 
+		./cmd/flightctl-agent
 
 build-cli: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
 
-multiarch-build-cli: bin
+build-multiarch-clis: bin
 	./hack/build_multiarch_clis.sh
 
 build-agent: bin
@@ -124,16 +124,22 @@ bin/.flightctl-periodic-container: bin Containerfile.periodic go.mod go.sum $(GO
 	podman build -f Containerfile.periodic $(GO_CACHE) -t flightctl-periodic:latest
 	touch bin/.flightctl-periodic-container
 
+bin/.flightctl-multiarch-cli-container: bin Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
+	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
+	podman build -f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
+	touch bin/.flightctl-multiarch-cli-container
+
 flightctl-api-container: bin/.flightctl-api-container
 
 flightctl-worker-container: bin/.flightctl-worker-container
 
 flightctl-periodic-container: bin/.flightctl-periodic-container
 
+flightctl-multiarch-cli-container: bin/.flightctl-multiarch-cli-container
 
-build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container
+build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-multiarch-cli-container
 
-.PHONY: build-containers build-cli multiarch-build-cli
+.PHONY: build-containers build-cli build-multiarch-clis
 
 
 bin:
