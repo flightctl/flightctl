@@ -40,19 +40,19 @@ deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db
 
 deploy-db:
-	deploy/scripts/deploy_quadlet_service.sh db
+	sudo deploy/scripts/deploy_quadlet_service.sh db
 
 deploy-kv:
-	deploy/scripts/deploy_quadlet_service.sh kv
+	sudo deploy/scripts/deploy_quadlet_service.sh kv
 
 deploy-quadlets:
-	deploy/scripts/deploy_quadlets.sh
+	sudo deploy/scripts/deploy_quadlets.sh
 
 kill-db:
-	systemctl --user stop flightctl-db.service
+	sudo systemctl stop flightctl-db.service
 
 kill-kv:
-	systemctl --user stop flightctl-kv.service
+	sudo systemctl stop flightctl-kv.service
 
 show-podman-secret:
 	sudo podman secret inspect $(SECRET_NAME) --showsecret | jq '.[] | .SecretData'

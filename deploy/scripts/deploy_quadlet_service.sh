@@ -16,7 +16,7 @@ deploy_service() {
     echo "Starting Deployment for $service_full_name"
 
     # Stop the service if it's running
-    systemctl --user stop "$service_full_name" || true
+    systemctl stop "$service_full_name" || true
 
     echo "Performing install for $service_full_name"
     # Handle pre-startup logic for each service

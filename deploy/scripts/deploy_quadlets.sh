@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}"/shared.sh
 echo "Starting Deployment"
 
 # Run installation script
-if ! sudo deploy/scripts/installer.sh; then
+if ! deploy/scripts/installer.sh; then
     echo "Error: Installation failed"
     exit 1
 fi
@@ -18,7 +18,7 @@ fi
 base_domain="$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')"
 echo "Setting base domain to: ${base_domain}"
 VALUES_FILE="${CONFIG_OUTPUT_DIR}/values.yaml"
-sudo sed -i "s/^\(\s*baseDomain\s*\):\s*.*$/\1: ${base_domain}/" "${VALUES_FILE}"
+sed -i "s/^\(\s*baseDomain\s*\):\s*.*$/\1: ${base_domain}/" "${VALUES_FILE}"
 
 start_service "flightctl.slice"
 
@@ -26,7 +26,7 @@ echo "Checking if all services are running..."
 
 timeout --foreground 300s bash -c '
     while true; do
-        if sudo podman ps --quiet \
+        if podman ps --quiet \
             --filter "name=flightctl-api" \
             --filter "name=flightctl-worker" \
             --filter "name=flightctl-periodic" \

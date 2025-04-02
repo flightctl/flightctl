@@ -65,10 +65,10 @@ render_shared_files() {
 #   $1: Service name
 start_service() {
     local service_name="$1"
-    sudo systemctl daemon-reload
+    systemctl daemon-reload
 
     echo "Starting $service_name"
-    sudo systemctl start "$service_name"
+    systemctl start "$service_name"
 }
 
 # Generate a random password

@@ -9,9 +9,9 @@ source "${SCRIPT_DIR}"/shared.sh
 clean_services() {
     # Stop any running services
     for service in flightctl.slice 'flightctl-*.service'; do
-        if sudo systemctl is-active --quiet "$service"; then
+        if  systemctl is-active --quiet "$service"; then
             echo "Stopping $service..."
-            sudo systemctl stop "$service" || echo "Warning: Failed to stop $service"
+            systemctl stop "$service" || echo "Warning: Failed to stop $service"
         fi
     done
 }
@@ -19,27 +19,27 @@ clean_services() {
 clean_files() {
     # Use the read-only directory constants from shared.sh
     echo "Removing configuration files from ${CONFIG_OUTPUT_DIR}"
-    sudo rm -rf "$CONFIG_OUTPUT_DIR" || echo "Warning: Failed to remove config files"
+    rm -rf "$CONFIG_OUTPUT_DIR" || echo "Warning: Failed to remove config files"
 
     echo "Removing quadlet files from ${QUADLET_FILES_OUTPUT_DIR}"
-    sudo rm -rf "$QUADLET_FILES_OUTPUT_DIR/flightctl"* || echo "Warning: Failed to remove quadlet config files"
+    rm -rf "$QUADLET_FILES_OUTPUT_DIR/flightctl"* || echo "Warning: Failed to remove quadlet config files"
 }
 
 clean_volumes() {
     # Remove volumes
     for volume in flightctl-db flightctl-api-certs flightctl-kv flightctl-ui-certs; do
-        if sudo podman volume inspect "$volume" >/dev/null 2>&1; then
+        if podman volume inspect "$volume" >/dev/null 2>&1; then
             echo "Removing volume $volume"
-            sudo podman volume rm "$volume" || echo "Warning: Failed to remove $volume"
+            podman volume rm "$volume" || echo "Warning: Failed to remove $volume"
         fi
     done
 }
 
 clean_networks() {
     # Remove networks
-    if sudo podman network inspect flightctl >/dev/null 2>&1; then
+    if podman network inspect flightctl >/dev/null 2>&1; then
         echo "Removing network"
-        sudo podman network rm flightctl || echo "Warning: Failed to remove network"
+        podman network rm flightctl || echo "Warning: Failed to remove network"
     fi
 }
 
@@ -47,9 +47,9 @@ clean_secrets() {
     # Remove generated secrets
     secrets=("flightctl-postgresql-password" "flightctl-postgresql-master-password" "flightctl-postgresql-user-password" "flightctl-kv-password")
     for secret in "${secrets[@]}"; do
-        if sudo podman secret inspect "$secret" &>/dev/null; then
+        if  podman secret inspect "$secret" &>/dev/null; then
             echo "Removing secret $secret"
-            sudo podman secret rm "$secret" || echo "Warning: Failed to remove $secret"
+            podman secret rm "$secret" || echo "Warning: Failed to remove $secret"
         fi
     done
 }
