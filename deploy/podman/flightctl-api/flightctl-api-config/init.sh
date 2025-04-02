@@ -27,6 +27,24 @@ BASE_DOMAIN=$(grep -A10 'global:' "$VALUES_FILE" | grep 'baseDomain:' | awk '{pr
 SRV_CERT_FILE=$(grep -A10 'global:' "$VALUES_FILE" | grep 'srvCertFile:' | awk '{print $2}')
 SRV_KEY_FILE=$(grep -A10 'global:' "$VALUES_FILE" | grep 'srvKeyFile:' | awk '{print $2}')
 
+# Extract auth-related values
+AUTH_TYPE=$(grep -A20 'global:' "$VALUES_FILE" | grep -A2 'auth:' | grep 'type:' | awk '{print $2}')
+INSECURE_SKIP_TLS_VERIFY=$(grep -A20 'global:' "$VALUES_FILE" | grep 'insecureSkipTlsVerify:' | awk '{print $2}')
+AAP_API_URL=""
+AAP_EXTERNAL_API_URL=""
+
+# Process auth settings based on auth type
+if [ "$AUTH_TYPE" == "aap" ]; then
+  echo "Configuring AAP authentication"
+  AAP_API_URL=$(grep -A20 'global:' "$VALUES_FILE" | grep -A10 'aap:' | grep 'apiUrl:' | awk '{print $2}')
+  AAP_EXTERNAL_API_URL=$(grep -A20 'global:' "$VALUES_FILE" | grep -A10 'aap:' | grep 'externalApiUrl:' | awk '{print $2}')
+else
+  echo "Auth not configured"
+fi
+
+# Set defaults for empty values
+INSECURE_SKIP_TLS_VERIFY=${INSECURE_SKIP_TLS_VERIFY:-false}
+
 # Verify required values were found
 if [ -z "$BASE_DOMAIN" ]; then
   echo "Error: Could not find baseDomain in values file"
@@ -41,7 +59,10 @@ if [ -n "$SRV_CERT_FILE" ] && [ -n "$SRV_KEY_FILE" ]; then
   cat "$CONFIG_TEMPLATE" | \
     sed "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" | \
     sed "s|{{SRV_CERT_FILE}}|/root/.flightctl/certs/provided/server.crt|g" | \
-    sed "s|{{SRV_KEY_FILE}}|/root/.flightctl/certs/provided/server.key|g" \
+    sed "s|{{SRV_KEY_FILE}}|/root/.flightctl/certs/provided/server.key|g" | \
+    sed "s|{{INSECURE_SKIP_TLS_VERIFY}}|$INSECURE_SKIP_TLS_VERIFY|g" | \
+    sed "s|{{AAP_API_URL}}|$AAP_API_URL|g" | \
+    sed "s|{{AAP_EXTERNAL_API_URL}}|$AAP_EXTERNAL_API_URL|g" \
     > "$CONFIG_OUTPUT"
 else
   echo "No certificates provided"
@@ -49,7 +70,10 @@ else
   cat "$CONFIG_TEMPLATE" | \
     sed "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" | \
     sed "s|{{SRV_CERT_FILE}}||g" | \
-    sed "s|{{SRV_KEY_FILE}}||g" \
+    sed "s|{{SRV_KEY_FILE}}||g" | \
+    sed "s|{{INSECURE_SKIP_TLS_VERIFY}}|$INSECURE_SKIP_TLS_VERIFY|g" | \
+    sed "s|{{AAP_API_URL}}|$AAP_API_URL|g" | \
+    sed "s|{{AAP_EXTERNAL_API_URL}}|$AAP_EXTERNAL_API_URL|g" \
     > "$CONFIG_OUTPUT"
 fi
 

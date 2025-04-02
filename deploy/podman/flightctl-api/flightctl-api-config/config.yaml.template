@@ -18,3 +18,8 @@ service:
 kv:
     hostname: flightctl-kv
     port: 6379
+auth:
+    insecureSkipTlsVerify: {{INSECURE_SKIP_TLS_VERIFY}}
+    aap:
+        apiUrl: {{AAP_API_URL}}
+        externalApiUrl: {{AAP_EXTERNAL_API_URL}}

@@ -41,7 +41,7 @@ timeout --foreground 300s bash -c '
             exit 0
         fi
         echo "Waiting for all services to be running..."
-        sleep 5
+        sleep 10
     done
 ' || {
     echo "Timeout reached while waiting for services"

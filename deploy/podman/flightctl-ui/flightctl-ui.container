@@ -6,7 +6,7 @@ Wants=flightctl-ui-init.service
 
 [Container]
 ContainerName=flightctl-ui
-Image=quay.io/flightctl/flightctl-ui:0.5.0
+Image=quay.io/flightctl/flightctl-ui:0.6.0-main-30-gfaedf0a
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-ui/env
 
