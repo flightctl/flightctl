@@ -13,29 +13,45 @@ permissions:
   pull-requests: read
 
 jobs:
+  changes:
+    runs-on: "ubuntu-24.04"
+    outputs:
+      source_changed: ${{ steps.filter.outputs.source_changed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed_files
+        uses: yumemi-inc/changed-files@v1
+
+      - name: Filter source changes
+        id: filter
+        run: |
+          echo "Changed files: ${{ steps.changed_files.outputs.files }}"
+          # Filter out documentation changes (docs folder, .spelling, README.md, and all .md files)
+          SOURCE_FILES=$(echo "${{ steps.changed_files.outputs.files }}" | tr ' ' '\n' | grep -Ev '^(\.github/|docs/|\.spelling$|README\.md$|.*\.md$)')
+          echo "Source files: $SOURCE_FILES"
+          if [ -n "$SOURCE_FILES" ]; then
+            echo "source_changed=true"
+            echo "source_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "source_changed=false"
+            echo "source_changed=false" >> $GITHUB_OUTPUT
+          fi
+
   integration-tests:
+    needs: changes
+    if: needs.changes.outputs.source_changed == 'true'
     runs-on: "ubuntu-24.04"
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            notdocs:
-              - '!.spelling'
-              - '!README.md'
-              - '!docs/**'
-
       - name: Setup all dependencies
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
       - name: Running Integration tests
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make integration-test VERBOSE=true
-
-
-
-
