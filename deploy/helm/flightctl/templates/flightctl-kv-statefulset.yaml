@@ -53,7 +53,7 @@ spec:
       containers:
         - name: flightctl-kv
           image: {{ .Values.kv.image.image }}:{{ .Values.kv.image.tag }}
-          imagePullPolicy: {{ .Values.kv.image.pullPolicy }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.kv.image.pullPolicy }}
           ports:
             - name: kv
               containerPort: 6379

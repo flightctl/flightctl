@@ -4,11 +4,13 @@
 global:
   ## @param storageClassName Storage class to use for all persistent volumes
   storageClassName: ""
+  ## @param imagePullPolicy The container image pull policy
+  imagePullPolicy: ""
 
 ## @param image The container image to use for Keycloak
 image: quay.io/keycloak/keycloak:25.0.1
 ## @param imagePullPolicy The container imagePullPolicy to use for Keycloak
-imagePullPolicy: IfNotPresent
+imagePullPolicy: ""
 service:
   nodePorts:
     http: ""
@@ -21,5 +23,5 @@ db:
   image: quay.io/sclorg/postgresql-16-c9s
   tag: latest
   ## @param imagePullPolicy The container imagePullPolicy to use for the Keycloak database
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: ""
 directAccessGrantsEnabled: true

@@ -20,7 +20,7 @@
 image:
   image: ""
   tag: ""
-  pullPolicy: Always
+  pullPolicy: ""
 ## @param baseURL Base URL of UI.
 baseURL: ""
 ## @param isRHEM Set to true if RHEM branding should be used

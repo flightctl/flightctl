@@ -78,7 +78,7 @@ spec:
           {{- else }}
           image: quay.io/flightctl/flightctl-ui:{{ default .Chart.AppVersion .Values.image.tag }}
           {{- end  }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.image.pullPolicy }}
           name: flightctl-ui
           ports:
             - containerPort: 8080

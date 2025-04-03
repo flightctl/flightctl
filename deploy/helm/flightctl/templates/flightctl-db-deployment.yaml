@@ -53,7 +53,7 @@ spec:
             - name: POSTGRESQL_MAX_CONNECTIONS
               value: {{ .Values.db.maxConnections | quote }}
           image: {{ .Values.db.image.image }}:{{ .Values.db.image.tag }}
-          imagePullPolicy: {{ .Values.db.image.pullPolicy }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.db.image.pullPolicy }}
           name: flightctl-db
           ports:
             - containerPort: 5432

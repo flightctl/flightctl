@@ -17,29 +17,23 @@ global:
     gitserver: 3222
     registry: 5000
 
-db:
-  imagePullPolicy: IfNotPresent
 api:
   image:
     image:  localhost/flightctl-api
     tag: latest
-    pullPolicy: IfNotPresent
   baseUIUrl: "http://localhost:9000"
 cliArtifacts:
   enabled: true
   image:
     image: localhost/flightctl-cli-artifacts
     tag: latest
-    pullPolicy: IfNotPresent
 worker:
   image:
     image: localhost/flightctl-worker
     tag: latest
-    pullPolicy: IfNotPresent
 periodic:
   image:
     image: localhost/flightctl-periodic
-    pullPolicy: IfNotPresent
 prometheus:
   enabled: true
 ui:
