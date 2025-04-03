@@ -221,7 +221,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		}
 	}
 	o.clientConfig.AuthInfo.AuthType = o.authConfig.AuthType
-	o.clientConfig.AuthInfo.AccessToken = token
+	o.clientConfig.AuthInfo.Token = token
 	o.clientConfig.AuthInfo.AuthCAFile = authCAFile
 	o.clientConfig.AuthInfo.ClientId = o.ClientId
 	o.clientConfig.AuthInfo.AuthURL = o.authConfig.AuthURL

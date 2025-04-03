@@ -56,7 +56,7 @@ func (c *accessTokenRefresher) refresh() error {
 		return fmt.Errorf("failed to renew token: %w", err)
 	}
 	c.config.AuthInfo.RefreshToken = authInfo.RefreshToken
-	c.config.AuthInfo.AccessToken = authInfo.AccessToken
+	c.config.AuthInfo.Token = authInfo.AccessToken
 	if authInfo.ExpiresIn != nil {
 		c.config.AuthInfo.AccessTokenExpiry = time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
 	}
@@ -118,7 +118,7 @@ func (c *accessTokenRefresher) start() {
 var authorizer util.Singleton[accessTokenRefresher]
 
 func (c *accessTokenRefresher) accessToken() string {
-	return c.config.AuthInfo.AccessToken
+	return c.config.AuthInfo.Token
 }
 
 func (c *accessTokenRefresher) rewind() {

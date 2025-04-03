@@ -77,7 +77,7 @@ type AuthInfo struct {
 	AuthType string `json:"auth-type,omitempty"`
 	// Bearer token for authentication
 	// +optional
-	AccessToken string `json:"access-token,omitempty"`
+	Token string `json:"token,omitempty"`
 	// Use for refreshing the access token
 	// +optional
 	RefreshToken string `json:"refresh-token,omitempty"`
