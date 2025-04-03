@@ -54,10 +54,11 @@ render_service() {
 }
 
 move_shared_files() {
+    local template_dir="$1"
     # Copy the network and slice files
-    cp "${TEMPLATE_DIR}/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
-    cp "${TEMPLATE_DIR}/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
-    cp "${TEMPLATE_DIR}/values.yaml" "${CONFIG_OUTPUT_DIR}/values.yaml"
+    cp "${template_dir}/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
+    cp "${template_dir}/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
+    cp "${template_dir}/values.yaml" "${CONFIG_OUTPUT_DIR}/values.yaml"
 }
 
 # Start a systemd service

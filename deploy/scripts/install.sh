@@ -21,7 +21,7 @@ render_files() {
     render_service "kv" "${TEMPLATE_DIR}"
     render_service "ui" "${TEMPLATE_DIR}"
 
-    move_shared_files
+    move_shared_files "${TEMPLATE_DIR}"
 }
 
 main() {
