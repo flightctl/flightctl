@@ -39,10 +39,10 @@ RUN mkdir -p ${HOME}/src/gh-archives \
     sed '/^\s*listen\s*\[::\]:8090/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv4 && \
     sed '/^\s*listen\s*8090/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv6 && \
     chmod 755 ${NGINX_CONF_PATH} ${NGINX_CONF_PATH}.ipv* && \
-    chmod -R 755 /var/lib/nginx && \
+    chmod -R 775 /var/lib/nginx && \
     chown -R ${USER_UID}:0 /root && \
     chown -R ${USER_UID}:0 /var/lib/nginx && \
-    chmod -R 755 /var/log/nginx && \
+    chmod -R 775 /var/log/nginx && \
     chown -R ${USER_UID}:0 /var/log/nginx && \
     chmod -R 775 /var/run && \
     chown -R ${USER_UID}:0 /var/run && \
@@ -56,7 +56,8 @@ COPY --from=builder /app/bin/clis/gh-archives/ ${HOME}/src/gh-archives/
 
 USER root
 RUN chmod -R 755 ${HOME}/src/gh-archives/ && \
-    chown -R ${USER_UID}:0 ${HOME}/src/gh-archives/
+    chown -R ${USER_UID}:0 ${HOME}/src/gh-archives/ && \
+    chmod 666 ${HOME}/src/gh-archives/index.json
 USER ${USER_UID}
 
 LABEL io.k8s.display-name="Flight Control CLI multiarch artifacts with server" \
