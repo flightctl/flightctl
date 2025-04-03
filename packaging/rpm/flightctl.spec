@@ -131,6 +131,8 @@ The flightctl-services package provides installation and setup of files for runn
     mkdir -p %{buildroot}%{_sysconfdir}/flightctl/
 
     # Run the install script to move the quadlet files
+    CONFIG_OUTPUT_DIR="%{buildroot}%{_sysconfdir}/flightctl/" \
+    QUADLET_FILES_OUTPUT_DIR="%{buildroot}/usr/share/containers/systemd/" \
     deploy/scripts/install.sh
 
     # Copy files needed for post install into the build root
@@ -188,6 +190,7 @@ fi
 
 %files services
     %defattr(0644,root,root,-)
+    /usr/share/containers/systemd
     %{_sysconfdir}/flightctl
     %attr(0755,root,root) %{_sysconfdir}/flightctl/post_install.sh
     %attr(0755,root,root) %{_sysconfdir}/flightctl/secrets.sh
