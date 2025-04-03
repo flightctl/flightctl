@@ -3,9 +3,13 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
+	"strconv"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -31,7 +35,7 @@ func NewCompose(log *log.PrefixLogger, podman *client.Podman) *Compose {
 func (c *Compose) add(ctx context.Context, action *Action) error {
 	appName := action.Name
 	projectName := action.ID
-	c.log.Debugf("Starting application: %s projectName: %s", appName, projectName)
+	c.log.Debugf("Starting application: %s projectName: %s path: %s", appName, projectName, action.Path)
 
 	noRecreate := true
 	if err := c.podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
@@ -56,7 +60,7 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 
 func (c *Compose) update(ctx context.Context, action *Action) error {
 	appName := action.Name
-	c.log.Debugf("Updating application: %s projectName: %s", appName, action.ID)
+	c.log.Debugf("Updating application: %s projectName: %s path: %s", appName, action.ID, action.Path)
 
 	if err := c.stopAndRemoveContainers(ctx, action); err != nil {
 		return err
@@ -113,4 +117,25 @@ func (c *Compose) Execute(ctx context.Context, action *Action) error {
 	default:
 		return fmt.Errorf("unsupported action type: %s", action.Type)
 	}
+}
+
+// NewComposeID generates a deterministic, lowercase, DNS-compatible ID with a fixed-length hash suffix.
+func NewComposeID(input string) string {
+	const suffixLength = 6
+	id := client.SanitizePodmanLabel(input)
+	hashValue := crc32.ChecksumIEEE([]byte(id))
+	suffix := strconv.AppendUint(nil, uint64(hashValue), 10)
+	maxLength := validation.DNS1123MaxLength - suffixLength - 1
+	if len(id) > maxLength {
+		id = id[:maxLength]
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(id) + 1 + suffixLength)
+
+	builder.WriteString(id)
+	builder.WriteByte('-')
+	builder.WriteString(string(suffix[:suffixLength]))
+
+	return builder.String()
 }

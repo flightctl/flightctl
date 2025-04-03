@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	provider "github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -64,99 +65,6 @@ func (m *MockMonitor) Status() []v1alpha1.DeviceApplicationStatus {
 func (mr *MockMonitorMockRecorder) Status() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockMonitor)(nil).Status))
-}
-
-// MockProvider is a mock of Provider interface.
-type MockProvider struct {
-	ctrl     *gomock.Controller
-	recorder *MockProviderMockRecorder
-}
-
-// MockProviderMockRecorder is the mock recorder for MockProvider.
-type MockProviderMockRecorder struct {
-	mock *MockProvider
-}
-
-// NewMockProvider creates a new mock instance.
-func NewMockProvider(ctrl *gomock.Controller) *MockProvider {
-	mock := &MockProvider{ctrl: ctrl}
-	mock.recorder = &MockProviderMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
-	return m.recorder
-}
-
-// Install mocks base method.
-func (m *MockProvider) Install(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Install", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Install indicates an expected call of Install.
-func (mr *MockProviderMockRecorder) Install(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Install", reflect.TypeOf((*MockProvider)(nil).Install), ctx)
-}
-
-// Name mocks base method.
-func (m *MockProvider) Name() string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Name")
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// Name indicates an expected call of Name.
-func (mr *MockProviderMockRecorder) Name() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockProvider)(nil).Name))
-}
-
-// Remove mocks base method.
-func (m *MockProvider) Remove(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Remove", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Remove indicates an expected call of Remove.
-func (mr *MockProviderMockRecorder) Remove(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockProvider)(nil).Remove), ctx)
-}
-
-// Spec mocks base method.
-func (m *MockProvider) Spec() *ApplicationSpec {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Spec")
-	ret0, _ := ret[0].(*ApplicationSpec)
-	return ret0
-}
-
-// Spec indicates an expected call of Spec.
-func (mr *MockProviderMockRecorder) Spec() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Spec", reflect.TypeOf((*MockProvider)(nil).Spec))
-}
-
-// Verify mocks base method.
-func (m *MockProvider) Verify(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Verify", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Verify indicates an expected call of Verify.
-func (mr *MockProviderMockRecorder) Verify(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verify", reflect.TypeOf((*MockProvider)(nil).Verify), ctx)
 }
 
 // MockManager is a mock of Manager interface.
@@ -211,7 +119,7 @@ func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
 }
 
 // Ensure mocks base method.
-func (m *MockManager) Ensure(ctx context.Context, provider Provider) error {
+func (m *MockManager) Ensure(ctx context.Context, provider provider.Provider) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Ensure", ctx, provider)
 	ret0, _ := ret[0].(error)
@@ -225,7 +133,7 @@ func (mr *MockManagerMockRecorder) Ensure(ctx, provider any) *gomock.Call {
 }
 
 // Remove mocks base method.
-func (m *MockManager) Remove(ctx context.Context, provider Provider) error {
+func (m *MockManager) Remove(ctx context.Context, provider provider.Provider) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Remove", ctx, provider)
 	ret0, _ := ret[0].(error)
@@ -267,7 +175,7 @@ func (mr *MockManagerMockRecorder) Stop(ctx any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockManager) Update(ctx context.Context, provider Provider) error {
+func (m *MockManager) Update(ctx context.Context, provider provider.Provider) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", ctx, provider)
 	ret0, _ := ret[0].(error)

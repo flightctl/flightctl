@@ -12,13 +12,15 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestListenForEvents(t *testing.T) {
@@ -30,14 +32,14 @@ func TestListenForEvents(t *testing.T) {
 		expectedRestarts int
 		expectedStatus   v1alpha1.ApplicationStatusType
 		expectedSummary  v1alpha1.ApplicationsSummaryStatusType
-		events           []PodmanEvent
+		events           []client.PodmanEvent
 	}{
 		{
 			name: "single app start",
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -52,7 +54,7 @@ func TestListenForEvents(t *testing.T) {
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -70,7 +72,7 @@ func TestListenForEvents(t *testing.T) {
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -88,7 +90,7 @@ func TestListenForEvents(t *testing.T) {
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -103,7 +105,7 @@ func TestListenForEvents(t *testing.T) {
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -122,7 +124,7 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 				createTestApplication("app2", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -139,7 +141,7 @@ func TestListenForEvents(t *testing.T) {
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -154,7 +156,7 @@ func TestListenForEvents(t *testing.T) {
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -176,7 +178,7 @@ func TestListenForEvents(t *testing.T) {
 			apps: []Application{
 				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -199,14 +201,14 @@ func TestListenForEvents(t *testing.T) {
 			rw.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
-			var testInspect []PodmanInspect
+			var testInspect []client.PodmanInspect
 			restartsPerContainer := 3
 			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
-			podman := client.NewPodman(log, execMock, rw, newTestBackoff())
-			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "", rw)
+			podman := client.NewPodman(log, execMock, rw, util.NewBackoff())
+			podmanMonitor := NewPodmanMonitor(log, podman, "", rw)
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
@@ -352,8 +354,8 @@ func TestApplicationAddRemove(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
-			podman := client.NewPodman(log, execMock, readWriter, newTestBackoff())
-			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "", readWriter)
+			podman := client.NewPodman(log, execMock, readWriter, util.NewBackoff())
+			podmanMonitor := NewPodmanMonitor(log, podman, "", readWriter)
 			testApp := createTestApplication(tc.appName, v1alpha1.ApplicationStatusPreparing)
 
 			switch tc.action {
@@ -379,7 +381,7 @@ func createTestApplication(name string, status v1alpha1.ApplicationStatusType) A
 	return app
 }
 
-func writeEvent(writer io.WriteCloser, event *PodmanEvent) error {
+func writeEvent(writer io.WriteCloser, event *client.PodmanEvent) error {
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -389,16 +391,16 @@ func writeEvent(writer io.WriteCloser, event *PodmanEvent) error {
 	return err
 }
 
-func mockPodmanEventSuccess(name, service, status string) PodmanEvent {
+func mockPodmanEventSuccess(name, service, status string) client.PodmanEvent {
 	return createMockPodmanEvent(name, service, status, 0)
 }
 
-func mockPodmanEventError(name, service, status string, exitCode int) PodmanEvent {
+func mockPodmanEventError(name, service, status string, exitCode int) client.PodmanEvent {
 	return createMockPodmanEvent(name, service, status, exitCode)
 }
 
-func createMockPodmanEvent(name, service, status string, exitCode int) PodmanEvent {
-	event := PodmanEvent{
+func createMockPodmanEvent(name, service, status string, exitCode int) client.PodmanEvent {
+	event := client.PodmanEvent{
 		ID:     "8559c630e04ea852101467742e95b9e371fe6dd8c9195910354636d68d388a40",
 		Image:  "docker.io/library/alpine:latest",
 		Name:   fmt.Sprintf("%s-container", service),
@@ -407,7 +409,7 @@ func createMockPodmanEvent(name, service, status string, exitCode int) PodmanEve
 		Attributes: map[string]string{
 			"PODMAN_SYSTEMD_UNIT":                     "podman-compose@user.service",
 			"com.docker.compose.container-number":     "1",
-			"com.docker.compose.project":              newComposeID(name),
+			"com.docker.compose.project":              lifecycle.NewComposeID(name),
 			"com.docker.compose.project.config_files": "podman-compose.yaml",
 			"com.docker.compose.project.working_dir":  path.Join("/usr/local/lib/compose", name),
 			"com.docker.compose.service":              service,
@@ -422,15 +424,9 @@ func createMockPodmanEvent(name, service, status string, exitCode int) PodmanEve
 	return event
 }
 
-func mockPodmanInspect(restarts int) PodmanInspect {
-	return PodmanInspect{
+func mockPodmanInspect(restarts int) client.PodmanInspect {
+	return client.PodmanInspect{
 		Restarts: restarts,
-	}
-}
-
-func newTestBackoff() wait.Backoff {
-	return wait.Backoff{
-		Steps: 1,
 	}
 }
 
@@ -441,49 +437,13 @@ func BenchmarkNewComposeID(b *testing.B) {
 		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
 			input := strings.Repeat("a", size)
 			for i := 0; i < b.N; i++ {
-				newComposeID(input)
+				lifecycle.NewComposeID(input)
 			}
 		})
 	}
 }
 
-func TestNewComposeID(t *testing.T) {
-	require := require.New(t)
-	testCases := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple",
-			input:    "app1",
-			expected: "app1-229522",
-		},
-		{
-			name:     "with @ special character",
-			input:    "app1@2",
-			expected: "app1_2-819634",
-		},
-		{
-			name:     "with : special characters",
-			input:    "app-2:v2",
-			expected: "app-2_v2-721985",
-		},
-		{
-			name:     "with multiple !! special characters",
-			input:    "app!!",
-			expected: "app__-260528",
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := newComposeID(tc.input)
-			require.Equal(tc.expected, result)
-		})
-	}
-}
-
-func newMockProvider(name string) Provider {
+func newMockProvider(name string) provider.Provider {
 	return &mockProvider{name: name}
 }
 
@@ -495,9 +455,9 @@ func (m *mockProvider) Name() string {
 	return m.name
 }
 
-func (m *mockProvider) Spec() *ApplicationSpec {
-	return &ApplicationSpec{
-		ID:   newComposeID(m.name),
+func (m *mockProvider) Spec() *provider.ApplicationSpec {
+	return &provider.ApplicationSpec{
+		ID:   lifecycle.NewComposeID(m.name),
 		Name: m.name,
 	}
 }

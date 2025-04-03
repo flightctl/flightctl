@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -21,16 +20,6 @@ var upgrader = websocket.Upgrader{
 }
 
 func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Request) {
-	allowed, err := auth.GetAuthZ().CheckPermission(r.Context(), "devices/console", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		http.Error(w, AuthorizationServerUnavailable, http.StatusServiceUnavailable)
-		return
-	}
-	if !allowed {
-		http.Error(w, Forbidden, http.StatusForbidden)
-		return
-	}
 	orgId := store.NullOrgId
 	deviceName := chi.URLParam(r, "name")
 

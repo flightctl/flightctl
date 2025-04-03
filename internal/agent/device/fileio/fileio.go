@@ -28,6 +28,7 @@ type Writer interface {
 	RemoveFile(file string) error
 	RemoveAll(path string) error
 	MkdirAll(path string, perm fs.FileMode) error
+	MkdirTemp(prefix string) (string, error)
 	CopyFile(src, dst string) error
 	CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error)
 	OverwriteAndWipe(file string) error

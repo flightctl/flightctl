@@ -6,9 +6,9 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -23,20 +23,19 @@ type manager struct {
 func NewManager(
 	log *log.PrefixLogger,
 	readWriter fileio.ReadWriter,
-	exec executer.Executer,
 	podmanClient *client.Podman,
 	systemClient client.System,
 ) Manager {
 	bootTime := systemClient.BootTime()
 	return &manager{
 		readWriter:    readWriter,
-		podmanMonitor: NewPodmanMonitor(log, exec, podmanClient, bootTime, readWriter),
+		podmanMonitor: NewPodmanMonitor(log, podmanClient, bootTime, readWriter),
 		log:           log,
 	}
 }
 
 // Add an application to be managed
-func (m *manager) Ensure(ctx context.Context, provider Provider) error {
+func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
 	case v1alpha1.AppTypeCompose:
@@ -53,7 +52,7 @@ func (m *manager) Ensure(ctx context.Context, provider Provider) error {
 }
 
 // Remove by name
-func (m *manager) Remove(ctx context.Context, provider Provider) error {
+func (m *manager) Remove(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
 	case v1alpha1.AppTypeCompose:
@@ -67,7 +66,7 @@ func (m *manager) Remove(ctx context.Context, provider Provider) error {
 }
 
 // Update an application
-func (m *manager) Update(ctx context.Context, provider Provider) error {
+func (m *manager) Update(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
 	case v1alpha1.AppTypeCompose:
@@ -92,7 +91,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec
 	m.log.Debug("Pre-checking application dependencies")
 	defer m.log.Info("Finished pre-checking application dependencies")
 
-	providers, err := parseAppProviders(ctx, m.log, m.podmanMonitor.client, m.readWriter, desired, WithEmbedded())
+	providers, err := provider.FromDeviceSpec(ctx, m.log, m.podmanMonitor.client, m.readWriter, desired, provider.WithEmbedded())
 	if err != nil {
 		return fmt.Errorf("parsing apps: %w", err)
 	}

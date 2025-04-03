@@ -5,10 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -17,49 +15,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util/validation"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
-
-// PodmanInspect represents the overall structure of podman inspect output
-type PodmanInspect struct {
-	Restarts int                   `json:"RestartCount"`
-	State    PodmanContainerState  `json:"State"`
-	Config   PodmanContainerConfig `json:"Config"`
-}
-
-// ContainerState represents the container state part of the podman inspect output
-type PodmanContainerState struct {
-	OciVersion  string `json:"OciVersion"`
-	Status      string `json:"Status"`
-	Running     bool   `json:"Running"`
-	Paused      bool   `json:"Paused"`
-	Restarting  bool   `json:"Restarting"`
-	OOMKilled   bool   `json:"OOMKilled"`
-	Dead        bool   `json:"Dead"`
-	Pid         int    `json:"Pid"`
-	ExitCode    int    `json:"ExitCode"`
-	Error       string `json:"Error"`
-	StartedAt   string `json:"StartedAt"`
-	FinishedAt  string `json:"FinishedAt"`
-	Healthcheck string `json:"Healthcheck"`
-}
-
-type PodmanContainerConfig struct {
-	Labels map[string]string `json:"Labels"`
-}
-
-type PodmanEvent struct {
-	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
-	ID                string            `json:"ID"`
-	Image             string            `json:"Image"`
-	Name              string            `json:"Name"`
-	Status            string            `json:"Status"`
-	Type              string            `json:"Type"`
-	Attributes        map[string]string `json:"Attributes"`
-}
 
 type PodmanMonitor struct {
 	mu          sync.Mutex
@@ -82,7 +40,6 @@ type PodmanMonitor struct {
 
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
-	exec executer.Executer,
 	podman *client.Podman,
 	bootTime string,
 	writer fileio.Writer,
@@ -249,7 +206,6 @@ func (m *PodmanMonitor) Update(app Application) error {
 	defer m.mu.Unlock()
 
 	appID := app.ID()
-	appName := app.Name()
 	_, ok := m.apps[appID]
 	if !ok {
 		return errors.ErrAppNotFound
@@ -261,8 +217,9 @@ func (m *PodmanMonitor) Update(app Application) error {
 	action := lifecycle.Action{
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionUpdate,
-		Name:    appName,
+		Name:    app.Name(),
 		ID:      appID,
+		Path:    app.Path(),
 	}
 
 	m.actions = append(m.actions, action)
@@ -408,7 +365,7 @@ func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadC
 }
 
 func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
-	var event PodmanEvent
+	var event client.PodmanEvent
 	if err := json.Unmarshal(data, &event); err != nil {
 		m.log.Errorf("Failed to decode podman event: %v", err)
 		return
@@ -434,7 +391,7 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 	m.updateAppStatus(ctx, app, &event)
 }
 
-func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, event *PodmanEvent) {
+func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -479,7 +436,7 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 	})
 }
 
-func (m *PodmanMonitor) getContainerRestarts(inspectData []PodmanInspect) (int, error) {
+func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
 	var restarts int
 	if len(inspectData) > 0 {
 		restarts = inspectData[0].Restarts
@@ -488,20 +445,20 @@ func (m *PodmanMonitor) getContainerRestarts(inspectData []PodmanInspect) (int, 
 	return restarts, nil
 }
 
-func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string) ([]PodmanInspect, error) {
+func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string) ([]client.PodmanInspect, error) {
 	resp, err := m.client.Inspect(ctx, containerID)
 	if err != nil {
 		return nil, err
 	}
 
-	var inspectData []PodmanInspect
+	var inspectData []client.PodmanInspect
 	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
 		return nil, fmt.Errorf("unmarshal podman inspect output: %v", err)
 	}
 	return inspectData, nil
 }
 
-func (m *PodmanMonitor) resolveStatus(status string, inspectData []PodmanInspect) StatusType {
+func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
@@ -510,25 +467,4 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []PodmanInspect
 		}
 	}
 	return initialStatus
-}
-
-// newComposeID generates a deterministic, lowercase, DNS-compatible ID with a fixed-length hash suffix.
-func newComposeID(input string) string {
-	const suffixLength = 6
-	id := client.SanitizePodmanLabel(input)
-	hashValue := crc32.ChecksumIEEE([]byte(id))
-	suffix := strconv.AppendUint(nil, uint64(hashValue), 10)
-	maxLength := validation.DNS1123MaxLength - suffixLength - 1
-	if len(id) > maxLength {
-		id = id[:maxLength]
-	}
-
-	var builder strings.Builder
-	builder.Grow(len(id) + 1 + suffixLength)
-
-	builder.WriteString(id)
-	builder.WriteByte('-')
-	builder.WriteString(string(suffix[:suffixLength]))
-
-	return builder.String()
 }

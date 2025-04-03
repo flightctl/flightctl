@@ -152,12 +152,17 @@ func (s *Server) Run(ctx context.Context) error {
 		MultiErrorHandler: oapiMultiErrorHandler,
 	}
 
-	authMiddleware, err := auth.CreateAuthMiddleware(s.cfg, s.log)
+	err = auth.InitAuth(s.cfg, s.log)
 	if err != nil {
-		return fmt.Errorf("failed creating Auth Middleware: %w", err)
+		return fmt.Errorf("failed initializing auth: %w", err)
 	}
 
 	router := chi.NewRouter()
+
+	authMiddewares := []func(http.Handler) http.Handler{
+		auth.CreateAuthNMiddleware(s.log),
+		auth.CreateAuthZMiddleware(s.log),
+	}
 
 	// general middleware stack for all route groups
 	// request size limits should come before logging to prevent DoS attacks from filling logs
@@ -167,8 +172,6 @@ func (s *Server) Run(ctx context.Context) error {
 		fcmiddleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
-		authMiddleware,
-		auth.CreatePermissionsMiddleware(s.log),
 	)
 
 	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
@@ -182,14 +185,21 @@ func (s *Server) Run(ctx context.Context) error {
 			r.Use(s.metrics.ApiServerMiddleware)
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
+		r.Use(authMiddewares...)
 
 		h := transport.NewTransportHandler(serviceHandler)
 		server.HandlerFromMux(h, r)
 	})
 
-	consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
-	ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
-	ws.RegisterRoutes(router)
+	// ws handling
+	router.Group(func(r chi.Router) {
+		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
+		r.Use(authMiddewares...)
+
+		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
+		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
+		ws.RegisterRoutes(router)
+	})
 
 	srv := fcmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
 

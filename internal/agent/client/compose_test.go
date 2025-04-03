@@ -19,7 +19,7 @@ func TestParseComposeSpecFromDir(t *testing.T) {
 		{
 			name: "single compose.yaml file",
 			files: map[string][]byte{
-				"docker-compose.yaml": []byte(`
+				"docker-compose.yaml": []byte(`version: "3"
 services:
   web:
     image: nginx
@@ -34,12 +34,12 @@ services:
 		{
 			name: "single compose.yml file with yml override",
 			files: map[string][]byte{
-				"docker-compose.yml": []byte(`
+				"docker-compose.yml": []byte(`version: "3"
 services:
   web:
     image: nginx
 `),
-				"docker-compose.override.yml": []byte(`
+				"docker-compose.override.yml": []byte(`version: "3"
 services:
   web:
     image: nginx:latest
@@ -54,12 +54,12 @@ services:
 		{
 			name: "multiple compose files priority .yaml",
 			files: map[string][]byte{
-				"docker-compose.yaml": []byte(`
+				"docker-compose.yaml": []byte(`version: "3"
 services:
   web:
     image: nginx
 `),
-				"docker-compose.yml": []byte(`
+				"docker-compose.yml": []byte(`version: "3"
 services:
   web:
     image: apache
