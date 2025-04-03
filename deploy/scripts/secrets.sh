@@ -32,7 +32,7 @@ ensure_secret() {
     local secret_name="$1"
     local env_var_name="$2"
 
-    if ! podman secret exists "$secret_name"; then
+    if ! sudo podman secret exists "$secret_name"; then
         echo "Creating secret $secret_name"
         if [ -z "${!env_var_name}" ]; then
             echo "Generating password for $env_var_name"
@@ -40,7 +40,7 @@ ensure_secret() {
         else
             echo "Using existing environment variable $env_var_name"
         fi
-        if ! podman secret create --env "$secret_name" "$env_var_name"; then
+        if ! sudo -E podman secret create --env "$secret_name" "$env_var_name"; then
             echo "Error creating secret $secret_name"
             return 1
         fi
