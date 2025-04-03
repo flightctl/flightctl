@@ -46,7 +46,7 @@ type Config struct {
 // Service contains information how to connect to and authenticate the Flight Control API server.
 type Service struct {
 	// Server is the URL of the Flight Control API server (the part before /api/v1/...).
-	Server string `json:"server"`
+	Server string `json:"server,omitempty"`
 	// TLSServerName is passed to the server for SNI and is used in the client to check server certificates against.
 	// If TLSServerName is empty, the hostname used to contact the server is used.
 	// +optional
@@ -74,7 +74,7 @@ type AuthInfo struct {
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
 	// The authentication type (i.e. k8s, OIDC)
 	// +optional
-	AuthType string `json:"auth-type"`
+	AuthType string `json:"auth-type,omitempty"`
 	// Bearer token for authentication
 	// +optional
 	AccessToken string `json:"access-token,omitempty"`
@@ -83,16 +83,16 @@ type AuthInfo struct {
 	RefreshToken string `json:"refresh-token,omitempty"`
 	// The time the access token will expire
 	// +optional
-	AccessTokenExpiry string `json:"access-token-expiry"`
+	AccessTokenExpiry string `json:"access-token-expiry,omitempty"`
 	// CA file used for authentication
 	// +optional
-	AuthCAFile string `json:"auth-ca-file"`
+	AuthCAFile string `json:"auth-ca-file,omitempty"`
 	// Client ID used for authentication
 	// +optional
-	ClientId string `json:"client-id"`
+	ClientId string `json:"client-id,omitempty"`
 	// Authorization URL for authentication
 	// +optional
-	AuthURL string `json:"auth-url"`
+	AuthURL string `json:"auth-url,omitempty"`
 }
 
 func (c *Config) Equal(c2 *Config) bool {
