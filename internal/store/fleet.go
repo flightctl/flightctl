@@ -138,7 +138,7 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		return nil, flterrors.ErrResourceNotFound
 	}
 
-	var summary *api.DevicesSummary
+	var summary *api.DevicesSummary // Remains nil unless withDeviceSummary is true; will be omitted in JSON if not set
 
 	if options.withDeviceSummary {
 		summary = &api.DevicesSummary{Total: fleet.DeviceCount}
@@ -148,6 +148,7 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		}
 	}
 
+	// Passing summary (nil if not set), handled downstream
 	apiFleet, _ := fleet.ToApiResource(model.WithDevicesSummary(summary))
 	return apiFleet, nil
 }
