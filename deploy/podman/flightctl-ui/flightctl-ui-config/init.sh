@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -eo pipefail
 
 echo "Initializing flightctl-ui configuration"
 
@@ -30,6 +30,12 @@ AUTH_INSECURE_SKIP_VERIFY=$(grep -A20 'global:' "$VALUES_FILE" | grep 'insecureS
 AUTH_CLIENT_ID=""
 AUTH_URL=""
 
+# Verify required values were found
+if [ -z "$BASE_DOMAIN" ]; then
+  echo "Error: Could not find baseDomain in values file"
+  exit 1
+fi
+
 # Process auth settings based on auth type
 if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
@@ -41,13 +47,6 @@ fi
 
 # Create destination directory for certificates
 mkdir -p "$CERTS_DEST_PATH/provided"
-
-# Process template and set initial environment variable replacements
-echo "Processing environment template..."
-sed "s|{{BASE_DOMAIN}}|${BASE_DOMAIN}|g" "$ENV_TEMPLATE" > "$ENV_FILE"
-sed -i "s|{{AUTH_CLIENT_ID}}|${AUTH_CLIENT_ID}|g" "$ENV_FILE"
-sed -i "s|{{INTERNAL_AUTH_URL}}|${AUTH_URL}|g" "$ENV_FILE"
-sed -i "s|{{AUTH_INSECURE_SKIP_VERIFY}}|${AUTH_INSECURE_SKIP_VERIFY}|g" "$ENV_FILE"
 
 # Handle certificate setup and update env file accordingly
 if [ -n "$SRV_CERT_FILE" ] && [ -n "$SRV_KEY_FILE" ]; then
@@ -75,5 +74,11 @@ else
   sed -i "s|{{TLS_CERT}}|/app/certs/server.crt|g" "$ENV_FILE"
   sed -i "s|{{TLS_KEY}}|/app/certs/server.key|g" "$ENV_FILE"
 fi
+
+# Template the environment file
+sed "s|{{BASE_DOMAIN}}|${BASE_DOMAIN}|g" "$ENV_TEMPLATE" > "$ENV_FILE"
+sed -i "s|{{AUTH_CLIENT_ID}}|${AUTH_CLIENT_ID}|g" "$ENV_FILE"
+sed -i "s|{{INTERNAL_AUTH_URL}}|${AUTH_URL}|g" "$ENV_FILE"
+sed -i "s|{{AUTH_INSECURE_SKIP_VERIFY}}|${AUTH_INSECURE_SKIP_VERIFY}|g" "$ENV_FILE"
 
 echo "Initialization complete"

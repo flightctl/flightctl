@@ -18,12 +18,6 @@ if [ ! -f "$VALUES_FILE" ]; then
   exit 1
 fi
 
-# Check if config template exists
-if [ ! -f "$CONFIG_TEMPLATE" ]; then
-  echo "Error: Config template not found at $CONFIG_TEMPLATE"
-  exit 1
-fi
-
 # Extract values from values.yaml using YAML-aware parsing for nested structures
 BASE_DOMAIN=$(grep -A10 'global:' "$VALUES_FILE" | grep 'baseDomain:' | awk '{print $2}')
 SRV_CERT_FILE=$(grep -A10 'global:' "$VALUES_FILE" | grep 'srvCertFile:' | awk '{print $2}')
@@ -36,6 +30,12 @@ AAP_API_URL=""
 AAP_EXTERNAL_API_URL=""
 FLIGHTCTL_DISABLE_AUTH="false"
 
+# Verify required values were found
+if [ -z "$BASE_DOMAIN" ]; then
+  echo "Error: Could not find baseDomain in values file"
+  exit 1
+fi
+
 # Process auth settings based on auth type
 if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
@@ -44,15 +44,6 @@ if [ "$AUTH_TYPE" == "aap" ]; then
 else
   echo "Auth not configured"
   FLIGHTCTL_DISABLE_AUTH="true"
-fi
-
-# Set defaults for empty values
-INSECURE_SKIP_TLS_VERIFY=${INSECURE_SKIP_TLS_VERIFY:-false}
-
-# Verify required values were found
-if [ -z "$BASE_DOMAIN" ]; then
-  echo "Error: Could not find baseDomain in values file"
-  exit 1
 fi
 
 # Handle certificate paths

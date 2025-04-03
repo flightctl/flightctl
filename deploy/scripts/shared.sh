@@ -53,7 +53,7 @@ render_service() {
     done
 }
 
-render_shared_files() {
+move_shared_files() {
     # Copy the network and slice files
     cp "${TEMPLATE_DIR}/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
     cp "${TEMPLATE_DIR}/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
