@@ -10,10 +10,12 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -174,7 +176,7 @@ func TestParseAppProviders(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 			err := readWriter.MkdirAll("/mount", fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
-			err = readWriter.WriteFile("/mount/podman-compose.yaml", []byte(composeSpec), fileio.DefaultFilePermissions)
+			err = readWriter.WriteFile("/mount/podman-compose.yaml", []byte(util.NewComposeSpec()), fileio.DefaultFilePermissions)
 			require.NoError(err)
 
 			ctrl := gomock.NewController(t)
@@ -187,11 +189,11 @@ func TestParseAppProviders(t *testing.T) {
 
 			imageConfig, err := newImageConfig(tc.labels)
 			require.NoError(err)
-			mockPodman := client.NewPodman(log, execMock, readWriter, newTestBackoff())
+			mockPodman := client.NewPodman(log, execMock, readWriter, util.NewBackoff())
 
 			tc.setupMocks(execMock, imageConfig)
 
-			providers, err := parseAppProviders(ctx, log, mockPodman, readWriter, spec, WithProviderTypes(v1alpha1.ImageApplicationProviderType))
+			providers, err := provider.FromDeviceSpec(ctx, log, mockPodman, readWriter, spec, provider.WithProviderTypes(v1alpha1.ImageApplicationProviderType))
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)
 				return
@@ -213,13 +215,9 @@ func TestParseAppProviders(t *testing.T) {
 }
 
 func newImageConfig(labels map[string]string) (string, error) {
-	type inspect struct {
-		Config client.ImageConfig `json:"Config"`
-	}
-
-	inspectData := []inspect{
+	inspectData := []client.PodmanInspect{
 		{
-			Config: client.ImageConfig{
+			Config: client.PodmanContainerConfig{
 				Labels: labels,
 			},
 		},
@@ -252,13 +250,9 @@ func newTestDeviceSpec(appSpecs []testApp) (*v1alpha1.DeviceSpec, error) {
 }
 
 func createTestLabels(labels map[string]string) (string, error) {
-	type inspect struct {
-		Config client.ImageConfig `json:"Config"`
-	}
-
-	inspectData := []inspect{
+	inspectData := []client.PodmanInspect{
 		{
-			Config: client.ImageConfig{
+			Config: client.PodmanContainerConfig{
 				Labels: labels,
 			},
 		},
@@ -433,7 +427,7 @@ func TestControllerSync(t *testing.T) {
 			defer ctrl.Finish()
 			mockExecuter := executer.NewMockExecuter(ctrl)
 			mockAppManager := NewMockManager(ctrl)
-			podmanClient := client.NewPodman(log, mockExecuter, readWriter, newTestBackoff())
+			podmanClient := client.NewPodman(log, mockExecuter, readWriter, util.NewBackoff())
 
 			controller := NewController(podmanClient, mockAppManager, readWriter, log)
 
@@ -441,7 +435,7 @@ func TestControllerSync(t *testing.T) {
 			err = readWriter.MkdirAll(countainerMountDir, fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
 			embeddedAppPath := filepath.Join(countainerMountDir, "podman-compose.yaml")
-			err = readWriter.WriteFile(embeddedAppPath, []byte(composeSpec), fileio.DefaultFilePermissions)
+			err = readWriter.WriteFile(embeddedAppPath, []byte(util.NewComposeSpec()), fileio.DefaultFilePermissions)
 			require.NoError(err)
 
 			tt.setupMocks(mockAppManager, mockExecuter)
@@ -471,10 +465,3 @@ func TestControllerSync(t *testing.T) {
 		})
 	}
 }
-
-const composeSpec = `
-version: "3"
-services:
-  test-service:
-    image: alpine
-`

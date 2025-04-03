@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -186,9 +187,10 @@ func mergeFileIntoSpec(filePath string, reader fileio.Reader, spec *ComposeSpec)
 		return fmt.Errorf("reading compose file %s: %w", filePath, err)
 	}
 
+	cleanContent := bytes.ReplaceAll(content, []byte("\t"), []byte("  "))
 	var partial ComposeSpec
-	if err := yaml.Unmarshal(content, &partial); err != nil {
-		return fmt.Errorf("unmarshaling compose YAML from %s: %w", filePath, err)
+	if err := yaml.Unmarshal(cleanContent, &partial); err != nil {
+		return fmt.Errorf("invalid compose YAML: %s: %w", filePath, err)
 	}
 
 	for name, svc := range partial.Services {
@@ -203,7 +205,7 @@ func (c *ComposeSpec) Verify() error {
 	for name, service := range c.Services {
 		containerName := service.ContainerName
 		if service.ContainerName != "" {
-			errs = append(errs, fmt.Errorf("service %s has a hard coded container_name %s which is not supported", name, containerName))
+			errs = append(errs, fmt.Errorf("service %s has a %w %s which is not supported", name, errors.ErrHardCodedContainerName, containerName))
 		}
 		image := service.Image
 		if image == "" {

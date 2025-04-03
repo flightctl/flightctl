@@ -395,7 +395,7 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{
-						Path:            "app/valid/path",
+						Path:            "docker-compose.yaml",
 						Content:         lo.ToPtr("some plain content"),
 						ContentEncoding: &plain,
 					},
@@ -407,8 +407,8 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 			name: "duplicate path",
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
-					{Path: "app/path", Content: lo.ToPtr("abc"), ContentEncoding: &plain},
-					{Path: "app/path", Content: lo.ToPtr("def"), ContentEncoding: &plain},
+					{Path: "docker-compose.yaml", Content: lo.ToPtr("abc"), ContentEncoding: &plain},
+					{Path: "docker-compose.yaml", Content: lo.ToPtr("def"), ContentEncoding: &plain},
 				},
 			},
 			expectErr: true,
@@ -417,7 +417,7 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 			name: "invalid base64 content",
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
-					{Path: "app/base64", Content: lo.ToPtr("###"), ContentEncoding: &base64Enc},
+					{Path: "podman-compose.yaml", Content: lo.ToPtr("###"), ContentEncoding: &base64Enc},
 				},
 			},
 			expectErr: true,
@@ -426,7 +426,7 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 			name: "valid base64 content",
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
-					{Path: "app/base64", Content: &base64Content, ContentEncoding: &base64Enc},
+					{Path: "podman-compose.yml", Content: &base64Content, ContentEncoding: &base64Enc},
 				},
 			},
 			expectErr: false,
@@ -435,7 +435,16 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 			name: "unknown encoding",
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
-					{Path: "app/unknown", Content: lo.ToPtr("abc"), ContentEncoding: lo.ToPtr(EncodingType("unknown"))},
+					{Path: "docker-compose.yaml", Content: lo.ToPtr("abc"), ContentEncoding: lo.ToPtr(EncodingType("unknown"))},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid compose path",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "invalid-compose.yaml", Content: lo.ToPtr("abc"), ContentEncoding: &plain},
 				},
 			},
 			expectErr: true,
@@ -444,7 +453,7 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := tt.spec.Validate(tt.fleetTemplate)
+			errs := tt.spec.Validate(lo.ToPtr(AppTypeCompose), tt.fleetTemplate)
 			if tt.expectErr {
 				require.NotEmpty(t, errs, "expected errors but got none")
 			} else {

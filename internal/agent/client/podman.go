@@ -22,16 +22,50 @@ const (
 	defaultPullLogInterval = 30 * time.Second
 )
 
+// PodmanInspect represents the overall structure of podman inspect output
+type PodmanInspect struct {
+	Restarts int                   `json:"RestartCount"`
+	State    PodmanContainerState  `json:"State"`
+	Config   PodmanContainerConfig `json:"Config"`
+}
+
+// ContainerState represents the container state part of the podman inspect output
+type PodmanContainerState struct {
+	OciVersion  string `json:"OciVersion"`
+	Status      string `json:"Status"`
+	Running     bool   `json:"Running"`
+	Paused      bool   `json:"Paused"`
+	Restarting  bool   `json:"Restarting"`
+	OOMKilled   bool   `json:"OOMKilled"`
+	Dead        bool   `json:"Dead"`
+	Pid         int    `json:"Pid"`
+	ExitCode    int    `json:"ExitCode"`
+	Error       string `json:"Error"`
+	StartedAt   string `json:"StartedAt"`
+	FinishedAt  string `json:"FinishedAt"`
+	Healthcheck string `json:"Healthcheck"`
+}
+
+type PodmanContainerConfig struct {
+	Labels map[string]string `json:"Labels"`
+}
+
+type PodmanEvent struct {
+	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
+	ID                string            `json:"ID"`
+	Image             string            `json:"Image"`
+	Name              string            `json:"Name"`
+	Status            string            `json:"Status"`
+	Type              string            `json:"Type"`
+	Attributes        map[string]string `json:"Attributes"`
+}
+
 type Podman struct {
 	exec       executer.Executer
 	log        *log.PrefixLogger
 	timeout    time.Duration
 	readWriter fileio.ReadWriter
 	backoff    wait.Backoff
-}
-
-type ImageConfig struct {
-	Labels map[string]string `json:"Labels"`
 }
 
 func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff wait.Backoff) *Podman {
@@ -211,13 +245,9 @@ func (p *Podman) InspectLabels(ctx context.Context, image string) (map[string]st
 		return nil, err
 	}
 
-	type inspect struct {
-		Config ImageConfig `json:"Config"`
-	}
-
-	var inspectData []inspect
+	var inspectData []PodmanInspect
 	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
-		return nil, fmt.Errorf("failed to parse image config: %w", err)
+		return nil, fmt.Errorf("parse image inspect response: %w", err)
 	}
 
 	if len(inspectData) == 0 {

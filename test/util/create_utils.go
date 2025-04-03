@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -11,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) api.Device {
@@ -185,4 +187,30 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 		}
 	}
 	return nil
+}
+
+func NewBackoff() wait.Backoff {
+	return wait.Backoff{
+		Steps: 1,
+	}
+}
+
+func NewComposeSpec(images ...string) string {
+	if len(images) == 0 {
+		images = []string{"quay.io/flightctl-tests/alpine:v1"}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(`version: "3"
+services:
+`)
+
+	for i, img := range images {
+		fmt.Fprintf(&sb, "  service%d:\n", i+1)
+		fmt.Fprintf(&sb, "    image: %s\n", img)
+		sb.WriteString(`    command: ["sleep", "infinity"]
+`)
+	}
+
+	return sb.String()
 }
