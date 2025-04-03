@@ -8,6 +8,7 @@ TEMPLATE_DIR="deploy/podman"
 # Load shared functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
+source "${SCRIPT_DIR}"/secrets.sh
 
 deploy_service() {
     local service_name=$1

@@ -45,6 +45,12 @@ else
   echo "Auth not configured"
 fi
 
+# Template the environment file
+sed "s|{{BASE_DOMAIN}}|${BASE_DOMAIN}|g" "$ENV_TEMPLATE" > "$ENV_FILE"
+sed -i "s|{{AUTH_CLIENT_ID}}|${AUTH_CLIENT_ID}|g" "$ENV_FILE"
+sed -i "s|{{INTERNAL_AUTH_URL}}|${AUTH_URL}|g" "$ENV_FILE"
+sed -i "s|{{AUTH_INSECURE_SKIP_VERIFY}}|${AUTH_INSECURE_SKIP_VERIFY}|g" "$ENV_FILE"
+
 # Create destination directory for certificates
 mkdir -p "$CERTS_DEST_PATH/provided"
 
@@ -74,11 +80,5 @@ else
   sed -i "s|{{TLS_CERT}}|/app/certs/server.crt|g" "$ENV_FILE"
   sed -i "s|{{TLS_KEY}}|/app/certs/server.key|g" "$ENV_FILE"
 fi
-
-# Template the environment file
-sed "s|{{BASE_DOMAIN}}|${BASE_DOMAIN}|g" "$ENV_TEMPLATE" > "$ENV_FILE"
-sed -i "s|{{AUTH_CLIENT_ID}}|${AUTH_CLIENT_ID}|g" "$ENV_FILE"
-sed -i "s|{{INTERNAL_AUTH_URL}}|${AUTH_URL}|g" "$ENV_FILE"
-sed -i "s|{{AUTH_INSECURE_SKIP_VERIFY}}|${AUTH_INSECURE_SKIP_VERIFY}|g" "$ENV_FILE"
 
 echo "Initialization complete"

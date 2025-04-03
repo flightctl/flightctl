@@ -12,7 +12,7 @@
     restorecon -v /usr/bin/flightctl-agent
 
 Name:           flightctl
-Version:        0.3.0~679~g016a4f5
+Version:        0.3.0~692~g40e7308
 Release:        1%{?dist}
 Summary:        Flight Control service
 
@@ -21,7 +21,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        flightctl-0.3.0~679~g016a4f5.tar.gz
+Source0:        flightctl-0.3.0~692~g40e7308.tar.gz
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -65,13 +65,14 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 %package services
 Summary: Flight Contol services
 Requires: bash
+Requires: podman
 
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs} -n flightctl-0.3.0~679~g016a4f5
+%setup -q %{forgesetupargs} -n flightctl-0.3.0~692~g40e7308
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -129,10 +130,12 @@ The flightctl-services package provides installation and setup of files for runn
     # Create the target directory
     mkdir -p %{buildroot}%{_sysconfdir}/flightctl/
 
-    # Copy files into the build root
-    cp -r deploy/podman %{buildroot}%{_sysconfdir}/flightctl/templates
-    cp deploy/scripts/installer.sh %{buildroot}%{_sysconfdir}/flightctl/installer.sh
-    cp deploy/scripts/shared.sh %{buildroot}%{_sysconfdir}/flightctl/shared.sh
+    # Run the install script to move the quadlet files
+    deploy/scripts/install.sh
+
+    # Copy files needed for post install into the build root
+    cp deploy/scripts/post_install.sh %{buildroot}%{_sysconfdir}/flightctl/post_install.sh
+    cp deploy/scripts/shared.sh %{buildroot}%{_sysconfdir}/flightctl/secrets.sh
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
@@ -155,6 +158,9 @@ fi
 %posttrans selinux
 
 %selinux_relabel_post -s %{selinuxtype}
+
+%post services
+%{_sysconfdir}/flightctl/post_install.sh
 
 # File listings
 # No %files section for the main package, so it won't be built
@@ -182,9 +188,9 @@ fi
 
 %files services
     %defattr(0644,root,root,-)
-    %{_sysconfdir}/flightctl/templates
-    %attr(0755,root,root) %{_sysconfdir}/flightctl/installer.sh
-    %attr(0755,root,root) %{_sysconfdir}/flightctl/shared.sh
+    %{_sysconfdir}/flightctl
+    %attr(0755,root,root) %{_sysconfdir}/flightctl/post_install.sh
+    %attr(0755,root,root) %{_sysconfdir}/flightctl/secrets.sh
 
 %changelog
 

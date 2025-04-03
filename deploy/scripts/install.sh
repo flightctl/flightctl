@@ -23,7 +23,6 @@ render_files() {
 main() {
     echo "Starting installation"
 
-    ensure_secrets
     render_files
 
     echo "Installation complete"

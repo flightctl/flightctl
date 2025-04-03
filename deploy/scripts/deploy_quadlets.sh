@@ -14,11 +14,11 @@ if ! deploy/scripts/installer.sh; then
     exit 1
 fi
 
-# Write base domain to the config file
-base_domain="$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')"
-echo "Setting base domain to: ${base_domain}"
-VALUES_FILE="${CONFIG_OUTPUT_DIR}/values.yaml"
-sed -i "s/^\(\s*baseDomain\s*\):\s*.*$/\1: ${base_domain}/" "${VALUES_FILE}"
+# Run post installation script
+if ! deploy/scripts/post_install.sh; then
+    echo "Error: Installation failed"
+    exit 1
+fi
 
 start_service "flightctl.slice"
 
