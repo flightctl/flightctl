@@ -23,4 +23,7 @@ nodes:
   - containerPort: 9000 # ui
     hostPort: 9000
     protocol: TCP
+  - containerPort: 8090 # cli artifacts
+    hostPort: 8090
+    protocol: TCP
   

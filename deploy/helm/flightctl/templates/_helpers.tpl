@@ -93,6 +93,17 @@
   {{- end }}
 {{- end }}
 
+{{- define "flightctl.getCliArtifactsUrl" }}
+  {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
+  {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
+    {{- printf "https://%s:%v" $baseDomain .Values.global.nodePorts.cliArtifacts }} 
+  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
+    {{- printf "https://cli-artifacts.%s:%v" $baseDomain .Values.global.gatewayPorts.tls }}
+  {{- else }}
+    {{- printf "https://cli-artifacts.%s" $baseDomain }}
+  {{- end }}
+{{- end }}
+
 {{/*
 Generates a random alphanumeric password in the format xxxxx-xxxxx-xxxxx-xxxxx.
 */}}

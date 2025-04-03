@@ -31,7 +31,6 @@ cliArtifacts:
     image: localhost/flightctl-cli-artifacts
     tag: latest
     pullPolicy: IfNotPresent
-  baseUrl: "http://localhost:8090"
 worker:
   image:
     image: localhost/flightctl-worker

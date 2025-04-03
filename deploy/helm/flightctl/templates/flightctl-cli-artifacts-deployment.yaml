@@ -28,6 +28,6 @@ spec:
               protocol: TCP
           env:
             - name: CLI_ARTIFACTS_BASE_URL
-              value: {{ quote .Values.cliArtifacts.baseUrl }}
+              value: {{ include "flightctl.getCliArtifactsUrl" . }}
       restartPolicy: Always
 {{- end }}
