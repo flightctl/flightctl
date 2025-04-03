@@ -13,6 +13,12 @@ ENV_TEMPLATE="/config/env.template"
 # ENV file to be used by the application
 ENV_FILE="/config/env"
 
+# Function to extract a value from the YAML file
+extract_value() {
+  local key="$1"
+  grep "$key:" "$VALUES_FILE" | awk '{print $2}'
+}
+
 # Check if values file exists
 if [ ! -f "$VALUES_FILE" ]; then
   echo "Error: Values file not found at $VALUES_FILE"
@@ -20,13 +26,14 @@ if [ ! -f "$VALUES_FILE" ]; then
 fi
 
 # Extract base values from values.yaml
-BASE_DOMAIN=$(grep -A10 'global:' "$VALUES_FILE" | grep 'baseDomain:' | awk '{print $2}')
-SRV_CERT_FILE=$(grep -A10 'global:' "$VALUES_FILE" | grep 'srvCertFile:' | awk '{print $2}')
-SRV_KEY_FILE=$(grep -A10 'global:' "$VALUES_FILE" | grep 'srvKeyFile:' | awk '{print $2}')
+BASE_DOMAIN=$(extract_value "baseDomain")
+SRV_CERT_FILE=$(extract_value "srvCertFile")
+SRV_KEY_FILE=$(extract_value "srvKeyFile")
 
 # Extract auth-related values
-AUTH_TYPE=$(grep -A20 'global:' "$VALUES_FILE" | grep -A2 'auth:' | grep 'type:' | awk '{print $2}')
-AUTH_INSECURE_SKIP_VERIFY=$(grep -A20 'global:' "$VALUES_FILE" | grep 'insecureSkipTlsVerify:' | awk '{print $2}')
+AUTH_TYPE=$(extract_value "type")
+AUTH_INSECURE_SKIP_VERIFY=$(extract_value "insecureSkipTlsVerify")
+AUTH_CA_CERT=$(extract_value "caCert")
 AUTH_CLIENT_ID=""
 AUTH_URL=""
 
@@ -39,8 +46,8 @@ fi
 # Process auth settings based on auth type
 if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
-  AUTH_CLIENT_ID=$(grep -A20 'global:' "$VALUES_FILE" | grep -A10 'aap:' | grep 'oAuthApplicationClientId:' | awk '{print $2}')
-  AUTH_URL=$(grep -A20 'global:' "$VALUES_FILE" | grep -A10 'aap:' | grep 'apiUrl:' | awk '{print $2}')
+  AUTH_CLIENT_ID=$(extract_value "oAuthApplicationClientId")
+  AUTH_URL=$(extract_value "apiUrl")
 else
   echo "Auth not configured"
 fi
@@ -56,7 +63,7 @@ mkdir -p "$CERTS_DEST_PATH/provided"
 
 # Handle certificate setup and update env file accordingly
 if [ -n "$SRV_CERT_FILE" ] && [ -n "$SRV_KEY_FILE" ]; then
-  echo "Found user provided certificate configuration"
+  echo "Using provided server certificates"
 
   # Copy server certificates if they exist in source
   if [ -f "$CERTS_SOURCE_PATH/provided/server.crt" ] && [ -f "$CERTS_SOURCE_PATH/provided/server.key" ]; then
@@ -72,13 +79,18 @@ if [ -n "$SRV_CERT_FILE" ] && [ -n "$SRV_KEY_FILE" ]; then
     exit 1
   fi
 else
-  echo "Using generated certificates"
+  echo "Using generated server certificates"
   cp "$CERTS_SOURCE_PATH/server.crt" "$CERTS_DEST_PATH/server.crt"
   cp "$CERTS_SOURCE_PATH/server.key" "$CERTS_DEST_PATH/server.key"
 
   # Update environment file with TLS variables
   sed -i "s|{{TLS_CERT}}|/app/certs/server.crt|g" "$ENV_FILE"
   sed -i "s|{{TLS_KEY}}|/app/certs/server.key|g" "$ENV_FILE"
+fi
+
+if [ -n "$AUTH_CA_CERT" ]; then
+  echo "Using provided auth CA certificate"
+  cp "$CERTS_SOURCE_PATH/provided/ca_auth.crt" "$CERTS_DEST_PATH/ca_auth.crt"
 fi
 
 echo "Initialization complete"

@@ -15,18 +15,25 @@ RestartSec=5s
 ExecStartPre=/bin/bash -c '\
   VALUES_FILE="/etc/flightctl/values.yaml"; \
   if [ -f "$VALUES_FILE" ]; then \
-    SRV_CERT_FILE=$(grep -A10 "global:" "$VALUES_FILE" | grep "srvCertFile:" | awk "{print \$2}"); \
-    SRV_KEY_FILE=$(grep -A10 "global:" "$VALUES_FILE" | grep "srvKeyFile:" | awk "{print \$2}"); \
+    SRV_CERT_FILE=$(grep "srvCertFile:" "$VALUES_FILE" | awk "{print \$2}"); \
+    SRV_KEY_FILE=$(grep "srvKeyFile:" "$VALUES_FILE" | awk "{print \$2}"); \
+    AUTH_CA_CERT=$(grep 'caCert:' "$VALUES_FILE" | awk "{print \$2}"); \
     if [ -n "$SRV_CERT_FILE" ] && [ -n "$SRV_KEY_FILE" ]; then \
-        echo "Running container to copy cert and key to volume"; \
+        echo "Running container to copy server cert and key to volume"; \
         /usr/bin/podman run --rm \
           --volume flightctl-api-certs:/certs:rw \
           --volume "$SRV_CERT_FILE:/server.crt:ro,Z" \
           --volume "$SRV_KEY_FILE:/server.key:ro,Z" \
           registry.access.redhat.com/ubi9/ubi-minimal \
           sh -c "mkdir -p /certs/provided && cp /server.crt /certs/provided/server.crt && cp /server.key /certs/provided/server.key"; \
-    else \
-      echo "srvCertFile or srvKeyFile is not defined in $VALUES_FILE"; \
+    fi; \
+    if [ -n "$AUTH_CA_CERT" ]; then \
+        echo "Running container to copy auth CA cert to volume"; \
+        /usr/bin/podman run --rm \
+          --volume flightctl-api-certs:/certs:rw \
+          --volume "$AUTH_CA_CERT:/ca_auth.crt:ro,Z" \
+          registry.access.redhat.com/ubi9/ubi-minimal \
+          sh -c "mkdir -p /certs/provided && cp /ca_auth.crt /certs/provided/ca_auth.crt"; \
     fi; \
   fi'
 
