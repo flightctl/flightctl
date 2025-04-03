@@ -112,3 +112,79 @@ Generates a random alphanumeric password in the format xxxxx-xxxxx-xxxxx-xxxxx.
 {{- $pass := printf "%s-%s-%s-%s" (substr 0 5 $password) (substr 5 10 $password) (substr 10 15 $password) (substr 15 20 $password) }}
 {{- print ($pass | b64enc) }}
 {{- end }}
+
+
+{{- define "flightctl.operatorPermissions" }}
+- verbs:
+    - get
+    - list
+    - create
+    - delete
+    - update
+    - patch
+  apiGroups:
+    - flightctl.io
+  resources:
+    - devices
+    - fleets
+    - resourcesyncs
+- verbs:
+    - get
+  apiGroups:
+    - flightctl.io
+  resources:
+    - devices/console
+- verbs:
+    - get
+    - list
+  apiGroups:
+    - flightctl.io
+  resources:
+    - repositories
+    - fleets/templateversions
+{{- end }}
+
+{{- define "flightctl.viewerPermissions" }}
+- verbs:
+    - get
+    - list
+  apiGroups:
+    - flightctl.io
+  resources:
+    - devices
+    - fleets
+    - resourcesyncs
+{{- end }}
+
+{{- define "flightctl.installerPermissions" }}
+- verbs:
+    - get
+    - list
+  apiGroups:
+    - flightctl.io
+  resources:
+    - enrollmentrequests
+- verbs:
+    - post
+  apiGroups:
+    - flightctl.io
+  resources:
+    - enrollmentrequests/approval
+- verbs:
+    - get
+    - list
+    - create
+  apiGroups:
+    - flightctl.io
+  resources:
+    - certificatesigningrequests
+{{- end }}
+
+{{- define "flightctl.adminPermissions" }}
+- verbs:
+    - '*'
+  apiGroups:
+    - flightctl.io
+  resources:
+    - '*'
+{{- end }}
