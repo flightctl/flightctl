@@ -8,7 +8,6 @@ echo "Initializing flightctl-api configuration"
 VALUES_FILE="/values/values.yaml"
 CONFIG_TEMPLATE="/config/config.yaml.template"
 CONFIG_OUTPUT="/config/config.yaml"
-CERTS_DIR="/certs"
 ENV_TEMPLATE="/config/env.template"
 ENV_FILE="/config/env"
 

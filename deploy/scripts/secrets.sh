@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # Generate a random password
 # Returns: A random password string
 generate_password() {
