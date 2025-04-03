@@ -9,7 +9,7 @@ service:
     agentEndpointAddress: flightctl-api:7443
     baseUrl: https://{{BASE_DOMAIN}}:3443/
     baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
-    baseUIUrl: https://{{BASE_DOMAIN}}:8080
+    baseUIUrl: https://{{BASE_DOMAIN}}:443
     altNames:
       - {{BASE_DOMAIN}}
       - flightctl-api

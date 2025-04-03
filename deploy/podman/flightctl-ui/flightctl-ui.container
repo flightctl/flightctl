@@ -10,7 +10,7 @@ Image=quay.io/flightctl/flightctl-ui:0.6.0-main-30-gfaedf0a
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-ui/env
 
-PublishPort=8080:8080
+PublishPort=443:8080
 
 Volume=flightctl-ui-certs:/app/certs:ro,z
 
