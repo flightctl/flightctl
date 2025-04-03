@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# Output directory paths
-readonly CONFIG_OUTPUT_DIR="/etc/flightctl"
-readonly QUADLET_FILES_OUTPUT_DIR="/usr/share/containers/systemd"
+# Output directory paths - allow overrides via environment variables
+: ${CONFIG_OUTPUT_DIR:="/etc/flightctl"}
+: ${QUADLET_FILES_OUTPUT_DIR:="/usr/share/containers/systemd"}
 
 # Render a service configuration
 # Args:

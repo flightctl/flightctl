@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}"/shared.sh
 echo "Starting Deployment"
 
 # Run installation script
-if ! deploy/scripts/installer.sh; then
+if ! deploy/scripts/install.sh; then
     echo "Error: Installation failed"
     exit 1
 fi
