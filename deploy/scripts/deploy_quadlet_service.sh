@@ -2,8 +2,8 @@
 
 set -eo pipefail
 
-# Directory path for templates
-TEMPLATE_DIR="deploy/podman"
+# Directory path for source files
+SOURCE_DIR="deploy/podman"
 
 # Load shared functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
@@ -31,7 +31,7 @@ deploy_service() {
 
     echo "Installing quadlet files for $service_full_name"
 
-    render_service "$service_name" "${TEMPLATE_DIR}" "standalone"
+    render_service "$service_name" "${SOURCE_DIR}" "standalone"
     start_service "$service_full_name"
 
     echo "Deployment completed for $service_full_name"

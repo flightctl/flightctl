@@ -2,8 +2,8 @@
 
 set -eo pipefail
 
-# Directory path for templates
-: ${TEMPLATE_DIR:="deploy/podman"}
+# Directory path for source files
+: ${SOURCE_DIR:="deploy/podman"}
 
 # Load shared functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
@@ -14,14 +14,14 @@ export CONFIG_OUTPUT_DIR
 export QUADLET_FILES_OUTPUT_DIR
 
 render_files() {
-    render_service "api" "${TEMPLATE_DIR}"
-    render_service "periodic" "${TEMPLATE_DIR}"
-    render_service "worker" "${TEMPLATE_DIR}"
-    render_service "db" "${TEMPLATE_DIR}"
-    render_service "kv" "${TEMPLATE_DIR}"
-    render_service "ui" "${TEMPLATE_DIR}"
+    render_service "api" "${SOURCE_DIR}"
+    render_service "periodic" "${SOURCE_DIR}"
+    render_service "worker" "${SOURCE_DIR}"
+    render_service "db" "${SOURCE_DIR}"
+    render_service "kv" "${SOURCE_DIR}"
+    render_service "ui" "${SOURCE_DIR}"
 
-    move_shared_files "${TEMPLATE_DIR}"
+    move_shared_files "${SOURCE_DIR}"
 }
 
 main() {
