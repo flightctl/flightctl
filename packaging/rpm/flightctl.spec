@@ -135,7 +135,7 @@ The flightctl-services package provides installation and setup of files for runn
 
     # Copy files needed for post install into the build root
     cp deploy/scripts/post_install.sh %{buildroot}%{_sysconfdir}/flightctl/post_install.sh
-    cp deploy/scripts/shared.sh %{buildroot}%{_sysconfdir}/flightctl/secrets.sh
+    cp deploy/scripts/secrets.sh %{buildroot}%{_sysconfdir}/flightctl/secrets.sh
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
