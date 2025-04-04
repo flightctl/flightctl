@@ -146,6 +146,9 @@ func (o *GetOptions) Validate(args []string) error {
 	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
 		return fmt.Errorf("'--rendered' can only be used when getting a single device")
 	}
+	if kind == EventKind && len(name) > 0 {
+		return fmt.Errorf("you cannot get a single event")
+	}
 	if o.Limit < 0 {
 		return fmt.Errorf("limit must be greater than 0")
 	}
@@ -242,6 +245,12 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListCertificateSigningRequestsWithResponse(ctx, &params)
+	case kind == EventKind:
+		params := api.ListEventsParams{
+			Limit:    util.ToPtrWithNilDefault(o.Limit),
+			Continue: util.ToPtrWithNilDefault(o.Continue),
+		}
+		response, err = c.ListEventsWithResponse(ctx, &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -351,6 +360,8 @@ func (o *GetOptions) printTable(response interface{}, kind string, name string) 
 		o.printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
 		o.printCSRTable(w, *(response.(*apiclient.GetCertificateSigningRequestResponse).JSON200))
+	case kind == EventKind:
+		o.printEventsTable(w, response.(*apiclient.ListEventsResponse).JSON200.Items...)
 	default:
 		return fmt.Errorf("unknown resource type %s", kind)
 	}
@@ -447,11 +458,11 @@ func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) 
 		valid := "Unknown"
 		if f.Status != nil {
 
-			condition := api.FindStatusCondition(f.Status.Conditions, api.FleetValid)
+			condition := api.FindStatusCondition(f.Status.Conditions, api.ConditionTypeFleetValid)
 			if condition != nil {
 				valid = string(condition.Status)
 			}
-			condition = api.FindStatusCondition(f.Status.Conditions, api.FleetOverlappingSelectors)
+			condition = api.FindStatusCondition(f.Status.Conditions, api.ConditionTypeFleetOverlappingSelectors)
 			if condition != nil && condition.Status == api.ConditionStatusTrue {
 				valid = string(api.ConditionStatusFalse)
 			}
@@ -488,7 +499,7 @@ func (o *GetOptions) printRepositoriesTable(w *tabwriter.Writer, repos ...api.Re
 	for _, r := range repos {
 		accessible := "Unknown"
 		if r.Status != nil {
-			condition := api.FindStatusCondition(r.Status.Conditions, api.RepositoryAccessible)
+			condition := api.FindStatusCondition(r.Status.Conditions, api.ConditionTypeRepositoryAccessible)
 			if condition != nil {
 				accessible = string(condition.Status)
 			}
@@ -512,11 +523,11 @@ func (o *GetOptions) printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs 
 	for _, rs := range resourcesyncs {
 		accessible, synced, lastSynced := "Unknown", "Unknown", "Unknown"
 		if rs.Status != nil {
-			condition := api.FindStatusCondition(rs.Status.Conditions, api.ResourceSyncAccessible)
+			condition := api.FindStatusCondition(rs.Status.Conditions, api.ConditionTypeResourceSyncAccessible)
 			if condition != nil {
 				accessible = string(condition.Status)
 			}
-			condition = api.FindStatusCondition(rs.Status.Conditions, api.ResourceSyncSynced)
+			condition = api.FindStatusCondition(rs.Status.Conditions, api.ConditionTypeResourceSyncSynced)
 			if condition != nil {
 				synced = string(condition.Status)
 				lastSynced = humanize.Time(condition.LastTransitionTime)
@@ -549,11 +560,11 @@ func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateS
 		}
 
 		condition := "Pending"
-		if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
+		if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) {
 			condition = "Approved"
-		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestDenied) {
+		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied) {
 			condition = "Denied"
-		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestFailed) {
+		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed) {
 			condition = "Failed"
 		}
 		if csr.Status != nil && csr.Status.Certificate != nil {
@@ -567,6 +578,19 @@ func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateS
 			util.DefaultIfNil(csr.Spec.Username, NoneString),
 			duration,
 			condition,
+		)
+	}
+}
+
+func (o *GetOptions) printEventsTable(w *tabwriter.Writer, events ...api.Event) {
+	fmt.Fprintln(w, "TIMESTAMP\tKIND\tNAME\tSEVERITY\tMESSAGE")
+	for _, e := range events {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			e.Timestamp.Format(time.RFC3339),
+			e.ResourceKind,
+			e.ResourceName,
+			e.Severity,
+			e.Message,
 		)
 	}
 }

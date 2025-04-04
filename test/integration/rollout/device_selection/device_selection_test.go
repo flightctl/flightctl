@@ -153,14 +153,14 @@ var _ = Describe("Rollout batch sequence test", func() {
 		var condition *api.Condition
 		for i := range device.Status.Conditions {
 			c := &device.Status.Conditions[i]
-			if c.Type == api.DeviceUpdating {
+			if c.Type == api.ConditionTypeDeviceUpdating {
 				condition = c
 				break
 			}
 		}
 		if condition == nil {
 			device.Status.Conditions = append(device.Status.Conditions, api.Condition{
-				Type: api.DeviceUpdating,
+				Type: api.ConditionTypeDeviceUpdating,
 			})
 			condition = &device.Status.Conditions[len(device.Status.Conditions)-1]
 		}
