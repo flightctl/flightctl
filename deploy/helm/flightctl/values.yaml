@@ -29,6 +29,7 @@
 ## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
 ## @param global.generateSecrets Generate secrets when deploying FCTL. This should be set to false if you want to provide your own secrets or when upgrading FCTL to avoid overriding the existing secrets
+## @param global.imagePullPolicy Image pull policy for all containers
 
 global:
   target: "standalone" # standalone, acm, aap
@@ -72,6 +73,7 @@ global:
     tls: 443
     http: 80
   generateSecrets: true
+  imagePullPolicy: IfNotPresent
 
 
 ## @section Component specific parameters
@@ -82,7 +84,7 @@ db:
   image:
     image: quay.io/sclorg/postgresql-16-c9s
     tag: "20250214"
-    pullPolicy: Always
+    pullPolicy: ""
   masterUser: admin
   user: demouser
   maxConnections: 200
@@ -98,7 +100,7 @@ kv:
   image:
     image: quay.io/sclorg/redis-7-c9s
     tag: "20250108"
-    pullPolicy: Always
+    pullPolicy: ""
   password: adminpass
   # Save if at least 1 key changed in 5 minutes
   save: 300 1
@@ -107,7 +109,7 @@ api:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-api
-    pullPolicy: Always
+    pullPolicy: ""
     tag: ""
   agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
   baseUIUrl: "" # ui.flightctl.example.com
@@ -115,13 +117,13 @@ cliArtifacts:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-cli-artifacts
-    pullPolicy: Always
+    pullPolicy: ""
     tag: ""
 worker:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-worker
-    pullPolicy: Always
+    pullPolicy: ""
     tag: ""
   enableSecretsClusterRoleBinding: true
 periodic:
@@ -129,7 +131,7 @@ periodic:
   image:
     image: quay.io/flightctl/flightctl-periodic
     tag: ""
-    pullPolicy: Always
+    pullPolicy: ""
 prometheus:
   enabled: false
 ui:
@@ -140,4 +142,4 @@ secretsJob:
   image:
     image: quay.io/openshift/origin-cli
     tag: "4.20.0"
-    pullPolicy: Always
+    pullPolicy: ""

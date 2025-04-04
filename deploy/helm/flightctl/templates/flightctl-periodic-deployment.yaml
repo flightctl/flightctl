@@ -21,7 +21,7 @@ spec:
       containers:
         - name: periodic
           image: {{ .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
-          imagePullPolicy: {{ .Values.periodic.image.pullPolicy }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.periodic.image.pullPolicy }}
           env:
             - name: HOME
               value: "/root"

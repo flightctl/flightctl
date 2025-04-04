@@ -21,7 +21,7 @@ spec:
       containers:
         - name: flightctl-cli-artifacts
           image: {{ .Values.cliArtifacts.image.image }}:{{ default .Chart.AppVersion .Values.cliArtifacts.image.tag }}
-          imagePullPolicy: {{ .Values.cliArtifacts.image.pullPolicy }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.cliArtifacts.image.pullPolicy }}
           ports:
             - containerPort: 8090
               name: cli-artifacts

@@ -20,7 +20,7 @@ spec:
       containers:
       - name: keycloak
         image: {{ .Values.image }}
-        imagePullPolicy: {{ .Values.imagePullPolicy }}
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.imagePullPolicy }}
         args:
         - start-dev
         - --http-port=8081
