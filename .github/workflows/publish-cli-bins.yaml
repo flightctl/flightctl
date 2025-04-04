@@ -10,7 +10,7 @@ on:
 jobs:
   setup:
     name: Set Up Shared Environment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Install dependencies
         run: |
@@ -58,7 +58,7 @@ jobs:
             os: windows
             zip: .zip
             ext: .exe
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: setup
     steps:
       - name: Set up Go
@@ -111,7 +111,7 @@ jobs:
       matrix:
         # GitHub Actions does not provide a native Windows ARM64 runner
         arch: [ "amd64" ]
-    runs-on: "windows-latest"
+    runs-on: "windows-2022"
     needs: build
     steps:
       - name: Load binary
@@ -128,13 +128,13 @@ jobs:
         os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]
         include:
           - os_arch: "linux-amd64"
-            runner: "ubuntu-latest"
+            runner: "ubuntu-24.04"
           - os_arch: "linux-arm64"
-            runner: "ubuntu-latest"
+            runner: "ubuntu-24.04"
           - os_arch: "darwin-amd64"
-            runner: "macos-latest"
+            runner: "macos-24.04"
           - os_arch: "darwin-arm64"
-            runner: "macos-latest"
+            runner: "macos-14"
     runs-on: ${{ matrix.runner }}
     needs: build
 
@@ -157,7 +157,7 @@ jobs:
         run: |
           # Verify version output
           if [[ "${{ matrix.os_arch }}" == "linux-arm64" ]]; then
-            docker run --rm --platform linux/arm64 -v ${{ github.workspace }}:/workspace ubuntu:latest /workspace/flightctl-${{ matrix.os_arch }} version -o yaml
+            docker run --rm --platform linux/arm64 -v ${{ github.workspace }}:/workspace ubuntu:24.04 /workspace/flightctl-${{ matrix.os_arch }} version -o yaml
           else
             ./flightctl-${{ matrix.os_arch }} version -o yaml
           fi
@@ -169,7 +169,7 @@ jobs:
   publish:
     name: Publish Binaries
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: verify
     permissions:
       contents: write
