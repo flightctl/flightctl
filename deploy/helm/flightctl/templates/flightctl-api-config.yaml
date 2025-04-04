@@ -14,7 +14,6 @@ data:
     service:
         address: :3443
         agentEndpointAddress: :7443
-        agentGrpcAddress: :7444
         httpReadTimeout: {{ .Values.api.httpReadTimeout | default "5m" | quote }}
         httpReadHeaderTimeout: {{ .Values.api.httpReadHeaderTimeout | default "5m" | quote }}
         httpWriteTimeout: {{ .Values.api.httpWriteTimeout | default "5m" | quote }}
@@ -25,27 +24,20 @@ data:
         {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
-        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.grpc }}
         {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
-        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}
         {{- else }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
-        baseAgentGrpcUrl: grpcs://agent-grpc.{{ include "flightctl.getBaseDomain" . }}
         {{- end }}
         baseUIUrl: {{ include "flightctl.getUIUrl" . }}
         altNames:
           - api.{{ include "flightctl.getBaseDomain" . }}
           - agent-api.{{ include "flightctl.getBaseDomain" . }}
-          - agent-grpc.{{ include "flightctl.getBaseDomain" . }}
           - flightctl-api
           - flightctl-api.{{ .Release.Namespace }}
           - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
-          - flightctl-api-agent-grpc
-          - flightctl-api-agent-grpc.{{ .Release.Namespace }}
-          - flightctl-api-agent-grpc.{{ .Release.Namespace }}.svc.cluster.local
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
