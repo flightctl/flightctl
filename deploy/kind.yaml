@@ -15,8 +15,6 @@ nodes:
   - containerPort: 7443 # flightctl agent endpoint API
     hostPort: 7443
     protocol: TCP
-  - containerPort: 7444 # flightctl agent grpc endpoint API
-    hostPort: 7444
   - containerPort: 8081 # keycloak
     hostPort: 8081
     protocol: TCP
@@ -26,4 +24,3 @@ nodes:
   - containerPort: 8090 # cli artifacts
     hostPort: 8090
     protocol: TCP
-  
