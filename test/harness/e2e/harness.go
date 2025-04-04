@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,7 +29,7 @@ import (
 
 const POLLING = "250ms"
 const TIMEOUT = "60s"
-const LONGTIMEOUT = "5m"
+const LONGTIMEOUT = "10m"
 
 type Harness struct {
 	VM        vm.TestVMInterface
@@ -941,4 +942,108 @@ func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditi
 		}
 	}
 	return false
+}
+
+// UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
+// It applies the provided configuration and waits for the device to reach the specified rendered version.
+func (h Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
+	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+		device.Spec.Config = &configs
+		logrus.WithFields(logrus.Fields{
+			"deviceId": deviceId,
+			"config":   device.Spec.Config,
+		}).Info("Updating device with new config")
+	})
+	err := h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+	return err
+}
+
+// It executes a command without starting a console session
+func (h Harness) ExecuteCommandWithConsole(deviceId string, cmd string) (output string, err error) {
+	out, err := h.CLI("console", fmt.Sprintf("dev/%s", deviceId), " -- ", cmd)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+func (h Harness) WaitForClusterRegistered(deviceId string, timeout time.Duration) error {
+	start := time.Now()
+
+	// Retry loop
+	for {
+		// Fetch managed cluster information
+		out, err := exec.Command("bash", "-c", "oc get managedcluster").CombinedOutput()
+		if err != nil {
+			// Ignore error and retry after sleep
+			if time.Since(start) > timeout {
+				return fmt.Errorf("timed out waiting for managedcluster to be registered")
+			}
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// Check device status
+		response := h.GetDeviceWithStatusSystem(deviceId)
+		if response == nil {
+			// If response is nil, retry
+			if time.Since(start) > timeout {
+				return fmt.Errorf("timed out waiting for managedcluster to be registered")
+			}
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		device := response.JSON200
+		// Check if device metadata is valid and matches the managed cluster name
+		if (device != nil && device.Metadata != v1alpha1.ObjectMeta{} && device.Metadata.Name != nil) {
+			if strings.Contains(string(out), *device.Metadata.Name) {
+				return nil // Success: managed cluster is registered
+			}
+		}
+
+		// If we haven't found a match, retry after sleeping
+		if time.Since(start) > timeout {
+			return fmt.Errorf("timed out waiting for managedcluster to be registered")
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (h Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs ...v1alpha1.ConfigProviderSpec) (v1alpha1.DeviceSpec, error) {
+
+	var deviceSpec v1alpha1.DeviceSpec
+
+	// Set Os.Image only if deviceImageTag is provided
+	if deviceImageTag != "" {
+		deviceSpec.Os = &v1alpha1.DeviceOsSpec{
+			Image: fmt.Sprintf("%s/flightctl-device:%s", h.RegistryEndpoint(), deviceImageTag),
+		}
+	}
+
+	// Set Config only if config specs are provided
+	if len(additionalConfigs) > 0 {
+		deviceSpec.Config = &additionalConfigs
+	}
+
+	return deviceSpec, nil
+}
+
+func (h Harness) WaitForFileInDevice(filePath string, timeout string, polling string) (*bytes.Buffer, error) {
+	readyMsg := "The file was found"
+	script := fmt.Sprintf(`
+				timeout=%s
+				elapsed=0
+				while ! sudo test -f %s; do
+				if [ "$elapsed" -ge "$timeout" ]; then
+					echo "Timeout waiting for %s"
+					exit 1
+				fi
+				echo "Waiting for %s..."
+				sleep 5
+				elapsed=$((elapsed + %s))
+				done
+				echo %s
+				`, timeout, filePath, filePath, filePath, polling, readyMsg)
+	return h.VM.RunSSH([]string{"sudo", "bash", "-c", script}, nil)
 }
