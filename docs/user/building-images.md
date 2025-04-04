@@ -98,6 +98,9 @@ RUN dnf -y copr enable @redhat-et/flightctl && \
 #    dnf -y install podman-compose && \
 #    systemctl enable podman.service
 
+# Optional: To embed a compose application "my-embedded-app"
+# COPY ./podman-compose.yaml  /usr/local/etc/compose/manifests/my-embedded-app/podman-compose.yaml
+
 ADD config.yaml /etc/flightctl/
 ```
 
