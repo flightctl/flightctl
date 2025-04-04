@@ -82,7 +82,7 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 
 	fs.StringVarP(&o.AccessToken, "token", "t", o.AccessToken, "Bearer token for authentication to the API server")
 	fs.BoolVarP(&o.Web, "web", "w", o.Web, "Login via browser")
-	fs.StringVarP(&o.ClientId, "client-id", "", o.ClientId, "ClientId to be used for Oauth2 requests")
+	fs.StringVarP(&o.ClientId, "client-id", "", o.ClientId, "ClientId to be used for OAuth2 requests")
 	fs.StringVarP(&o.CAFile, "certificate-authority", "", o.CAFile, "Path to a cert file for the certificate authority")
 	fs.StringVarP(&o.AuthCAFile, "auth-certificate-authority", "", o.AuthCAFile, "Path to a cert file for the auth certificate authority")
 	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "k", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
@@ -125,10 +125,14 @@ func (o *LoginOptions) Init(args []string) error {
 		}
 	}
 	o.authProvider, err = client.CreateAuthProvider(client.AuthInfo{
-		AuthType:   o.authConfig.AuthType,
-		AuthCAFile: o.AuthCAFile,
-		ClientId:   o.ClientId,
-		AuthURL:    o.authConfig.AuthURL,
+		AuthProvider: &client.AuthProviderConfig{
+			Name: o.authConfig.AuthType,
+			Config: map[string]string{
+				client.AuthUrlKey:      o.authConfig.AuthURL,
+				client.AuthCAFileKey:   o.AuthCAFile,
+				client.AuthClientIdKey: o.ClientId,
+			},
+		},
 	}, o.InsecureSkipVerify)
 	return err
 }
@@ -198,6 +202,13 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
+	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
+		Name: o.authConfig.AuthType,
+		Config: map[string]string{
+			client.AuthUrlKey:      o.authConfig.AuthURL,
+			client.AuthClientIdKey: o.ClientId,
+		},
+	}
 
 	token := o.AccessToken
 	if token == "" {
@@ -206,25 +217,24 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			return err
 		}
 		token = authInfo.AccessToken
-		o.clientConfig.AuthInfo.RefreshToken = authInfo.RefreshToken
+		o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthRefreshTokenKey] = authInfo.RefreshToken
 		if authInfo.ExpiresIn != nil {
-			o.clientConfig.AuthInfo.AccessTokenExpiry = time.Unix(time.Now().Unix()+*authInfo.ExpiresIn, 0).Format(time.RFC3339Nano)
+			o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthAccessTokenExpiryKey] = time.Unix(time.Now().Unix()+*authInfo.ExpiresIn, 0).Format(time.RFC3339Nano)
 		}
 	}
 	if token == "" {
 		return fmt.Errorf("failed to retrieve auth token")
 	}
+	o.clientConfig.AuthInfo.Token = token
+
 	if o.AuthCAFile != "" {
 		authCAFile, err = filepath.Abs(o.AuthCAFile)
 		if err != nil {
 			return fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
 		}
 	}
-	o.clientConfig.AuthInfo.AuthType = o.authConfig.AuthType
-	o.clientConfig.AuthInfo.AccessToken = token
-	o.clientConfig.AuthInfo.AuthCAFile = authCAFile
-	o.clientConfig.AuthInfo.ClientId = o.ClientId
-	o.clientConfig.AuthInfo.AuthURL = o.authConfig.AuthURL
+	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthCAFileKey] = authCAFile
+
 	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
