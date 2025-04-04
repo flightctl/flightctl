@@ -28,7 +28,7 @@ import (
 
 const POLLING = "250ms"
 const TIMEOUT = "60s"
-const LONGTIMEOUT = "5m"
+const LONGTIMEOUT = "10m"
 
 type Harness struct {
 	VM        vm.TestVMInterface
@@ -934,4 +934,27 @@ func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditi
 		}
 	}
 	return false
+}
+
+// UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
+// It applies the provided configuration and waits for the device to reach the specified rendered version.
+func (h Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
+	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+		device.Spec.Config = &configs
+		logrus.WithFields(logrus.Fields{
+			"deviceId": deviceId,
+			"config":   fmt.Sprintf("%+v", &device.Spec.Config),
+		}).Info("Updating device with new config")
+	})
+	err := h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+	return err
+}
+
+// It executes a command without starting a console session
+func (h Harness) ExecuteCommandWithConsole(deviceId string, cmd string) (output string, err error) {
+	out, err := h.CLI("console", fmt.Sprintf("dev/%s", deviceId), " -- ", cmd)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
 }

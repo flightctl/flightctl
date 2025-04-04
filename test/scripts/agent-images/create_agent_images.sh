@@ -7,7 +7,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/../functions
 
 REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST="base v2 v3 v4 v5 v6"
+IMAGE_LIST="base v2 v3 v4 v5 v6 v7"
 
 # Create the file and add the registry configuration
 cp "${SCRIPT_DIR}"/Containerfile-e2e-base.local.template "${SCRIPT_DIR}"/Containerfile-e2e-base.local
@@ -82,6 +82,7 @@ build_qcow2_image() {
                     build \
                     --type qcow2 \
                     --local "${REGISTRY_ADDRESS}/flightctl-device:base"
+    sudo qemu-img resize "$(pwd)"/bin/output/qcow2/disk.qcow2 +5G
 }
 
 case "$BUILD_TYPE" in
