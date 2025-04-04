@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -72,27 +73,19 @@ type AuthInfo struct {
 	// ClientKeyData contains PEM-encoded data from a client key file for TLS. Overrides ClientKey.
 	// +optional
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
-	// The authentication type (i.e. k8s, OIDC)
-	// +optional
-	AuthType string `json:"auth-type,omitempty"`
 	// Bearer token for authentication
 	// +optional
 	Token string `json:"token,omitempty"`
-	// Use for refreshing the access token
+	// The authentication provider (i.e. k8s, OIDC)
 	// +optional
-	RefreshToken string `json:"refresh-token,omitempty"`
-	// The time the access token will expire
-	// +optional
-	AccessTokenExpiry string `json:"access-token-expiry,omitempty"`
-	// CA file used for authentication
-	// +optional
-	AuthCAFile string `json:"auth-ca-file,omitempty"`
-	// Client ID used for authentication
-	// +optional
-	ClientId string `json:"client-id,omitempty"`
-	// Authorization URL for authentication
-	// +optional
-	AuthURL string `json:"auth-url,omitempty"`
+	AuthProvider *AuthProviderConfig `json:"auth-provider,omitempty"`
+}
+
+type AuthProviderConfig struct {
+	// Name is the name of the authentication provider
+	Name string `json:"name"`
+	// Config is a map of authentication provider-specific configuration
+	Config map[string]string `json:"config,omitempty"`
 }
 
 func (c *Config) Equal(c2 *Config) bool {
@@ -129,6 +122,16 @@ func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
 		bytes.Equal(a.ClientKeyData, a2.ClientKeyData)
 }
 
+func (a *AuthProviderConfig) Equal(a2 *AuthProviderConfig) bool {
+	if a == a2 {
+		return true
+	}
+	if a == nil || a2 == nil {
+		return false
+	}
+	return a.Name == a2.Name && maps.Equal(a.Config, a2.Config)
+}
+
 func (c *Config) DeepCopy() *Config {
 	if c == nil {
 		return nil
@@ -157,6 +160,16 @@ func (a *AuthInfo) DeepCopy() *AuthInfo {
 	a2 := *a
 	a2.ClientCertificateData = bytes.Clone(a.ClientCertificateData)
 	a2.ClientKeyData = bytes.Clone(a.ClientKeyData)
+	a2.AuthProvider = a.AuthProvider.DeepCopy()
+	return &a2
+}
+
+func (a *AuthProviderConfig) DeepCopy() *AuthProviderConfig {
+	if a == nil {
+		return nil
+	}
+	a2 := *a
+	a2.Config = maps.Clone(a.Config)
 	return &a2
 }
 

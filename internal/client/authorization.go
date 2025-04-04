@@ -14,6 +14,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	AuthUrlKey               = "server"
+	AuthCAFileKey            = "certificate-authority"
+	AuthRefreshTokenKey      = "refresh-token"
+	AuthAccessTokenExpiryKey = "access-token-expiry"
+	AuthClientIdKey          = "client-id"
+)
+
 type accessTokenRefresher struct {
 	config         *Config
 	renewals       atomic.Int32
@@ -24,15 +32,20 @@ type accessTokenRefresher struct {
 }
 
 func CreateAuthProvider(authInfo AuthInfo, insecure bool) (login.AuthProvider, error) {
-	switch authInfo.AuthType {
+	if authInfo.AuthProvider == nil {
+		return nil, fmt.Errorf("no auth provider defined (try logging in again)")
+	}
+
+	c := authInfo.AuthProvider.Config
+	switch authInfo.AuthProvider.Name {
 	case common.AuthTypeK8s:
-		return login.NewK8sOAuth2Config(authInfo.AuthCAFile, authInfo.ClientId, authInfo.AuthURL, insecure), nil
+		return login.NewK8sOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
 	case common.AuthTypeOIDC:
-		return login.NewOIDCConfig(authInfo.AuthCAFile, authInfo.ClientId, authInfo.AuthURL, insecure), nil
+		return login.NewOIDCConfig(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
 	case common.AuthTypeAAP:
-		return login.NewAAPOAuth2Config(authInfo.AuthCAFile, authInfo.ClientId, authInfo.AuthURL, insecure), nil
+		return login.NewAAPOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
 	default:
-		return nil, fmt.Errorf("unsupported auth type: %s", authInfo.AuthType)
+		return nil, fmt.Errorf("unsupported auth provider: %s", authInfo.AuthProvider.Name)
 	}
 }
 
@@ -43,7 +56,10 @@ func (c *accessTokenRefresher) init() error {
 }
 
 func (c *accessTokenRefresher) parseExpireTime() (time.Time, error) {
-	return time.Parse(time.RFC3339Nano, c.config.AuthInfo.AccessTokenExpiry)
+	if c.config.AuthInfo.AuthProvider == nil {
+		return time.Time{}, fmt.Errorf("no auth provider config found")
+	}
+	return time.Parse(time.RFC3339Nano, c.config.AuthInfo.AuthProvider.Config[AuthAccessTokenExpiryKey])
 }
 
 func (c *accessTokenRefresher) shouldRefresh(expireTime time.Time) bool {
@@ -51,24 +67,27 @@ func (c *accessTokenRefresher) shouldRefresh(expireTime time.Time) bool {
 }
 
 func (c *accessTokenRefresher) refresh() error {
-	authInfo, err := c.provider.Renew(c.config.AuthInfo.RefreshToken)
+	if c.config.AuthInfo.AuthProvider == nil {
+		return fmt.Errorf("no auth provider config found")
+	}
+	authInfo, err := c.provider.Renew(c.config.AuthInfo.AuthProvider.Config[AuthRefreshTokenKey])
 	if err != nil {
 		return fmt.Errorf("failed to renew token: %w", err)
 	}
-	c.config.AuthInfo.RefreshToken = authInfo.RefreshToken
+	c.config.AuthInfo.AuthProvider.Config[AuthRefreshTokenKey] = authInfo.RefreshToken
 	c.config.AuthInfo.Token = authInfo.AccessToken
 	if authInfo.ExpiresIn != nil {
-		c.config.AuthInfo.AccessTokenExpiry = time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
+		c.config.AuthInfo.AuthProvider.Config[AuthAccessTokenExpiryKey] = time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
 	}
 	return c.config.Persist(c.configFilePath)
 }
 
 func (c *accessTokenRefresher) waitDuration() time.Duration {
 	waitDuration := time.Second
-	if c.config.AuthInfo.AccessTokenExpiry != "" {
+	if c.config.AuthInfo.AuthProvider != nil && c.config.AuthInfo.AuthProvider.Config[AuthAccessTokenExpiryKey] != "" {
 		expireTime, err := c.parseExpireTime()
 		if err != nil {
-			c.log.Errorf("failed to parse time %s: %v", c.config.AuthInfo.AccessTokenExpiry, err)
+			c.log.Errorf("failed to parse time %s: %v", c.config.AuthInfo.AuthProvider.Config[AuthAccessTokenExpiryKey], err)
 		} else {
 			waitDuration = util.Max(time.Until(expireTime)-5*time.Second, time.Second)
 		}
@@ -97,7 +116,7 @@ func (c *accessTokenRefresher) refreshLoop(ctx context.Context) {
 func (c *accessTokenRefresher) start() {
 	c.once.Do(func() {
 		c.log = flightlog.InitLogs()
-		if c.config.AuthInfo.RefreshToken == "" {
+		if c.config.AuthInfo.AuthProvider == nil || c.config.AuthInfo.AuthProvider.Config[AuthRefreshTokenKey] == "" {
 			return
 		}
 		if err := c.init(); err != nil {
