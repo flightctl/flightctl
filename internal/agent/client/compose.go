@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,20 +11,10 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util/validation"
-	"sigs.k8s.io/yaml"
+	"github.com/flightctl/flightctl/internal/api/common"
 )
 
 const defaultPodmanTimeout = 2 * time.Minute
-
-type ComposeSpec struct {
-	Services map[string]ComposeService `json:"services"`
-}
-
-type ComposeService struct {
-	Image         string `json:"image"`
-	ContainerName string `json:"container_name"`
-}
 
 type Compose struct {
 	*Podman
@@ -114,7 +103,7 @@ func (p *Compose) Down(ctx context.Context, path string) error {
 }
 
 // ParseComposeSpecFromDir reads a compose spec from the given directory and will perform a merge of the base {docker,podman}-compose.yaml and -override.yaml files.
-func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*ComposeSpec, error) {
+func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*common.ComposeSpec, error) {
 	// check for docker-compose.yaml or podman-compose.yaml and override files
 	//
 	// Note: podman nor docker handle merge files from other packages for
@@ -133,7 +122,7 @@ func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*ComposeSpec, er
 		"podman-compose.override.yml",
 	}
 
-	spec := &ComposeSpec{Services: make(map[string]ComposeService)}
+	spec := &common.ComposeSpec{Services: make(map[string]common.ComposeService)}
 
 	// ensure base
 	found, err := readFirstExistingFile(baseFiles, dir, reader, spec)
@@ -157,7 +146,7 @@ func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*ComposeSpec, er
 	return spec, nil
 }
 
-func readFirstExistingFile(files []string, dir string, reader fileio.Reader, spec *ComposeSpec) (bool, error) {
+func readFirstExistingFile(files []string, dir string, reader fileio.Reader, spec *common.ComposeSpec) (bool, error) {
 	for _, filename := range files {
 		filePath := filepath.Join(dir, filename)
 
@@ -181,53 +170,19 @@ func readFirstExistingFile(files []string, dir string, reader fileio.Reader, spe
 }
 
 // mergeFileIntoSpec serializes the compose file at filePath and merges it into the spec.
-func mergeFileIntoSpec(filePath string, reader fileio.Reader, spec *ComposeSpec) error {
+func mergeFileIntoSpec(filePath string, reader fileio.Reader, spec *common.ComposeSpec) error {
 	content, err := reader.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("reading compose file %s: %w", filePath, err)
 	}
 
-	cleanContent := bytes.ReplaceAll(content, []byte("\t"), []byte("  "))
-	var partial ComposeSpec
-	if err := yaml.Unmarshal(cleanContent, &partial); err != nil {
-		return fmt.Errorf("invalid compose YAML: %s: %w", filePath, err)
+	partial, err := common.ParseComposeSpec(content)
+	if err != nil {
+		return fmt.Errorf("parsing compose: %s: %w", filePath, err)
 	}
 
 	for name, svc := range partial.Services {
 		spec.Services[name] = svc
 	}
 	return nil
-}
-
-// Verify validates the compose spec.
-func (c *ComposeSpec) Verify() error {
-	var errs []error
-	for name, service := range c.Services {
-		containerName := service.ContainerName
-		if service.ContainerName != "" {
-			errs = append(errs, fmt.Errorf("service %s has a %w %s which is not supported", name, errors.ErrHardCodedContainerName, containerName))
-		}
-		image := service.Image
-		if image == "" {
-			errs = append(errs, fmt.Errorf("service %s is missing an image", name))
-		}
-		if err := validation.ValidateOciImageReference(&image, "services."+name+".image"); err != nil {
-			errs = append(errs, err...)
-		}
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	return nil
-}
-
-// Images returns a map of service names to their images.
-func (c *ComposeSpec) Images() map[string]string {
-	images := make(map[string]string)
-	for name, service := range c.Services {
-		images[name] = service.Image
-	}
-	return images
 }

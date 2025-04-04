@@ -5,6 +5,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ func TestParseComposeSpecFromDir(t *testing.T) {
 		name          string
 		files         map[string][]byte
 		expectedError error
-		expectedSpec  ComposeSpec
+		expectedSpec  common.ComposeSpec
 	}{
 		{
 			name: "single compose.yaml file",
@@ -25,8 +26,8 @@ services:
     image: nginx
 `),
 			},
-			expectedSpec: ComposeSpec{
-				Services: map[string]ComposeService{
+			expectedSpec: common.ComposeSpec{
+				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx"},
 				},
 			},
@@ -45,8 +46,8 @@ services:
     image: nginx:latest
 `),
 			},
-			expectedSpec: ComposeSpec{
-				Services: map[string]ComposeService{
+			expectedSpec: common.ComposeSpec{
+				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx:latest"},
 				},
 			},
@@ -65,8 +66,8 @@ services:
     image: apache
 `),
 			},
-			expectedSpec: ComposeSpec{
-				Services: map[string]ComposeService{
+			expectedSpec: common.ComposeSpec{
+				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx"},
 				},
 			},
@@ -77,7 +78,7 @@ services:
 				"random-file.txt": []byte("not a compose file"),
 			},
 			expectedError: errors.ErrNoComposeFile,
-			expectedSpec:  ComposeSpec{},
+			expectedSpec:  common.ComposeSpec{},
 		},
 	}
 

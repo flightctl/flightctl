@@ -382,8 +382,23 @@ func TestValidateParametersInString(t *testing.T) {
 func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 	plain := EncodingPlain
 	base64Enc := EncodingBase64
+	composeSpec := `version: '3'
+services:
+  app:
+    image: quay.io/flightctl-tests/alpine:v1`
 
-	base64Content := base64.StdEncoding.EncodeToString([]byte("hello world"))
+	composeInvalidSpecContainerName := `version: '3'
+services:
+  app:
+    container_name: app
+    image: quay.io/flightctl-tests/alpine:v1`
+
+	composeInvalidSpecContainerShortname := `version: '3'
+services:
+  app:
+    image: nginx:latest`
+
+	base64Content := base64.StdEncoding.EncodeToString([]byte(composeSpec))
 	tests := []struct {
 		name          string
 		spec          InlineApplicationProviderSpec
@@ -396,7 +411,7 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 				Inline: []ApplicationContent{
 					{
 						Path:            "docker-compose.yaml",
-						Content:         lo.ToPtr("some plain content"),
+						Content:         lo.ToPtr(composeSpec),
 						ContentEncoding: &plain,
 					},
 				},
@@ -417,7 +432,7 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 			name: "invalid base64 content",
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
-					{Path: "podman-compose.yaml", Content: lo.ToPtr("###"), ContentEncoding: &base64Enc},
+					{Path: "podman-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: &base64Enc},
 				},
 			},
 			expectErr: true,
@@ -435,7 +450,7 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 			name: "unknown encoding",
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
-					{Path: "docker-compose.yaml", Content: lo.ToPtr("abc"), ContentEncoding: lo.ToPtr(EncodingType("unknown"))},
+					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: lo.ToPtr(EncodingType("unknown"))},
 				},
 			},
 			expectErr: true,
@@ -444,7 +459,25 @@ func TestValidateInlineApplicationProviderSpec(t *testing.T) {
 			name: "invalid compose path",
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
-					{Path: "invalid-compose.yaml", Content: lo.ToPtr("abc"), ContentEncoding: &plain},
+					{Path: "invalid-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: &plain},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid use of container_name",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeInvalidSpecContainerName), ContentEncoding: &plain},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid container short name",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeInvalidSpecContainerShortname), ContentEncoding: &plain},
 				},
 			},
 			expectErr: true,

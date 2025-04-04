@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
@@ -129,7 +130,7 @@ services:
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
 				)
 			},
-			wantVerifyErr: errors.ErrHardCodedContainerName,
+			wantVerifyErr: validation.ErrHardCodedContainerName,
 		},
 		{
 			name:  "appType compose with no services",
@@ -152,32 +153,6 @@ image: quay.io/flightctl-tests/alpine:v1`,
 				)
 			},
 			wantVerifyErr: errors.ErrNoComposeServices,
-		},
-		{
-			name:  "appType compose tolerate tabs",
-			image: appImage,
-			labels: map[string]string{
-				AppTypeLabel: string(v1alpha1.AppTypeCompose),
-			},
-			spec: &v1alpha1.ApplicationProviderSpec{
-				Name: lo.ToPtr("app"),
-			},
-			composeSpec: `version: "3.8"
-services:
-	service1:
-    	image: quay.io/flightctl-tests/alpine:v1`,
-			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
-
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
-				)
-			},
 		},
 	}
 
