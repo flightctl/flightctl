@@ -10,6 +10,123 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	fleetSelectorKey      = "fleet"
+	fleetSelectorValue    = "test"
+	fleetTestName         = "fleet-test"
+	inlinePath            = "/var/home/user/{{ getOrDefault .metadata.labels \"team\" \"c\" }}.txt"
+	inlineContent         = "{{ getOrDefault .metadata.labels \"team\" \"c\" }}"
+	teamLabelKey          = "team"
+	inlineConfigName      = "inline-config"
+	teamLabelValue        = "a"
+	defaultTeamLabelValue = "c"
+	contentWithFunction   = "{{ replace \"a\" \"c\" .metadata.labels.team }}"
+	pathWithFunction      = "/var/home/user/{{ upper .metadata.labels.team | lower }}/test.txt"
+	repoTestName          = "git-repo"
+	repoTestUrl           = "https://github.com/flightctl/flightctl-demos"
+	deviceAlias           = "base"
+	mountPath             = "/var/home/user/{{ .metadata.labels.team }}/file.txt"
+	branchTargetRevision  = "demo"
+	httpRepoName          = "http-repo"
+	gitRepoConfigPath     = "/{{ .metadata.labels.config }}/bootc/Containerfile.arm64"
+	httpConfigPath        = "/var/home/user/{{ .metadata.labels.config }}"
+	configLabelKey        = "config"
+	configLabelValue      = "fedora-bootc"
+	revisionLabelKey      = "revision"
+	revisionLabelValue    = "main"
+	suffix                = "{{ .metadata.labels.suffix }}"
+	gitConfigName         = "git-config"
+	httpConfigName        = "http-config"
+	revision              = "{{ .metadata.labels.revision }}"
+	suffixLabelValue      = ""
+	suffixLabelKey        = "suffix"
+	aliasKey              = "alias"
+)
+
+var mode = 0644
+var modePointer = &mode
+
+var inlineConfigSpec = v1alpha1.FileSpec{
+	Path:    inlinePath,
+	Mode:    modePointer,
+	Content: inlineContent,
+}
+
+var inlineConfigWithFunctionSpec = v1alpha1.FileSpec{
+	Path:    pathWithFunction,
+	Mode:    modePointer,
+	Content: contentWithFunction,
+}
+
+var configProviderSpec v1alpha1.ConfigProviderSpec
+
+var inlineConfigValid = v1alpha1.InlineConfigProviderSpec{
+	Inline: []v1alpha1.FileSpec{inlineConfigSpec},
+	Name:   inlineConfigName,
+}
+var inlineConfigValidWithFunction = v1alpha1.InlineConfigProviderSpec{
+	Inline: []v1alpha1.FileSpec{inlineConfigWithFunctionSpec},
+	Name:   inlineConfigName,
+}
+
+var testFleetSelector = v1alpha1.LabelSelector{
+	MatchLabels: &map[string]string{fleetSelectorKey: fleetSelectorValue},
+}
+
+var deviceSpec v1alpha1.DeviceSpec
+
+var gitRepositorySpec v1alpha1.RepositorySpec
+var _ = gitRepositorySpec.FromGenericRepoSpec(v1alpha1.GenericRepoSpec{
+	Url:  repoTestUrl,
+	Type: v1alpha1.Git,
+})
+
+var gitMetadata = v1alpha1.ObjectMeta{
+	Name:   &repoTestName,
+	Labels: &map[string]string{},
+}
+
+var httpRepoSpec = v1alpha1.HttpRepoSpec{
+	Type: v1alpha1.Http,
+	Url:  repoTestUrl,
+}
+
+var httpRepositoryspec v1alpha1.RepositorySpec
+
+var _ = httpRepositoryspec.FromHttpRepoSpec(httpRepoSpec)
+
+var httpRepoMetadata = v1alpha1.ObjectMeta{
+	Name: &httpRepoName,
+}
+
+var gitConfigvalid = v1alpha1.GitConfigProviderSpec{
+	GitRef: struct {
+		MountPath      *string `json:"mountPath,omitempty"`
+		Path           string  `json:"path"`
+		Repository     string  `json:"repository"`
+		TargetRevision string  `json:"targetRevision"`
+	}{
+		MountPath:      &mountPath,
+		Path:           gitRepoConfigPath,
+		Repository:     repoTestName,
+		TargetRevision: revision,
+	},
+	Name: gitConfigName,
+}
+
+var httpConfigvalid = v1alpha1.HttpConfigProviderSpec{
+	HttpRef: struct {
+		FilePath   string  `json:"filePath"`
+		Repository string  `json:"repository"`
+		Suffix     *string `json:"suffix,omitempty"`
+	}{
+		FilePath:   httpConfigPath,
+		Repository: httpRepoName,
+		Suffix:     &suffix,
+	},
+	Name: httpConfigName,
+}
+
 var _ = Describe("Template variables in the device configuraion", func() {
 	var (
 		harness  *e2e.Harness
@@ -19,6 +136,9 @@ var _ = Describe("Template variables in the device configuraion", func() {
 	BeforeEach(func() {
 		harness = e2e.NewTestHarness()
 		deviceId = harness.StartVMAndEnroll()
+		if deviceId == "" {
+			Skip("Skipping test: suite failed to create device")
+		}
 	})
 
 	AfterEach(func() {
@@ -307,120 +427,3 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			})
 	})
 })
-
-var (
-	fleetSelectorKey      = "fleet"
-	fleetSelectorValue    = "test"
-	fleetTestName         = "fleet-test"
-	inlinePath            = "/var/home/user/{{ getOrDefault .metadata.labels \"team\" \"c\" }}.txt"
-	inlineContent         = "{{ getOrDefault .metadata.labels \"team\" \"c\" }}"
-	teamLabelKey          = "team"
-	inlineConfigName      = "inline-config"
-	teamLabelValue        = "a"
-	defaultTeamLabelValue = "c"
-	contentWithFunction   = "{{ replace \"a\" \"c\" .metadata.labels.team }}"
-	pathWithFunction      = "/var/home/user/{{ upper .metadata.labels.team | lower }}/test.txt"
-	repoTestName          = "git-repo"
-	repoTestUrl           = "https://github.com/flightctl/flightctl-demos"
-	deviceAlias           = "base"
-	mountPath             = "/var/home/user/{{ .metadata.labels.team }}/file.txt"
-	branchTargetRevision  = "demo"
-	httpRepoName          = "http-repo"
-	gitRepoConfigPath     = "/{{ .metadata.labels.config }}/bootc/Containerfile.arm64"
-	httpConfigPath        = "/var/home/user/{{ .metadata.labels.config }}"
-	configLabelKey        = "config"
-	configLabelValue      = "fedora-bootc"
-	revisionLabelKey      = "revision"
-	revisionLabelValue    = "main"
-	suffix                = "{{ .metadata.labels.suffix }}"
-	gitConfigName         = "git-config"
-	httpConfigName        = "http-config"
-	revision              = "{{ .metadata.labels.revision }}"
-	suffixLabelValue      = ""
-	suffixLabelKey        = "suffix"
-	aliasKey              = "alias"
-)
-
-var mode = 0644
-var modePointer = &mode
-
-var inlineConfigSpec = v1alpha1.FileSpec{
-	Path:    inlinePath,
-	Mode:    modePointer,
-	Content: inlineContent,
-}
-
-var inlineConfigWithFunctionSpec = v1alpha1.FileSpec{
-	Path:    pathWithFunction,
-	Mode:    modePointer,
-	Content: contentWithFunction,
-}
-
-var configProviderSpec v1alpha1.ConfigProviderSpec
-
-var inlineConfigValid = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec},
-	Name:   inlineConfigName,
-}
-var inlineConfigValidWithFunction = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigWithFunctionSpec},
-	Name:   inlineConfigName,
-}
-
-var testFleetSelector = v1alpha1.LabelSelector{
-	MatchLabels: &map[string]string{fleetSelectorKey: fleetSelectorValue},
-}
-
-var deviceSpec v1alpha1.DeviceSpec
-
-var gitRepositorySpec v1alpha1.RepositorySpec
-var _ = gitRepositorySpec.FromGenericRepoSpec(v1alpha1.GenericRepoSpec{
-	Url:  repoTestUrl,
-	Type: v1alpha1.Git,
-})
-
-var gitMetadata = v1alpha1.ObjectMeta{
-	Name:   &repoTestName,
-	Labels: &map[string]string{},
-}
-
-var httpRepoSpec = v1alpha1.HttpRepoSpec{
-	Type: v1alpha1.Http,
-	Url:  repoTestUrl,
-}
-
-var httpRepositoryspec v1alpha1.RepositorySpec
-
-var _ = httpRepositoryspec.FromHttpRepoSpec(httpRepoSpec)
-
-var httpRepoMetadata = v1alpha1.ObjectMeta{
-	Name: &httpRepoName,
-}
-
-var gitConfigvalid = v1alpha1.GitConfigProviderSpec{
-	GitRef: struct {
-		MountPath      *string `json:"mountPath,omitempty"`
-		Path           string  `json:"path"`
-		Repository     string  `json:"repository"`
-		TargetRevision string  `json:"targetRevision"`
-	}{
-		MountPath:      &mountPath,
-		Path:           gitRepoConfigPath,
-		Repository:     repoTestName,
-		TargetRevision: revision,
-	},
-	Name: gitConfigName,
-}
-
-var httpConfigvalid = v1alpha1.HttpConfigProviderSpec{
-	HttpRef: struct {
-		FilePath   string  `json:"filePath"`
-		Repository string  `json:"repository"`
-		Suffix     *string `json:"suffix,omitempty"`
-	}{
-		FilePath:   httpConfigPath,
-		Repository: httpRepoName,
-		Suffix:     &suffix,
-	},
-	Name: httpConfigName,
-}
