@@ -8,7 +8,7 @@ import (
 )
 
 const TIMEOUT = "5m"
-const POLLING = "250ms"
+const POLLING = "125ms"
 const LONGTIMEOUT = "10m"
 
 // Define a type for messages.

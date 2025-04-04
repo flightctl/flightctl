@@ -1,0 +1,12 @@
+- if:
+  - path: /var/local/acm-import/crd.yaml
+    op: [created]
+  run: kubectl apply -f /var/local/acm-import/crd.yaml
+  envVars:
+    KUBECONFIG: /var/lib/microshift/resources/kubeadmin/kubeconfig
+- if:
+  - path: /var/local/acm-import/import.yaml
+    op: [created]
+  run: kubectl apply -f /var/local/acm-import/import.yaml
+  envVars:
+    KUBECONFIG: /var/lib/microshift/resources/kubeadmin/kubeconfig

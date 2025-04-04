@@ -148,8 +148,12 @@ function try_login() {
   if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify; then
     echo "Trying token login"
     TOKEN=$(get_token)
-    bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN} 2>/dev/null"
-    return 0
+    if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN}"; then
+      echo "Trying standalone login"
+      PASS=$(kubectl get secret keycloak-demouser-secret -n "${FLIGHTCTL_NS}" -o json | jq -r '.data.password' | base64 -d)
+      bin/flightctl login -k "${FLIGHTCTL_API_ENDPOINT}" -u demouser -p ${PASS} 2>/dev/null
+      return 0
+    fi
   fi
 }
 
