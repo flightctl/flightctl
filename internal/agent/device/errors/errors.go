@@ -122,7 +122,7 @@ func IsTimeoutError(err error) bool {
 		return true
 	}
 
-	if errors.Is(err, wait.ErrWaitTimeout) {
+	if wait.Interrupted(err) {
 		return true
 	}
 

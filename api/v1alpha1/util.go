@@ -443,3 +443,18 @@ func (rd DeviceSpec) GetConsoles() []DeviceConsole {
 		return *rd.Consoles
 	}
 }
+
+func GetNextDeviceRenderedVersion(annotations map[string]string) (string, error) {
+	var currentRenderedVersion int64 = 0
+	var err error
+	renderedVersionString, ok := annotations[DeviceAnnotationRenderedVersion]
+	if ok {
+		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	currentRenderedVersion++
+	return strconv.FormatInt(currentRenderedVersion, 10), nil
+}

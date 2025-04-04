@@ -94,7 +94,9 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 		return nil, false, false, err
 	}
 	model.SetOrgID(orgId)
-	model.SetAnnotations(nil)
+	if fromAPI {
+		model.SetAnnotations(nil)
+	}
 
 	existing, err := s.getExistingResource(ctx, model.GetName(), orgId)
 	if err != nil {

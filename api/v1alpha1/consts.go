@@ -27,6 +27,8 @@ const (
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
 	DeviceDisconnectedTimeout = 5 * time.Minute
 
+	DeviceQueryConsoleSessionMetadata = "metadata"
+
 	EnrollmentRequestAPIVersion = "v1alpha1"
 	EnrollmentRequestKind       = "EnrollmentRequest"
 	EnrollmentRequestListKind   = "EnrollmentRequestList"

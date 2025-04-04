@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -171,7 +170,7 @@ func startAgent(ctx context.Context, agent *agent.Agent, log *logrus.Logger, age
 	err := agent.Run(ctx)
 	if err != nil {
 		// agent timeout waiting for enrollment approval
-		if errors.Is(err, wait.ErrWaitTimeout) {
+		if wait.Interrupted(err) {
 			log.Errorf("%s: agent timed out: %v", prefix, err)
 		} else if ctx.Err() != nil {
 			// normal teardown
@@ -272,7 +271,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 }
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
-	err := wait.PollImmediateWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		// timeout after 30s and retry
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()

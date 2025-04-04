@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api/client"
@@ -21,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/homedir"
@@ -330,7 +332,13 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
 	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
-	client, err := grpc.NewClient(grpcEndpoint, grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)))
+	client, err := grpc.NewClient(grpcEndpoint,
+		grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second, // Send keepalive ping every 30s
+			Timeout:             10 * time.Second, // Wait 10s for server response
+			PermitWithoutStream: true,             // Send even if no active RPCs
+		}))
 
 	if err != nil {
 		return nil, fmt.Errorf("NewGRPCClientFromConfig: creating gRPC client: %w", err)
