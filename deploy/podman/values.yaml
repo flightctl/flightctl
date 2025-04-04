@@ -1,0 +1,12 @@
+global:
+  baseDomain:
+  srvCertFile:
+  srvKeyFile:
+  auth:
+    type: none # aap or none
+    insecureSkipTlsVerify: false
+    caCert:
+    aap:
+      apiUrl:
+      externalApiUrl:
+      oAuthApplicationClientId:

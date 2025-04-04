@@ -5,10 +5,12 @@ Requires=flightctl-db.service
 
 [Container]
 ContainerName=flightctl-worker
-Image=quay.io/flightctl/flightctl-worker:0.4.0
+Image=quay.io/flightctl/flightctl-worker:0.6.0-main-35-g6e173b7
 Network=flightctl.network
 Environment=HOME=/root
-Volume=%h/.config/flightctl/flightctl-worker-config/config.yaml:/root/.flightctl/config.yaml:Z
+Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 [Service]
 Restart=always
