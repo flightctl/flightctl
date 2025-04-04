@@ -63,7 +63,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			deviceSpecConfig := []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
 
-			err = UpdateDeviceConfigWithRetries(harness, deviceId, deviceSpecConfig, nextRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "cat", inlinePath}, nil)
@@ -85,7 +85,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			deviceSpecConfig = []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
 
-			err = UpdateDeviceConfigWithRetries(harness, deviceId, deviceSpecConfig, nextRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the embedded sshd hook is triggered and sshd config reloaded by trying to ssh with any user")
@@ -103,7 +103,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			deviceSpecConfig = []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
 
-			err = UpdateDeviceConfigWithRetries(harness, deviceId, deviceSpecConfig, nextRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Update the sshd config")
@@ -117,7 +117,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			configProviderSpec := []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec, inlineConfigProviderSpec1}
 
-			err = UpdateDeviceConfigWithRetries(harness, deviceId, configProviderSpec, nextRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, configProviderSpec, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
@@ -133,7 +133,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			deviceSpecConfig = []v1alpha1.ConfigProviderSpec{}
 
-			err = UpdateDeviceConfigWithRetries(harness, deviceId, deviceSpecConfig, nextRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
@@ -289,18 +289,4 @@ var inlineConfigSpec7 = v1alpha1.FileSpec{
 var inlineConfigValidLifecycle = v1alpha1.InlineConfigProviderSpec{
 	Inline: []v1alpha1.FileSpec{inlineConfigSpec4, inlineConfigSpec5, inlineConfigSpec6, inlineConfigSpec7},
 	Name:   inlineConfigLifecycleName,
-}
-
-// UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
-// It applies the provided configuration and waits for the device to reach the specified rendered version.
-func UpdateDeviceConfigWithRetries(harness *e2e.Harness, deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
-	harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-		device.Spec.Config = &configs
-		logrus.WithFields(logrus.Fields{
-			"deviceId": deviceId,
-			"config":   fmt.Sprintf("%+v", &device.Spec.Config),
-		}).Info("Updating device with new config")
-	})
-	err := harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
-	return err
 }
