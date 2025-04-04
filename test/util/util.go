@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -175,7 +174,7 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 
 // NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and enrollment certificate.
 func NewTestCerts(cfg *config.Config) (*crypto.CAClient, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
-	ca, _, err := crypto.EnsureCA(filepath.Join(cfg.Service.CertStore, "ca.crt"), filepath.Join(cfg.Service.CertStore, "ca.key"), "", "ca", caCertValidityDays)
+	ca, _, err := crypto.EnsureCA(cfg.CAConfig)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring CA: %w", err)
 	}
@@ -185,12 +184,12 @@ func NewTestCerts(cfg *config.Config) (*crypto.CAClient, *crypto.TLSCertificateC
 		cfg.Service.AltNames = []string{"localhost", "127.0.0.1", "::"}
 	}
 
-	serverCerts, _, err := ca.EnsureServerCertificate(filepath.Join(cfg.Service.CertStore, "server.crt"), filepath.Join(cfg.Service.CertStore, "server.key"), cfg.Service.AltNames, serverCertValidityDays)
+	serverCerts, _, err := ca.EnsureServerCertificate(crypto.CertStorePath("server.crt", cfg.Service.CertStore), crypto.CertStorePath("server.key", cfg.Service.CertStore), cfg.Service.AltNames, serverCertValidityDays)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring server certificate: %w", err)
 	}
 
-	enrollmentCerts, _, err := ca.EnsureClientCertificate(filepath.Join(cfg.Service.CertStore, "client-enrollment.crt"), filepath.Join(cfg.Service.CertStore, "client-enrollment.key"), clientBootstrapCertName, clientBootStrapValidityDays)
+	enrollmentCerts, _, err := ca.EnsureClientCertificate(crypto.CertStorePath("client-enrollment.crt", cfg.Service.CertStore), crypto.CertStorePath("client-enrollment.key", cfg.Service.CertStore), clientBootstrapCertName, clientBootStrapValidityDays)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring client enrollment certificate: %w", err)
 	}

@@ -86,11 +86,11 @@ func signApprovedCertificateSigningRequest(ca *crypto.CAClient, request api.Cert
 	// Once we move all prefixes/name formation to the client this can become a simple
 	// comparison of u and *request.Metadata.Name
 
-	if crypto.BootstrapCNFromName(u) != crypto.BootstrapCNFromName(*request.Metadata.Name) {
+	if ca.BootstrapCNFromName(u) != ca.BootstrapCNFromName(*request.Metadata.Name) {
 		return nil, fmt.Errorf("%w - CN %s Metadata %s mismatch", flterrors.ErrSignCert, u, *request.Metadata.Name)
 	}
 
-	csr.Subject.CommonName = crypto.BootstrapCNFromName(u)
+	csr.Subject.CommonName = ca.BootstrapCNFromName(u)
 
 	expiry := DefaultEnrollmentCertExpirySeconds
 	if request.Spec.ExpirationSeconds != nil {
@@ -176,7 +176,7 @@ func (h *ServiceHandler) verifyCSRParameters(ctx context.Context, csr api.Certif
 			if csr.Metadata.Name == nil {
 				return errors.New("invalid csr record - no name in metadata")
 			}
-			if cn != crypto.BootstrapCNFromName(*csr.Metadata.Name) {
+			if cn != h.ca.BootstrapCNFromName(*csr.Metadata.Name) {
 				return errors.New("denied attempt to renew other entity certificate")
 			}
 		}
