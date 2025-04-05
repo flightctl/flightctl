@@ -66,13 +66,34 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.D
 	}
 
 	osImage := desired.Os.Image
-	now := time.Now()
-	m.log.Infof("Fetching OS image: %s", osImage)
-
 	opts := []client.ClientOption{
 		client.WithRetry(),
 	}
 
+	// check if the image is already booted or exists in container storage
+	status, err := m.client.Status(ctx)
+	if err != nil {
+		return err
+	}
+	isDesiredImageRunning, err := container.IsOsImageReconciled(&status.BootcHost, desired)
+	if err != nil {
+		return err
+	}
+	if isDesiredImageRunning {
+		// desired OS image is already booted, no need to pull it
+		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
+		return nil
+	}
+
+	if m.podmanClient.ImageExists(ctx, osImage) {
+		m.log.Debugf("OS image already exists in container storage: %s", osImage)
+		return nil
+	}
+
+	now := time.Now()
+	m.log.Infof("Fetching OS image: %s", osImage)
+
+	// auth
 	exists, err := m.reader.PathExists(authPath)
 	if err != nil {
 		return err
