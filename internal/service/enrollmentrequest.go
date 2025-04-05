@@ -10,6 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-openapi/swag"
@@ -205,6 +206,10 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 	if name != *er.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
+	creationStatus := h.AllowCreationOrUpdate(ctx, orgId, name)
+	if creationStatus != api.StatusOK() {
+		return nil, creationStatus
+	}
 
 	AddStatusIfNeeded(&er)
 
@@ -321,4 +326,27 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+}
+
+func (s *ServiceHandler) AllowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) api.Status {
+
+	enrollmentRequest, err := s.store.EnrollmentRequest().Get(ctx, orgId, name)
+	if err == nil && enrollmentRequest != nil {
+		if enrollmentRequest.Status != nil &&
+			enrollmentRequest.Status.Approval != nil &&
+			enrollmentRequest.Status.Approval.Approved {
+			return api.StatusBadRequest("enrollment request already approved")
+		}
+	} else if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {
+		return api.StatusInternalServerError(fmt.Sprintf("failed to check enrollment request: %v", err))
+	}
+
+	device, err := s.store.Device().Get(ctx, orgId, name)
+	if err == nil && device != nil {
+		return api.StatusBadRequest("a device by that name already exists")
+	} else if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {
+		return api.StatusInternalServerError(fmt.Sprintf("failed to check device existence: %v", err))
+	}
+
+	return api.StatusOK()
 }
