@@ -133,16 +133,12 @@ func (caClient *CAClient) MakeServerCertificate(hostnames []string, expiryDays i
 }
 
 func (caClient *CAClient) EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
-	certConfig, err := GetClientCertificate(certFile, keyFile, subjectName)
+	certConfig, err := caClient.MakeClientCertificate(certFile, keyFile, subjectName, expireDays)
 	if err != nil {
-		certConfig, err := caClient.MakeClientCertificate(certFile, keyFile, subjectName, expireDays)
-		if err != nil {
-			return nil, false, err
-		}
-		err = certConfig.WriteCertConfigFile(certFile, keyFile)
-		return certConfig, err == nil, err // true indicates we wrote the files.
+		return nil, false, err
 	}
-	return certConfig, false, nil
+	err = certConfig.WriteCertConfigFile(certFile, keyFile)
+	return certConfig, err == nil, err // true indicates we wrote the files.
 }
 
 func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCertificateConfig, error) {
