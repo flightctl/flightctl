@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -94,7 +93,7 @@ func main() {
 
 	formattedLables := formatLabels(labels)
 
-	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile)
+	agentConfigTemplate := createAgentConfigTemplate(log, *dataDir, *configFile)
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
@@ -125,8 +124,7 @@ func main() {
 	for i := 0; i < *numDevices; i++ {
 		// stagger the start of each agent
 		time.Sleep(time.Duration(rand.Float64() * float64(agentConfigTemplate.StatusUpdateInterval))) //nolint:gosec
-		agent := agents[i]
-		go startAgent(ctx, agent, log, i)
+		go startAgent(ctx, agents[i], log, i)
 		go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLables)
 	}
 	if stopAfter != nil && *stopAfter > 0 {
@@ -167,23 +165,35 @@ func reportVersion(versionFormat *string) error {
 
 func startAgent(ctx context.Context, agent *agent.Agent, log *logrus.Logger, agentInstance int) {
 	activeAgents.Inc()
-	prefix := agent.GetLogPrefix()
-	err := agent.Run(ctx)
-	if err != nil {
-		// agent timeout waiting for enrollment approval
-		if errors.Is(err, wait.ErrWaitTimeout) {
-			log.Errorf("%s: agent timed out: %v", prefix, err)
-		} else if ctx.Err() != nil {
-			// normal teardown
-			log.Infof("%s: agent stopped due to context cancellation.", prefix)
-		} else {
-			log.Fatalf("%s: %v", prefix, err)
+	err := wait.PollImmediateWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
+		// timeout after 30s and retry
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		prefix := agent.GetLogPrefix()
+		if err := agent.Run(ctx); err != nil {
+			// agent timeout waiting for enrollment approval
+			if errors.Is(err, wait.ErrWaitTimeout) {
+				log.Errorf("%s: agent %d timed out: %v", prefix, agentInstance, err)
+				return false, nil
+			} else if ctx.Err() != nil {
+				// normal teardown
+				log.Infof("%s: agent %d stopped due to context cancellation.", prefix, agentInstance)
+				return false, nil
+			} else {
+				log.Fatalf("%s: %v", prefix, err)
+				return false, err
+			}
 		}
-	}
+		return true, nil
+	})
 	activeAgents.Dec()
+	if err != nil && ctx.Err() == nil {
+		log.Fatalf("Error approving device %d enrollment: %v", agentInstance, err)
+	}
 }
 
-func createAgentConfigTemplate(dataDir string, configFile string) *agent.Config {
+func createAgentConfigTemplate(log *logrus.Logger, dataDir string, configFile string) *agent.Config {
 	agentConfigTemplate := agent.NewDefault()
 	agentConfigTemplate.ConfigDir = filepath.Dir(configFile)
 	if err := agentConfigTemplate.ParseConfigFile(configFile); err != nil {
@@ -214,7 +224,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		certDir := filepath.Join(agentConfigTemplate.ConfigDir, "certs")
 		agentDir := filepath.Join(agentConfigTemplate.DataDir, agentName)
 		// Cleanup if exists and initialize the agent's expected
-		os.RemoveAll(agentDir)
+		_ = os.RemoveAll(agentDir)
 		if err := os.MkdirAll(filepath.Join(agentDir, agent.DefaultConfigDir), 0700); err != nil {
 			log.Fatalf("Error creating directory: %v", err)
 		}
