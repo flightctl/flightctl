@@ -148,6 +148,7 @@ var _ = Describe("Device Agent behavior", func() {
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
 					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, lo.ToPtr(0644))
 				}
+				h.Client.DeleteDevice(h.Context, "")
 			})
 		})
 
