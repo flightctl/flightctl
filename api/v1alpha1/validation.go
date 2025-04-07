@@ -999,6 +999,22 @@ func ValidateConditions(conditions []Condition, allowedConditions, trueCondition
 	return allErrs
 }
 
+func ValidateDeviceDownloadFilename(filename string) error {
+	filenamePatterns := []string{
+		`^/var/tmp/sosreport-.*[.]tar[.]xz$`,
+	}
+	for _, p := range filenamePatterns {
+		matched, err := regexp.MatchString(p, filename)
+		if err != nil {
+			return err
+		}
+		if matched {
+			return nil
+		}
+	}
+	return fmt.Errorf("filename not allowed: %s", filename)
+}
+
 func validatePercentage(p Percentage) error {
 	pattern := `^(100|[1-9]?[0-9])%$`
 	matched, err := regexp.MatchString(pattern, p)

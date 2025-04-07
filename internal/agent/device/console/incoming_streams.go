@@ -28,11 +28,11 @@ func newIncomingStreams(streamClient grpc_v1.RouterService_StreamClient, stdin i
 		streams:      make(map[byte]incomingStream),
 		log:          log,
 	}
-	ret.streams[StdinID] = newStdinStream(stdin, log)
+	ret.streams[v1alpha1.StdinStreamID] = newStdinStream(stdin, log)
 	if resizeFd != 0 {
-		ret.streams[ResizeID] = newResizeStream(resizeFd, log)
+		ret.streams[v1alpha1.ResizeStreamID] = newResizeStream(resizeFd, log)
 	}
-	ret.streams[CloseID] = newCloseStream(closers, log)
+	ret.streams[v1alpha1.CloseStreamID] = newCloseStream(closers, log)
 	return ret
 }
 

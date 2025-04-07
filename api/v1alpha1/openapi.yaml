@@ -1188,6 +1188,89 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+
+  /api/v1/devices/{name}/download:
+    get:
+      tags:
+        - device
+      description: Download a file from a device.
+      operationId: downloadDeviceFile
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to get.
+          required: true
+          schema:
+            type: string
+        - name: filename
+          in: query
+          description: Full path of the file to download.
+          required: true
+          schema:
+            type: string
+            pattern: '^\/(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+$'
+      responses:
+        "200":
+          description: File successfully downloaded.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              description: Specifies the file name for download
+              schema:
+                type: string
+        "400":
+          description: BadRequest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "500":
+          description: InternalServerError
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "504":
+          description: GatewayTimeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+
   /api/v1/devices/{name}/status:
     get:
       tags:
