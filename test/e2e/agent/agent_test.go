@@ -163,10 +163,9 @@ var _ = Describe("VM Agent behavior", func() {
 					return conditionExists(device, "SpecValid", "False", "Invalid")
 				}, "2m")
 
-			// The behaviour will change after EDM-418.
-			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("the device is updated to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "False", "Updated")
+					return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
 				}, "2m")
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
@@ -195,10 +194,9 @@ var _ = Describe("VM Agent behavior", func() {
 					return conditionExists(device, "SpecValid", "False", "Invalid")
 				}, "2m")
 
-			// The behaviour will change after EDM-418.
-			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("the device is updated to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "False", "Updated")
+					return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
 				}, "2m")
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))

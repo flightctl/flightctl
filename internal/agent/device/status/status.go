@@ -12,6 +12,10 @@ import (
 	"github.com/flightctl/flightctl/pkg/version"
 )
 
+const (
+	MaxMessageLength = 175
+)
+
 var _ Manager = (*StatusManager)(nil)
 
 // NewManager creates a new device status manager.
