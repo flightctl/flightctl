@@ -425,9 +425,9 @@ rules:
       function: falsy
 
   response-media-type-2xx:
-    description: "2xx responses must have media type JSON."
+    description: "2xx responses must have media type JSON (except for octet-stream)."
     severity: error
-    given: $.paths.[*].responses[?(@property.match(/^(2)/))].content.*~
+    given: $.paths.[*].responses[?(@property.match(/^2/))].content[?(@property !== 'application/octet-stream')]~
     then:
       function: enumeration
       functionOptions:

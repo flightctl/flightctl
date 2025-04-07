@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,9 +28,9 @@ func newOutgoingStreams(streamClient grpc_v1.RouterService_StreamClient, cmd *ex
 		input:        make(chan []byte, 2),
 		log:          log,
 	}
-	ret.streams = append(ret.streams, newOutgoingStdStream(ret.input, stdout, StdoutID, log))
+	ret.streams = append(ret.streams, newOutgoingStdStream(ret.input, stdout, api.StdoutStreamID, log))
 	if stderr != nil {
-		ret.streams = append(ret.streams, newOutgoingStdStream(ret.input, stderr, StderrID, log))
+		ret.streams = append(ret.streams, newOutgoingStdStream(ret.input, stderr, api.StderrStreamID, log))
 	}
 	ret.streams = append(ret.streams, newErrorStream(ret.input, cmd, log))
 	return ret
@@ -144,7 +145,7 @@ type outgoingErrorStream struct {
 func newErrorStream(output chan []byte, cmd *exec.Cmd, log *log.PrefixLogger) outgoingStream {
 	return &outgoingErrorStream{
 		outgoingStreamBase: outgoingStreamBase{
-			id:     ErrID,
+			id:     api.ErrStreamID,
 			output: output,
 		},
 		cmd: cmd,

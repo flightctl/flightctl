@@ -175,6 +175,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+	consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service
@@ -187,7 +188,7 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
 
-		h := transport.NewTransportHandler(serviceHandler)
+		h := transport.NewTransportHandler(serviceHandler, consoleSessionManager, s.log)
 		server.HandlerFromMux(h, r)
 	})
 
@@ -196,7 +197,6 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
 
-		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
 		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
 		ws.RegisterRoutes(router)
 	})

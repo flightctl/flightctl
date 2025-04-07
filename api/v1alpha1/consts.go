@@ -123,3 +123,17 @@ const (
 	// Rollout is pending on user approval
 	RolloutWaitingReason = "Waiting"
 )
+
+// These constants are used by the remotecommand k8s protocol
+const (
+	StdinStreamID  byte = 0
+	StdoutStreamID byte = 1
+	StderrStreamID byte = 2
+	ErrStreamID    byte = 3
+	ResizeStreamID byte = 4
+	CloseStreamID  byte = 255
+
+	// These protocols must be the same as defined in "k8s.io/apimachinery/pkg/util/remotecommand"
+
+	StreamProtocolV5Name = "v5.channel.k8s.io"
+)

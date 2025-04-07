@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -84,7 +85,7 @@ func sessionMetadata(t *testing.T, term string, initialDimensions *v1alpha1.Term
 		Command:           command,
 		TTY:               tty,
 		Protocols: []string{
-			StreamProtocolV5Name,
+			v1alpha1.StreamProtocolV5Name,
 		},
 	}
 	b, err := json.Marshal(&metadata)
@@ -116,11 +117,11 @@ func mockSend(v *vars, times int) {
 				return errors.New("unexpected nil request")
 			}
 			switch req.Payload[0] {
-			case StdoutID:
+			case v1alpha1.StdoutStreamID:
 				_, _ = v.stdoutBuffer.Write(req.Payload[1:])
-			case StderrID:
+			case v1alpha1.StderrStreamID:
 				_, _ = v.stderrBuffer.Write(req.Payload[1:])
-			case ErrID:
+			case v1alpha1.ErrStreamID:
 				_, _ = v.errBuffer.Write(req.Payload[1:])
 			default:
 				return errors.New("unexpected payload prefix")
@@ -190,10 +191,10 @@ func TestConsole(t *testing.T) {
 		}
 
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.stdoutBuffer.String()), []byte("hello world"))
+			return strings.Contains(v.stdoutBuffer.String(), "hello world")
 		}, 2*time.Second, 50*time.Millisecond, "Expected stdout to contain 'hello world'")
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.errBuffer.String()), []byte(`Success`))
+			return strings.Contains(v.errBuffer.String(), `Success`)
 		}, 2*time.Second, 50*time.Millisecond, "Expected error to contain 'Success'")
 	})
 
@@ -218,7 +219,7 @@ func TestConsole(t *testing.T) {
 		}
 
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.errBuffer.String()), []byte(`"code":11`))
+			return strings.Contains(v.errBuffer.String(), `"code":11`)
 		}, 2*time.Second, 50*time.Millisecond, "Expected error buffer to contain exit code 11")
 	})
 
@@ -242,14 +243,14 @@ func TestConsole(t *testing.T) {
 			t.Errorf("Unexpected error: %v", err)
 		}
 
-		sendInput(v, StdinID, []byte("before\n"))
-		sendInput(v, CloseID, []byte{StdinID})
+		sendInput(v, v1alpha1.StdinStreamID, []byte("before\n"))
+		sendInput(v, v1alpha1.CloseStreamID, []byte{v1alpha1.StdinStreamID})
 
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.stdoutBuffer.String()), []byte("after"))
+			return strings.Contains(v.stdoutBuffer.String(), "after")
 		}, 2*time.Second, 50*time.Millisecond, "Expected stdout to contain 'after'")
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.errBuffer.String()), []byte(`Success`))
+			return strings.Contains(v.errBuffer.String(), `Success`)
 		}, 2*time.Second, 50*time.Millisecond, "Expected error to contain 'Success'")
 	})
 
@@ -275,21 +276,21 @@ func TestConsole(t *testing.T) {
 			t.Errorf("Unexpected error: %v", err)
 		}
 
-		sendInput(v, StdinID, []byte("before\n"))
-		sendInput(v, CloseID, []byte{StdinID})
+		sendInput(v, v1alpha1.StdinStreamID, []byte("before\n"))
+		sendInput(v, v1alpha1.CloseStreamID, []byte{v1alpha1.StdinStreamID})
 
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.stdoutBuffer.String()), []byte("stdout"))
+			return strings.Contains(v.stdoutBuffer.String(), "stdout")
 		}, 2*time.Second, 50*time.Millisecond, "Expected stdout to contain 'stdout'")
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.stderrBuffer.String()), []byte("stderr"))
+			return strings.Contains(v.stderrBuffer.String(), "stderr")
 		}, 2*time.Second, 50*time.Millisecond, "Expected stderr to contain 'stderr'")
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.errBuffer.String()), []byte(`Success`))
+			return strings.Contains(v.errBuffer.String(), `Success`)
 		}, 2*time.Second, 50*time.Millisecond, "Expected error to contain 'Success'")
 	})
 
-	t.Run("echo stdin with tty, close stdin", func(t *testing.T) {
+	t.Run("echo stdin with tty, exit shell", func(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil, nil, true))
@@ -303,11 +304,22 @@ func TestConsole(t *testing.T) {
 			t.Errorf("Unexpected error: %v", err)
 		}
 
-		sendInput(v, StdinID, []byte("hello world\n"))
-		sendInput(v, CloseID, []byte{StdinID})
+		require.Eventually(t, func() bool {
+			return v.stdoutBuffer.String() != ""
+		}, 2*time.Second, 50*time.Millisecond, "Expected to get bash prompt")
+
+		sendInput(v, v1alpha1.StdinStreamID, []byte("echo hello world"))
 
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.stdoutBuffer.String()), []byte("hello world"))
-		}, 2*time.Second, 50*time.Millisecond, "Expected stdout to contain 'hello world'")
+			return strings.Contains(v.stdoutBuffer.String(), "echo hello world")
+		}, 2*time.Second, 50*time.Millisecond, "Expected stdout to contain 'hello world' got %s", &v.stdoutBuffer)
+
+		require.Equal(t, v.errBuffer.String(), "")
+
+		sendInput(v, v1alpha1.StdinStreamID, []byte("\nexit\n"))
+
+		require.Eventually(t, func() bool {
+			return v.errBuffer.String() != ""
+		}, 2*time.Second, 50*time.Millisecond, "Expected the process to exit")
 	})
 }
