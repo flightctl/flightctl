@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/config/ca_config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,12 +19,6 @@ const (
 	certsDir  = "certs"
 	certFile  = "some.crt"
 	certData  = "certdata"
-
-	caCertValidityDays          = 365 * 10
-	serverCertValidityDays      = 365 * 1
-	clientBootStrapValidityDays = 365 * 1
-	signerCertName              = "ca"
-	clientBootstrapCertName     = "client-enrollment"
 )
 
 func TestValidConfig(t *testing.T) {
@@ -120,9 +115,10 @@ func TestClientConfig(t *testing.T) {
 			configFile := filepath.Join(testDirPath, "client.yaml")
 
 			// generate the CA and client certs
-			ca, _, err := crypto.EnsureCA(filepath.Join(testDirPath, "ca.crt"), filepath.Join(testDirPath, "ca.key"), "", signerCertName, caCertValidityDays)
+			cfg := ca_config.NewDefault(testDirPath)
+			ca, _, err := crypto.EnsureCA(cfg)
 			require.NoError(err)
-			clientCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), clientBootstrapCertName, clientBootStrapValidityDays)
+			clientCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), cfg.ClientBootstrapCertName, cfg.ClientBootstrapValidityDays)
 			require.NoError(err)
 
 			// write client config to disk

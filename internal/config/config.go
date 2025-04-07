@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config/ca_config"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
 )
@@ -16,11 +17,12 @@ const (
 )
 
 type Config struct {
-	Database   *dbConfig         `json:"database,omitempty"`
-	Service    *svcConfig        `json:"service,omitempty"`
-	KV         *kvConfig         `json:"kv,omitempty"`
-	Auth       *authConfig       `json:"auth,omitempty"`
-	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
+	Database   *dbConfig               `json:"database,omitempty"`
+	Service    *svcConfig              `json:"service,omitempty"`
+	KV         *kvConfig               `json:"kv,omitempty"`
+	Auth       *authConfig             `json:"auth,omitempty"`
+	Prometheus *prometheusConfig       `json:"prometheus,omitempty"`
+	CAConfig   *ca_config.CAConfigType `json:"ca,omitempty"`
 }
 
 type dbConfig struct {
@@ -33,26 +35,26 @@ type dbConfig struct {
 }
 
 type svcConfig struct {
-	Address               string        `json:"address,omitempty"`
-	AgentEndpointAddress  string        `json:"agentEndpointAddress,omitempty"`
-	CertStore             string        `json:"cert,omitempty"`
-	BaseUrl               string        `json:"baseUrl,omitempty"`
-	BaseAgentEndpointUrl  string        `json:"baseAgentEndpointUrl,omitempty"`
-	BaseUIUrl             string        `json:"baseUIUrl,omitempty"`
-	CaCertFile            string        `json:"caCertFile,omitempty"`
-	CaKeyFile             string        `json:"caKeyFile,omitempty"`
-	SrvCertFile           string        `json:"srvCertFile,omitempty"`
-	SrvKeyFile            string        `json:"srvKeyFile,omitempty"`
-	AltNames              []string      `json:"altNames,omitempty"`
-	LogLevel              string        `json:"logLevel,omitempty"`
-	HttpReadTimeout       util.Duration `json:"httpReadTimeout,omitempty"`
-	HttpReadHeaderTimeout util.Duration `json:"httpReadHeaderTimeout,omitempty"`
-	HttpWriteTimeout      util.Duration `json:"httpWriteTimeout,omitempty"`
-	HttpIdleTimeout       util.Duration `json:"httpIdleTimeout,omitempty"`
-	HttpMaxNumHeaders     int           `json:"httpMaxNumHeaders,omitempty"`
-	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
-	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
-	HttpMaxRequestSize    int           `json:"httpMaxRequestSize,omitempty"`
+	Address                string        `json:"address,omitempty"`
+	AgentEndpointAddress   string        `json:"agentEndpointAddress,omitempty"`
+	CertStore              string        `json:"cert,omitempty"`
+	BaseUrl                string        `json:"baseUrl,omitempty"`
+	BaseAgentEndpointUrl   string        `json:"baseAgentEndpointUrl,omitempty"`
+	BaseUIUrl              string        `json:"baseUIUrl,omitempty"`
+	SrvCertFile            string        `json:"srvCertificateFile,omitempty"`
+	SrvKeyFile             string        `json:"srvKeyFile,omitempty"`
+	ServerCertName         string        `json:"serverCertName,omitempty"`
+	ServerCertValidityDays int           `json:"serverCertValidityDays,omitempty"`
+	AltNames               []string      `json:"altNames,omitempty"`
+	LogLevel               string        `json:"logLevel,omitempty"`
+	HttpReadTimeout        util.Duration `json:"httpReadTimeout,omitempty"`
+	HttpReadHeaderTimeout  util.Duration `json:"httpReadHeaderTimeout,omitempty"`
+	HttpWriteTimeout       util.Duration `json:"httpWriteTimeout,omitempty"`
+	HttpIdleTimeout        util.Duration `json:"httpIdleTimeout,omitempty"`
+	HttpMaxNumHeaders      int           `json:"httpMaxNumHeaders,omitempty"`
+	HttpMaxHeaderBytes     int           `json:"httpMaxHeaderBytes,omitempty"`
+	HttpMaxUrlLength       int           `json:"httpMaxUrlLength,omitempty"`
+	HttpMaxRequestSize     int           `json:"httpMaxRequestSize,omitempty"`
 }
 
 type kvConfig struct {
@@ -118,20 +120,22 @@ func NewDefault() *Config {
 			Password: "adminpass",
 		},
 		Service: &svcConfig{
-			Address:               ":3443",
-			AgentEndpointAddress:  ":7443",
-			CertStore:             CertificateDir(),
-			BaseUrl:               "https://localhost:3443",
-			BaseAgentEndpointUrl:  "https://localhost:7443",
-			LogLevel:              "info",
-			HttpReadTimeout:       util.Duration(5 * time.Minute),
-			HttpReadHeaderTimeout: util.Duration(5 * time.Minute),
-			HttpWriteTimeout:      util.Duration(5 * time.Minute),
-			HttpIdleTimeout:       util.Duration(5 * time.Minute),
-			HttpMaxNumHeaders:     32,
-			HttpMaxHeaderBytes:    32 * 1024, // 32KB
-			HttpMaxUrlLength:      2000,
-			HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
+			Address:                ":3443",
+			AgentEndpointAddress:   ":7443",
+			CertStore:              CertificateDir(),
+			BaseUrl:                "https://localhost:3443",
+			BaseAgentEndpointUrl:   "https://localhost:7443",
+			ServerCertName:         "server",
+			ServerCertValidityDays: 365,
+			LogLevel:               "info",
+			HttpReadTimeout:        util.Duration(5 * time.Minute),
+			HttpReadHeaderTimeout:  util.Duration(5 * time.Minute),
+			HttpWriteTimeout:       util.Duration(5 * time.Minute),
+			HttpIdleTimeout:        util.Duration(5 * time.Minute),
+			HttpMaxNumHeaders:      32,
+			HttpMaxHeaderBytes:     32 * 1024, // 32KB
+			HttpMaxUrlLength:       2000,
+			HttpMaxRequestSize:     50 * 1024 * 1024, // 50MB
 		},
 		KV: &kvConfig{
 			Hostname: "localhost",
@@ -144,6 +148,8 @@ func NewDefault() *Config {
 			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
 		},
 	}
+	c.CAConfig = ca_config.NewDefault(CertificateDir())
+	// CA certs are stored in the same location as Server Certs by default
 	return c
 }
 
