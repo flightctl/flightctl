@@ -70,7 +70,11 @@ spec:
             - mountPath: /var/flightctl/k8s
               name: flightctl-api-k8s-token
               readOnly: true
-            {{- end}}
+            {{- end }}
+            {{- if eq .Values.global.auth.type "aap" }}
+            - name: flightctl-aap-permissions
+              mountPath: /etc/flightctl
+            {{- end }}
 
       restartPolicy: Always
       volumes:
@@ -84,5 +88,10 @@ spec:
         - name: flightctl-api-k8s-token
           secret:
             secretName: flightctl-api-k8s-token
-        {{- end}}
+        {{- end }}
+        {{- if eq .Values.global.auth.type "aap" }}
+        - name: flightctl-aap-permissions
+          configMap:
+            name: flightctl-aap-permissions
+        {{- end }}
 {{ end }}
