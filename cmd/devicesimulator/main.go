@@ -163,33 +163,39 @@ func reportVersion(versionFormat *string) error {
 	return nil
 }
 
+const (
+	PollingInterval     = 2 * time.Second
+	MaxPollingDuration  = 5 * time.Minute
+	ForceRequestTimeout = 30 * time.Second
+)
+
 func startAgent(ctx context.Context, agent *agent.Agent, log *logrus.Logger, agentInstance int) {
 	activeAgents.Inc()
-	err := wait.PollImmediateWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
-		// timeout after 30s and retry
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	prefix := agent.GetLogPrefix()
+	err := wait.PollImmediateWithContext(ctx, PollingInterval, MaxPollingDuration, func(ctx context.Context) (bool, error) {
+		// timeout ForceRequestTimeout and retry
+		ctx, cancel := context.WithTimeout(ctx, ForceRequestTimeout)
 		defer cancel()
 
-		prefix := agent.GetLogPrefix()
+		log.Infof("Starting agent %d", agentInstance)
 		if err := agent.Run(ctx); err != nil {
 			// agent timeout waiting for enrollment approval
-			if errors.Is(err, wait.ErrWaitTimeout) {
-				log.Errorf("%s: agent %d timed out: %v", prefix, agentInstance, err)
-				return false, nil
-			} else if ctx.Err() != nil {
-				// normal teardown
+			if errors.Is(err, context.DeadlineExceeded) {
+				// time-outed, let's retry
 				log.Infof("%s: agent %d stopped due to context cancellation.", prefix, agentInstance)
 				return false, nil
 			} else {
-				log.Fatalf("%s: %v", prefix, err)
+				// failed for different reason, let's retry
+				log.Infof("%s: agent %d starting error: %v.", prefix, agentInstance, err)
 				return false, err
 			}
 		}
+		log.Infof("%s: agent  %d started", prefix, agentInstance)
 		return true, nil
 	})
 	activeAgents.Dec()
 	if err != nil && ctx.Err() == nil {
-		log.Fatalf("Error approving device %d enrollment: %v", agentInstance, err)
+		log.Fatalf("%s: error starting agent %d: %v", prefix, agentInstance, err)
 	}
 }
 
@@ -225,6 +231,10 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		agentDir := filepath.Join(agentConfigTemplate.DataDir, agentName)
 		// Cleanup if exists and initialize the agent's expected
 		_ = os.RemoveAll(agentDir)
+		if err := os.RemoveAll(agentDir); err != nil {
+			log.Errorf("Error removing directory %s: %v", agentDir, err)
+		}
+
 		if err := os.MkdirAll(filepath.Join(agentDir, agent.DefaultConfigDir), 0700); err != nil {
 			log.Fatalf("Error creating directory: %v", err)
 		}
@@ -282,9 +292,9 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 }
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
-	err := wait.PollImmediateWithContext(ctx, 2*time.Second, 5*time.Minute, func(ctx context.Context) (bool, error) {
-		// timeout after 30s and retry
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	err := wait.PollImmediateWithContext(ctx, PollingInterval, MaxPollingDuration, func(ctx context.Context) (bool, error) {
+		// timeout ForceRequestTimeout and retry
+		ctx, cancel := context.WithTimeout(ctx, ForceRequestTimeout)
 		defer cancel()
 		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
 		bannerFileData, err := readBannerFile(agentDir)
