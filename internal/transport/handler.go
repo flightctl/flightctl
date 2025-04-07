@@ -10,7 +10,9 @@ import (
 )
 
 type TransportHandler struct {
-	serviceHandler *service.ServiceHandler
+	serviceHandler        *service.ServiceHandler
+	consoleSessionManager *console.ConsoleSessionManager
+	log                   logrus.FieldLogger
 }
 
 type WebsocketHandler struct {
@@ -22,9 +24,12 @@ type WebsocketHandler struct {
 // Make sure we conform to servers Transport interface
 var _ server.Transport = (*TransportHandler)(nil)
 
-func NewTransportHandler(serviceHandler *service.ServiceHandler) *TransportHandler {
-
-	return &TransportHandler{serviceHandler: serviceHandler}
+func NewTransportHandler(serviceHandler *service.ServiceHandler, consoleSessionManager *console.ConsoleSessionManager, log logrus.FieldLogger) *TransportHandler {
+	return &TransportHandler{
+		serviceHandler:        serviceHandler,
+		consoleSessionManager: consoleSessionManager,
+		log:                   log,
+	}
 }
 
 func NewWebsocketHandler(ca *crypto.CAClient, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {

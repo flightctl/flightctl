@@ -92,11 +92,11 @@ func (s *session) initialize(ctx context.Context, metadata *api.DeviceConsoleSes
 		return nil, nil, err
 	}
 	closers := map[byte]io.Closer{
-		StdinID:  stdin,
-		StdoutID: stdout,
+		api.StdinStreamID:  stdin,
+		api.StdoutStreamID: stdout,
 	}
 	if stderr != nil {
-		closers[StderrID] = stderr
+		closers[api.StderrStreamID] = stderr
 	}
 	iStreams := newIncomingStreams(s.streamClient, stdin, resizeFd, closers, s.log)
 	oStreams := newOutgoingStreams(s.streamClient, cmd, stdout, stderr, s.log)

@@ -101,7 +101,7 @@ func (c *ConsoleController) parseMetadata(metadata string) (*v1alpha1.DeviceCons
 
 func (c *ConsoleController) selectProtocol(requestedProtocols []string) (string, error) {
 	supportedProtocols := []string{
-		StreamProtocolV5Name,
+		v1alpha1.StreamProtocolV5Name,
 	}
 	for _, protocol := range supportedProtocols {
 		if lo.Contains(requestedProtocols, protocol) {
