@@ -540,6 +540,10 @@ func IsUpgrading(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 	return current.Version() != desired.Version()
 }
 
+func IsRollingBack(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+	return current.Version() < desired.Version()
+}
+
 type rollbackConfig struct {
 	setFailed bool
 }

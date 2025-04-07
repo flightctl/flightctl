@@ -102,7 +102,7 @@ func FromDeviceSpec(
 	}
 
 	if cfg.embedded {
-		if err := parseEmbedded(ctx, log, podman, readWriter, &providers); err != nil {
+		if err := parseEmbedded(ctx, log, podman, readWriter, &providers, cfg.verifyEmbedded); err != nil {
 			return nil, err
 		}
 	}
@@ -110,7 +110,7 @@ func FromDeviceSpec(
 	return providers, nil
 }
 
-func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider, verify bool) error {
 	// discover embedded compose applications
 	appType := v1alpha1.AppTypeCompose
 	elements, err := readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
@@ -140,8 +140,10 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 				if err != nil {
 					return err
 				}
-				if err := provider.Verify(ctx); err != nil {
-					return err
+				if verify {
+					if err := provider.Verify(ctx); err != nil {
+						return err
+					}
 				}
 				*providers = append(*providers, provider)
 				break
@@ -209,13 +211,22 @@ type Diff struct {
 type ParseOpt func(*parseConfig)
 
 type parseConfig struct {
-	embedded      bool
-	providerTypes map[v1alpha1.ApplicationProviderType]struct{}
+	embedded       bool
+	verifyEmbedded bool
+	providerTypes  map[v1alpha1.ApplicationProviderType]struct{}
 }
 
+// WithEmbedded enables embedded providers.
 func WithEmbedded() ParseOpt {
 	return func(c *parseConfig) {
 		c.embedded = true
+	}
+}
+
+// WithEmbeddedVerify enables verification for embedded providers.
+func WithEmbeddedVerify() ParseOpt {
+	return func(c *parseConfig) {
+		c.verifyEmbedded = true
 	}
 }
 

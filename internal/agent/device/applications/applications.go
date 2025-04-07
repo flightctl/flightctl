@@ -48,7 +48,7 @@ type Manager interface {
 	Update(ctx context.Context, provider provider.Provider) error
 	// BeforeUpdate is called prior to installing an application to ensure the
 	// application is valid and dependencies are met.
-	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec, opts ...UpdateOption) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
 	AfterUpdate(ctx context.Context) error
 	// Stop halts the application running on the device.
@@ -251,4 +251,17 @@ func isRunningHealthy(total, healthy, initializing, exited int) bool {
 
 func isErrored(total, healthy, initializing int) bool {
 	return total > 0 && healthy == 0 && initializing == 0
+}
+
+type UpdateOption func(*updateOptions)
+
+type updateOptions struct {
+	rollback bool
+}
+
+// WithRollback enables or disables rollback for the update operation.
+func WithRollback(enabled bool) UpdateOption {
+	return func(opts *updateOptions) {
+		opts.rollback = enabled
+	}
 }

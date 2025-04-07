@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -31,16 +32,21 @@ func NewController(
 	}
 }
 
-func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Device) error {
 	c.log.Debug("Syncing device applications")
 	defer c.log.Debug("Finished syncing device applications")
 
-	currentAppProviders, err := provider.FromDeviceSpec(ctx, c.log, c.podman, c.readWriter, current)
+	currentAppProviders, err := provider.FromDeviceSpec(ctx, c.log, c.podman, c.readWriter, current.Spec)
 	if err != nil {
 		return err
 	}
 
-	desiredAppProviders, err := provider.FromDeviceSpec(ctx, c.log, c.podman, c.readWriter, desired, provider.WithEmbedded())
+	providerOps := []provider.ParseOpt{provider.WithEmbedded()}
+	if !spec.IsRollingBack(current, desired) {
+		// do not verify embedded provider if rollingback
+		providerOps = append(providerOps, provider.WithEmbeddedVerify())
+	}
+	desiredAppProviders, err := provider.FromDeviceSpec(ctx, c.log, c.podman, c.readWriter, desired.Spec, providerOps...)
 	if err != nil {
 		return err
 	}
