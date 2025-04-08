@@ -3,6 +3,8 @@ package cli_test
 import (
 	"crypto/rand"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -267,6 +269,59 @@ var _ = Describe("cli operation", func() {
 
 			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrNewName))
 			Expect(err).ToNot(HaveOccurred())
+		})
+	})
+})
+
+var _ = Describe("cli login", func() {
+	var (
+		harness *e2e.Harness
+	)
+
+	Context("login validation", func() {
+		BeforeEach(func() {
+			harness = e2e.NewTestHarness()
+		})
+
+		It("Validations work when logging into flightctl CLI", Label("78748"), func() {
+			By("Prepare invalid API endpoint")
+			invalidEndpoint := "https://not-existing.lab.redhat.com"
+			loginArgs := []string{"login", invalidEndpoint}
+
+			By("Try login using a wrong API endpoint without --insecure-skip-tls-verify flag")
+			logrus.Infof("Executing CLI with args: %v", loginArgs)
+			out, err := harness.CLI(loginArgs...)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("failed to get auth info"))
+
+			By("Retry login using invalid API endpoint with  --insecure-skip-tls-verify flag")
+			loginArgs = append(loginArgs, "--insecure-skip-tls-verify")
+			logrus.Infof("Executing CLI with args: %v", loginArgs)
+			out, err = harness.CLI(loginArgs...)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("failed to get auth info"))
+
+			By("Retry login using an invalid token")
+			loginArgs = []string{"login", os.Getenv("API_ENDPOINT"), "--insecure-skip-tls-verify", "--token", "fake-token"}
+			logrus.Infof("Executing CLI with args: %v", loginArgs)
+			out, _ = harness.CLI(loginArgs...)
+			if !strings.Contains(out, "Auth is disabled") {
+				Expect(out).To(Or(
+					ContainSubstring("the token provided is invalid or expired"),
+					ContainSubstring("failed to validate token"),
+					ContainSubstring("invalid JWT")))
+
+				By("Retry login with the invalid password")
+				invalidPassword := "passW0RD"
+
+				loginArgs = append(loginArgs, "-k", "-u", "demouser", "-p", invalidPassword)
+				logrus.Infof("Executing CLI with args: %v", loginArgs)
+				out, _ = harness.CLI(loginArgs...)
+				// We don't check for error here as we're only interested in the output message
+				Expect(out).To(Or(
+					ContainSubstring("Invalid user credentials"),
+					ContainSubstring("unexpected http code: 401")))
+			}
 		})
 	})
 })
