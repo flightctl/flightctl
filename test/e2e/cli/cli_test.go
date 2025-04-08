@@ -302,9 +302,12 @@ var _ = Describe("cli login", func() {
 			Expect(out).To(ContainSubstring("failed to get auth info"))
 
 			By("Retry login using an invalid token")
-			loginArgs = []string{"login", os.Getenv("API_ENDPOINT"), "--insecure-skip-tls-verify", "--token", "fake-token"}
-			logrus.Infof("Executing CLI with args: %v", loginArgs)
-			out, _ = harness.CLI(loginArgs...)
+			loginArgs = []string{"login", os.Getenv("API_ENDPOINT"), "--insecure-skip-tls-verify"}
+			invalidToken := "fake-token"
+			loginArgsToken := append(loginArgs, "--token", invalidToken)
+
+			logrus.Infof("Executing CLI with args: %v", loginArgsToken)
+			out, _ = harness.CLI(loginArgsToken...)
 			if !strings.Contains(out, "Auth is disabled") {
 				Expect(out).To(Or(
 					ContainSubstring("the token provided is invalid or expired"),
@@ -313,10 +316,10 @@ var _ = Describe("cli login", func() {
 
 				By("Retry login with the invalid password")
 				invalidPassword := "passW0RD"
+				loginArgsPassword := append(loginArgs, "-k", "-u", "demouser", "-p", invalidPassword)
 
-				loginArgs = append(loginArgs, "-k", "-u", "demouser", "-p", invalidPassword)
-				logrus.Infof("Executing CLI with args: %v", loginArgs)
-				out, _ = harness.CLI(loginArgs...)
+				logrus.Infof("Executing CLI with args: %v", loginArgsPassword)
+				out, _ = harness.CLI(loginArgsPassword...)
 				// We don't check for error here as we're only interested in the output message
 				Expect(out).To(Or(
 					ContainSubstring("Invalid user credentials"),
