@@ -132,28 +132,23 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 		if !ok {
 			return nil, flterrors.ErrNoRenderedVersion
 		}
-		var console *api.DeviceConsole
+		var consoles []api.DeviceConsole
 
-		if val, ok := d.Annotations[api.DeviceAnnotationConsole]; ok {
-			console = &api.DeviceConsole{
-				SessionMetadata: "",
-				SessionID:       val,
+		if val, ok := d.Annotations[api.DeviceAnnotationConsole]; ok && val != "" {
+			if err := json.Unmarshal([]byte(val), &consoles); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal consoles: %w", err)
 			}
 		}
 
 		// if we have a console request we ignore the rendered version
 		// TODO: bump the rendered version instead?
-		if console == nil && apiOpts.knownRenderedVersion != nil && renderedVersion == *apiOpts.knownRenderedVersion {
+		if len(consoles) == 0 && apiOpts.knownRenderedVersion != nil && renderedVersion == *apiOpts.knownRenderedVersion {
 			return nil, nil
 		}
 		// TODO: handle multiple consoles, for now we just encapsulate our one console in a list
-		var consoles *[]api.DeviceConsole
-		if console != nil {
-			consoles = &[]api.DeviceConsole{*console}
-		}
 		spec.Config = d.RenderedConfig.Data
 		spec.Applications = d.RenderedApplications.Data
-		spec.Consoles = consoles
+		spec.Consoles = &consoles
 	}
 
 	status := api.NewDeviceStatus()

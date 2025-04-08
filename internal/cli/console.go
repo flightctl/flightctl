@@ -2,30 +2,37 @@ package cli
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
+	"net/url"
 	"os"
-	"strings"
-	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
-	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/term"
+	api_remotecommand "k8s.io/apimachinery/pkg/util/remotecommand"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/client-go/util/exec"
+	k8sTerm "k8s.io/kubectl/pkg/util/term"
 )
 
 type ConsoleOptions struct {
 	GlobalOptions
+	tty       bool
+	noTTY     bool
+	remoteTTY bool
+	protocols []string
 }
 
 func DefaultConsoleOptions() *ConsoleOptions {
 	return &ConsoleOptions{
 		GlobalOptions: DefaultGlobalOptions(),
+		protocols: []string{
+			api_remotecommand.StreamProtocolV5Name,
+		},
 	}
 }
 
@@ -35,17 +42,42 @@ func NewConsoleCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "console device/NAME",
 		Short: "Connect a console to the remote device through the server.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := o.Complete(cmd, args); err != nil {
+			// Split args at "--"
+			var flagArgs, passThroughArgs []string
+			for i, arg := range args {
+				if arg == "--" {
+					flagArgs = args[:i]
+					passThroughArgs = args[i+1:]
+					break
+				}
+			}
+
+			// If no "--" was found, all args are flag arguments
+			if flagArgs == nil {
+				flagArgs = args
+			}
+
+			// Manually parse only the flag arguments
+			if err := cmd.Flags().Parse(flagArgs); err != nil {
 				return err
 			}
-			if err := o.Validate(args); err != nil {
+
+			cleanArgs := cmd.Flags().Args()
+			// Process console command normally
+			if err := o.Complete(cmd, cleanArgs); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			if err := o.Validate(cleanArgs); err != nil {
+				return err
+			}
+
+			// Run the main console command
+			return o.Run(cmd.Context(), cleanArgs, passThroughArgs)
 		},
-		SilenceUsage: true,
+		SilenceUsage:       true,
+		DisableFlagParsing: true,
 	}
 
 	o.Bind(cmd.Flags())
@@ -55,6 +87,8 @@ func NewConsoleCmd() *cobra.Command {
 
 func (o *ConsoleOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
+	fs.BoolVarP(&o.tty, "tty", "", o.tty, "Allocate remote pseudo terminal")
+	fs.BoolVarP(&o.noTTY, "notty", "", o.noTTY, "Don't allocate remote pseudo terminal")
 }
 
 func (o *ConsoleOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -74,173 +108,165 @@ func (o *ConsoleOptions) Validate(args []string) error {
 	if len(name) == 0 {
 		return fmt.Errorf("device name is required")
 	}
+
+	if o.tty && o.noTTY {
+		return fmt.Errorf("--tty and --notty are mutually exclusive")
+	}
 	return nil
 }
 
-func (o *ConsoleOptions) Run(ctx context.Context, args []string) error {
+func (o *ConsoleOptions) Run(ctx context.Context, flagArgs, passThroughArgs []string) error {
 	config, err := client.ParseConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("parsing config file: %w", err)
 	}
 
-	_, name, err := parseAndValidateKindName(args[0])
+	_, name, err := parseAndValidateKindName(flagArgs[0])
 	if err != nil {
 		return err
 	}
 
-	err = o.connectViaWS(ctx, config, name, client.GetAccessToken(config, o.ConfigFilePath))
-	if err == io.EOF {
-		fmt.Println("Connection closed")
+	o.analyzeResponseAndExit(o.connectViaWS(ctx, config, name, client.GetAccessToken(config, o.ConfigFilePath), passThroughArgs))
+
+	// unreachable
+	return nil
+}
+
+// NewWebSocketExecClient creates a WebSocketExecutor
+func (o *ConsoleOptions) newWebSocketExecClient(url string, restConfig *rest.Config) (remotecommand.Executor, error) {
+	// Create WebSocket executor.  In case we want to support multiple version protocols, they should
+	// be added here
+	exec, err := remotecommand.NewWebSocketExecutorForProtocols(restConfig, "GET", url, o.protocols...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create WebSocket executor: %v", err)
+	}
+
+	return exec, nil
+}
+
+func (o *ConsoleOptions) SetupTTY() k8sTerm.TTY {
+	t := k8sTerm.TTY{
+		In:  os.Stdin,
+		Out: os.Stdout,
+	}
+
+	o.remoteTTY = o.tty || t.IsTerminalIn() && t.IsTerminalOut() && !o.noTTY
+	t.Raw = o.remoteTTY && t.IsTerminalIn()
+
+	return t
+}
+
+func (o *ConsoleOptions) buildURL(baseURL, metadata string) (string, error) {
+	// Initialize a URL object
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse base URL %q: %v", baseURL, err)
+	}
+
+	// Create query parameters
+	query := url.Values{}
+	query.Set(api.DeviceQueryConsoleSessionMetadata, metadata)
+
+	// Encode the query parameters and attach them to the URL
+	u.RawQuery = query.Encode()
+	return u.String(), nil
+}
+
+func (o *ConsoleOptions) asTerminalSize(size *remotecommand.TerminalSize) *api.TerminalSize {
+	if size == nil {
 		return nil
 	}
-	return err
+	return &api.TerminalSize{
+		Width:  size.Width,
+		Height: size.Height,
+	}
 }
 
-func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config, deviceName, token string) error {
-
-	connURL := fmt.Sprintf("%s/ws/v1/devices/%s/console", config.Service.Server, deviceName)
-	// replace https / http to wss / ws
-	connURL = strings.Replace(connURL, "http", "ws", 1)
-	headers := make(http.Header)
-	headers.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	fmt.Printf("Connecting to device %s\n", deviceName)
-	tlsConfig, err := client.CreateTLSConfigFromConfig(config)
-	if err != nil {
-		return fmt.Errorf("creating tls config: %w", err)
+func (o *ConsoleOptions) createSessionMetadata(t k8sTerm.TTY, passThroughArgs []string) string {
+	metadata := api.DeviceConsoleSessionMetadata{
+		InitialDimensions: o.asTerminalSize(t.GetSize()),
 	}
-
-	dialer := &websocket.Dialer{
-		TLSClientConfig: tlsConfig,
+	termEnv := os.Getenv("TERM")
+	if termEnv != "" {
+		metadata.Term = &termEnv
 	}
-
-	conn, _, err := dialer.Dial(connURL, headers)
-	if err != nil {
-		return fmt.Errorf("dialing websocket: %w", err)
+	if len(passThroughArgs) > 0 {
+		metadata.Command = &api.DeviceCommand{
+			Command: passThroughArgs[0],
+			Args:    passThroughArgs[1:],
+		}
 	}
-	defer conn.Close()
-
-	return forwardStdio(ctx, conn)
+	metadata.TTY = o.remoteTTY
+	b, _ := json.Marshal(&metadata)
+	return string(b)
 }
 
-func forwardStdio(ctx context.Context, conn *websocket.Conn) error {
-	g, _ := errgroup.WithContext(ctx)
-	stdout := os.Stdout
-	consoleIsRaw := true
+func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config, deviceName, token string, passThroughArgs []string) error {
 
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error making terminal raw: %s\n", err)
-		consoleIsRaw = false
+	t := o.SetupTTY()
+
+	options := remotecommand.StreamOptions{
+		Stdout: os.Stdout,
+		Tty:    o.remoteTTY,
+	}
+	if o.remoteTTY || !t.IsTerminalIn() {
+		options.Stdin = os.Stdin
+	}
+	if !o.remoteTTY {
+		options.Stderr = os.Stderr
 	}
 
-	fmt.Printf("Use CTRL+B 3 times to exit console\r\n")
+	// this call spawns a goroutine to monitor/update the terminal size
+	if t.Raw {
+		options.TerminalSizeQueue = t.MonitorSize(t.GetSize())
+	}
 
-	resetConsole := func() {
-		if consoleIsRaw {
+	if t.Raw {
+
+		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error making terminal raw: %s\n", err)
+			return err
+		}
+		defer func() {
 			err := term.Restore(int(os.Stdin.Fd()), oldState)
-			consoleIsRaw = false
 			// reset terminal and clear screen
 			if err != nil {
 				fmt.Printf("error restoring terminal: %v", err)
 			}
-		}
-		fmt.Print("\033c\033[2J\033[H")
-		os.Exit(0)
+		}()
 	}
 
-	stdioChan := make(chan byte, 8)
-	go func() {
-		buffer := make([]byte, 1)
-		for {
-			n, err := os.Stdin.Read(buffer)
-			if err != nil {
-				close(stdioChan)
-				return
-			}
-			if n == 0 {
-				continue
-			}
-			stdioChan <- buffer[0]
-		}
-	}()
+	restConfig := &rest.Config{
+		BearerToken: token,
+		TLSClientConfig: rest.TLSClientConfig{
+			Insecure: config.Service.InsecureSkipVerify,
+			CertData: config.AuthInfo.ClientCertificateData,
+			CAData:   config.Service.CertificateAuthorityData,
+		},
+	}
 
-	g.Go(func() error {
-		defer func() {
-			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second*5))
-			conn.Close()
-			stdout.Close()
-			resetConsole()
-		}()
+	connURL, err := o.buildURL(fmt.Sprintf("%s/ws/v1/devices/%s/console", config.Service.Server, deviceName),
+		o.createSessionMetadata(t, passThroughArgs))
+	if err != nil {
+		return err
+	}
+	wsClient, err := o.newWebSocketExecClient(connURL, restConfig)
+	if err != nil {
+		return err
+	}
+	return wsClient.StreamWithContext(ctx, options)
+}
 
-		buffer := make([]byte, 1)
-		ctrlBCount := 0
-		for {
-			select {
-			case <-ctx.Done():
-				return io.EOF
-
-			case chr, isOpen := <-stdioChan:
-				buffer[0] = chr
-
-				if !isOpen { // the input STDIN has been closed
-					return nil
-				}
-
-				err = conn.WriteMessage(websocket.BinaryMessage, buffer)
-				if err != nil {
-					return fmt.Errorf("writing to websocket: %w", err)
-				}
-
-				if chr == 2 {
-					ctrlBCount++
-					if ctrlBCount == 3 {
-						return io.EOF
-					}
-				} else {
-					ctrlBCount = 0
-				}
-			}
-		}
-	})
-
-	g.Go(func() error {
-		defer func() {
-			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second*5))
-			conn.Close()
-			resetConsole()
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return io.EOF
-			default:
-				msgType, frame, err := conn.ReadMessage()
-				if errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure) || errors.Is(err, net.ErrClosed) {
-					return io.EOF
-				}
-
-				if err != nil {
-					stdout.Write([]byte(err.Error()))
-					return err
-				}
-
-				// if it's binary or text message, forward it to the console session
-				if msgType == websocket.BinaryMessage || msgType == websocket.TextMessage {
-
-					str := string(frame)
-					// Probably we should use a pseudo tty on the other side
-					// but this is good for now
-					str = strings.ReplaceAll(str, "\n", "\n\r")
-					_, err = stdout.Write([]byte(str))
-					if err != nil {
-						return err
-					}
-				}
-			}
-		}
-	})
-
-	return g.Wait()
+func (o *ConsoleOptions) analyzeResponseAndExit(err error) {
+	var exitCode int
+	switch concreteErr := err.(type) {
+	case nil:
+	case exec.CodeExitError:
+		exitCode = concreteErr.Code
+	default:
+		exitCode = 255
+		fmt.Fprintf(os.Stderr, "Unexpected error type %T: %+v\n", err, err)
+	}
+	os.Exit(exitCode)
 }

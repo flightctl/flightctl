@@ -179,6 +179,38 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device 
 	return result, StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
 }
 
+func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, error) {
+	if device.Spec != nil && device.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
+		return nil, flterrors.ErrDecommission
+	}
+
+	orgId := store.NullOrgId
+
+	// don't overwrite fields that are managed by the service for external requests
+	if !IsInternalRequest(ctx) {
+		device.Status = nil
+		NilOutManagedObjectMetaProperties(&device.Metadata)
+	}
+
+	if errs := device.Validate(); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	if name != *device.Metadata.Name {
+		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
+	}
+
+	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
+	delayDeviceRender, ok := ctx.Value(DelayDeviceRenderCtxKey).(bool)
+	if ok && delayDeviceRender {
+		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
+	}
+
+	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, &device)
+
+	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback)
+}
+
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
