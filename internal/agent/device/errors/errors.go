@@ -29,9 +29,8 @@ var (
 	ErrAppLabel               = errors.New("required label not found")
 
 	// compose
-	ErrHardCodedContainerName = errors.New("hard coded container name")
-	ErrNoComposeFile          = errors.New("no valid compose file found")
-	ErrNoComposeServices      = errors.New("no services found in compose spec")
+	ErrNoComposeFile     = errors.New("no valid compose file found")
+	ErrNoComposeServices = errors.New("no services found in compose spec")
 
 	// container images
 	ErrImageShortName = errors.New("failed to resolve image short name: use the full name i.e registry/image:tag")
@@ -123,7 +122,7 @@ func IsTimeoutError(err error) bool {
 		return true
 	}
 
-	if errors.Is(err, wait.ErrWaitTimeout) {
+	if wait.Interrupted(err) {
 		return true
 	}
 

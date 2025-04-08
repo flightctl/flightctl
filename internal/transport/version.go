@@ -11,7 +11,7 @@ import (
 func (h *TransportHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	versionInfo := version.Get()
 	v := api.Version{
-		Version: versionInfo.GitVersion,
+		Version: versionInfo.String(),
 	}
 	SetResponse(w, v, api.StatusOK())
 }

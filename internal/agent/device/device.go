@@ -176,7 +176,6 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) err
 	}
 
 	if err := a.syncDevice(ctx, current, desired); err != nil {
-		// TODO: enable rollback on failure
 		return fmt.Errorf("sync device: %w", err)
 	}
 
@@ -217,6 +216,9 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
+		// if the device is not upgrading, we should never see a sync error
+		// because the device is in a steady state. this is a potential bug in
+		// the reconciliation loop.
 		if !a.specManager.IsUpgrading() {
 			a.log.Errorf("Steady state is no longer in sync: %v", syncErr)
 			return
@@ -229,12 +231,18 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			}
 		}
 
-		if err := a.rollbackDevice(ctx, current, desired); err != nil {
-			a.log.Warnf("Rollback did not complete cleanly: %v", err)
-			return
+		if err := a.rollbackDevice(ctx, current, desired, a.sync); err != nil {
+			a.log.Errorf("Rollback did not complete cleanly: %v", err)
 		}
 
 		a.handleSyncError(ctx, desired, syncErr)
+		return
+	}
+
+	// skip status update if the device is in a steady state and not upgrading.
+	// also ensures previous failed status is not overwritten.
+	if !a.specManager.IsUpgrading() {
+		a.log.Debug("No upgrade in progress, skipping status update")
 		return
 	}
 
@@ -249,7 +257,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	}
 }
 
-func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.Device) error {
+func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.Device, syncFn func(context.Context, *v1alpha1.Device, *v1alpha1.Device) error) error {
 	a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.DeviceUpdating,
@@ -267,13 +275,7 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.D
 
 	// note: we are explicitly reversing the order of the current and desired to
 	// ensure a clean rollback state.
-	if err := a.sync(ctx, desired, current); err != nil {
-		// log error and continue to ensure the device is in a consistent state
-		a.log.Errorf("Failed to sync rollback spec: %v", err)
-	}
-
-	a.log.Warnf("Rolled back to previous renderedVersion: %s", current.Version())
-	return nil
+	return syncFn(ctx, desired, current)
 }
 
 func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.Device) error {
@@ -322,14 +324,6 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 	}()
 
 	if err := a.statusManager.Sync(ctx); err != nil {
-		msg := err.Error()
-		_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-			Status: v1alpha1.DeviceSummaryStatusDegraded,
-			Info:   &msg,
-		}))
-		if updateErr != nil {
-			a.log.Errorf("Updating device status: %v", updateErr)
-		}
 		a.log.Errorf("Syncing status: %v", err)
 	}
 }
@@ -502,32 +496,25 @@ func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.DeviceSpec)
 }
 
 func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, syncErr error) {
+	if syncErr == nil {
+		return
+	}
+
 	version := desired.Version()
-	statusUpdate := v1alpha1.DeviceSummaryStatus{}
 	conditionUpdate := v1alpha1.Condition{
 		Type: v1alpha1.DeviceUpdating,
 	}
 
 	if !errors.IsRetryable(syncErr) {
-		statusUpdate.Status = v1alpha1.DeviceSummaryStatusError
-		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Reconciliation failed for version %v: %v", version, syncErr))
-
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
-		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", version)
+		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, log.Truncate(syncErr.Error(), status.MaxMessageLength))
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
-		a.log.Error(lo.FromPtr(statusUpdate.Info))
+		a.log.Error(conditionUpdate.Message)
 	} else {
-		statusUpdate.Status = v1alpha1.DeviceSummaryStatusDegraded
-		statusUpdate.Info = lo.ToPtr(fmt.Sprintf("Failed to sync device: Retrying: %v", syncErr))
-
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateApplyingUpdate)
-		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s. Retrying", version)
+		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, log.Truncate(syncErr.Error(), status.MaxMessageLength))
 		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
-		a.log.Warn(lo.FromPtr(statusUpdate.Info))
-	}
-
-	if _, err := a.statusManager.Update(ctx, status.SetDeviceSummary(statusUpdate)); err != nil {
-		a.log.Errorf("Failed to update device status: %v", err)
+		a.log.Warn(conditionUpdate.Message)
 	}
 
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {

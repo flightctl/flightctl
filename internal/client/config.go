@@ -6,11 +6,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api/client"
@@ -20,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/homedir"
@@ -46,7 +49,7 @@ type Config struct {
 // Service contains information how to connect to and authenticate the Flight Control API server.
 type Service struct {
 	// Server is the URL of the Flight Control API server (the part before /api/v1/...).
-	Server string `json:"server"`
+	Server string `json:"server,omitempty"`
 	// TLSServerName is passed to the server for SNI and is used in the client to check server certificates against.
 	// If TLSServerName is empty, the hostname used to contact the server is used.
 	// +optional
@@ -72,27 +75,19 @@ type AuthInfo struct {
 	// ClientKeyData contains PEM-encoded data from a client key file for TLS. Overrides ClientKey.
 	// +optional
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
-	// The authentication type (i.e. k8s, OIDC)
-	// +optional
-	AuthType string `json:"auth-type"`
 	// Bearer token for authentication
 	// +optional
-	AccessToken string `json:"access-token,omitempty"`
-	// Use for refreshing the access token
+	Token string `json:"token,omitempty"`
+	// The authentication provider (i.e. k8s, OIDC)
 	// +optional
-	RefreshToken string `json:"refresh-token,omitempty"`
-	// The time the access token will expire
-	// +optional
-	AccessTokenExpiry string `json:"access-token-expiry"`
-	// CA file used for authentication
-	// +optional
-	AuthCAFile string `json:"auth-ca-file"`
-	// Client ID used for authentication
-	// +optional
-	ClientId string `json:"client-id"`
-	// Authorization URL for authentication
-	// +optional
-	AuthURL string `json:"auth-url"`
+	AuthProvider *AuthProviderConfig `json:"auth-provider,omitempty"`
+}
+
+type AuthProviderConfig struct {
+	// Name is the name of the authentication provider
+	Name string `json:"name"`
+	// Config is a map of authentication provider-specific configuration
+	Config map[string]string `json:"config,omitempty"`
 }
 
 func (c *Config) Equal(c2 *Config) bool {
@@ -129,6 +124,16 @@ func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
 		bytes.Equal(a.ClientKeyData, a2.ClientKeyData)
 }
 
+func (a *AuthProviderConfig) Equal(a2 *AuthProviderConfig) bool {
+	if a == a2 {
+		return true
+	}
+	if a == nil || a2 == nil {
+		return false
+	}
+	return a.Name == a2.Name && maps.Equal(a.Config, a2.Config)
+}
+
 func (c *Config) DeepCopy() *Config {
 	if c == nil {
 		return nil
@@ -157,6 +162,16 @@ func (a *AuthInfo) DeepCopy() *AuthInfo {
 	a2 := *a
 	a2.ClientCertificateData = bytes.Clone(a.ClientCertificateData)
 	a2.ClientKeyData = bytes.Clone(a.ClientKeyData)
+	a2.AuthProvider = a.AuthProvider.DeepCopy()
+	return &a2
+}
+
+func (a *AuthProviderConfig) DeepCopy() *AuthProviderConfig {
+	if a == nil {
+		return nil
+	}
+	a2 := *a
+	a2.Config = maps.Clone(a.Config)
 	return &a2
 }
 
@@ -317,7 +332,13 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
 	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
-	client, err := grpc.NewClient(grpcEndpoint, grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)))
+	client, err := grpc.NewClient(grpcEndpoint,
+		grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second, // Send keepalive ping every 30s
+			Timeout:             10 * time.Second, // Wait 10s for server response
+			PermitWithoutStream: true,             // Send even if no active RPCs
+		}))
 
 	if err != nil {
 		return nil, fmt.Errorf("NewGRPCClientFromConfig: creating gRPC client: %w", err)

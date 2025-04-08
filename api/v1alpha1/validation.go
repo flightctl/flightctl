@@ -11,6 +11,7 @@ import (
 	"text/template/parse"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
@@ -655,8 +656,9 @@ func (a ApplicationProviderSpec) Validate() []error {
 	return allErrs
 }
 
-func (a InlineApplicationProviderSpec) Validate(appType *AppType, fleetTemplate bool) []error {
+func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTemplate bool) []error {
 	allErrs := []error{}
+	appType := lo.FromPtr(appTypeRef)
 
 	seenPath := make(map[string]struct{}, len(a.Inline))
 	for i := range a.Inline {
@@ -668,31 +670,10 @@ func (a InlineApplicationProviderSpec) Validate(appType *AppType, fleetTemplate 
 			seenPath[path] = struct{}{}
 		}
 
-		containsParams, paramErrs := validateParametersInString(&path, fmt.Sprintf("spec.applications[].inline[%d].path", i), fleetTemplate)
-		allErrs = append(allErrs, paramErrs...)
-		if !containsParams {
-			allErrs = append(allErrs, validation.ValidateRelativePath(&path, fmt.Sprintf("spec.applications[].inline[%d].path", i), 253)...)
-		}
-
-		content := lo.FromPtr(a.Inline[i].Content)
-		if a.Inline[i].ContentEncoding != nil && *(a.Inline[i].ContentEncoding) == EncodingBase64 && content != "" {
-			// contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
-			allErrs = append(allErrs, validation.ValidateBase64Field(content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), maxInlineLength)...)
-			// can ignore errors because we just validated it in the previous line
-			b, _ := base64.StdEncoding.DecodeString(content)
-			_, paramErrs := validateParametersInString(lo.ToPtr(string(b)), fmt.Sprintf("spec.applications[].inline.[%d].content", i), fleetTemplate)
-			allErrs = append(allErrs, paramErrs...)
-		} else if (a.Inline[i].ContentEncoding == nil || *(a.Inline[i].ContentEncoding) == EncodingPlain) && content != "" {
-			// contents should be limited to 1MB (1024*1024=1048576 bytes)
-			allErrs = append(allErrs, validation.ValidateString(&content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), 0, maxInlineLength, nil, "")...)
-			_, paramErrs := validateParametersInString(&content, fmt.Sprintf("spec.applications[].inline.[%d].content", i), fleetTemplate)
-			allErrs = append(allErrs, paramErrs...)
-		} else {
-			allErrs = append(allErrs, fmt.Errorf("unknown encoding type: %s", *(a.Inline[i].ContentEncoding)))
-		}
+		allErrs = append(allErrs, a.Inline[i].Validate(i, appType, fleetTemplate)...)
 	}
 
-	if appType != nil && *appType == AppTypeCompose {
+	if appType == AppTypeCompose {
 		paths := make([]string, 0, len(seenPath))
 		for path := range seenPath {
 			paths = append(paths, path)
@@ -700,6 +681,74 @@ func (a InlineApplicationProviderSpec) Validate(appType *AppType, fleetTemplate 
 		if err := validation.ValidateComposePaths(paths); err != nil {
 			allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", err))
 		}
+	}
+
+	return allErrs
+}
+
+func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate bool) []error {
+	var allErrs []error
+	pathPrefix := fmt.Sprintf("spec.applications[].inline[%d]", index)
+
+	// validate path
+	containsParams, paramErrs := validateParametersInString(&c.Path, pathPrefix+".path", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateRelativePath(&c.Path, pathPrefix+".path", 253)...)
+	}
+
+	content := lo.FromPtr(c.Content)
+	if content == "" {
+		return allErrs
+	}
+
+	var decodedBytes []byte
+	var decodedStr string
+	contentPath := fmt.Sprintf("%s.content", pathPrefix)
+	if c.IsBase64() {
+		var err error
+		decodedBytes, err = base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("decode base64 content: %w", err))
+			return allErrs
+		}
+		decodedStr = string(decodedBytes)
+	} else if c.IsPlain() {
+		decodedStr = content
+		decodedBytes = []byte(content)
+	} else {
+		allErrs = append(allErrs, fmt.Errorf("unknown encoding type: %s", *c.ContentEncoding))
+		return allErrs
+	}
+
+	// validate content
+	allErrs = append(allErrs, validation.ValidateString(&decodedStr, contentPath, 0, maxInlineLength, nil, "")...)
+	_, paramErrs = validateParametersInString(&decodedStr, contentPath, fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	allErrs = append(allErrs, ValidateApplicationContent(decodedBytes, appType)...)
+
+	return allErrs
+}
+
+func (c ApplicationContent) IsBase64() bool {
+	return c.ContentEncoding != nil && *c.ContentEncoding == EncodingBase64
+}
+
+func (c ApplicationContent) IsPlain() bool {
+	return c.ContentEncoding == nil || *c.ContentEncoding == EncodingPlain
+}
+
+func ValidateApplicationContent(content []byte, appType AppType) []error {
+	var allErrs []error
+	switch appType {
+	case AppTypeCompose:
+		composeSpec, err := common.ParseComposeSpec(content)
+		if err != nil {
+			return []error{fmt.Errorf("parse compose spec: %w", err)}
+		}
+		allErrs = append(allErrs, validation.ValidateComposeSpec(composeSpec)...)
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unsupported application type: %s", appType))
 	}
 
 	return allErrs

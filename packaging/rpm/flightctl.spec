@@ -85,6 +85,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 
 %install
     mkdir -p %{buildroot}/usr/bin
+    mkdir -p %{buildroot}/etc/flightctl
     cp bin/flightctl %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
@@ -152,6 +153,7 @@ fi
 
 %files agent -f licenses.list
     %license LICENSE
+    %dir /etc/flightctl
     %{_bindir}/flightctl-agent
     %{_bindir}/flightctl-must-gather
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml

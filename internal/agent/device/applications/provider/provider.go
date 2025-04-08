@@ -259,12 +259,12 @@ func ensureCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 		return fmt.Errorf("parsing compose spec: %w", err)
 	}
 
-	if err := spec.Verify(); err != nil {
-		return fmt.Errorf("validating compose spec: %w", err)
+	if errs := validation.ValidateComposeSpec(spec); len(errs) > 0 {
+		return fmt.Errorf("validating compose spec: %w", errors.Join(errs...))
 	}
 
-	for _, image := range spec.Images() {
-		if err := ensureImageExists(ctx, log, podman, image); err != nil {
+	for _, svc := range spec.Services {
+		if err := ensureImageExists(ctx, log, podman, svc.Image); err != nil {
 			return fmt.Errorf("pulling service image: %w", err)
 		}
 	}
