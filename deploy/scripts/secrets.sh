@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -eo pipefail
+
 # Generate a random password
 # Returns: A random password string
 generate_password() {

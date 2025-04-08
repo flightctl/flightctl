@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -e
 
 _psql () { psql --set ON_ERROR_STOP=1 "$@" ; }
 

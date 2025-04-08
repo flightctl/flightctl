@@ -10,8 +10,8 @@ write_default_base_domain() {
     # Write base domain to the config file
     base_domain="$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')"
     echo "Setting base domain to: ${base_domain}"
-    VALUES_FILE="/etc/flightctl/values.yaml"
-    sed -i "s/^\(\s*baseDomain\s*\):\s*.*$/\1: ${base_domain}/" "${VALUES_FILE}"
+    SERVICE_CONFIG_FILE="/etc/flightctl/service-config.yaml"
+    sed -i "s/^\(\s*baseDomain\s*\):\s*.*$/\1: ${base_domain}/" "${SERVICE_CONFIG_FILE}"
 }
 
 main() {

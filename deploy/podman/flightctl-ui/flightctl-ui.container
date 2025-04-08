@@ -16,6 +16,7 @@ Volume=flightctl-ui-certs:/app/certs:ro,z
 
 [Service]
 Restart=always
+RestartSec=30
 Slice=flightctl.slice
 
 [Install]

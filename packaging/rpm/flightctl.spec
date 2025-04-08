@@ -63,7 +63,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 
 # services sub-package
 %package services
-Summary: Flight Contol services
+Summary: Flight Control services
 Requires: bash
 Requires: podman
 
@@ -128,17 +128,15 @@ The flightctl-services package provides installation and setup of files for runn
     done
 
     # flightctl-services sub-package steps
-    # Create the target directory
-    mkdir -p %{buildroot}%{_sysconfdir}/flightctl/
-
     # Run the install script to move the quadlet files
-    CONFIG_OUTPUT_DIR="%{buildroot}%{_sysconfdir}/flightctl/" \
-    QUADLET_FILES_OUTPUT_DIR="%{buildroot}/usr/share/containers/systemd/" \
+    CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" \
+    CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" \
+    QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" \
     deploy/scripts/install.sh
 
     # Copy files needed for post install into the build root
-    cp deploy/scripts/post_install.sh %{buildroot}%{_sysconfdir}/flightctl/post_install.sh
-    cp deploy/scripts/secrets.sh %{buildroot}%{_sysconfdir}/flightctl/secrets.sh
+    cp deploy/scripts/post_install.sh %{buildroot}%{_datadir}/flightctl/post_install.sh
+    cp deploy/scripts/secrets.sh %{buildroot}%{_datadir}/flightctl/secrets.sh
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
@@ -163,7 +161,7 @@ fi
 %selinux_relabel_post -s %{selinuxtype}
 
 %post services
-%{_sysconfdir}/flightctl/post_install.sh
+%{_datadir}/flightctl/post_install.sh
 
 # File listings
 # No %files section for the main package, so it won't be built
@@ -192,10 +190,32 @@ fi
 
 %files services
     %defattr(0644,root,root,-)
-    /usr/share/containers/systemd
-    %{_sysconfdir}/flightctl
-    %attr(0755,root,root) %{_sysconfdir}/flightctl/post_install.sh
-    %attr(0755,root,root) %{_sysconfdir}/flightctl/secrets.sh
+    # Files mounted to system config
+    %dir %{_sysconfdir}/flightctl
+    %dir %{_sysconfdir}/flightctl/pki
+    %dir %{_sysconfdir}/flightctl/flightctl-api
+    %dir %{_sysconfdir}/flightctl/flightctl-ui
+    %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
+
+    # Files mounted to data dir
+    %dir %attr(0444,root,root) %{_datadir}/flightctl
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-api
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-kv
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-ui
+    %{_datadir}/flightctl/flightctl-api/config.yaml.template
+    %{_datadir}/flightctl/flightctl-api/env.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
+    %{_datadir}/flightctl/flightctl-kv/redis.conf
+    %{_datadir}/flightctl/flightctl-ui/env.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
+    %{_datadir}/containers/systemd/flightctl*
+
+    # Handle permissions for scripts run as part of the rpm post install
+    %attr(0755,root,root) %{_datadir}/flightctl/post_install.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
 
 %changelog
 

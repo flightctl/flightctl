@@ -45,5 +45,5 @@ timeout --foreground 300s bash -c '
 }
 
 echo "Deployment completed. Please log in to Flight Control with the following command:"
-echo "Login: flightctl login --insecure-skip-tls-verify $(grep baseUrl $CONFIG_OUTPUT_DIR/flightctl-api/config.yaml | awk '{print $2}')"
-echo "Console URL: $(grep baseUIUrl $CONFIG_OUTPUT_DIR/flightctl-api/config.yaml | awk '{print $2}')"
+echo "Login: flightctl login --insecure-skip-tls-verify $(grep baseUrl $CONFIG_WRITEABLE_DIR/flightctl-api/config.yaml | awk '{print $2}')"
+echo "Console URL: $(grep baseUIUrl $CONFIG_WRITEABLE_DIR/flightctl-api/config.yaml | awk '{print $2}')"

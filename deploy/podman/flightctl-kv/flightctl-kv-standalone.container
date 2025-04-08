@@ -13,7 +13,7 @@ PodmanArgs="--userns=keep-id:uid=999,gid=999"
 
 PublishPort=6379:6379
 Volume=flightctl-kv:/var/lib/redis/data:Z,U
-Volume=/etc/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
+Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
 
 [Service]
 Type=notify

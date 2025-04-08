@@ -4,35 +4,31 @@ set -eo pipefail
 
 echo "Initializing flightctl-api configuration"
 
+source "/utils/init_utils.sh"
+
 # Define paths
 CERTS_SOURCE_PATH="/certs"
 CERTS_DEST_PATH="/root/.flightctl/certs"
-VALUES_FILE="/values/values.yaml"
-CONFIG_TEMPLATE="/config/config.yaml.template"
-CONFIG_OUTPUT="/config/config.yaml"
-ENV_TEMPLATE="/config/env.template"
-ENV_FILE="/config/env"
+SERVICE_CONFIG_FILE="/service-config.yaml"
+CONFIG_TEMPLATE="/config-source/config.yaml.template"
+CONFIG_OUTPUT="/config-destination/config.yaml"
+ENV_TEMPLATE="/config-source/env.template"
+ENV_OUTPUT="/config-destination/env"
 
-# Function to extract a value from the YAML file
-extract_value() {
-    local key="$1"
-    sed -n -E "s/^[[:space:]]*${key}:[[:space:]]*[\"']?([^\"'#]+)[\"']?.*$/\1/p" "$VALUES_FILE"
-}
-
-# Check if values file exists
-if [ ! -f "$VALUES_FILE" ]; then
-  echo "Error: Values file not found at $VALUES_FILE"
+# Check if service config file exists
+if [ ! -f "$SERVICE_CONFIG_FILE" ]; then
+  echo "Error: Service config file not found at $SERVICE_CONFIG_FILE"
   exit 1
 fi
 
 # Extract values
-BASE_DOMAIN=$(extract_value "baseDomain")
+BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
 SRV_CERT_FILE=""
 SRV_KEY_FILE=""
 
 # Extract auth-related values
-AUTH_TYPE=$(extract_value "type")
-INSECURE_SKIP_TLS_VERIFY=$(extract_value "insecureSkipTlsVerify")
+AUTH_TYPE=$(extract_value "type" "$SERVICE_CONFIG_FILE")
+INSECURE_SKIP_TLS_VERIFY=$(extract_value "insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE")
 AUTH_CA_CERT=""
 AAP_API_URL=""
 AAP_EXTERNAL_API_URL=""
@@ -40,15 +36,15 @@ FLIGHTCTL_DISABLE_AUTH=""
 
 # Verify required values were found
 if [ -z "$BASE_DOMAIN" ]; then
-  echo "Error: Could not find baseDomain in values file"
+  echo "Error: Could not find baseDomain in service config file"
   exit 1
 fi
 
 # Process auth settings based on auth type
 if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
-  AAP_API_URL=$(extract_value "apiUrl")
-  AAP_EXTERNAL_API_URL=$(extract_value "externalApiUrl")
+  AAP_API_URL=$(extract_value "apiUrl" "$SERVICE_CONFIG_FILE")
+  AAP_EXTERNAL_API_URL=$(extract_value "externalApiUrl" "$SERVICE_CONFIG_FILE")
 else
   echo "Auth not configured"
   FLIGHTCTL_DISABLE_AUTH="true"
@@ -78,6 +74,6 @@ sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT"
 
 # Template the environment file
-sed "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" "$ENV_TEMPLATE" > "$ENV_FILE"
+sed "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 echo "Initialization complete"

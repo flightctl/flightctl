@@ -3,7 +3,7 @@
 set -eo pipefail
 
 # Directory path for source files
-SOURCE_DIR="deploy/podman"
+SOURCE_DIR="deploy"
 
 # Load shared functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"

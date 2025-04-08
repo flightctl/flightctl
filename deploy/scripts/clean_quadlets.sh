@@ -11,15 +11,18 @@ clean_services() {
     for service in flightctl.slice flightctl-*.service; do
         if  systemctl is-active --quiet "$service"; then
             echo "Stopping $service..."
-            systemctl stop "$service" || echo "Warning: Failed to stop $service"
+            systemctl stop "$service" || echo "Warning: Failed to stop service $service"
         fi
     done
 }
 
 clean_files() {
     # Use the read-only directory constants from shared.sh
-    echo "Removing configuration files from ${CONFIG_OUTPUT_DIR}"
-    rm -rf "$CONFIG_OUTPUT_DIR" || echo "Warning: Failed to remove config files"
+    echo "Removing read-only configuration files from ${CONFIG_READONLY_DIR}"
+    rm -rf "$CONFIG_READONLY_DIR" || echo "Warning: Failed to remove read-only config files"
+
+    echo "Removing writeable configuration files from ${CONFIG_WRITEABLE_DIR}"
+    rm -rf "$CONFIG_WRITEABLE_DIR" || echo "Warning: Failed to remove writeable config files"
 
     echo "Removing quadlet files from ${QUADLET_FILES_OUTPUT_DIR}"
     rm -rf "$QUADLET_FILES_OUTPUT_DIR/flightctl"* || echo "Warning: Failed to remove quadlet config files"
@@ -30,7 +33,7 @@ clean_volumes() {
     for volume in flightctl-db flightctl-api-certs flightctl-kv flightctl-ui-certs; do
         if podman volume inspect "$volume" >/dev/null 2>&1; then
             echo "Removing volume $volume"
-            podman volume rm "$volume" || echo "Warning: Failed to remove $volume"
+            podman volume rm "$volume" || echo "Warning: Failed to remove volume $volume"
         fi
     done
 }
@@ -49,7 +52,7 @@ clean_secrets() {
     for secret in "${secrets[@]}"; do
         if  podman secret inspect "$secret" &>/dev/null; then
             echo "Removing secret $secret"
-            podman secret rm "$secret" || echo "Warning: Failed to remove $secret"
+            podman secret rm "$secret" || echo "Warning: Failed to remove secret $secret"
         fi
     done
 }

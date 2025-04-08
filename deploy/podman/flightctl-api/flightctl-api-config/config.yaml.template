@@ -1,26 +1,26 @@
 database:
-    hostname: flightctl-db
-    type: pgsql
-    port: 5432
-    name: flightctl
-    user: admin
+  hostname: flightctl-db
+  type: pgsql
+  port: 5432
+  name: flightctl
+  user: admin
 service:
-    address: flightctl-api:3443
-    agentEndpointAddress: flightctl-api:7443
-    baseUrl: https://{{BASE_DOMAIN}}:3443/
-    baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
-    baseUIUrl: https://{{BASE_DOMAIN}}:443
-    altNames:
-      - {{BASE_DOMAIN}}
-      - flightctl-api
-    srvCertFile: {{SRV_CERT_FILE}}
-    srvKeyFile: {{SRV_KEY_FILE}}
+  address: flightctl-api:3443
+  agentEndpointAddress: flightctl-api:7443
+  baseUrl: https://{{BASE_DOMAIN}}:3443/
+  baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
+  baseUIUrl: https://{{BASE_DOMAIN}}:443
+  altNames:
+    - {{BASE_DOMAIN}}
+    - flightctl-api
+  srvCertFile: {{SRV_CERT_FILE}}
+  srvKeyFile: {{SRV_KEY_FILE}}
 kv:
-    hostname: flightctl-kv
-    port: 6379
+  hostname: flightctl-kv
+  port: 6379
 auth:
-    insecureSkipTlsVerify: {{INSECURE_SKIP_TLS_VERIFY}}
-    caCert: {{AUTH_CA_CERT}}
-    aap:
-        apiUrl: {{AAP_API_URL}}
-        externalApiUrl: {{AAP_EXTERNAL_API_URL}}
+  insecureSkipTlsVerify: {{INSECURE_SKIP_TLS_VERIFY}}
+  caCert: {{AUTH_CA_CERT}}
+  aap:
+    apiUrl: {{AAP_API_URL}}
+    externalApiUrl: {{AAP_EXTERNAL_API_URL}}
