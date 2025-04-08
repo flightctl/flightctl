@@ -78,7 +78,7 @@ func TestSync(t *testing.T) {
 					mockSystemClient.EXPECT().BootID().Return("boot-id"),
 					mockManagementClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(desired, 200, nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
-					mockAppManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
+					mockAppManager.EXPECT().BeforeUpdate(ctx, desired.Spec, gomock.Any()).Return(nil),
 					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, desired.Spec).Return(nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
@@ -93,7 +93,7 @@ func TestSync(t *testing.T) {
 					//
 					// rollback switch current and desired spec ordering
 					//
-					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec).Return(nil),
+					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec, gomock.Any()).Return(nil),
 					mockHookManager.EXPECT().OnBeforeUpdating(ctx, desired.Spec, current.Spec).Return(nil),
 					mockHookManager.EXPECT().Sync(desired.Spec, current.Spec).Return(nil),
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
@@ -107,7 +107,7 @@ func TestSync(t *testing.T) {
 					// resync steady state current 0 desired 0
 					//
 					mockManagementClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(desired, 200, nil),
-					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec).Return(nil),
+					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec, gomock.Any()).Return(nil),
 					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, current.Spec).Return(nil),
 					mockHookManager.EXPECT().Sync(current.Spec, current.Spec).Return(nil),
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),

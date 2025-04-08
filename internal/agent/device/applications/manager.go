@@ -83,7 +83,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 }
 
 // BeforeUpdate prepares the manager for reconciliation.
-func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec, opts ...UpdateOption) error {
 	if desired.Applications == nil || len(*desired.Applications) == 0 {
 		m.log.Debug("No applications to pre-check")
 		return nil
@@ -91,7 +91,18 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec
 	m.log.Debug("Pre-checking application dependencies")
 	defer m.log.Info("Finished pre-checking application dependencies")
 
-	providers, err := provider.FromDeviceSpec(ctx, m.log, m.podmanMonitor.client, m.readWriter, desired, provider.WithEmbedded())
+	options := &updateOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	providerOps := []provider.ParseOpt{provider.WithEmbedded()}
+	if !options.rollback {
+		// do not verify embedded provider if rollingback
+		providerOps = append(providerOps, provider.WithEmbeddedVerify())
+	}
+
+	providers, err := provider.FromDeviceSpec(ctx, m.log, m.podmanMonitor.client, m.readWriter, desired, providerOps...)
 	if err != nil {
 		return fmt.Errorf("parsing apps: %w", err)
 	}

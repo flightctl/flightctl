@@ -454,11 +454,13 @@ func TestControllerSync(t *testing.T) {
 				}
 
 				// generate current and desired for each step
-				current, err := newTestDeviceSpec(currentApps)
+				currentSpec, err := newTestDeviceSpec(currentApps)
 				require.NoError(err)
-				desired, err := newTestDeviceSpec(desiredApps)
+				desiredSpec, err := newTestDeviceSpec(desiredApps)
 				require.NoError(err)
 
+				current := &v1alpha1.Device{Spec: currentSpec}
+				desired := &v1alpha1.Device{Spec: desiredSpec}
 				err = controller.Sync(ctx, current, desired)
 				require.NoError(err)
 			}
