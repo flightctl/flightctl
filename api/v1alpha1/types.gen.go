@@ -500,14 +500,14 @@ type DeviceOsStatus struct {
 
 // DeviceResourceStatus Current status of the resources of the device.
 type DeviceResourceStatus struct {
-	// Cpu The types of resource statuses.
-	Cpu DeviceResourceStatusType `json:"cpu"`
+	// CPU The types of resource statuses.
+	CPU DeviceResourceStatusType `json:"CPU"`
 
 	// Disk The types of resource statuses.
-	Disk DeviceResourceStatusType `json:"disk"`
+	Disk DeviceResourceStatusType `json:"Disk"`
 
 	// Memory The types of resource statuses.
-	Memory DeviceResourceStatusType `json:"memory"`
+	Memory DeviceResourceStatusType `json:"Memory"`
 }
 
 // DeviceResourceStatusType The types of resource statuses.
