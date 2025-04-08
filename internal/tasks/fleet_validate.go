@@ -95,7 +95,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 }
 
 func (t *FleetValidateLogic) setStatus(ctx context.Context, validationErr error) error {
-	condition := api.Condition{Type: api.FleetValid}
+	condition := api.Condition{Type: api.ConditionTypeFleetValid}
 
 	if validationErr == nil {
 		condition.Status = api.ConditionStatusTrue

@@ -28,7 +28,7 @@ func (d *Device) IsManagedBy(f *Fleet) bool {
 
 // IsUpdating() is true if the device's agent reports that it is updating.
 func (d *Device) IsUpdating() bool {
-	return d != nil && d.Status != nil && IsStatusConditionTrue(d.Status.Conditions, DeviceUpdating)
+	return d != nil && d.Status != nil && IsStatusConditionTrue(d.Status.Conditions, ConditionTypeDeviceUpdating)
 }
 
 // IsRebooting() is true if the device's agent has the updating condition set with state Rebooting.
@@ -36,7 +36,7 @@ func (d *Device) IsRebooting() bool {
 	if d == nil || d.Status == nil {
 		return false
 	}
-	updatingCondition := FindStatusCondition(d.Status.Conditions, DeviceUpdating)
+	updatingCondition := FindStatusCondition(d.Status.Conditions, ConditionTypeDeviceUpdating)
 	if updatingCondition == nil {
 		return false
 	}
@@ -95,7 +95,7 @@ func (d *Device) Version() string {
 
 // IsDecomStarted() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Started' Reason.
 func (c *Condition) IsDecomStarted() bool {
-	if c.Type == DeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateStarted) {
+	if c.Type == ConditionTypeDeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateStarted) {
 		return true
 	}
 	return false
@@ -103,7 +103,7 @@ func (c *Condition) IsDecomStarted() bool {
 
 // IsDecomComplete() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Complete' Reason.
 func (c *Condition) IsDecomComplete() bool {
-	if c.Type == DeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateComplete) {
+	if c.Type == ConditionTypeDeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateComplete) {
 		return true
 	}
 	return false
@@ -111,7 +111,7 @@ func (c *Condition) IsDecomComplete() bool {
 
 // IsDecomError() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Error' Reason.
 func (c *Condition) IsDecomError() bool {
-	if c.Type == DeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateError) {
+	if c.Type == ConditionTypeDeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateError) {
 		return true
 	}
 	return false

@@ -118,7 +118,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 }
 
 func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
-	condition := api.Condition{Type: api.DeviceSpecValid}
+	condition := api.Condition{Type: api.ConditionTypeDeviceSpecValid}
 
 	if renderErr == nil {
 		condition.Status = api.ConditionStatusTrue
