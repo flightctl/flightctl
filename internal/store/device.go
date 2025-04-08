@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -530,7 +529,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 
 	// Changing the console annotation requires bumping the renderedVersion annotation
 	if existingConsoleAnnotation != newConsoleAnnotation {
-		nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
+		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
 		if err != nil {
 			return false, err
 		}
@@ -567,7 +566,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	nextRenderedVersion, err := getNextRenderedVersion(existingAnnotations)
+	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
 	if err != nil {
 		return false, err
 	}
@@ -598,21 +597,6 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 		return true, flterrors.ErrNoRowsUpdated
 	}
 	return false, nil
-}
-
-func getNextRenderedVersion(annotations map[string]string) (string, error) {
-	var currentRenderedVersion int64 = 0
-	var err error
-	renderedVersionString, ok := annotations[api.DeviceAnnotationRenderedVersion]
-	if ok {
-		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	currentRenderedVersion++
-	return strconv.FormatInt(currentRenderedVersion, 10), nil
 }
 
 func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {

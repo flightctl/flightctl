@@ -73,7 +73,7 @@ var _ = Describe("cli operation", func() {
 			By("Connecting to a device")
 			deviceID := harness.StartVMAndEnroll()
 			logrus.Infof("Attempting console connect command to device %s", deviceID)
-			stdin, stdoutReader, err := harness.RunInteractiveCLI("console", "device/"+deviceID)
+			stdin, stdoutReader, err := harness.RunInteractiveCLI("console", "--tty", "device/"+deviceID)
 			Expect(err).ToNot(HaveOccurred())
 
 			stdout := BufferReader(stdoutReader)
@@ -83,16 +83,11 @@ var _ = Describe("cli operation", func() {
 				Expect(err).ToNot(HaveOccurred())
 			}
 
-			// we don't have a virtual pty, so we need to make sure the console
-			// will print a \n so stdout is flushed to us
-			Eventually(stdout, TIMEOUT, POLLING).Should(Say(".*Connecting to .*\n"))
-			Eventually(stdout, TIMEOUT, POLLING).Should(Say(".*to exit console.*\n"))
-
 			logrus.Infof("Waiting for root prompt on device %s console", deviceID)
 			send("")
 			Eventually(stdout, TIMEOUT, POLLING).Should(Say(".*root@.*#"))
 
-			logrus.Infof("Waiting fo ls output  on device %s console", deviceID)
+			logrus.Infof("Waiting for ls output  on device %s console", deviceID)
 			send("ls")
 
 			Eventually(stdout, TIMEOUT, POLLING).Should(Say(".*bin"))
@@ -105,9 +100,7 @@ var _ = Describe("cli operation", func() {
 			// Make sure that there is no panic output from the console client
 			Consistently(stdout, "2s").ShouldNot(Say(".*panic:"))
 			stdout.Close()
-
 		})
-
 	})
 
 	Context("certificate generation per user", func() {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"time"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -40,7 +42,12 @@ func NewAgentGrpcServer(
 }
 
 func (s *AgentGrpcServer) PrepareGRPCService() *grpc.Server {
-	server := grpc.NewServer(grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)))
+	server := grpc.NewServer(grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: 15 * time.Minute, // Close idle connections after 15 minutes
+			Time:              2 * time.Minute,  // Send keepalive ping every 2 minutes
+			Timeout:           20 * time.Second, // Wait 20s for client response before closing
+		}))
 	pb.RegisterRouterServiceServer(server, s)
 	return server
 }
@@ -72,6 +79,7 @@ func (s *AgentGrpcServer) StartSession(session *console.ConsoleSession) error {
 // from the other side
 func (s *AgentGrpcServer) CloseSession(session *console.ConsoleSession) error {
 	s.log.Infof("the console manager closed the session %s for device %s", session.UUID, session.DeviceName)
+	s.pendingStreams.Delete(session.UUID)
 	return nil
 }
 func (s *AgentGrpcServer) Stream(stream pb.RouterService_StreamServer) error {
@@ -123,6 +131,16 @@ func (s *AgentGrpcServer) Stream(stream pb.RouterService_StreamServer) error {
 		// There is a ws console session on the other side, we should forward the ws connection to the console session
 		if otherSideSession != nil {
 			s.log.Infof("client %s connected to session %s, forwarding ws console session", clientName, sessionId)
+
+			selectedProtocols := md.Get(consts.GrpcSelectedProtocolKey)
+			if len(selectedProtocols) != 1 {
+				close(otherSideSession.ProtocolCh)
+				return status.Error(codes.InvalidArgument, "missing "+consts.GrpcSelectedProtocolKey)
+			}
+			selectedProtocol := selectedProtocols[0]
+
+			// Tell the other side to use the selected protocol
+			otherSideSession.ProtocolCh <- selectedProtocol
 			return s.forwardConsoleSession(ctx, stream, otherSideSession, sessionId, actual)
 		}
 
@@ -152,10 +170,12 @@ func (s *AgentGrpcServer) pipeStreamToChannel(ctx context.Context, a pb.RouterSe
 	for {
 		select {
 		case <-ctx.Done():
+			s.log.Debug("context is closed")
 			return io.EOF
 		default:
 			msg, err := a.Recv()
 			if err != nil {
+				s.log.Debugf("failed to receive a message: %v", err)
 				return err
 			}
 
@@ -163,6 +183,7 @@ func (s *AgentGrpcServer) pipeStreamToChannel(ctx context.Context, a pb.RouterSe
 			closed := msg.GetClosed()
 			ch <- payload
 			if closed {
+				s.log.Debug("channel is closed")
 				return io.EOF
 			}
 		}
@@ -173,15 +194,18 @@ func (s *AgentGrpcServer) pipeChannelToStream(ctx context.Context, ch chan []byt
 	for {
 		select {
 		case <-ctx.Done():
+			s.log.Debug("context is closed")
 			_ = a.Send(&pb.StreamResponse{Payload: []byte{}, Closed: true})
 			return io.EOF
 
 		case payload, ok := <-ch:
 			if !ok {
+				s.log.Debug("channel is closed")
 				_ = a.Send(&pb.StreamResponse{Payload: []byte{}, Closed: true})
 				return io.EOF
 			}
 			if err := a.Send(&pb.StreamResponse{Payload: payload}); err != nil {
+				s.log.Debugf("send to agent %v", err)
 				return err
 			}
 		}
