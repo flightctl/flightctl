@@ -132,6 +132,7 @@ The flightctl-services package provides installation and setup of files for runn
     CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" \
     CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" \
     QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" \
+    SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" \
     deploy/scripts/install.sh
 
     # Copy files needed for post install into the build root
@@ -216,6 +217,9 @@ fi
     # Handle permissions for scripts run as part of the rpm post install
     %attr(0755,root,root) %{_datadir}/flightctl/post_install.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
+
+    # Files mounted to lib dir
+    /usr/lib/systemd/system/flightctl.target
 
 %changelog
 

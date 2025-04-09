@@ -1,7 +1,6 @@
 [Unit]
 Description=Flight Control Key Value service
-After=flightctl-db.service
-Requires=flightctl-db.service
+PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-kv
@@ -22,7 +21,6 @@ Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.c
 Type=notify
 Restart=always
 RestartSec=30
-Slice=flightctl.slice
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target

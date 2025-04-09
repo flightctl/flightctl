@@ -20,7 +20,7 @@ if ! deploy/scripts/post_install.sh; then
     exit 1
 fi
 
-start_service "flightctl.slice"
+start_service "flightctl.target"
 
 echo "Checking if all services are running..."
 
