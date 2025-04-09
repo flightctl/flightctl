@@ -113,11 +113,8 @@ function get_endpoint_host() {
         flightctl-api-route-agent)
             echo "agent-api.${IP}.nip.io:7443"
             ;;
-        flightctl-api-route-agent-grpc)
-            echo "agent-grpc.${IP}.nip.io:7444"
-            ;;
         flightctl-ui)
-            echo "ui.${IP}.nip.io:7444"
+            echo "ui.${IP}.nip.io:9000"
             ;;
         *)
             echo "Unable to find endpoint for ${name}" >&2
@@ -129,7 +126,6 @@ function get_endpoint_host() {
 function get_endpoints() {
   export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://$(get_endpoint_host "flightctl-api-route")}
   export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://$(get_endpoint_host "flightctl-api-route-agent")}
-  export FLIGHTCTL_AGENT_GRPC=${FLIGHTCTL_AGENT_GRPC:-grpcs://$(get_endpoint_host "flightctl-api-route-agent-grpc")}
   export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://$(get_endpoint_host "flightctl-ui")}
 }
 
