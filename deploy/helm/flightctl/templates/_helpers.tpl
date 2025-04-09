@@ -95,12 +95,20 @@
 
 {{- define "flightctl.getCliArtifactsUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-  {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-    {{- printf "https://%s:%v" $baseDomain .Values.global.nodePorts.cliArtifacts }} 
-  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
-    {{- printf "https://cli-artifacts.%s:%v" $baseDomain .Values.global.gatewayPorts.tls }}
+  {{- $scheme := (include "flightctl.getHttpScheme" . )}}
+  {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
+  {{- if eq $exposeMethod "nodePort" }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.cliArtifacts }} 
+  {{- else if eq $exposeMethod "gateway" }}
+    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80))}}
+      {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }}
+    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gatewayPorts.tls) 443))}}
+      {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
+    {{- else }}
+      {{- printf "%s://cli-artifacts.%s" $scheme $baseDomain }}
+    {{- end }}
   {{- else }}
-    {{- printf "https://cli-artifacts.%s" $baseDomain }}
+    {{- printf "%s://cli-artifacts.%s" $scheme $baseDomain }}
   {{- end }}
 {{- end }}
 
