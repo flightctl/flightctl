@@ -42,6 +42,8 @@ unit-test:
 run-integration-test:
 	$(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
+integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
+integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
 integration-test: deploy-db deploy-kv run-integration-test kill-kv kill-db
 
 

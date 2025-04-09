@@ -12,7 +12,7 @@
     restorecon -v /usr/bin/flightctl-agent
 
 Name:           flightctl
-Version:        0.4.0
+Version:        0.6.0
 Release:        1%{?dist}
 Summary:        Flight Control service
 
@@ -50,7 +50,7 @@ Requires: bootc
 %description agent
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
 
-
+# selinux sub-package
 %package selinux
 Summary: SELinux policies for the Flight Control management agent
 BuildRequires: selinux-policy >= %{selinux_policyver}
@@ -61,6 +61,14 @@ Requires: selinux-policy >= %{selinux_policyver}
 %description selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
 
+# services sub-package
+%package services
+Summary: Flight Control services
+Requires: bash
+Requires: podman
+
+%description services
+The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
 %prep
 %goprep -A
@@ -119,6 +127,17 @@ The flightctl-selinux package provides the SELinux policy modules required by th
         cp -vr "${DOC}" "%{buildroot}%{_docdir}/%{NAME}/${DOC}"
     done
 
+    # flightctl-services sub-package steps
+    # Run the install script to move the quadlet files
+    CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" \
+    CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" \
+    QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" \
+    deploy/scripts/install.sh
+
+    # Copy files needed for post install into the build root
+    cp deploy/scripts/post_install.sh %{buildroot}%{_datadir}/flightctl/post_install.sh
+    cp deploy/scripts/secrets.sh %{buildroot}%{_datadir}/flightctl/secrets.sh
+
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
 
@@ -140,6 +159,9 @@ fi
 %posttrans selinux
 
 %selinux_relabel_post -s %{selinuxtype}
+
+%post services
+%{_datadir}/flightctl/post_install.sh
 
 # File listings
 # No %files section for the main package, so it won't be built
@@ -166,8 +188,39 @@ fi
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
+%files services
+    %defattr(0644,root,root,-)
+    # Files mounted to system config
+    %dir %{_sysconfdir}/flightctl
+    %dir %{_sysconfdir}/flightctl/pki
+    %dir %{_sysconfdir}/flightctl/flightctl-api
+    %dir %{_sysconfdir}/flightctl/flightctl-ui
+    %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
+
+    # Files mounted to data dir
+    %dir %attr(0444,root,root) %{_datadir}/flightctl
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-api
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-kv
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-ui
+    %{_datadir}/flightctl/flightctl-api/config.yaml.template
+    %{_datadir}/flightctl/flightctl-api/env.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
+    %{_datadir}/flightctl/flightctl-kv/redis.conf
+    %{_datadir}/flightctl/flightctl-ui/env.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
+    %{_datadir}/containers/systemd/flightctl*
+
+    # Handle permissions for scripts run as part of the rpm post install
+    %attr(0755,root,root) %{_datadir}/flightctl/post_install.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
+
 %changelog
 
+* Mon Mar 31 2025 Dakota Crowder <dcrowder@redhat.com> - 0.6.0-1
+- Add services sub-package for installation of containerized flightctl services
 * Fri Feb 7 2025 Miguel Angel Ajo <majopela@redhat.com> - 0.4.0-1
 - Add selinux support for console pty access
 
