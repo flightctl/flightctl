@@ -1,5 +1,6 @@
 [Unit]
 Description=PostgreSQL Database for Flightctl
+PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-db
@@ -16,7 +17,6 @@ Volume=/usr/share/flightctl/flightctl-db/enable-superuser.sh:/usr/share/containe
 [Service]
 Restart=always
 RestartSec=30
-Slice=flightctl.slice
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target

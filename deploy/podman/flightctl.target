@@ -1,0 +1,31 @@
+[Unit]
+Description=Flight Control Services Group
+
+# Requires= directives ensures these services are started with this unit.
+# After= directives delays this unit until these services start.
+#
+# Note: The exact startup order among the services is controlled by
+# additional directives defined within the .container files
+Requires=flightctl-network.service
+Requires=flightctl-db.service
+Requires=flightctl-kv.service
+Requires=flightctl-api-init.service
+Requires=flightctl-api.service
+Requires=flightctl-worker.service
+Requires=flightctl-periodic.service
+Requires=flightctl-ui-init.service
+Requires=flightctl-ui.service
+
+After=network.target
+After=flightctl-network.service
+After=flightctl-db.service
+After=flightctl-kv.service
+After=flightctl-api-init.service
+After=flightctl-api.service
+After=flightctl-worker.service
+After=flightctl-periodic.service
+After=flightctl-ui-init.service
+After=flightctl-ui.service
+
+[Install]
+WantedBy=multi-user.target

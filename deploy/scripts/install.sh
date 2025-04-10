@@ -13,6 +13,7 @@ source "${SCRIPT_DIR}"/shared.sh
 export CONFIG_READONLY_DIR
 export CONFIG_WRITEABLE_DIR
 export QUADLET_FILES_OUTPUT_DIR
+export SYSTEMD_UNIT_OUTPUT_DIR
 
 render_files() {
     render_service "api" "${SOURCE_DIR}"

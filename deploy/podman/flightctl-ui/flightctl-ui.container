@@ -1,8 +1,9 @@
 [Unit]
 Description=Flight Control UI
-After=flightctl-api.service flightctl-ui-init.service
-Requires=flightctl-api.service
+PartOf=flightctl.target
+After=flightctl-ui-init.service
 Wants=flightctl-ui-init.service
+Requires=flightctl-api.service
 
 [Container]
 ContainerName=flightctl-ui
@@ -17,7 +18,6 @@ Volume=flightctl-ui-certs:/app/certs:ro,z
 [Service]
 Restart=always
 RestartSec=30
-Slice=flightctl.slice
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target
