@@ -1,15 +1,7 @@
 [Unit]
 Description=Flight Control Services Group
-Wants=flightctl-network.service
-Wants=flightctl-db.service
-Wants=flightctl-kv.service
-Wants=flightctl-api-init.service
-Wants=flightctl-api.service
-Wants=flightctl-worker.service
-Wants=flightctl-periodic.service
-Wants=flightctl-ui-init.service
-Wants=flightctl-ui.service
 
+Requires=flightctl-network.service
 Requires=flightctl-db.service
 Requires=flightctl-kv.service
 Requires=flightctl-api-init.service
