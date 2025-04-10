@@ -51,8 +51,18 @@ func defaultDataDir() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName, "data")
 }
 
+func printUsage() {
+	fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+	fmt.Println("\nPositional commands:")
+	fmt.Println("  version          Print device simulator version information")
+	fmt.Println("  help             Show this help message")
+	fmt.Println("\nThis program starts a device simulator with the specified configuration. Below are the available flags:")
+	pflag.PrintDefaults()
+}
+
 func main() {
 	log := flightlog.InitLogs()
+
 	configFile := pflag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
 	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
 	labels := pflag.StringArray("label", []string{}, "label applied to simulated devices, in the format key=value")
@@ -60,32 +70,41 @@ func main() {
 	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))")
 	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
-	versionInfo := pflag.Bool("version", false, "Print device simulator version information")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
-	pflag.Usage = func() {
-		fmt.Fprintf(pflag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
-		fmt.Println("This program starts a device simulator with the specified configuration. Below are the available flags:")
-		pflag.PrintDefaults()
-	}
+	pflag.Usage = printUsage
+
+	// Parse flags
 	pflag.Parse()
+
+	// Handle positional arguments
+	args := pflag.Args()
+	if len(args) > 0 {
+		switch args[0] {
+		case "help":
+			printUsage()
+			os.Exit(0)
+		case "version":
+			if err := reportVersion(versionFormat); err != nil {
+				fmt.Println(err.Error())
+				os.Exit(1)
+			}
+			os.Exit(0)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", args[0])
+			printUsage()
+			os.Exit(1)
+		}
+	}
 
 	logLvl, err := logrus.ParseLevel(*logLevel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
-		pflag.Usage()
+		printUsage()
 		os.Exit(1)
 	}
 	log.SetLevel(logLvl)
-
-	if *versionInfo {
-		if err := reportVersion(versionFormat); err != nil {
-			fmt.Println(err.Error())
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}
 
 	log.Infoln("command line flags:")
 	pflag.CommandLine.VisitAll(func(flg *pflag.Flag) {
