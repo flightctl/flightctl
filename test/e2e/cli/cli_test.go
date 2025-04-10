@@ -60,6 +60,11 @@ var _ = Describe("cli operation", func() {
 			// make sure it doesn't exist
 			_, _ = harness.CLI("delete", "fleet/e2e-test-fleet")
 
+			By("Should error when creating a device with decimal in percentages")
+			out, err = harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("badfleetrequest.yaml"))
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(MatchRegexp(`doesn't match percentage pattern`))
+
 			out, err = harness.CLIWithStdin(completeFleetYaml, "apply", "-f", "-")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).To(ContainSubstring("201 Created"))
