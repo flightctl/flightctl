@@ -20,6 +20,8 @@ main() {
     ensure_secrets
     write_default_base_domain
 
+    sudo systemctl daemon-reload
+
     echo "Post install configuration complete"
 }
 
