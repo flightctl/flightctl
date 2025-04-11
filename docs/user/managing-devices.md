@@ -423,16 +423,26 @@ You can deploy, update, or undeploy applications on a device by updating the lis
 
 The following table shows the application runtimes and formats supported by Flight Control:
 
-| Runtime | Descriptor Format | Package Format | Package Repository | Note |
-| ------- | ----------------- | -------------- | ------------------ | ---- |
-| Podman | [podman-compose](https://github.com/containers/podman-compose) | OCI image with compose spec | OCI registry | Requires `podman-compose` to be installed on the device. |
+### Runtime: **Podman**
+
+| Specification      | Format                        | Source / Delivery                  |
+| ------------------ | ----------------------------- | ---------------------------------- |
+| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose)) | OCI image         | OCI registry                       |
+| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose)) | Unpackaged inline | Inline in device specification     |
+
+> [!NOTE]
+> Requires `podman-compose` to be installed on the device.
+
+> [!TIP]
+> Short image names (e.g., `nginx`) are not supported. Use fully qualified references like `docker.io/nginx` to avoid ambiguity.
 
 To deploy an application to a device, create a new entry in the "applications" section of the device's specification, specifying the following parameters:
 
 | Parameter | Description |
 | --------- | ----------- |
-| Name | A user-defined name for the application. This will be used when the web UI and CLI list applications. |
-| Image | A reference to an application package in an OCI registry. |
+| Name    | A user-defined name for the application. This will be used when the web UI and CLI list applications. |
+| Image   | A reference to an application package in an OCI registry. |
+| AppType | The application format type. Currently supported type: `compose`. |
 | EnvVars | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
 
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
@@ -484,6 +494,42 @@ COPY podman-compose.yaml /podman-compose.yaml
 LABEL appType="compose"
 
 ```
+
+### Specifying Applications Inline in the Device Spec
+
+Application manifests are specified inline in a device's specification, so building an OCI Registry Application Package is not required.
+
+The Inline Application Provider accepts a list of application content with the following parameters:
+
+| Parameter | Description |
+| --------- | ----------- |
+| Path | The relative path to the file on the device. Note that any existing file will be overwritten. |
+| Content (Optional) | The plain text (UTF-8) or base64-encoded content of the file. |
+| ContentEncoding | How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain". |
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: Device
+metadata:
+  name: some_device_name
+spec:
+[...]
+  applications:
+    - name: my-app
+      appType: compose
+      inline:
+        - content: |
+            version: "3.8"
+            services:
+              service1:
+                image:  quay.io/flightctl-tests/alpine:v1
+                command: ["sleep", "infinity"]
+          path: podman-compose.yaml
+[...]
+```
+
+> [!NOTE]
+> Inline compose applications can have at most two paths. The first should be named `podman-compose.yaml`, and the second (override) must be named `podman-compose.override.yaml`.
 
 ## Using Device Lifecycle Hooks
 

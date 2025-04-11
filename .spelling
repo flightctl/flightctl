@@ -135,6 +135,7 @@ quay.io.
 API_URL
 madrid
 paris
+apptype
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
