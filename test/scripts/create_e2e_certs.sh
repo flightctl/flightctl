@@ -22,14 +22,23 @@ REGISTRY_HOST=$(get_registry_hostname)
 
 CERT_DIR="bin/e2e-certs/pki/CA"
 mkdir -p "${CERT_DIR}"
-if [[ -f "${CERT_DIR}/ca.key" ]]; then
+if [[ -e "${CERT_DIR}/ca.key" ]]; then
     echo "CA key already exists, skipping generation"
 else
+    echo "Reusing existing flightcl CA"
+    if [[ -f "${HOME}/.flightctl/certs/ca.key" ]]; then
+        # we should be using symlinks here 
+        cp "${HOME}/.flightctl/certs/ca.key" "${CERT_DIR}/ca.key"
+        cp "${HOME}/.flightctl/certs/ca.crt" "${CERT_DIR}/ca.crt"
+        cp "${HOME}/.flightctl/certs/ca.crt" "${CERT_DIR}/ca.pem"
+    else 
     # create CA for e2e tests
-    openssl genrsa -out "${CERT_DIR}/ca.key" 2048
-    openssl req -new -x509 -days 365 -key "${CERT_DIR}/ca.key" -out "${CERT_DIR}/ca.crt" -subj "/CN=e2e-ca"
-    openssl x509 -in "${CERT_DIR}/ca.crt" -out "${CERT_DIR}/ca.pem" -outform PEM
-
+        openssl genrsa -out "${CERT_DIR}/ca.key" 2048
+        openssl req -new -x509 -days 365 -key "${CERT_DIR}/ca.key" -out "${CERT_DIR}/ca.req" -subj "/CN=e2e-ca"
+        openssl x509 -in "${CERT_DIR}/ca.req" -out "${CERT_DIR}/ca.crt" -outform PEM
+        # we are not consistent - crt and der are both used interchangeably
+        ln -s "${CERT_DIR}/ca.crt" "${CERT_DIR}/ca.pem"
+    fi
     # generate a key for the registry TLS, and get it signed by the CA via CSR
     openssl genrsa -out "${CERT_DIR}/registry.key" 2048
     openssl req -new -key "${CERT_DIR}/registry.key" -out "${CERT_DIR}/registry.csr" -subj "/CN=${IP}"  -config <(cat "/etc/pki/tls/openssl.cnf" <(printf "[SAN]\nsubjectAltName=DNS:${REGISTRY_HOST},IP:${IP}"))
