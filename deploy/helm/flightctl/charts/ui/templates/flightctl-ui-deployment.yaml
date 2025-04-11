@@ -27,6 +27,13 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: FLIGHTCTL_SERVER
+          {{- if .Values.cliArtifacts.enabled }}
+          - name: FLIGHTCTL_CLI_ARTIFACTS_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_CLI_ARTIFACTS_SERVER
+          {{- end }}
           - name: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
             valueFrom:
               configMapKeyRef:

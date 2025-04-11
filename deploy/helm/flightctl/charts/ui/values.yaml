@@ -41,4 +41,6 @@ api:
   url: https://flightctl-api:3443/
   insecureSkipTlsVerify: false
   caCert: ""
-
+## @param cliArtifacts.enabled Set to true if Cli artifacts are enabled in the UI
+cliArtifacts:
+  enabled: true
