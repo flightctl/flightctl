@@ -7,7 +7,7 @@ Requires=flightctl-db.service flightctl-kv.service
 
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:0.6.0-main-35-g6e173b7
+Image=quay.io/flightctl/flightctl-api:latest
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
