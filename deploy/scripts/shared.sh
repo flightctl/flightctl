@@ -6,6 +6,7 @@ set -eo pipefail
 : ${CONFIG_WRITEABLE_DIR:="/etc/flightctl"}
 : ${CONFIG_READONLY_DIR:="/usr/share/flightctl"}
 : ${QUADLET_FILES_OUTPUT_DIR:="/usr/share/containers/systemd"}
+: ${SYSTEMD_UNIT_OUTPUT_DIR:="/usr/lib/systemd/system"}
 
 # Render a service configuration
 # Args:
@@ -58,9 +59,11 @@ render_service() {
 
 move_shared_files() {
     local source_dir="$1"
-    # Copy the network and slice files
+    # Copy the network and target files
     cp "${source_dir}/podman/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
-    cp "${source_dir}/podman/flightctl.slice" "${QUADLET_FILES_OUTPUT_DIR}"
+
+    mkdir -p "${SYSTEMD_UNIT_OUTPUT_DIR}"
+    cp "${source_dir}/podman/flightctl.target" "${SYSTEMD_UNIT_OUTPUT_DIR}"
 
     # Copy writeable files
     cp "${source_dir}/podman/service-config.yaml" "${CONFIG_WRITEABLE_DIR}/service-config.yaml"

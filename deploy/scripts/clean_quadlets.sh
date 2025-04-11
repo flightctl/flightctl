@@ -8,7 +8,7 @@ source "${SCRIPT_DIR}"/shared.sh
 
 clean_services() {
     # Stop any running services
-    for service in flightctl.slice flightctl-*.service; do
+    for service in flightctl.target flightctl-*.service; do
         if  systemctl is-active --quiet "$service"; then
             echo "Stopping $service..."
             systemctl stop "$service" || echo "Warning: Failed to stop service $service"
@@ -26,6 +26,9 @@ clean_files() {
 
     echo "Removing quadlet files from ${QUADLET_FILES_OUTPUT_DIR}"
     rm -rf "$QUADLET_FILES_OUTPUT_DIR/flightctl"* || echo "Warning: Failed to remove quadlet config files"
+
+    echo "Removing systemd unit files from ${SYSTEMD_UNIT_OUTPUT_DIR}"
+    rm -rf "$SYSTEMD_UNIT_OUTPUT_DIR/flightctl"* || echo "Warning: Failed to remove systemd unit files"
 }
 
 clean_volumes() {

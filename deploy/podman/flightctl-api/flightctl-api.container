@@ -1,9 +1,9 @@
 [Unit]
 Description=Flight Control API server
+PartOf=flightctl.target
 After=flightctl-db.service flightctl-kv.service flightctl-api-init.service
+Wants=flightctl-db.service flightctl-kv.service flightctl-api-init.service
 Requires=flightctl-db.service flightctl-kv.service
-Wants=flightctl-periodic.service flightctl-worker.service flightctl-api-init.service
-Before=flightctl-periodic.service flightctl-worker.service
 
 [Container]
 ContainerName=flightctl-api
@@ -19,9 +19,8 @@ Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 [Service]
-Slice=flightctl.slice
 Restart=always
 RestartSec=30
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target

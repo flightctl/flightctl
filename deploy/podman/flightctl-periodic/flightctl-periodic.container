@@ -1,7 +1,8 @@
 [Unit]
 Description=Flight Control Periodic service
-After=flightctl-db.service
-Requires=flightctl-db.service
+PartOf=flightctl.target
+After=flightctl-db.service flightctl-kv.service
+Requires=flightctl-db.service flightctl-kv.service
 
 [Container]
 ContainerName=flightctl-periodic
@@ -15,7 +16,6 @@ Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,
 [Service]
 Restart=always
 RestartSec=30
-Slice=flightctl.slice
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target

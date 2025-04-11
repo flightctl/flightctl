@@ -1,5 +1,7 @@
 [Unit]
-Before=flightctl-ui.service
+PartOf=flightctl.target
+After=flightctl-api.service
+Wants=flightctl-api.service
 
 [Container]
 Image=registry.access.redhat.com/ubi9/ubi-minimal
@@ -20,4 +22,4 @@ Restart=on-failure
 RestartSec=5s
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target
