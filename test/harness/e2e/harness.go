@@ -51,7 +51,7 @@ func findTopLevelDir() string {
 		}
 	}
 	Fail("Could not find top-level directory")
-	// this return is not reachable but we need to satisfy the compiler
+	// this return is not reachable, but we need to satisfy the compiler
 	return ""
 }
 
