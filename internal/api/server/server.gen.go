@@ -69,6 +69,9 @@ type ServerInterface interface {
 	// (PUT /api/v1/devices/{name}/decommission)
 	DecommissionDevice(w http.ResponseWriter, r *http.Request, name string)
 
+	// (GET /api/v1/devices/{name}/download)
+	DownloadDeviceFile(w http.ResponseWriter, r *http.Request, name string, params DownloadDeviceFileParams)
+
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
@@ -299,6 +302,11 @@ func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, nam
 
 // (PUT /api/v1/devices/{name}/decommission)
 func (_ Unimplemented) DecommissionDevice(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/devices/{name}/download)
+func (_ Unimplemented) DownloadDeviceFile(w http.ResponseWriter, r *http.Request, name string, params DownloadDeviceFileParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1020,6 +1028,50 @@ func (siw *ServerInterfaceWrapper) DecommissionDevice(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DecommissionDevice(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// DownloadDeviceFile operation middleware
+func (siw *ServerInterfaceWrapper) DownloadDeviceFile(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DownloadDeviceFileParams
+
+	// ------------- Required query parameter "filename" -------------
+
+	if paramValue := r.URL.Query().Get("filename"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "filename"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "filename", r.URL.Query(), &params.Filename)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "filename", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadDeviceFile(w, r, name, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2514,6 +2566,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/devices/{name}/decommission", wrapper.DecommissionDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/devices/{name}/download", wrapper.DownloadDeviceFile)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
