@@ -7,23 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/config/ca_config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
-
-// Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
-const ClientBootstrapCommonName = "client-enrollment"
-const ClientBootstrapCommonNamePrefix = "client-enrollment-"
-const AdminCommonName = "flightctl-admin"
-const DeviceCommonNamePrefix = "device:"
-
-var allowedPrefixes = [...]string{
-	DeviceCommonNamePrefix,
-	ClientBootstrapCommonNamePrefix,
-}
 
 type CABackend interface {
 	IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error)
@@ -32,41 +23,49 @@ type CABackend interface {
 
 type CAClient struct {
 	caBackend CABackend
+	Cfg       *ca_config.CAConfigType
 }
 
 // EnsureCA() tries to load or generate a CA and connect to it.
 // If the CA is successfully loaded or generated it returns a valid CA instance, a flag signifying
 // was it loaded or generated and a nil error.
 // In case of errors a non-nil error is returned.
-func EnsureCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*CAClient, bool, error) {
-	caBackend, fresh, err := ensureInternalCA(certFile, keyFile, serialFile, subjectName, expireDays)
+func EnsureCA(cfg *ca_config.CAConfigType) (*CAClient, bool, error) {
+	caBackend, fresh, err := ensureInternalCA(cfg)
 	if err != nil {
 		return nil, fresh, err
 	}
 	ret := &CAClient{
 		caBackend: caBackend,
+		Cfg:       cfg,
 	}
 	return ret, fresh, nil
 }
 
-func BootstrapCNFromName(name string) string {
+func CertStorePath(fileName string, store string) string {
+	return filepath.Join(store, fileName)
+}
 
-	for _, prefix := range allowedPrefixes {
+func (caClient *CAClient) BootstrapCNFromName(name string) string {
+
+	cfg := caClient.Cfg
+	base := []string{cfg.ClientBootstrapCommonNamePrefix, cfg.DeviceCommonNamePrefix}
+	for _, prefix := range append(base, cfg.ExtraAllowedPrefixes...) {
 		if strings.HasPrefix(name, prefix) {
 			return name
 		}
 	}
-	return ClientBootstrapCommonNamePrefix + name
+	return caClient.Cfg.ClientBootstrapCommonNamePrefix + name
 }
 
-func CNFromDeviceFingerprint(fingerprint string) (string, error) {
+func (caClient *CAClient) CNFromDeviceFingerprint(fingerprint string) (string, error) {
 	if len(fingerprint) < 16 {
 		return "", errors.New("device fingerprint must have 16 characters at least")
 	}
-	if strings.HasPrefix(fingerprint, DeviceCommonNamePrefix) {
+	if strings.HasPrefix(fingerprint, caClient.Cfg.DeviceCommonNamePrefix) {
 		return fingerprint, nil
 	}
-	return DeviceCommonNamePrefix + fingerprint, nil
+	return caClient.Cfg.DeviceCommonNamePrefix + fingerprint, nil
 }
 
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
