@@ -66,7 +66,6 @@ global:
     api: 3443
     cliArtifacts: 8090
     agent: 7443
-    grpc: 7444
     ui: 9000
     keycloak: 8081
   gatewayPorts:
@@ -111,7 +110,6 @@ api:
     image: quay.io/flightctl/flightctl-api
     pullPolicy: ""
     tag: ""
-  agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
   baseUIUrl: "" # ui.flightctl.example.com
 cliArtifacts:
   enabled: true

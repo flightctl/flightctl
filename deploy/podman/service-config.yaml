@@ -1,0 +1,9 @@
+global:
+  baseDomain:
+  auth:
+    type: none # aap or none
+    insecureSkipTlsVerify: false
+    aap:
+      apiUrl:
+      externalApiUrl:
+      oAuthApplicationClientId:

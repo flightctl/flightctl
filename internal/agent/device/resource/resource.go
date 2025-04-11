@@ -163,7 +163,7 @@ func (m *ResourceManager) Status(ctx context.Context, status *v1alpha1.DeviceSta
 		CPUMonitorType: {
 			alerts: alerts.CPUUsage,
 			setStatusFn: func(resourceStatus v1alpha1.DeviceResourceStatusType) {
-				status.Resources.Cpu = resourceStatus
+				status.Resources.CPU = resourceStatus
 			},
 		},
 		MemoryMonitorType: {

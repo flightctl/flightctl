@@ -1,28 +1,23 @@
 [Unit]
 Description=Flight Control UI
-After=flightctl-api.service
+PartOf=flightctl.target
+After=flightctl-ui-init.service
+Wants=flightctl-ui-init.service
 Requires=flightctl-api.service
 
 [Container]
 ContainerName=flightctl-ui
-Image=quay.io/flightctl/flightctl-ui:0.4.0
+Image=quay.io/flightctl/flightctl-ui:0.6.0-main-30-gfaedf0a
 Network=flightctl.network
-Environment=API_PORT=8080
-Environment=FLIGHTCTL_SERVER="https://flightctl-api:3443/"
-Environment=FLIGHTCTL_GRPC_SERVER="grpcs://flightctl-api:7444/"
-Environment=FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY="true"
-Environment=BASE_UI_URL=https://ui.localhost
-#Environment=INTERNAL_OIDC_URL=http://flightctl-keycloak:9080/realms/flightctl
-Environment=OIDC_INSECURE_SKIP_VERIFY="true"
+EnvironmentFile=/etc/flightctl/flightctl-ui/env
 
-PublishPort=8080:8080
+PublishPort=443:8080
 
-Volume=flightctl-api-certs:/app/certs:Z
+Volume=flightctl-ui-certs:/app/certs:ro,z
 
 [Service]
 Restart=always
 RestartSec=30
-Slice=flightctl.slice
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target

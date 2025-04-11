@@ -1,13 +1,13 @@
 [Unit]
 Description=Flight Control Key Value service
-After=flightctl-db.service
-Requires=flightctl-db.service
+PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-kv
 Image=docker.io/redis:7.4.1
 Network=flightctl.network
-Exec=redis-server /usr/local/etc/redis/redis.conf
+Exec=/bin/sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 
 # The following is necessary so that the redis user which runs the redis process inside of the container
 # can have write access to the flightctl-kv volume
@@ -15,13 +15,12 @@ PodmanArgs="--userns=keep-id:uid=999,gid=999"
 
 PublishPort=6379:6379
 Volume=flightctl-kv:/var/lib/redis/data:Z,U
-Volume=%h/.config/flightctl/flightctl-kv-config/redis.conf:/usr/local/etc/redis/redis.conf:Z
+Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
 
 [Service]
 Type=notify
 Restart=always
 RestartSec=30
-Slice=flightctl.slice
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target

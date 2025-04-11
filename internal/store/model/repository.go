@@ -53,8 +53,8 @@ func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error)
 	return &Repository{
 		Resource: Resource{
 			Name:            *resource.Metadata.Name,
-			Labels:          lo.FromPtrOr(resource.Metadata.Labels, nil),
-			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, nil),
+			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
+			Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 			ResourceVersion: resourceVersion,
 		},
 		Spec:   MakeJSONField(resource.Spec),
