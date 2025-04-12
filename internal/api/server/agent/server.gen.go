@@ -18,6 +18,9 @@ type ServerInterface interface {
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
+	// (PATCH /api/v1/devices/{name}/status)
+	PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
+
 	// (PUT /api/v1/devices/{name}/status)
 	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
@@ -34,6 +37,11 @@ type Unimplemented struct{}
 
 // (GET /api/v1/devices/{name}/rendered)
 func (_ Unimplemented) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /api/v1/devices/{name}/status)
+func (_ Unimplemented) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -89,6 +97,32 @@ func (siw *ServerInterfaceWrapper) GetRenderedDevice(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetRenderedDevice(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// PatchDeviceStatus operation middleware
+func (siw *ServerInterfaceWrapper) PatchDeviceStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchDeviceStatus(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -280,6 +314,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.PatchDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReplaceDeviceStatus)

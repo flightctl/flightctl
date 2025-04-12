@@ -63,6 +63,61 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+    patch:
+      tags:
+        - device
+      description: Patch the status of a Device resource.
+      operationId: patchDeviceStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/devices/{name}/rendered:
     #$ref: '../openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
     # this is buggy and generates invalid references, see:

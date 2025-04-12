@@ -63,6 +63,25 @@ func (mr *MockManagementMockRecorder) GetRenderedDevice(ctx, name, params any, r
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDevice", reflect.TypeOf((*MockManagement)(nil).GetRenderedDevice), varargs...)
 }
 
+// PatchDeviceStatus mocks base method.
+func (m *MockManagement) PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, name, patch}
+	for _, a := range rcb {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PatchDeviceStatus", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PatchDeviceStatus indicates an expected call of PatchDeviceStatus.
+func (mr *MockManagementMockRecorder) PatchDeviceStatus(ctx, name, patch any, rcb ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, name, patch}, rcb...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDeviceStatus", reflect.TypeOf((*MockManagement)(nil).PatchDeviceStatus), varargs...)
+}
+
 // UpdateDeviceStatus mocks base method.
 func (m *MockManagement) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
 	m.ctrl.T.Helper()

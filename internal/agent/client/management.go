@@ -52,6 +52,27 @@ func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device
 	return nil
 }
 
+func (m *management) PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error {
+	start := time.Now()
+	resp, err := m.client.PatchDeviceStatusWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx, name, patch, rcb...)
+	if err != nil {
+		return err
+	}
+	if resp.HTTPResponse != nil {
+		defer resp.HTTPResponse.Body.Close()
+	}
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("patch_device_status_duration", time.Since(start).Seconds(), err)
+	}
+
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return fmt.Errorf("patch device status failed: %s", resp.Status())
+	}
+
+	return nil
+}
+
 // GetRenderedDevice returns the rendered device spec for the given device
 // and the response code. If the server returns a 200, the rendered device spec
 // is returned. If the server returns a 204, the rendered device spec is nil,

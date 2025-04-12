@@ -94,6 +94,11 @@ type ClientInterface interface {
 	// GetRenderedDevice request
 	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PatchDeviceStatusWithBody request with any body
+	PatchDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchDeviceStatusWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ReplaceDeviceStatusWithBody request with any body
 	ReplaceDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -110,6 +115,30 @@ type ClientInterface interface {
 
 func (c *Client) GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetRenderedDeviceRequest(c.Server, name, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchDeviceStatusRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchDeviceStatusWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchDeviceStatusRequestWithApplicationJSONPatchPlusJSONBody(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -232,6 +261,53 @@ func NewGetRenderedDeviceRequest(server string, name string, params *GetRendered
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewPatchDeviceStatusRequestWithApplicationJSONPatchPlusJSONBody calls the generic PatchDeviceStatus builder with application/json-patch+json body
+func NewPatchDeviceStatusRequestWithApplicationJSONPatchPlusJSONBody(server string, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchDeviceStatusRequestWithBody(server, name, "application/json-patch+json", bodyReader)
+}
+
+// NewPatchDeviceStatusRequestWithBody generates requests for PatchDeviceStatus with any type of body
+func NewPatchDeviceStatusRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/status", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -403,6 +479,11 @@ type ClientWithResponsesInterface interface {
 	// GetRenderedDeviceWithResponse request
 	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
 
+	// PatchDeviceStatusWithBodyWithResponse request with any body
+	PatchDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error)
+
+	PatchDeviceStatusWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error)
+
 	// ReplaceDeviceStatusWithBodyWithResponse request with any body
 	ReplaceDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
 
@@ -436,6 +517,33 @@ func (r GetRenderedDeviceResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetRenderedDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PatchDeviceStatusResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.Device
+	JSON400      *externalRef0.Status
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON503      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchDeviceStatusResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchDeviceStatusResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -529,6 +637,23 @@ func (c *ClientWithResponses) GetRenderedDeviceWithResponse(ctx context.Context,
 	return ParseGetRenderedDeviceResponse(rsp)
 }
 
+// PatchDeviceStatusWithBodyWithResponse request with arbitrary body returning *PatchDeviceStatusResponse
+func (c *ClientWithResponses) PatchDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error) {
+	rsp, err := c.PatchDeviceStatusWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchDeviceStatusResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchDeviceStatusWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error) {
+	rsp, err := c.PatchDeviceStatusWithApplicationJSONPatchPlusJSONBody(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchDeviceStatusResponse(rsp)
+}
+
 // ReplaceDeviceStatusWithBodyWithResponse request with arbitrary body returning *ReplaceDeviceStatusResponse
 func (c *ClientWithResponses) ReplaceDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error) {
 	rsp, err := c.ReplaceDeviceStatusWithBody(ctx, name, contentType, body, reqEditors...)
@@ -613,6 +738,67 @@ func ParseGetRenderedDeviceResponse(rsp *http.Response) (*GetRenderedDeviceRespo
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchDeviceStatusResponse parses an HTTP response from a PatchDeviceStatusWithResponse call
+func ParsePatchDeviceStatusResponse(rsp *http.Response) (*PatchDeviceStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchDeviceStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
