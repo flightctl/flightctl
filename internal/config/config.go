@@ -21,6 +21,7 @@ type Config struct {
 	KV         *kvConfig         `json:"kv,omitempty"`
 	Auth       *authConfig       `json:"auth,omitempty"`
 	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
+	Tracing    *tracingConfig    `json:"tracing,omitempty"`
 }
 
 type dbConfig struct {
@@ -89,6 +90,12 @@ type prometheusConfig struct {
 	Address        string    `json:"address,omitempty"`
 	SloMax         float64   `json:"sloMax,omitempty"`
 	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
+}
+
+type tracingConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	Insecure bool   `json:"insecure,omitempty"`
 }
 
 func ConfigDir() string {
