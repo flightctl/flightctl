@@ -17,6 +17,7 @@ export QUADLET_FILES_OUTPUT_DIR
 export SYSTEMD_UNIT_OUTPUT_DIR
 
 update_image_tags() {
+    echo "Updating image tags"
     local image_tag="$1"
     # Check if the image tag is provided
     if [[ -z "$image_tag" ]]; then
@@ -25,17 +26,29 @@ update_image_tags() {
     fi
     # Check if the image tag is latest - this is the default tag so no need to write
     if [[ "$image_tag" == "latest" ]]; then
-        echo "Using :latest image tag"
+        echo "Using :latest image tag for all containers"
         return
     fi
 
-    echo "Setting container image tags to: $image_tag"
+    # If image_tag is for a dev build based on the main branch, a matching image tag will not
+    # exist for the ui container.  In this case fall back to using the latest tag for the ui container.
+    # Tags for dev builds on the main branch look like 0.6.0-main-119-gf75bcff
+    local services=()
+    if [[ "$image_tag" =~ -main- ]]; then
+        services+=("api" "periodic" "worker")
+    else
+        services+=("api" "periodic" "worker" "ui")
+    fi
 
-    # Find all container files for flightctl services and update image tags
-    find "${QUADLET_FILES_OUTPUT_DIR}" -name "flightctl-*.container" | while read -r container_file; do
-        if grep -q "Image=quay.io/flightctl/" "$container_file"; then
-            sed -i "s|Image=quay.io/flightctl/\([^:]*\):latest|Image=quay.io/flightctl/\1:${image_tag}|" "$container_file"
+    echo "Setting container image tags to: $image_tag for services: ${services[*]}"
+
+    for service in "${services[@]}"; do
+        container_file="${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service}.container"
+        if [[ -f "$container_file" ]] && grep -q "Image=quay.io/flightctl/" "$container_file"; then
+            sed -i "s|Image=quay.io/flightctl/flightctl-${service}:latest|Image=quay.io/flightctl/flightctl-${service}:${image_tag}|" "$container_file"
             echo "Updated $container_file"
+        else
+            echo "Skipping $container_file (not found or no matching image reference)"
         fi
     done
 }
