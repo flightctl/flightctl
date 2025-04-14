@@ -16,6 +16,25 @@ export CONFIG_WRITEABLE_DIR
 export QUADLET_FILES_OUTPUT_DIR
 export SYSTEMD_UNIT_OUTPUT_DIR
 
+
+# Determine which services should be updated for a given image tag
+#
+# If image_tag is for a dev build based on the main branch, a matching image tag will not
+# exist for the ui container. In this case, fall back to using the latest tag for the ui container.
+# Tags for dev builds on the main branch look like: 0.6.0-main-119-gf75bcff
+get_services_for_tag() {
+    local image_tag="$1"
+    local services=()
+
+    if [[ "$image_tag" =~ -main- ]]; then
+        services+=("api" "periodic" "worker")
+    else
+        services+=("api" "periodic" "worker" "ui")
+    fi
+
+    echo "${services[@]}"
+}
+
 update_image_tags() {
     echo "Updating image tags"
     local image_tag="$1"
@@ -24,22 +43,14 @@ update_image_tags() {
         echo "Error: No image tag provided"
         exit 1
     fi
-    # Check if the image tag is latest - this is the default tag so no need to write
+    # Check if the image tag is 'latest'
     if [[ "$image_tag" == "latest" ]]; then
         echo "Using :latest image tag for all containers"
         return
     fi
 
-    # If image_tag is for a dev build based on the main branch, a matching image tag will not
-    # exist for the ui container.  In this case fall back to using the latest tag for the ui container.
-    # Tags for dev builds on the main branch look like 0.6.0-main-119-gf75bcff
-    local services=()
-    if [[ "$image_tag" =~ -main- ]]; then
-        services+=("api" "periodic" "worker")
-    else
-        services+=("api" "periodic" "worker" "ui")
-    fi
-
+    # Get the services for this tag
+    local services=($(get_services_for_tag "$image_tag"))
     echo "Setting container image tags to: $image_tag for services: ${services[*]}"
 
     for service in "${services[@]}"; do
