@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func dispatchTasks(serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
+func dispatchTasks(serviceHandler service.Service, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {
 		var reference tasks_client.ResourceReference
 		if err := json.Unmarshal(payload, &reference); err != nil {
@@ -42,7 +42,7 @@ func dispatchTasks(serviceHandler *service.ServiceHandler, callbackManager tasks
 
 func LaunchConsumers(ctx context.Context,
 	queuesProvider queues.Provider,
-	serviceHandler *service.ServiceHandler,
+	serviceHandler service.Service,
 	callbackManager tasks_client.CallbackManager,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,

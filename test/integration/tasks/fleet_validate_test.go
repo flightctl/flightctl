@@ -29,7 +29,7 @@ var _ = Describe("FleetValidate", func() {
 		ctx              context.Context
 		orgId            uuid.UUID
 		storeInst        store.Store
-		serviceHandler   *service.ServiceHandler
+		serviceHandler   service.Service
 		cfg              *config.Config
 		dbName           string
 		callbackManager  tasks_client.CallbackManager

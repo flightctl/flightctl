@@ -51,7 +51,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		dbName              string
 		cfg                 *config.Config
 		storeInst           store.Store
-		serviceHandler      *service.ServiceHandler
+		serviceHandler      service.Service
 		ctrl                *gomock.Controller
 		mockCallbackManager *tasks_client.MockCallbackManager
 		tvName              string

@@ -18,12 +18,12 @@ type Reconciler interface {
 }
 
 type reconciler struct {
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	log             logrus.FieldLogger
 	callbackManager tasks_client.CallbackManager
 }
 
-func NewReconciler(serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
+func NewReconciler(serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
 		serviceHandler:  serviceHandler,
 		log:             log,

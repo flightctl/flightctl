@@ -63,7 +63,7 @@ func (s *Server) Run() error {
 		return err
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
-	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "")
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", ""))
 
 	// repository tester
 	repoTester := tasks.NewRepoTester(s.log, serviceHandler)

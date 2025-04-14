@@ -44,7 +44,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		dbName         string
 		cfg            *config.Config
 		storeInst      store.Store
-		serviceHandler *service.ServiceHandler
+		serviceHandler service.Service
 		tvName         string
 		db             *gorm.DB
 	)

@@ -19,10 +19,10 @@ const (
 
 type DeviceDisconnected struct {
 	log            logrus.FieldLogger
-	serviceHandler *service.ServiceHandler
+	serviceHandler service.Service
 }
 
-func NewDeviceDisconnected(log logrus.FieldLogger, serviceHandler *service.ServiceHandler) *DeviceDisconnected {
+func NewDeviceDisconnected(log logrus.FieldLogger, serviceHandler service.Service) *DeviceDisconnected {
 	return &DeviceDisconnected{
 		log:            log,
 		serviceHandler: serviceHandler,

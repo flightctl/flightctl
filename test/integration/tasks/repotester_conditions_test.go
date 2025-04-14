@@ -64,7 +64,7 @@ var _ = Describe("RepoTester", func() {
 		ctx            context.Context
 		orgId          uuid.UUID
 		stores         store.Store
-		serviceHandler *service.ServiceHandler
+		serviceHandler service.Service
 		cfg            *config.Config
 		dbName         string
 		repotestr      *tasks.RepoTester
