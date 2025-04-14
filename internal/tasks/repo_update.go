@@ -12,7 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func repositoryUpdate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
+func repositoryUpdate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	logic := NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, *resourceRef)
 
 	switch {
@@ -35,11 +35,11 @@ func repositoryUpdate(ctx context.Context, resourceRef *tasks_client.ResourceRef
 type RepositoryUpdateLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	resourceRef     tasks_client.ResourceReference
 }
 
-func NewRepositoryUpdateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler *service.ServiceHandler, resourceRef tasks_client.ResourceReference) RepositoryUpdateLogic {
+func NewRepositoryUpdateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, resourceRef tasks_client.ResourceReference) RepositoryUpdateLogic {
 	return RepositoryUpdateLogic{callbackManager: callbackManager, log: log, serviceHandler: serviceHandler, resourceRef: resourceRef}
 }
 

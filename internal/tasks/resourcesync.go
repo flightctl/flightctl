@@ -25,7 +25,7 @@ import (
 
 type ResourceSync struct {
 	log             logrus.FieldLogger
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	callbackManager tasks_client.CallbackManager
 }
 
@@ -34,7 +34,7 @@ type genericResourceMap map[string]interface{}
 var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{api.FleetKind}
 
-func NewResourceSync(callbackManager tasks_client.CallbackManager, serviceHandler *service.ServiceHandler, log logrus.FieldLogger) *ResourceSync {
+func NewResourceSync(callbackManager tasks_client.CallbackManager, serviceHandler service.Service, log logrus.FieldLogger) *ResourceSync {
 	return &ResourceSync{
 		log:             log,
 		serviceHandler:  serviceHandler,
