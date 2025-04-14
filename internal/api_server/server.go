@@ -29,6 +29,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -201,7 +202,11 @@ func (s *Server) Run(ctx context.Context) error {
 		ws.RegisterRoutes(r)
 	})
 
-	srv := fcmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
+	handler := otelhttp.NewHandler(router, "http-server")
+	srv := fcmiddleware.NewHTTPServer(handler, s.log, s.cfg.Service.Address, s.cfg)
+	srv.BaseContext = func(l net.Listener) context.Context {
+		return ctx
+	}
 
 	go func() {
 		<-ctx.Done()
