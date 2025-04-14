@@ -29,7 +29,7 @@ type Reconciler interface {
 }
 
 type reconciler struct {
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	log             logrus.FieldLogger
 	callbackManager tasks_client.CallbackManager
 }
@@ -41,7 +41,7 @@ type groupCounts struct {
 	key                map[string]any
 }
 
-func NewReconciler(serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
+func NewReconciler(serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
 		serviceHandler:  serviceHandler,
 		log:             log,
@@ -86,7 +86,7 @@ func collectDeviceBudgetCounts(counts []map[string]any, groupBy []string) ([]*gr
 	return ret, nil
 }
 
-func (r *reconciler) getFleetCounts(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
+func (r *reconciler) getFleetCounts(ctx context.Context, _ uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
 	groupBy := lo.FromPtr(fleet.Spec.RolloutPolicy.DisruptionBudget.GroupBy)
 
 	listParams := api.ListDevicesParams{

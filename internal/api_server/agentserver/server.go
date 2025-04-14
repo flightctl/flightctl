@@ -91,7 +91,8 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 
-	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl)
+	serviceHandler := service.WrapWithTracing(
+		service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 
 	httpAPIHandler, err := s.prepareHTTPHandler(serviceHandler)
 	if err != nil {
@@ -122,7 +123,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	return nil
 }
 
-func (s *AgentServer) prepareHTTPHandler(serviceHandler *service.ServiceHandler) (http.Handler, error) {
+func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.Handler, error) {
 	swagger, err := api.GetSwagger()
 	if err != nil {
 		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)

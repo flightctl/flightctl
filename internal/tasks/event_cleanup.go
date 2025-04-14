@@ -17,11 +17,11 @@ const (
 
 type EventCleanup struct {
 	log             logrus.FieldLogger
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	retentionPeriod util.Duration
 }
 
-func NewEventCleanup(log logrus.FieldLogger, serviceHandler *service.ServiceHandler, retentionPeriod util.Duration) *EventCleanup {
+func NewEventCleanup(log logrus.FieldLogger, serviceHandler service.Service, retentionPeriod util.Duration) *EventCleanup {
 	return &EventCleanup{
 		log:             log,
 		serviceHandler:  serviceHandler,

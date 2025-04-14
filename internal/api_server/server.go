@@ -176,7 +176,8 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.Recoverer,
 	)
 
-	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl)
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
+		s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service

@@ -30,7 +30,7 @@ var _ = Describe("FleetSelector", func() {
 		deviceStore     store.Device
 		fleetStore      store.Fleet
 		storeInst       store.Store
-		serviceHandler  *service.ServiceHandler
+		serviceHandler  service.Service
 		cfg             *config.Config
 		dbName          string
 		callbackManager tasks_client.CallbackManager
