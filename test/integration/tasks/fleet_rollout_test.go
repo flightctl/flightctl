@@ -41,7 +41,7 @@ var _ = Describe("FleetRollout", func() {
 		fleetStore      store.Fleet
 		tvStore         store.TemplateVersion
 		storeInst       store.Store
-		serviceHandler  *service.ServiceHandler
+		serviceHandler  service.Service
 		cfg             *config.Config
 		db              *gorm.DB
 		dbName          string

@@ -60,7 +60,7 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 	}
 }
 
-func benchmarkUpdateSummaryStatusBatch(b *testing.B, log *logrus.Logger, db *gorm.DB, serviceHandler *service.ServiceHandler, deviceNames []string) error {
+func benchmarkUpdateSummaryStatusBatch(b *testing.B, log *logrus.Logger, db *gorm.DB, serviceHandler service.Service, deviceNames []string) error {
 	disconnected := NewDeviceDisconnected(log, serviceHandler)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

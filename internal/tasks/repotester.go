@@ -21,11 +21,11 @@ type API interface {
 
 type RepoTester struct {
 	log                    logrus.FieldLogger
-	serviceHandler         *service.ServiceHandler
+	serviceHandler         service.Service
 	TypeSpecificRepoTester TypeSpecificRepoTester
 }
 
-func NewRepoTester(log logrus.FieldLogger, serviceHandler *service.ServiceHandler) *RepoTester {
+func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *RepoTester {
 	return &RepoTester{
 		log:            log,
 		serviceHandler: serviceHandler,

@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
+func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
 	logic := NewDeviceRenderLogic(callbackManager, log, serviceHandler, k8sClient, kvStore, *resourceRef)
 	if resourceRef.Op == tasks_client.DeviceRenderOpUpdate {
 		err := logic.RenderDevice(ctx)
@@ -40,7 +40,7 @@ func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReferen
 type DeviceRenderLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
 	resourceRef     tasks_client.ResourceReference
@@ -50,7 +50,7 @@ type DeviceRenderLogic struct {
 	applications    *[]api.ApplicationProviderSpec
 }
 
-func NewDeviceRenderLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler *service.ServiceHandler, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef tasks_client.ResourceReference) DeviceRenderLogic {
+func NewDeviceRenderLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef tasks_client.ResourceReference) DeviceRenderLogic {
 	return DeviceRenderLogic{callbackManager: callbackManager, log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, kvStore: kvStore, resourceRef: resourceRef}
 }
 
