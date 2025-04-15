@@ -6,6 +6,8 @@ on:
     branches:
       - main
       - 'release-*'
+    tags:
+      - '*'
 
 env:
   QUAY_ORG: quay.io/flightctl
