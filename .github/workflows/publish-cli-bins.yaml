@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - 'release-*'
+    tags:
+      - '*'
   pull_request:
 
 jobs:
