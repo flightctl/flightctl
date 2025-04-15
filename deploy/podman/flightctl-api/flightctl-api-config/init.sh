@@ -5,11 +5,12 @@ set -eo pipefail
 echo "Initializing flightctl-api configuration"
 
 source "/utils/init_utils.sh"
+source "/config-source/create_aap_application.sh"
 
 # Define paths
-CERTS_SOURCE_PATH="/certs"
+export CERTS_SOURCE_PATH="/certs"
 CERTS_DEST_PATH="/root/.flightctl/certs"
-SERVICE_CONFIG_FILE="/service-config.yaml"
+export SERVICE_CONFIG_FILE="/service-config.yaml"
 CONFIG_TEMPLATE="/config-source/config.yaml.template"
 CONFIG_OUTPUT="/config-destination/config.yaml"
 ENV_TEMPLATE="/config-source/env.template"
@@ -45,6 +46,13 @@ if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
   AAP_API_URL=$(extract_value "apiUrl" "$SERVICE_CONFIG_FILE")
   AAP_EXTERNAL_API_URL=$(extract_value "externalApiUrl" "$SERVICE_CONFIG_FILE")
+  AAP_OAUTH_TOKEN=$(extract_value "oAuthToken" "$SERVICE_CONFIG_FILE")
+  AAP_CLIENT_ID=$(extract_value "oAuthApplicationClientId" "$SERVICE_CONFIG_FILE")
+
+  # If client id is not set and we have an oauth token, create a new oauth application
+  if [ -z "$AAP_CLIENT_ID" ] && [ -n "$AAP_OAUTH_TOKEN" ]; then
+    create_oauth_application "$AAP_OAUTH_TOKEN" "$BASE_DOMAIN" "$AAP_API_URL" "$INSECURE_SKIP_TLS_VERIFY"
+  fi
 else
   echo "Auth not configured"
   FLIGHTCTL_DISABLE_AUTH="true"
