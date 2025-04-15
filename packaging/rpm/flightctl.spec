@@ -226,6 +226,7 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
     %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
@@ -242,6 +243,8 @@ rm -rf /usr/share/sosreport
 
 %changelog
 
+* Tue Apr 15 2025 Dakota Crowder <dcrowder@redhat.com> - 0.6.0-4
+- Add ability to create an AAP Oauth Application within flightctl-services sub-package
 * Fri Apr 11 2025 Dakota Crowder <dcrowder@redhat.com> - 0.6.0-3
 - Add versioning to container images within flightctl-services sub-package
 * Thu Apr 3 2025 Ori Amizur <oamizur@redhat.com> - 0.6.0-2

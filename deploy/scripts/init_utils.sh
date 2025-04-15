@@ -8,5 +8,6 @@ set -eo pipefail
 extract_value() {
     local key="$1"
     local file="$2"
-    sed -n -E "s/^[[:space:]]*${key}:[[:space:]]*[\"']?([^\"'#]+)[\"']?.*$/\1/p" "$file"
+    # Extract the value then trim leading and trailing whitespace
+    sed -n -E "s/^[[:space:]]*${key}:[[:space:]]*[\"']?([^\"'#]+)[\"']?.*$/\1/p" "$file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
