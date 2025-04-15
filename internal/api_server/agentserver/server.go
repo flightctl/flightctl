@@ -99,7 +99,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 	grpcServer := s.grpcServer.PrepareGRPCService()
 
-	handler := grpcMuxHandlerFunc(grpcServer, httpAPIHandler)
+	handler := grpcMuxHandlerFunc(grpcServer, httpAPIHandler, s.log)
 	srv := tlsmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {
@@ -156,9 +156,30 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler *service.ServiceHandler)
 }
 
 // grpcMuxHandlerFunc dispatches requests to the gRPC server or the HTTP handler based on the request headers
-func grpcMuxHandlerFunc(grpcServer *grpc.Server, otherHandler http.Handler) http.Handler {
+func grpcMuxHandlerFunc(grpcServer *grpc.Server, otherHandler http.Handler, log logrus.FieldLogger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && r.Header.Get("Content-Type") == "application/grpc" {
+
+			// Since gRPC is used for streaming, keeping the read and write timeouts, will
+			// cause streaming connection to disconnected upon timeout expiration.  Therefore,
+			// these timeouts are set to infinity for gRPC connections
+			type readWriteTimeoutSetter interface {
+				SetReadDeadline(deadline time.Time) error
+				SetWriteDeadline(deadline time.Time) error
+			}
+			if rtw, ok := w.(readWriteTimeoutSetter); ok {
+				// Set infinite read timeout
+				if err := rtw.SetReadDeadline(time.Time{}); err != nil {
+					log.Errorf("Couldn't set gRPC read timeout: %v", err)
+				}
+
+				// Set infinite write timeout
+				if err := rtw.SetWriteDeadline(time.Time{}); err != nil {
+					log.Errorf("Couldn't set gRPC write timeout: %v", err)
+				}
+			} else {
+				log.Error("Cannot set gRPC timeout")
+			}
 			grpcServer.ServeHTTP(w, r)
 		} else {
 			otherHandler.ServeHTTP(w, r)
