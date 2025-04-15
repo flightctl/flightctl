@@ -90,6 +90,25 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 	transport.SetResponse(w, body, status)
 }
 
+// (PATCH) /api/v1/devices/{name}/status)
+func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
+
+	if err := ValidateDeviceAccessFromContext(r.Context(), name, s.log); err != nil {
+		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		transport.SetResponse(w, status, status)
+		return
+	}
+
+	var patch api.PatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		transport.SetParseFailureResponse(w, err)
+		return
+	}
+
+	body, status := s.serviceHandler.PatchDeviceStatus(r.Context(), name, patch)
+	transport.SetResponse(w, body, status)
+}
+
 // (POST /api/v1/enrollmentrequests)
 func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 

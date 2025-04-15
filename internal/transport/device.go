@@ -93,8 +93,14 @@ func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, n
 
 // (PATCH /api/v1/devices/{name}/status)
 func (h *TransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
-	status := api.StatusNotImplemented("not yet implemented")
-	SetResponse(w, nil, status)
+	var patch api.PatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		SetParseFailureResponse(w, err)
+		return
+	}
+
+	body, status := h.serviceHandler.PatchDevice(r.Context(), name, patch)
+	SetResponse(w, body, status)
 }
 
 // (PUT /api/v1/devices/{name}/decommission)

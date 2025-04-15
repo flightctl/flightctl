@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -94,6 +95,19 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 	require.NotEqual(int32(500), retStatus.Code)
 	return resp, device, retStatus
 }
+
+func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
+	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
+	_ = auth.InitAuth(nil, log.InitLogs())
+	serviceHandler := ServiceHandler{
+		store:           &DeviceStore{DeviceVal: orig},
+		callbackManager: dummyCallbackManager(),
+	}
+	resp, retStatus := serviceHandler.PatchDeviceStatus(context.Background(), "foo", patch)
+	require.NotEqual(int32(500), retStatus.Code)
+	return resp, retStatus
+}
+
 func TestDevicePatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
@@ -108,6 +122,136 @@ func TestDevicePatchName(t *testing.T) {
 	}
 	_, _, status = testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
+}
+
+func TestDeviceStatusPatch(t *testing.T) {
+	require := require.New(t)
+	testCases := []struct {
+		name               string
+		patchPath          string
+		patchValueType     string // "systemInfo" or "string"
+		systemInfo         api.DeviceSystemInfo
+		stringValue        string
+		expectedCode       int32
+		expectedSystemInfo *api.DeviceSystemInfo
+		expectError        bool
+		errorMessage       string
+	}{
+		{
+			name:           "update system info happy path",
+			patchPath:      "/status/systemInfo",
+			patchValueType: "systemInfo",
+			systemInfo: api.DeviceSystemInfo{
+				AgentVersion:    "a",
+				Architecture:    "b",
+				BootID:          "c",
+				OperatingSystem: "d",
+			},
+			expectedCode: 200,
+			expectedSystemInfo: &api.DeviceSystemInfo{
+				AgentVersion:    "a",
+				Architecture:    "b",
+				BootID:          "c",
+				OperatingSystem: "d",
+			},
+		},
+		{
+			name:           "update system info partial",
+			patchPath:      "/status/systemInfo",
+			patchValueType: "systemInfo",
+			systemInfo: api.DeviceSystemInfo{
+				AgentVersion:    "a",
+				Architecture:    "b",
+				BootID:          "3",
+				OperatingSystem: "4",
+			},
+			expectedCode: 200,
+			expectedSystemInfo: &api.DeviceSystemInfo{
+				AgentVersion:    "a",
+				Architecture:    "b",
+				BootID:          "3",
+				OperatingSystem: "4",
+			},
+		},
+		{
+			name:           "attempt to patch metadata name should fail",
+			patchPath:      "/metadata/name",
+			patchValueType: "string",
+			stringValue:    "newname",
+			expectedCode:   400,
+			expectError:    true,
+			errorMessage:   "metadata is immutable",
+		},
+		{
+			name:           "attempt to patch metadata owner should fail",
+			patchPath:      "/metadata/owner",
+			patchValueType: "string",
+			stringValue:    "ozzy",
+			expectedCode:   400,
+			expectError:    true,
+			errorMessage:   "metadata is immutable",
+		},
+		{
+			name:           "attempt to patch spec should fail",
+			patchPath:      "/spec/os/image",
+			patchValueType: "string",
+			stringValue:    "newimg",
+			expectedCode:   400,
+			expectError:    true,
+			errorMessage:   "spec is immutable",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			deviceStatus := api.NewDeviceStatus()
+			deviceStatus.SystemInfo = api.DeviceSystemInfo{
+				AgentVersion:    "1",
+				Architecture:    "2",
+				BootID:          "3",
+				OperatingSystem: "4",
+			}
+
+			// initialize device
+			device := api.Device{
+				ApiVersion: "v1",
+				Kind:       "Device",
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("foo"),
+					Labels: &map[string]string{"labelKey": "labelValue"},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "img"},
+				},
+				Status: &deviceStatus,
+			}
+
+			// create patch request
+			var patchRequest api.PatchRequest
+			if tc.patchValueType == "systemInfo" {
+				infoMap, err := util.StructToMap(tc.systemInfo)
+				require.NoError(err)
+
+				var value interface{} = infoMap
+				patchRequest = api.PatchRequest{
+					{Op: "replace", Path: tc.patchPath, Value: &value},
+				}
+			} else {
+				var value interface{} = tc.stringValue
+				patchRequest = api.PatchRequest{
+					{Op: "replace", Path: tc.patchPath, Value: &value},
+				}
+			}
+
+			resp, status := testDeviceStatusPatch(require, device, patchRequest)
+			require.Equal(tc.expectedCode, status.Code)
+
+			if tc.expectError {
+				require.Equal(api.StatusBadRequest(tc.errorMessage), status)
+			} else {
+				require.Equal(*tc.expectedSystemInfo, resp.Status.SystemInfo)
+			}
+		})
+	}
 }
 
 func TestDevicePatchKind(t *testing.T) {

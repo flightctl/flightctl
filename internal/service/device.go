@@ -261,6 +261,55 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, d
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
+func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status) {
+	orgId := store.NullOrgId
+
+	currentObj, err := h.store.Device().Get(ctx, orgId, name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	newObj := &api.Device{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/devices/"+name)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+
+	if errs := validateDeviceStatus(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	if !reflect.DeepEqual(newObj.Metadata, currentObj.Metadata) {
+		return nil, api.StatusBadRequest("metadata is immutable")
+	}
+	if currentObj.ApiVersion != newObj.ApiVersion {
+		return nil, api.StatusBadRequest("apiVersion is immutable")
+	}
+	if currentObj.Kind != newObj.Kind {
+		return nil, api.StatusBadRequest("kind is immutable")
+	}
+	if !reflect.DeepEqual(currentObj.Spec, newObj.Spec) {
+		return nil, api.StatusBadRequest("spec is immutable")
+	}
+
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
+
+	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+
+	if h.callbackManager != nil {
+		updateCallback = h.callbackManager.DeviceUpdatedCallback
+	}
+
+	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
+
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
 	orgId := store.NullOrgId
 
