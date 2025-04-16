@@ -30,9 +30,9 @@ func NewEventCleanup(log logrus.FieldLogger, serviceHandler service.Service, ret
 }
 
 // Poll checks deletes events older than the configured retention period
-func (t *EventCleanup) Poll() {
+func (t *EventCleanup) Poll(ctx context.Context) {
 	t.log.Infof("Running EventCleanup Polling (retention period: %s)", t.retentionPeriod.String())
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	cutoffTime := time.Now().Add(-time.Duration(t.retentionPeriod))

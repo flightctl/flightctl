@@ -30,9 +30,9 @@ func NewDeviceDisconnected(log logrus.FieldLogger, serviceHandler service.Servic
 }
 
 // Poll checks the status of devices and updates the status to unknown if the device has not reported in the last DeviceDisconnectedTimeout.
-func (t *DeviceDisconnected) Poll() {
+func (t *DeviceDisconnected) Poll(ctx context.Context) {
 	t.log.Info("Running DeviceDisconnected Polling")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	statusInfoMessage := fmt.Sprintf("Did not check in for more than %d minutes", int(api.DeviceDisconnectedTimeout.Minutes()))
