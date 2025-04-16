@@ -298,7 +298,13 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 			return false, nil
 		}
 		if resp.HTTPResponse != nil {
-			_ = resp.HTTPResponse.Body.Close()
+			defer func() { _ = resp.HTTPResponse.Body.Close() }()
+			if resp.HTTPResponse.StatusCode != 200 {
+				log.Warnf("Failed to approve device %s enrollment: received status %d", enrollmentId, resp.HTTPResponse.StatusCode)
+				time.Sleep(60 * time.Second)
+				return false, nil
+            }
+
 		}
 		log.Infof("Approved device enrollment %s", enrollmentId)
 		return true, nil

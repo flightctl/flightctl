@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -348,7 +349,9 @@ func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 	}
 
 	err := wait.ExponentialBackoffWithContext(ctx, b.backoff, func(ctx context.Context) (bool, error) {
-		_, err := b.enrollmentClient.CreateEnrollmentRequest(ctx, req)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		_, err := b.enrollmentClient.CreateEnrollmentRequest(timeoutCtx, req)
 		if err != nil {
 			b.log.Warnf("failed to create enrollment request: %v", err)
 			return false, nil
