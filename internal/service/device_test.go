@@ -33,7 +33,7 @@ type DummyDevice struct {
 
 type dummyPublisher struct{}
 
-func (d *dummyPublisher) Publish(_ []byte) error {
+func (d *dummyPublisher) Publish(_ context.Context, _ []byte) error {
 	return nil
 }
 
