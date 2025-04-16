@@ -1,0 +1,21 @@
+{{ if eq .Values.global.auth.type "aap" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-aap-permissions
+  namespace: {{ .Release.Namespace }}
+data:
+  permissions.yaml: |
+    admin:
+      {{- include "flightctl.adminPermissions" . | nindent 6 }}
+    auditor:
+      - verbs:
+          - get
+          - list
+        apiGroups:
+          - flightctl.io
+        resources:
+          - '*'
+    operator:
+      {{- include "flightctl.operatorPermissions" . | nindent 6 }}
+{{ end }}
