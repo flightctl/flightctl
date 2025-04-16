@@ -4212,15 +4212,15 @@ components:
       type: object
       description: Current status of the resources of the device.
       required:
-        - CPU
-        - Memory
-        - Disk
+        - cpu
+        - memory
+        - disk
       properties:
-        CPU:
+        cpu:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-        Memory:
+        memory:
           $ref: "#/components/schemas/DeviceResourceStatusType"
-        Disk:
+        disk:
           $ref: "#/components/schemas/DeviceResourceStatusType"
     DeviceResourceStatusType:
       type: string
