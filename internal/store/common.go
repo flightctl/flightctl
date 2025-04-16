@@ -160,7 +160,7 @@ func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
 	return count
 }
 
-func CountStatusList(ctx context.Context, query *gorm.DB, status ...string) (StatusCountList, error) {
+func CountStatusList(query *gorm.DB, status ...string) (StatusCountList, error) {
 	var statusCounts StatusCountList
 	var statusQueries []string
 	var params []interface{}
@@ -186,7 +186,7 @@ func CountStatusList(ctx context.Context, query *gorm.DB, status ...string) (Sta
 		WITH data AS (?)
 		%s`, strings.Join(statusQueries, " UNION ALL "))
 
-	if err := query.WithContext(ctx).Raw(queryAggregate, params...).Scan(&statusCounts).Error; err != nil {
+	if err := query.Raw(queryAggregate, params...).Scan(&statusCounts).Error; err != nil {
 		return nil, ErrorFromGormError(err)
 	}
 
