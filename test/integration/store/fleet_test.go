@@ -144,7 +144,7 @@ var _ = Describe("FleetStore create", func() {
 
 		It("Delete fleet success", func() {
 			called := false
-			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
 			err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
@@ -154,7 +154,7 @@ var _ = Describe("FleetStore create", func() {
 
 		It("Delete fleet success when not found", func() {
 			called := false
-			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
 			err := storeInst.Fleet().Delete(ctx, orgId, "nonexistent", callback)
@@ -164,7 +164,7 @@ var _ = Describe("FleetStore create", func() {
 
 		It("Delete all fleets in org", func() {
 			called := false
-			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {
+			callback := store.FleetStoreAllDeletedCallback(func(ctx context.Context, orgId uuid.UUID) {
 				called = true
 			})
 
@@ -373,7 +373,7 @@ var _ = Describe("FleetStore create", func() {
 				Status: nil,
 			}
 			called := false
-			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
 			_, created, _, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, true, callback)
@@ -416,7 +416,7 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Metadata.Annotations = nil
 
 			called := false
-			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
 			returnedFleet, created, _, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
@@ -443,7 +443,7 @@ var _ = Describe("FleetStore create", func() {
 			fleet.Status = nil
 
 			called := false
-			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
 			_, created, _, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, nil, true, callback)
@@ -505,7 +505,7 @@ var _ = Describe("FleetStore create", func() {
 					map[string]string{"metadata.owner": owner}, selector.WithPrivateSelectors()),
 			}
 
-			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {})
+			callback := store.FleetStoreAllDeletedCallback(func(ctx context.Context, orgId uuid.UUID) {})
 			err := storeInst.Fleet().DeleteAll(ctx, orgId, callback)
 			Expect(err).ToNot(HaveOccurred())
 			testutil.CreateTestFleets(ctx, numFleets, storeInst.Fleet(), orgId, "myfleet", true, lo.ToPtr(owner))
@@ -600,7 +600,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
 			called := false
-			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
 			err = storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
@@ -620,7 +620,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
 			called := false
-			callback := store.FleetStoreAllDeletedCallback(func(orgId uuid.UUID) {
+			callback := store.FleetStoreAllDeletedCallback(func(ctx context.Context, orgId uuid.UUID) {
 				called = true
 			})
 			err = storeInst.Fleet().DeleteAll(ctx, orgId, callback)

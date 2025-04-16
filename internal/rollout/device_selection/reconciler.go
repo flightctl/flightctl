@@ -49,7 +49,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		if rolloutWasActive {
 
 			// Send the entire fleet for rollout
-			r.callbackManager.FleetRolloutSelectionUpdated(orgId, lo.FromPtr(fleet.Metadata.Name))
+			r.callbackManager.FleetRolloutSelectionUpdated(ctx, orgId, lo.FromPtr(fleet.Metadata.Name))
 		}
 		return
 	}
@@ -119,7 +119,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 				r.log.WithError(err).Errorf("%v/%s: OnRollout", orgId, lo.FromPtr(fleet.Metadata.Name))
 			}
 			// Send the current batch to be rolled out.
-			r.callbackManager.FleetRolloutSelectionUpdated(orgId, lo.FromPtr(fleet.Metadata.Name))
+			r.callbackManager.FleetRolloutSelectionUpdated(ctx, orgId, lo.FromPtr(fleet.Metadata.Name))
 		}
 
 		// Is the current batch complete

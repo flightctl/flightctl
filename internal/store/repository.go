@@ -32,8 +32,8 @@ type RepositoryStore struct {
 	genericStore *GenericStore[*model.Repository, model.Repository, api.Repository, api.RepositoryList]
 }
 
-type RepositoryStoreCallback func(uuid.UUID, *api.Repository, *api.Repository)
-type RepositoryStoreAllDeletedCallback func(uuid.UUID)
+type RepositoryStoreCallback func(context.Context, uuid.UUID, *api.Repository, *api.Repository)
+type RepositoryStoreAllDeletedCallback func(context.Context, uuid.UUID)
 
 // Make sure we conform to Repository interface
 var _ Repository = (*RepositoryStore)(nil)

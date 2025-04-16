@@ -46,7 +46,7 @@ func main() {
 	defer store.Close()
 
 	server := periodic.New(cfg, log, store)
-	if err := server.Run(); err != nil {
+	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
 }

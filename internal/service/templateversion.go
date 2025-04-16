@@ -19,7 +19,7 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, tv api.Templ
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	var callback store.TemplateVersionStoreCallback = func(u uuid.UUID, before *api.TemplateVersion, after *api.TemplateVersion) {
+	var callback store.TemplateVersionStoreCallback = func(ctx context.Context, u uuid.UUID, before *api.TemplateVersion, after *api.TemplateVersion) {
 		h.log.Infof("fleet %s: template version %s created with rollout device selection, not executing task for immediate rollout", tv.Spec.Fleet, *tv.Metadata.Name)
 	}
 	if immediateRollout {

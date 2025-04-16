@@ -60,9 +60,9 @@ type DeviceStore struct {
 	genericStore *GenericStore[*model.Device, model.Device, api.Device, api.DeviceList]
 }
 
-type DeviceStoreCallback func(orgId uuid.UUID, before *api.Device, after *api.Device)
-type DeviceStoreValidationCallback func(before *api.Device, after *api.Device) error
-type DeviceStoreAllDeletedCallback func(orgId uuid.UUID)
+type DeviceStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device)
+type DeviceStoreValidationCallback func(ctx context.Context, before *api.Device, after *api.Device) error
+type DeviceStoreAllDeletedCallback func(ctx context.Context, orgId uuid.UUID)
 
 // Make sure we conform to Device interface
 var _ Device = (*DeviceStore)(nil)

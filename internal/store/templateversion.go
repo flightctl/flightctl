@@ -31,7 +31,7 @@ type TemplateVersionStore struct {
 	genericStore *GenericStore[*model.TemplateVersion, model.TemplateVersion, api.TemplateVersion, api.TemplateVersionList]
 }
 
-type TemplateVersionStoreCallback func(uuid.UUID, *api.TemplateVersion, *api.TemplateVersion)
+type TemplateVersionStoreCallback func(context.Context, uuid.UUID, *api.TemplateVersion, *api.TemplateVersion)
 
 // Make sure we conform to TemplateVersion interface
 var _ TemplateVersion = (*TemplateVersionStore)(nil)
@@ -160,7 +160,7 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 
 	if valid != nil && *valid && callback != nil {
 		apiResource, _ := templateVersion.ToApiResource()
-		callback(orgId, nil, apiResource)
+		callback(ctx, orgId, nil, apiResource)
 	}
 	return nil
 }

@@ -6,12 +6,14 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func dispatchTasks(serviceHandler service.Service, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
@@ -21,6 +23,19 @@ func dispatchTasks(serviceHandler service.Service, callbackManager tasks_client.
 			log.WithError(err).Error("failed to unmarshal consume payload")
 			return err
 		}
+
+		ctx, span := instrumentation.StartSpan(ctx, "flightctl/tasks", reference.TaskName)
+		defer span.End()
+
+		span.SetAttributes(
+			attribute.String("reference.task_name", reference.TaskName),
+			attribute.String("reference.op", reference.Op),
+			attribute.String("reference.org_id", reference.OrgID.String()),
+			attribute.String("reference.kind", reference.Kind),
+			attribute.String("reference.name", reference.Name),
+			attribute.String("reference.owner", reference.Owner),
+		)
+
 		log.Infof("dispatching task %s, op %s, kind %s, orgID %s, name %s",
 			reference.TaskName, reference.Op, reference.Kind, reference.OrgID, reference.Name)
 		switch reference.TaskName {

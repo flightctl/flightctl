@@ -76,7 +76,7 @@ func (t *testProvider) Wait() {
 	t.wg.Wait()
 }
 
-func (t *testProvider) Publish(b []byte) error {
+func (t *testProvider) Publish(_ context.Context, b []byte) error {
 	t.queue <- b
 	return nil
 }

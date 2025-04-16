@@ -53,7 +53,7 @@ func createRepository(ctx context.Context, repostore store.Repository, orgId uui
 		Spec: spec,
 	}
 
-	callback := store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) {})
+	callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
 	_, err = repostore.Create(ctx, orgId, &resource, callback)
 	return err
 }
@@ -77,7 +77,7 @@ var _ = Describe("RepoTester", func() {
 		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockPublisher(ctrl)
-		publisher.EXPECT().Publish(gomock.Any()).Return(nil).AnyTimes()
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		callbackManager := tasks_client.NewCallbackManager(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())

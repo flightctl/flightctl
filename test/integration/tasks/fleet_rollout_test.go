@@ -66,7 +66,7 @@ var _ = Describe("FleetRollout", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any()).AnyTimes()
+		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
