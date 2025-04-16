@@ -1,6 +1,7 @@
 package tasks_client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -32,17 +33,17 @@ const (
 )
 
 type CallbackManager interface {
-	DeviceUpdatedCallback(orgId uuid.UUID, before, after *api.Device)
-	DeviceUpdatedNoRenderCallback(orgId uuid.UUID, before, after *api.Device)
-	FleetUpdatedCallback(orgId uuid.UUID, before, after *api.Fleet)
-	RepositoryUpdatedCallback(orgId uuid.UUID, before, after *api.Repository)
-	TemplateVersionCreatedCallback(orgId uuid.UUID, before, after *api.TemplateVersion)
-	AllRepositoriesDeletedCallback(orgId uuid.UUID)
-	AllFleetsDeletedCallback(orgId uuid.UUID)
-	AllDevicesDeletedCallback(orgId uuid.UUID)
-	FleetSourceUpdated(orgId uuid.UUID, name string)
-	DeviceSourceUpdated(orgId uuid.UUID, name string)
-	FleetRolloutSelectionUpdated(orgId uuid.UUID, name string)
+	DeviceUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Device)
+	DeviceUpdatedNoRenderCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Device)
+	FleetUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Fleet)
+	RepositoryUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Repository)
+	TemplateVersionCreatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.TemplateVersion)
+	AllRepositoriesDeletedCallback(ctx context.Context, orgId uuid.UUID)
+	AllFleetsDeletedCallback(ctx context.Context, orgId uuid.UUID)
+	AllDevicesDeletedCallback(ctx context.Context, orgId uuid.UUID)
+	FleetSourceUpdated(ctx context.Context, orgId uuid.UUID, name string)
+	DeviceSourceUpdated(ctx context.Context, orgId uuid.UUID, name string)
+	FleetRolloutSelectionUpdated(ctx context.Context, orgId uuid.UUID, name string)
 }
 
 type callbackManager struct {
@@ -65,7 +66,7 @@ func NewCallbackManager(publisher queues.Publisher, log logrus.FieldLogger) Call
 	}
 }
 
-func (t *callbackManager) submitTask(taskName string, resource ResourceReference, op string) {
+func (t *callbackManager) submitTask(ctx context.Context, taskName string, resource ResourceReference, op string) {
 	resource.TaskName = taskName
 	resource.Op = op
 	b, err := json.Marshal(&resource)
@@ -73,12 +74,12 @@ func (t *callbackManager) submitTask(taskName string, resource ResourceReference
 		t.log.WithError(err).Error("failed to marshal payload")
 		return
 	}
-	if err = t.publisher.Publish(b); err != nil {
+	if err = t.publisher.Publish(ctx, b); err != nil {
 		t.log.WithError(err).Error("failed to publish resource")
 	}
 }
 
-func (t *callbackManager) FleetUpdatedCallback(orgId uuid.UUID, before, after *api.Fleet) {
+func (t *callbackManager) FleetUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Fleet) {
 	var templateUpdated bool
 	var selectorUpdated bool
 	var fleet *api.Fleet
@@ -106,23 +107,23 @@ func (t *callbackManager) FleetUpdatedCallback(orgId uuid.UUID, before, after *a
 	ref := ResourceReference{OrgID: orgId, Kind: api.FleetKind, Name: *fleet.Metadata.Name}
 	if templateUpdated {
 		// If the template was updated, start rolling out the new spec
-		t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
+		t.submitTask(ctx, FleetValidateTask, ref, FleetValidateOpUpdate)
 	}
 	if selectorUpdated {
 		op := FleetSelectorMatchOpUpdate
 		if fleet.Status != nil && fleet.Status.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Conditions, api.FleetOverlappingSelectors) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
-		t.submitTask(FleetSelectorMatchTask, ref, op)
+		t.submitTask(ctx, FleetSelectorMatchTask, ref, op)
 	}
 }
 
-func (t *callbackManager) FleetSourceUpdated(orgId uuid.UUID, name string) {
+func (t *callbackManager) FleetSourceUpdated(ctx context.Context, orgId uuid.UUID, name string) {
 	ref := ResourceReference{OrgID: orgId, Kind: api.FleetKind, Name: name}
-	t.submitTask(FleetValidateTask, ref, FleetValidateOpUpdate)
+	t.submitTask(ctx, FleetValidateTask, ref, FleetValidateOpUpdate)
 }
 
-func (t *callbackManager) RepositoryUpdatedCallback(orgId uuid.UUID, before, after *api.Repository) {
+func (t *callbackManager) RepositoryUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Repository) {
 	var repository *api.Repository
 	if before != nil {
 		repository = before
@@ -137,22 +138,22 @@ func (t *callbackManager) RepositoryUpdatedCallback(orgId uuid.UUID, before, aft
 		Kind:  api.RepositoryKind,
 		Name:  *repository.Metadata.Name,
 	}
-	t.submitTask(RepositoryUpdatesTask, resourceRef, RepositoryUpdateOpUpdate)
+	t.submitTask(ctx, RepositoryUpdatesTask, resourceRef, RepositoryUpdateOpUpdate)
 }
 
-func (t *callbackManager) AllRepositoriesDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(RepositoryUpdatesTask, ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}, RepositoryUpdateOpDeleteAll)
+func (t *callbackManager) AllRepositoriesDeletedCallback(ctx context.Context, orgId uuid.UUID) {
+	t.submitTask(ctx, RepositoryUpdatesTask, ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}, RepositoryUpdateOpDeleteAll)
 }
 
-func (t *callbackManager) AllFleetsDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.FleetKind}, FleetSelectorMatchOpDeleteAll)
+func (t *callbackManager) AllFleetsDeletedCallback(ctx context.Context, orgId uuid.UUID) {
+	t.submitTask(ctx, FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.FleetKind}, FleetSelectorMatchOpDeleteAll)
 }
 
-func (t *callbackManager) AllDevicesDeletedCallback(orgId uuid.UUID) {
-	t.submitTask(FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.DeviceKind}, FleetSelectorMatchOpDeleteAll)
+func (t *callbackManager) AllDevicesDeletedCallback(ctx context.Context, orgId uuid.UUID) {
+	t.submitTask(ctx, FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.DeviceKind}, FleetSelectorMatchOpDeleteAll)
 }
 
-func (t *callbackManager) DeviceUpdatedNoRenderCallback(orgId uuid.UUID, before *api.Device, after *api.Device) {
+func (t *callbackManager) DeviceUpdatedNoRenderCallback(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device) {
 	var labelsUpdated bool
 	var ownerUpdated bool
 	var device *api.Device
@@ -183,7 +184,7 @@ func (t *callbackManager) DeviceUpdatedNoRenderCallback(orgId uuid.UUID, before 
 	if ownerUpdated || labelsUpdated {
 		// If the device's owner was updated, or if labels were updating that might affect parametrers,
 		// check if we need to update its spec according to its new fleet
-		t.submitTask(FleetRolloutTask, ref, FleetRolloutOpUpdate)
+		t.submitTask(ctx, FleetRolloutTask, ref, FleetRolloutOpUpdate)
 	}
 	if labelsUpdated {
 		// Check if the new labels cause the device to move to a different fleet
@@ -192,39 +193,39 @@ func (t *callbackManager) DeviceUpdatedNoRenderCallback(orgId uuid.UUID, before 
 		if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
 			op = FleetSelectorMatchOpUpdateOverlap
 		}
-		t.submitTask(FleetSelectorMatchTask, ref, op)
+		t.submitTask(ctx, FleetSelectorMatchTask, ref, op)
 	}
 
 }
 
-func (t *callbackManager) DeviceUpdatedCallback(orgId uuid.UUID, before *api.Device, after *api.Device) {
-	t.DeviceUpdatedNoRenderCallback(orgId, before, after)
+func (t *callbackManager) DeviceUpdatedCallback(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device) {
+	t.DeviceUpdatedNoRenderCallback(ctx, orgId, before, after)
 	if after != nil && (before == nil || !api.DeviceSpecsAreEqual(*before.Spec, *after.Spec)) {
-		t.DeviceSourceUpdated(orgId, lo.FromPtr(after.Metadata.Name))
+		t.DeviceSourceUpdated(ctx, orgId, lo.FromPtr(after.Metadata.Name))
 	}
 }
 
-func (t *callbackManager) DeviceSourceUpdated(orgId uuid.UUID, name string) {
+func (t *callbackManager) DeviceSourceUpdated(ctx context.Context, orgId uuid.UUID, name string) {
 	ref := ResourceReference{OrgID: orgId, Kind: api.DeviceKind, Name: name}
-	t.submitTask(DeviceRenderTask, ref, DeviceRenderOpUpdate)
+	t.submitTask(ctx, DeviceRenderTask, ref, DeviceRenderOpUpdate)
 }
 
 // This is called only upon create, so "before" should be nil and "after" should be the TV
-func (t *callbackManager) TemplateVersionCreatedCallback(orgId uuid.UUID, before, after *api.TemplateVersion) {
+func (t *callbackManager) TemplateVersionCreatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.TemplateVersion) {
 	templateVersion := after
 	resourceRef := ResourceReference{
 		OrgID: orgId,
 		Kind:  api.FleetKind,
 		Name:  templateVersion.Spec.Fleet,
 	}
-	t.submitTask(FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
+	t.submitTask(ctx, FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
 }
 
-func (t *callbackManager) FleetRolloutSelectionUpdated(orgId uuid.UUID, name string) {
+func (t *callbackManager) FleetRolloutSelectionUpdated(ctx context.Context, orgId uuid.UUID, name string) {
 	resourceRef := ResourceReference{
 		OrgID: orgId,
 		Kind:  api.FleetKind,
 		Name:  name,
 	}
-	t.submitTask(FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
+	t.submitTask(ctx, FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
 }

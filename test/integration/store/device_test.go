@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -53,8 +52,8 @@ var _ = Describe("DeviceStore create", func() {
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
 		devStore = storeInst.Device()
 		called = false
-		callback = store.DeviceStoreCallback(func(uuid.UUID, *api.Device, *api.Device) { called = true })
-		allDeletedCallback = store.DeviceStoreAllDeletedCallback(func(orgId uuid.UUID) { called = true })
+		callback = store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) { called = true })
+		allDeletedCallback = store.DeviceStoreAllDeletedCallback(func(ctx context.Context, orgId uuid.UUID) { called = true })
 
 		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil, false)
 	})
@@ -633,7 +632,7 @@ var _ = Describe("DeviceStore create", func() {
 
 func createTestConfigProvider(contents string) (string, error) {
 	provider := api.ConfigProviderSpec{}
-	files := []v1alpha1.FileSpec{
+	files := []api.FileSpec{
 		{
 			Content: contents,
 		},
