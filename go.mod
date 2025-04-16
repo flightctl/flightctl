@@ -175,6 +175,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gorm.io/plugin/opentelemetry v0.1.12 // indirect
 	k8s.io/apiserver v0.28.2 // indirect
 	k8s.io/cli-runtime v0.29.15 // indirect
 	k8s.io/kube-openapi v0.29.15 // indirect

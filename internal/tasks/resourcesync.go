@@ -42,10 +42,10 @@ func NewResourceSync(callbackManager tasks_client.CallbackManager, serviceHandle
 	}
 }
 
-func (r *ResourceSync) Poll() {
+func (r *ResourceSync) Poll(ctx context.Context) {
 	reqid.OverridePrefix("resourcesync")
 	requestID := reqid.NextRequestID()
-	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running ResourceSync Polling")

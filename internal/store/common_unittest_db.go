@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -32,10 +33,9 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *
 	}
 
 	store := NewStore(db, log.WithField("pkg", "store"))
-	if err := store.InitialMigration(); err != nil {
+	if err := store.InitialMigration(context.Background()); err != nil {
 		log.Fatalf("running initial migration: %v", err)
 	}
-
 	return store, cfg, randomDBName, db
 }
 

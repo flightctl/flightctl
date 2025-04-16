@@ -67,42 +67,42 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// repository tester
 	repoTester := tasks.NewRepoTester(s.log, serviceHandler)
-	repoTesterThread := thread.New(
+	repoTesterThread := thread.New(ctx,
 		s.log.WithField("pkg", "repository-tester"), "Repository tester", 2*time.Minute, repoTester.TestRepositories)
 	repoTesterThread.Start()
 	defer repoTesterThread.Stop()
 
 	// resource sync
 	resourceSync := tasks.NewResourceSync(callbackManager, serviceHandler, s.log)
-	resourceSyncThread := thread.New(
+	resourceSyncThread := thread.New(ctx,
 		s.log.WithField("pkg", "resourcesync"), "ResourceSync", 2*time.Minute, resourceSync.Poll)
 	resourceSyncThread.Start()
 	defer resourceSyncThread.Stop()
 
 	// device disconnected
 	deviceDisconnected := tasks.NewDeviceDisconnected(s.log, serviceHandler)
-	deviceDisconnectedThread := thread.New(
+	deviceDisconnectedThread := thread.New(ctx,
 		s.log.WithField("pkg", "device-disconnected"), "Device disconnected", tasks.DeviceDisconnectedPollingInterval, deviceDisconnected.Poll)
 	deviceDisconnectedThread.Start()
 	defer deviceDisconnectedThread.Stop()
 
 	// Rollout device selection
 	rolloutDeviceSelection := device_selection.NewReconciler(serviceHandler, callbackManager, s.log)
-	rolloutDeviceSelectionThread := thread.New(
-		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, func() { rolloutDeviceSelection.Reconcile(ctx) })
+	rolloutDeviceSelectionThread := thread.New(ctx,
+		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
 	rolloutDeviceSelectionThread.Start()
 	defer rolloutDeviceSelectionThread.Stop()
 
 	// Rollout disruption budget
 	disruptionBudget := disruption_budget.NewReconciler(serviceHandler, callbackManager, s.log)
-	disruptionBudgetThread := thread.New(
-		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, func() { disruptionBudget.Reconcile(ctx) })
+	disruptionBudgetThread := thread.New(ctx,
+		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, disruptionBudget.Reconcile)
 	disruptionBudgetThread.Start()
 	defer disruptionBudgetThread.Stop()
 
 	// Event cleanup
 	eventCleanup := tasks.NewEventCleanup(s.log, serviceHandler, s.cfg.Service.EventRetentionPeriod)
-	eventCleanupThread := thread.New(
+	eventCleanupThread := thread.New(ctx,
 		s.log.WithField("pkg", "event-cleanup"), "Event cleanup", tasks.EventCleanupPollingInterval, eventCleanup.Poll)
 	eventCleanupThread.Start()
 	defer eventCleanupThread.Stop()

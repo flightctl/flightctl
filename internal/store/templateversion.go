@@ -13,7 +13,7 @@ import (
 )
 
 type TemplateVersion interface {
-	InitialMigration() error
+	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error)
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
@@ -26,7 +26,7 @@ type TemplateVersion interface {
 }
 
 type TemplateVersionStore struct {
-	db           *gorm.DB
+	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
 	genericStore *GenericStore[*model.TemplateVersion, model.TemplateVersion, api.TemplateVersion, api.TemplateVersionList]
 }
@@ -44,35 +44,41 @@ func NewTemplateVersion(db *gorm.DB, log logrus.FieldLogger) TemplateVersion {
 		(*model.TemplateVersion).ToApiResource,
 		model.TemplateVersionsToApiResource,
 	)
-	return &TemplateVersionStore{db: db, log: log, genericStore: genericStore}
+	return &TemplateVersionStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-func (s *TemplateVersionStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.TemplateVersion{}); err != nil {
+func (s *TemplateVersionStore) getDB(ctx context.Context) *gorm.DB {
+	return s.dbHandler.WithContext(ctx)
+}
+
+func (s *TemplateVersionStore) InitialMigration(ctx context.Context) error {
+	db := s.getDB(ctx)
+
+	if err := db.AutoMigrate(&model.TemplateVersion{}); err != nil {
 		return err
 	}
 
 	// Create GIN index for TemplateVersion labels
-	if !s.db.Migrator().HasIndex(&model.TemplateVersion{}, "idx_template_versions_labels") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_template_versions_labels ON template_versions USING GIN (labels)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.TemplateVersion{}, "idx_template_versions_labels") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_template_versions_labels ON template_versions USING GIN (labels)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.TemplateVersion{}, "Labels"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.TemplateVersion{}, "Labels"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for TemplateVersion annotations
-	if !s.db.Migrator().HasIndex(&model.TemplateVersion{}, "idx_template_versions_annotations") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_template_versions_annotations ON template_versions USING GIN (annotations)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.TemplateVersion{}, "idx_template_versions_annotations") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_template_versions_annotations ON template_versions USING GIN (annotations)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.TemplateVersion{}, "Annotations"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.TemplateVersion{}, "Annotations"); err != nil {
 				return err
 			}
 		}
@@ -91,7 +97,7 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 		FleetName: fleet,
 		Name:      name,
 	}
-	result := s.db.First(&templateVersion)
+	result := s.getDB(ctx).First(&templateVersion)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
@@ -105,7 +111,7 @@ func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listPa
 
 func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
 	var templateVersion model.TemplateVersion
-	result := s.db.Model(&templateVersion).Where("org_id = ? AND fleet_name = ?", orgId, fleet).Order("created_at DESC").First(&templateVersion)
+	result := s.getDB(ctx).Model(&templateVersion).Where("org_id = ? AND fleet_name = ?", orgId, fleet).Order("created_at DESC").First(&templateVersion)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
@@ -119,7 +125,7 @@ func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, flee
 
 func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error {
 	condition := model.TemplateVersion{}
-	unscoped := s.db.Unscoped()
+	unscoped := s.getDB(ctx).Unscoped()
 	var whereQuery *gorm.DB
 	if fleet != nil {
 		whereQuery = unscoped.Where("org_id = ? AND fleet_name = ?", orgId, *fleet)
@@ -153,7 +159,7 @@ func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID
 		updates["valid"] = valid
 	}
 
-	result := s.db.Model(&templateVersion).Updates(updates)
+	result := s.getDB(ctx).Model(&templateVersion).Updates(updates)
 	if result.Error != nil {
 		return ErrorFromGormError(result.Error)
 	}
