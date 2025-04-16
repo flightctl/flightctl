@@ -6,7 +6,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -66,7 +65,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 	if tv != nil {
 		rv := *tv
 		annotations := map[string]string{
-			v1alpha1.DeviceAnnotationTemplateVersion: rv,
+			api.DeviceAnnotationTemplateVersion: rv,
 		}
 		resource.Metadata.Annotations = &annotations
 		deviceStatus.Config.RenderedVersion = rv
@@ -77,7 +76,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 
 func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
-	callback := store.DeviceStoreCallback(func(uuid.UUID, *api.Device, *api.Device) {})
+	callback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
 	_, _, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
@@ -113,7 +112,7 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 	if selector != nil {
 		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
-	callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
+	callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
 	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
@@ -131,7 +130,7 @@ func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet
 }
 
 func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name string, status *api.TemplateVersionStatus) error {
-	owner := util.SetResourceOwner(v1alpha1.FleetKind, fleet)
+	owner := util.SetResourceOwner(api.FleetKind, fleet)
 	resource := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
 			Name:  &name,
@@ -146,7 +145,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		resource.Status = status
 	}
 
-	callback := store.TemplateVersionStoreCallback(func(uuid.UUID, *api.TemplateVersion, *api.TemplateVersion) {})
+	callback := store.TemplateVersionStoreCallback(func(context.Context, uuid.UUID, *api.TemplateVersion, *api.TemplateVersion) {})
 	_, err := tvStore.Create(ctx, orgId, &resource, callback)
 
 	return err
@@ -180,7 +179,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 			Spec: spec,
 		}
 
-		callback := store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) {})
+		callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
 		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			return err

@@ -41,13 +41,13 @@ func New(
 }
 
 // TODO: expose metrics
-func (s *Server) Run() error {
-	ctx, cancel := context.WithCancel(context.Background())
+func (s *Server) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-periodic")
 	defer cancel()
 
-	queuesProvider, err := queues.NewRedisProvider(context.Background(), s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}

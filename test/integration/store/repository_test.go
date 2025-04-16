@@ -40,7 +40,7 @@ var _ = Describe("RepositoryStore create", func() {
 		numRepositories = 3
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
 		callbackCalled = false
-		callback = store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
+		callback = store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
 
 		err := testutil.CreateRepositories(ctx, 3, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
@@ -100,7 +100,7 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("Delete all repositories in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
-			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(uuid.UUID) { callbackCalled = true })
+			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(context.Context, uuid.UUID) { callbackCalled = true })
 			err := storeInst.Repository().DeleteAll(ctx, otherOrgId, deleteAllCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
@@ -306,7 +306,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(uuid.UUID) { callbackCalled = true })
+			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(context.Context, uuid.UUID) { callbackCalled = true })
 			err = storeInst.Repository().DeleteAll(ctx, orgId, deleteAllCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())

@@ -46,8 +46,8 @@ type FleetStore struct {
 	genericStore *GenericStore[*model.Fleet, model.Fleet, api.Fleet, api.FleetList]
 }
 
-type FleetStoreCallback func(orgId uuid.UUID, before *api.Fleet, after *api.Fleet)
-type FleetStoreAllDeletedCallback func(orgId uuid.UUID)
+type FleetStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Fleet, after *api.Fleet)
+type FleetStoreAllDeletedCallback func(ctx context.Context, orgId uuid.UUID)
 
 // Make sure we conform to Fleet interface
 var _ Fleet = (*FleetStore)(nil)

@@ -46,7 +46,7 @@ var _ = Describe("FleetSelector", func() {
 		fleetStore = storeInst.Fleet()
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockPublisher(ctrl)
-		publisher.EXPECT().Publish(gomock.Any()).Return(nil).AnyTimes()
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		callbackManager = tasks_client.NewCallbackManager(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
