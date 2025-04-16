@@ -127,7 +127,7 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
-	if err := store.InitialMigration(); err != nil {
+	if err := store.InitialMigration(ctx); err != nil {
 		log.Fatalf("running initial migration: %v", err)
 	}
 

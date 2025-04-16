@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
 
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -25,7 +27,7 @@ type Store interface {
 	Repository() Repository
 	ResourceSync() ResourceSync
 	Event() Event
-	InitialMigration() error
+	InitialMigration(context.Context) error
 	Close() error
 }
 
@@ -88,42 +90,47 @@ func (s *DataStore) Event() Event {
 	return s.event
 }
 
-func (s *DataStore) InitialMigration() error {
-	if err := s.Device().InitialMigration(); err != nil {
+func (s *DataStore) InitialMigration(ctx context.Context) error {
+	ctx, span := instrumentation.StartSpan(ctx, "flightctl/store", "InitialMigration")
+	defer span.End()
+
+	if err := s.Device().InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := s.EnrollmentRequest().InitialMigration(); err != nil {
+	if err := s.EnrollmentRequest().InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := s.CertificateSigningRequest().InitialMigration(); err != nil {
+	if err := s.CertificateSigningRequest().InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := s.Fleet().InitialMigration(); err != nil {
+	if err := s.Fleet().InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := s.TemplateVersion().InitialMigration(); err != nil {
+	if err := s.TemplateVersion().InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := s.Repository().InitialMigration(); err != nil {
+	if err := s.Repository().InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := s.ResourceSync().InitialMigration(); err != nil {
+	if err := s.ResourceSync().InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := s.Event().InitialMigration(); err != nil {
+	if err := s.Event().InitialMigration(ctx); err != nil {
 		return err
 	}
-	return s.customizeMigration()
+	return s.customizeMigration(ctx)
 }
 
-func (s *DataStore) customizeMigration() error {
-	if s.db.Migrator().HasConstraint("fleet_repos", "fk_fleet_repos_repository") {
-		if err := s.db.Migrator().DropConstraint("fleet_repos", "fk_fleet_repos_repository"); err != nil {
+func (s *DataStore) customizeMigration(ctx context.Context) error {
+	db := s.db.WithContext(ctx)
+
+	if db.Migrator().HasConstraint("fleet_repos", "fk_fleet_repos_repository") {
+		if err := db.Migrator().DropConstraint("fleet_repos", "fk_fleet_repos_repository"); err != nil {
 			return err
 		}
 	}
-	if s.db.Migrator().HasConstraint("device_repos", "fk_device_repos_repository") {
-		if err := s.db.Migrator().DropConstraint("device_repos", "fk_device_repos_repository"); err != nil {
+	if db.Migrator().HasConstraint("device_repos", "fk_device_repos_repository") {
+		if err := db.Migrator().DropConstraint("device_repos", "fk_device_repos_repository"); err != nil {
 			return err
 		}
 	}
