@@ -1,9 +1,12 @@
 package thread
 
 import (
+	"context"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Thread provides a background, periodic thread, which invokes the given function every supplied interval.
@@ -18,16 +21,18 @@ import (
 //	defer monitor.Stop()
 //	....
 type Thread struct {
+	ctx              context.Context
 	log              logrus.FieldLogger
-	exec             func()
+	exec             func(context.Context)
 	done             chan struct{}
 	name             string
 	interval         time.Duration
 	lastRunStartedAt time.Time
 }
 
-func New(log logrus.FieldLogger, name string, interval time.Duration, exec func()) *Thread {
+func New(ctx context.Context, log logrus.FieldLogger, name string, interval time.Duration, exec func(context.Context)) *Thread {
 	return &Thread{
+		ctx:      ctx,
 		log:      log,
 		exec:     exec,
 		name:     name,
@@ -66,11 +71,16 @@ func (t *Thread) loop() {
 
 	for {
 		select {
+		case <-t.ctx.Done():
+			return
 		case <-t.done:
 			return
 		case <-ticker.C:
+			ctx := trace.ContextWithSpan(t.ctx, trace.SpanFromContext(context.Background()))
+			ctx, span := instrumentation.StartSpan(ctx, "flightctl/thread", t.name)
 			t.lastRunStartedAt = time.Now()
-			t.exec()
+			t.exec(ctx)
+			span.End()
 		}
 	}
 }
