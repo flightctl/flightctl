@@ -3,6 +3,7 @@ package util
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -32,7 +33,7 @@ func GetTestExamplesYamlPath(yamlName string) string {
 	if yamlName == "" {
 		return ""
 	}
-	return GetTopLevelDir() + "/test/data/examples/" + yamlName
+	return filepath.Join(GetTopLevelDir(), "/test/data/examples/", yamlName)
 }
 
 func GetExtIP() string {
