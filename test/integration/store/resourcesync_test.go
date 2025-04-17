@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -53,18 +54,21 @@ var _ = Describe("ResourceSyncStore create", func() {
 		numResourceSyncs int
 	)
 
+	ctx, span := instrumentation.StartSpan(context.Background(),
+		"flightctl/tests", "Integration.ResourceSyncStore")
+	defer span.End()
+
 	BeforeEach(func() {
-		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numResourceSyncs = 3
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
 		createResourceSyncs(ctx, 3, storeInst, orgId)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("ResourceSync store", func() {
@@ -80,13 +84,13 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Path:       "my/path",
 				},
 			}
-			resp, err := storeInst.ResourceSync().Create(context.Background(), orgId, &rs)
+			resp, err := storeInst.ResourceSync().Create(ctx, orgId, &rs)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp.Metadata.Generation).ToNot(BeNil())
 			Expect(*resp.Metadata.Generation).To(Equal(gen))
 
 			// name already exisis
-			_, err = storeInst.ResourceSync().Create(context.Background(), orgId, &rs)
+			_, err = storeInst.ResourceSync().Create(ctx, orgId, &rs)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
 		})

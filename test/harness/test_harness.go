@@ -60,7 +60,7 @@ type TestHarness struct {
 // set of agent/server/store instances.
 // It provides the necessary elements to perform tests against the agent and server.
 func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*TestHarness, error) {
-
+	//TODO
 	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/"})
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness failed creating temporary directories: %w", err)

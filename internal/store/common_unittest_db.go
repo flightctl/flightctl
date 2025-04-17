@@ -11,9 +11,11 @@ import (
 	"gorm.io/gorm"
 )
 
-func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *gorm.DB) {
+func PrepareDBForUnitTests(ctx context.Context, log *logrus.Logger) (Store, *config.Config, string, *gorm.DB) {
 	cfg := config.NewDefault()
 	cfg.Database.Name = ""
+	cfg.Database.Port = 8888
+
 	dbTemp, err := InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
@@ -22,7 +24,7 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)
-	dbTemp = dbTemp.Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
+	dbTemp = dbTemp.WithContext(WithBypassSpanCheck(ctx)).Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
 	if dbTemp.Error != nil {
 		log.Fatalf("creating database: %v", dbTemp.Error)
 	}
@@ -32,6 +34,7 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
+	db = db.WithContext(ctx)
 
 	store := NewStore(db, log.WithField("pkg", "store"))
 	if err := store.InitialMigration(context.Background()); err != nil {
@@ -40,7 +43,7 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *
 	return store, cfg, randomDBName, db
 }
 
-func DeleteTestDB(log *logrus.Logger, cfg *config.Config, store Store, dbName string) {
+func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, store Store, dbName string) {
 	err := store.Close()
 	if err != nil {
 		log.Fatalf("closing data store: %v", err)
@@ -51,7 +54,7 @@ func DeleteTestDB(log *logrus.Logger, cfg *config.Config, store Store, dbName st
 		log.Fatalf("initializing data store: %v", err)
 	}
 	defer CloseDB(db)
-	db = db.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
+	db = db.WithContext(ctx).Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
 	if db.Error != nil {
 		log.Fatalf("dropping database: %v", db.Error)
 	}

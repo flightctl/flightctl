@@ -10,6 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/service"
@@ -25,11 +26,14 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 )
 
 func TestDeviceSelection(t *testing.T) {
+	otel.SetTracerProvider(noop.NewTracerProvider())
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Device selection suite")
 }
@@ -48,6 +52,10 @@ var _ = Describe("Rollout batch sequence test", func() {
 		tvName         string
 		db             *gorm.DB
 	)
+	ctx, span := instrumentation.StartSpan(context.Background(),
+		"flightctl/rollout", "TestDeviceSelection")
+	defer span.End()
+
 	percentageLimit := func(p api.Percentage) *api.Batch_Limit {
 		ret := &api.Batch_Limit{}
 		Expect(ret.FromPercentage(p)).ToNot(HaveOccurred())
@@ -323,9 +331,8 @@ var _ = Describe("Rollout batch sequence test", func() {
 	}
 
 	BeforeEach(func() {
-		ctx = context.Background()
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockPublisher(ctrl)
 		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -335,7 +342,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
 	})
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 	Context("device selection", func() {
 
@@ -626,7 +633,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		It("single fleet with template version - single device", func() {
 			initFleet(FleetName, batchSequenceWithSelection, 1, true)
 			reconciler := device_selection.NewReconciler(serviceHandler, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 			Expect(getBatchLocation(FleetName)).To(Equal(3))
 			setDevicesComplete(FleetName, tvName)
@@ -637,26 +644,26 @@ var _ = Describe("Rollout batch sequence test", func() {
 			initFleet(FleetName, incompleteBatchSequenceWithSelection, 10, true)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
 			reconciler := device_selection.NewReconciler(serviceHandler, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 			Expect(getBatchLocation(FleetName)).To(Equal(0))
 			setDevicesComplete(FleetName, tvName)
-			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 			Expect(getBatchLocation(FleetName)).To(Equal(1))
 			setDevicesComplete(FleetName, tvName)
-			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 			Expect(getBatchLocation(FleetName)).To(Equal(2))
 			setDevicesComplete(FleetName, tvName)
-			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 			Expect(getBatchLocation(FleetName)).To(Equal(3))
-			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 			Expect(getBatchLocation(FleetName)).To(Equal(3))
 			setDevicesComplete(FleetName, tvName)
-			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 			Expect(getBatchLocation(FleetName)).To(Equal(4))
 			setDevicesComplete(FleetName, tvName)
@@ -698,28 +705,28 @@ var _ = Describe("Rollout batch sequence test", func() {
 				initFleet(FleetName, incompleteBatchSequenceWithSelection, 10, true)
 				setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
 				reconciler := device_selection.NewReconciler(serviceHandler, mockCallbackManager, log)
-				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 				checkFleetAnnotations(true)
 				reconciler.Reconcile(ctx)
 				Expect(getBatchLocation(FleetName)).To(Equal(0))
 				setDevicesComplete(FleetName, tvName)
-				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 				checkFleetAnnotations(false)
 				reconciler.Reconcile(ctx)
 				Expect(getBatchLocation(FleetName)).To(Equal(1))
 				updateDefinition(fromBatchSequence(batchSequenceWithAbsoluteLimit))
-				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 				checkFleetAnnotations(false)
 				reconciler.Reconcile(ctx)
 				Expect(getBatchLocation(FleetName)).To(Equal(0))
 				setDevicesComplete(FleetName, tvName)
-				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 				checkFleetAnnotations(false)
 				reconciler.Reconcile(ctx)
 				Expect(getBatchLocation(FleetName)).To(Equal(1))
 				checkFleetAnnotations(false)
 				updateDefinition(nil)
-				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+				mockCallbackManager.EXPECT().FleetRolloutSelectionUpdated(ctx, gomock.Any(), gomock.Any())
 				reconciler.Reconcile(ctx)
 				checkFleetAnnotations(true)
 			})

@@ -73,7 +73,7 @@ var _ = Describe("RepoTester", func() {
 		ctx = context.WithValue(context.Background(), service.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockPublisher(ctrl)
 		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -86,7 +86,7 @@ var _ = Describe("RepoTester", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, stores, dbName)
+		store.DeleteTestDB(ctx, log, cfg, stores, dbName)
 	})
 
 	Context("Conditions", func() {
@@ -110,7 +110,7 @@ var _ = Describe("RepoTester", func() {
 			err = repotestr.SetAccessCondition(ctx, repo, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			repotestr.TestRepositories()
+			repotestr.TestRepositories(ctx)
 
 			repo, err = stores.Repository().Get(ctx, orgId, "nil-to-ok")
 			Expect(err).ToNot(HaveOccurred())

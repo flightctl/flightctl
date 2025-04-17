@@ -40,7 +40,7 @@ var _ = Describe("FleetSelector", func() {
 		ctx = context.WithValue(context.Background(), service.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		ctrl := gomock.NewController(GinkgoT())
@@ -55,7 +55,7 @@ var _ = Describe("FleetSelector", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("FleetSelector", func() {

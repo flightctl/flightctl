@@ -57,7 +57,7 @@ var _ = Describe("FleetRollout", func() {
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
@@ -72,7 +72,7 @@ var _ = Describe("FleetRollout", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 		ctrl.Finish()
 	})
 

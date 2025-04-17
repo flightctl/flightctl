@@ -10,6 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -20,10 +21,13 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace/noop"
 	"gorm.io/gorm"
 )
 
 func TestStore(t *testing.T) {
+	otel.SetTracerProvider(noop.NewTracerProvider())
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Store Suite")
 }
@@ -44,12 +48,15 @@ var _ = Describe("DeviceStore create", func() {
 		allDeletedCallback store.DeviceStoreAllDeletedCallback
 	)
 
+	ctx, span := instrumentation.StartSpan(context.Background(),
+		"flightctl/tests", "Integration.DeviceStore")
+	defer span.End()
+
 	BeforeEach(func() {
-		ctx = context.Background()
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		devStore = storeInst.Device()
 		called = false
 		callback = store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) { called = true })
@@ -59,7 +66,7 @@ var _ = Describe("DeviceStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	It("CreateOrUpdateDevice create mode race", func() {
@@ -80,7 +87,7 @@ var _ = Describe("DeviceStore create", func() {
 				return
 			}
 			raceCalled = true
-			result := db.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}, Spec: model.MakeJSONField(api.DeviceSpec{})})
+			result := db.WithContext(ctx).Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}, Spec: model.MakeJSONField(api.DeviceSpec{})})
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
@@ -114,7 +121,7 @@ var _ = Describe("DeviceStore create", func() {
 			device.OrgID = orgId
 			device.ResourceVersion = lo.ToPtr(int64(5))
 			Expect(err).ToNot(HaveOccurred())
-			result := db.Updates(device)
+			result := db.WithContext(ctx).Updates(device)
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
