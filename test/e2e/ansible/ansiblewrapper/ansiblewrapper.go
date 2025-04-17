@@ -2,13 +2,11 @@ package ansiblewrapper
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	adHoc "github.com/apenella/go-ansible/v2/pkg/adhoc"
-	execute "github.com/apenella/go-ansible/v2/pkg/execute"
 	playbook "github.com/apenella/go-ansible/v2/pkg/playbook"
 	"github.com/flightctl/flightctl/test/util"
 )
@@ -18,49 +16,38 @@ func ModuleName(resource string) string {
 	return fmt.Sprintf("flightctl.core.%s", resource)
 }
 
-// buildArgs converts a map of arguments to a string suitable for Ansible.
-func buildArgs(args map[string]interface{}) string {
-	var parts []string
-	for k, v := range args {
-		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
-	}
-	return strings.Join(parts, " ")
-}
-
 // runAdHoc executes an Ansible ad-hoc command with a module and returns raw JSON.
 func runAdHoc(module string, args map[string]interface{}) (string, error) {
 	if module == "" {
 		return "", fmt.Errorf("module name cannot be empty")
 	}
 
-	var stdout, stderr bytes.Buffer
+	var stderr bytes.Buffer
 
 	executor := &adHoc.AnsibleAdhocCmd{
-		Pattern:    "localhost",
-		ModuleName: module,
-		ModuleArgs: buildArgs(args),
-		Connection: "local",
-		Inventory:  "localhost,", // inline inventory
-		Executor: &execute.Execute{
-			StdoutCallback: "json",
-			StdoutWriter:   &stdout,
-			StderrWriter:   &stderr,
-		},
+		Pattern: "localhost",
+		AdhocOptions: &adHoc.AnsibleAdhocOptions{
+			ModuleName: ModuleName(module),
+			Args:       buildArgs(args),
+			Connection: "local",
+			Inventory:  "localhost,"},
+		//StdoutCallback: "json",
+		//Stderr:         &stderr,
 	}
 
-	ctx := context.Background()
-	err := executor.Run(ctx)
+	output, err := executor.Command()
 	if err != nil {
 		return "", fmt.Errorf("ad-hoc execution failed: module=%s, error=%v, stderr=%s",
 			module, err, stderr.String())
 	}
 
-	output := stdout.String()
-	if output == "" {
+	if len(output) == 0 {
 		return "", fmt.Errorf("no output received from module=%s", module)
 	}
 
-	return output, nil
+	result := strings.Join(output, "\n")
+
+	return result, nil
 }
 
 // runPlaybook executes a dynamically created playbook with a module and returns raw JSON.
@@ -69,25 +56,23 @@ func runPlaybook(module string, args map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Ensure the temporary file is removed after execution
 	defer os.Remove(tmpFile)
-
-	var stdout, stderr bytes.Buffer
-
+	var stderr bytes.Buffer
 	executor := &playbook.AnsiblePlaybookCmd{
 		Playbooks: []string{tmpFile},
-		Executor: &execute.Execute{
-			StdoutCallback: "json",
-			StdoutWriter:   &stdout,
-			StderrWriter:   &stderr,
-		},
+		//StdoutCallback: "json",
+		//Stderr:         &stderr,
 	}
-
-	ctx := context.Background()
-	err = executor.Run(ctx)
+	output, err := executor.Command()
 	if err != nil {
 		return "", fmt.Errorf("playbook failed: %v\nstderr: %s", err, stderr.String())
 	}
-	return stdout.String(), nil
+	if len(output) == 0 {
+		return "", fmt.Errorf("no output received from module=%s", module)
+	}
+	result := strings.Join(output, "\n")
+	return result, nil
 }
 
 // RunPlaybookModule executes a dynamically created playbook with a module and returns parsed JSON.
@@ -132,7 +117,7 @@ func generateTempPlaybook(module string, args map[string]interface{}) (string, e
   gather_facts: false
   tasks:
     - name: Run ` + module + `
-      ` + module + `:`
+      ` + ModuleName(module) + `:`
 
 	for k, v := range args {
 		content += fmt.Sprintf("\n        %s: %v", k, v)

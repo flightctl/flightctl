@@ -2,8 +2,10 @@
 package ansible_test
 
 import (
+	"context"
 	"os/exec"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -15,7 +17,11 @@ func TestAnsibleE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	cmd := exec.Command("ansible-galaxy", "collection", "install", "flightctl.core")
-	err := cmd.Run()
-	Expect(err).NotTo(HaveOccurred(), "Failed to install flightctl.core collection")
+	var _ = BeforeSuite(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "ansible-galaxy", "collection", "install", "flightctl.core")
+		output, err := cmd.CombinedOutput()
+		Expect(err).NotTo(HaveOccurred(), "Failed to install flightctl.core collection: %s", output)
+	})
 })

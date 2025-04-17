@@ -1,6 +1,8 @@
 package ansible_test
 
 import (
+	"github.com/flightctl/flightctl/test/e2e/ansible/ansiblewrapper"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -34,14 +36,14 @@ var _ = Describe("flightctl.core.device_info", func() {
 
 	BeforeSuite(func() {
 		for _, device := range testDevices {
-			_, err := wrapper.RunModule("flightctl.core.device", device)
+			_, err := ansiblewrapper.RunModule(util.Device, device)
 			Expect(err).NotTo(HaveOccurred())
 		}
 	})
 
 	AfterSuite(func() {
 		for _, device := range testDevices {
-			_, _ = wrapper.RunModule("flightctl.core.device", map[string]interface{}{
+			_, _ = ansiblewrapper.RunModule(util.Device, map[string]interface{}{
 				"id":    device["id"],
 				"state": "absent",
 			})
@@ -49,21 +51,23 @@ var _ = Describe("flightctl.core.device_info", func() {
 	})
 
 	It("should retrieve all devices", func() {
-		result, err := wrapper.RunInfoModule("flightctl.core.device_info", nil)
+		result, err := ansiblewrapper.RunInfoModule(util.AnsibleDeviceInfoModule, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		devices := wrapper.Extract(result, "plays.0.tasks.0.result.devices")
+		devices, err := ansiblewrapper.Extract(result, "plays.0.tasks.0.result.devices")
 		Expect(len(devices)).To(BeNumerically(">=", len(testDevices)))
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("should retrieve the first device by ID and check details", func() {
 		d := testDevices[0]
-		result, err := wrapper.RunInfoModule("flightctl.core.device_info", map[string]interface{}{
+		result, err := ansiblewrapper.RunInfoModule(util.AnsibleDeviceInfoModule, map[string]interface{}{
 			"id": d["id"],
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		device := wrapper.ExtractOne(result, "plays.0.tasks.0.result.devices")
+		device, err := ansiblewrapper.ExtractOne(result, "plays.0.tasks.0.result.devices")
+		Expect(err).NotTo(HaveOccurred())
 		Expect(device["id"]).To(Equal(d["id"]))
 		Expect(device["model"]).To(Equal(d["model"]))
 		Expect(device["fleet"]).To(Equal(d["fleet"]))
@@ -72,16 +76,17 @@ var _ = Describe("flightctl.core.device_info", func() {
 
 	It("should retrieve the first device by name and check details", func() {
 		d := testDevices[0]
-		result, err := wrapper.RunInfoModule("flightctl.core.device_info", map[string]interface{}{
+		result, err := ansiblewrapper.RunInfoModule(util.AnsibleDeviceInfoModule, map[string]interface{}{
 			"name": d["name"],
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		device := wrapper.ExtractOne(result, "plays.0.tasks.0.result.devices")
+		device, err := ansiblewrapper.ExtractOne(result, "plays.0.tasks.0.result.devices")
+		Expect(err).NotTo(HaveOccurred())
 		Expect(device["name"]).To(Equal(d["name"]))
 
 		if identity, ok := d["identity"].(map[string]interface{}); ok {
-			Expect(wrapper.NestedValue(device, "identity.mac")).To(Equal(identity["mac"]))
+			Expect(ansiblewrapper.NestedValue(device, "identity.mac")).To(Equal(identity["mac"]))
 		}
 	})
 })

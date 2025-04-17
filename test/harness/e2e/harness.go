@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bsm/gomega"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	client "github.com/flightctl/flightctl/internal/client"
@@ -21,6 +20,8 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 )
