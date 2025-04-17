@@ -27,3 +27,9 @@ const (
 	UpdateRenderedVersionSuccess  Message = "Updated to desired renderedVersion:"
 	UpdateRenderedVersionProgress Message = "the device is upgrading to renderedVersion:"
 )
+
+const (
+	// Ansible Galaxy collection name
+	AnsibleGalaxyCollection = "flightctl.core"
+	AnsibleDeviceInfoModule = "device_info"
+)
