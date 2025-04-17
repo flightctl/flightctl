@@ -12,6 +12,8 @@ require (
 )
 
 require (
+	github.com/apenella/go-ansible/v2 v2.2.0
+    github.com/tidwall/gjson v1.15.0
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/dnephin/pflag v1.0.7 // indirect
 	github.com/fatih/color v1.16.0 // indirect
