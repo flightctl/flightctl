@@ -1,6 +1,7 @@
 policy_module(flightctl_agent, 1.0.0)
 
 type flightctl_agent_t;
+type flightctl_agent_exec_t;
 domain_type(flightctl_agent_t);
 
 require {
@@ -21,12 +22,10 @@ require {
     class tcp_socket { name_connect };
 }
 
-# Define the new file type for the flightctl-agent executable.
-# It must have the file and exec attributes.
-type flightctl_agent_exec_t, file_type, exec_type;
+role system_r types flightctl_agent_t;
 
-# When a process running in init_t executes a file labeled flightctl_agent_exec_t,
-# have it transition into flightctl_agent_t.
+allow init_t flightctl_agent_t:process transition;
+allow init_t flightctl_agent_exec_t:file { execute getattr read open };
 type_transition init_t flightctl_agent_exec_t:process flightctl_agent_t;
 
 # Allow the flightctl-agent process (running in flightctl_agent_t) to do what it needs.
