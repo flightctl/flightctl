@@ -101,7 +101,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:v4")
 			logrus.Info("We expect containers with sleep infinity process to be present but not running")
-			stdout, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
+			stdout, err := harness.VM().RunSSH([]string{"sudo", "podman", "ps"}, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("sleep infinity"))
 
@@ -146,7 +146,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(device.Spec.Applications).To(BeNil())
 			logrus.Info("Application demo_embedded_app is not present in new image 🌞")
 
-			stdout1, err1 := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
+			stdout1, err1 := harness.VM().RunSSH([]string{"sudo", "podman", "ps"}, nil)
 			Expect(err1).NotTo(HaveOccurred())
 			Expect(stdout1.String()).NotTo(ContainSubstring("sleep infinity"))
 

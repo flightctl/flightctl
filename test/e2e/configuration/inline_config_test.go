@@ -50,17 +50,17 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the online config, the content is empty.")
-			stdout, err := harness.VM.RunSSH([]string{"cat", inlinePath}, nil)
+			stdout, err := harness.VM().RunSSH([]string{"cat", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(""))
 
 			logrus.Infof("The deconfiguration file should have the default owner permissions:root.")
-			owner, err := harness.VM.RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
+			owner, err := harness.VM().RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(owner.String()).To(ContainSubstring(fmt.Sprintf("%s %s", "root", "root")))
 
 			logrus.Infof("The configuration file should have the default permissions: 0644.")
-			mode, err := harness.VM.RunSSH([]string{"stat -c %A", inlinePath}, nil)
+			mode, err := harness.VM().RunSSH([]string{"stat -c %A", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mode.String()).To(ContainSubstring(inlineDefaultNotationMode))
 
@@ -77,7 +77,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the correct permissions.")
-			mode, err = harness.VM.RunSSH([]string{"stat -c %A", inlinePath}, nil)
+			mode, err = harness.VM().RunSSH([]string{"stat -c %A", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mode.String()).To(ContainSubstring(inlineNotationMode))
 
@@ -94,7 +94,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated owner permissions.")
-			owner, err = harness.VM.RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
+			owner, err = harness.VM().RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(owner.String()).To(ContainSubstring(fmt.Sprintf("%s %s", inlineUser, inlineGroup)))
 
@@ -111,7 +111,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated content")
-			stdout1, err := harness.VM.RunSSH([]string{"cat", inlinePath1}, nil)
+			stdout1, err := harness.VM().RunSSH([]string{"cat", inlinePath1}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout1.String()).To(ContainSubstring(inlineContent))
 
@@ -128,7 +128,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated content.")
-			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath2}, nil)
+			stdout, err = harness.VM().RunSSH([]string{"cat", inlinePath2}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 
@@ -157,7 +157,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated content.")
-			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath2}, nil)
+			stdout, err = harness.VM().RunSSH([]string{"cat", inlinePath2}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 
@@ -173,7 +173,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated content.")
-			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath2}, nil)
+			stdout, err = harness.VM().RunSSH([]string{"cat", inlinePath2}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 		})
