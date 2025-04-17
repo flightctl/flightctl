@@ -16,7 +16,7 @@ func NewDeviceStatus() DeviceStatus {
 			Status: DeviceIntegrityStatusUnknown,
 		},
 		Resources: DeviceResourceStatus{
-			CPU:    DeviceResourceStatusUnknown,
+			Cpu:    DeviceResourceStatusUnknown,
 			Disk:   DeviceResourceStatusUnknown,
 			Memory: DeviceResourceStatusUnknown,
 		},

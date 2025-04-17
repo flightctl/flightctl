@@ -53,7 +53,7 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 
 	resourceErrors := []string{}
 	resourceDegradations := []string{}
-	switch device.Status.Resources.CPU {
+	switch device.Status.Resources.Cpu {
 	case api.DeviceResourceStatusCritical:
 		resourceErrors = append(resourceErrors, "CPU utilization reached critical level") // TODO: add current threshold (>X% for more than Y minutes)
 	case api.DeviceResourceStatusWarning:
