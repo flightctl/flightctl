@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -45,7 +46,7 @@ func TestSync(t *testing.T) {
 			desiredSpec *v1alpha1.Device,
 			mockOSClient *os.MockClient,
 			mockManagementClient *client.MockManagement,
-			mockSystemClient *client.MockSystem,
+			mockSystemInfoManager *systeminfo.MockManager,
 			mockExec *executer.MockExecuter,
 			mockRouterService *console.MockRouterServiceClient,
 			mockResourceManager *resource.MockManager,
@@ -64,7 +65,7 @@ func TestSync(t *testing.T) {
 				desired *v1alpha1.Device,
 				mockOSClient *os.MockClient,
 				mockManagementClient *client.MockManagement,
-				mockSystemClient *client.MockSystem,
+				mockSystemInfoManager *systeminfo.MockManager,
 				mockExec *executer.MockExecuter,
 				mockRouterService *console.MockRouterServiceClient,
 				mockResourceManager *resource.MockManager,
@@ -75,7 +76,6 @@ func TestSync(t *testing.T) {
 			) {
 				nonRetryableHookError := errors.New("hook error")
 				gomock.InOrder(
-					mockSystemClient.EXPECT().BootID().Return("boot-id"),
 					mockManagementClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(desired, 200, nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					mockAppManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
@@ -126,7 +126,7 @@ func TestSync(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
-			mockSystemClient := client.NewMockSystem(ctrl)
+			mockSystemInfoManager := systeminfo.NewMockManager(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockRouterService := console.NewMockRouterServiceClient(ctrl)
 			mockResourceManager := resource.NewMockManager(ctrl)
@@ -139,7 +139,7 @@ func TestSync(t *testing.T) {
 				tc.desired,
 				mockOSClient,
 				mockManagementClient,
-				mockSystemClient,
+				mockSystemInfoManager,
 				mockExec,
 				mockRouterService,
 				mockResourceManager,
@@ -164,7 +164,7 @@ func TestSync(t *testing.T) {
 			policyManager := policy.NewManager(log)
 			consoleController := console.NewController(mockRouterService, deviceName, mockExec, log)
 			appController := applications.NewController(podmanClient, mockAppManager, readWriter, log)
-			statusManager := status.NewManager(deviceName, mockSystemClient, log)
+			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
 			configController := config.NewController(readWriter, log)
 			resourceController := resource.NewController(log, mockResourceManager)
@@ -222,7 +222,6 @@ func TestRollbackDevice(t *testing.T) {
 			currentSpec *v1alpha1.Device,
 			desiredSpec *v1alpha1.Device,
 			mockManagementClient *client.MockManagement,
-			mockSystemClient *client.MockSystem,
 		)
 		wantSyncErr error
 	}{
@@ -234,10 +233,8 @@ func TestRollbackDevice(t *testing.T) {
 				current *v1alpha1.Device,
 				desired *v1alpha1.Device,
 				mockManagementClient *client.MockManagement,
-				mockSystemClient *client.MockSystem,
 			) {
 				gomock.InOrder(
-					mockSystemClient.EXPECT().BootID().Return("boot-id"),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 				)
 			},
@@ -250,10 +247,8 @@ func TestRollbackDevice(t *testing.T) {
 				current *v1alpha1.Device,
 				desired *v1alpha1.Device,
 				mockManagementClient *client.MockManagement,
-				mockSystemClient *client.MockSystem,
 			) {
 				gomock.InOrder(
-					mockSystemClient.EXPECT().BootID().Return("boot-id"),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 				)
 			},
@@ -266,10 +261,9 @@ func TestRollbackDevice(t *testing.T) {
 				current *v1alpha1.Device,
 				desired *v1alpha1.Device,
 				mockManagementClient *client.MockManagement,
-				mockSystemClient *client.MockSystem,
 			) {
 				gomock.InOrder(
-					mockSystemClient.EXPECT().BootID().Return("boot-id"),
+					// mockSystemInfoManager.EXPECT().BootID().Return("boot-id"),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 				)
 			},
@@ -282,12 +276,10 @@ func TestRollbackDevice(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
-			mockSystemClient := client.NewMockSystem(ctrl)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
 				mockManagementClient,
-				mockSystemClient,
 			)
 
 			// setup
@@ -303,7 +295,7 @@ func TestRollbackDevice(t *testing.T) {
 			}
 
 			policyManager := policy.NewManager(log)
-			statusManager := status.NewManager(deviceName, mockSystemClient, log)
+			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
 			specManager := spec.NewManager(
 				deviceName,

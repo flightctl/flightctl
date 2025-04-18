@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -33,7 +34,7 @@ func TestInitialization(t *testing.T) {
 			mockReadWriter *fileio.MockReadWriter,
 			mockHookManager *hook.MockManager,
 			mockEnrollmentClient *client.MockEnrollment,
-			mockSystemClient *client.MockSystem,
+			mockSystemInfoManager *systeminfo.MockManager,
 			mockLifecycleInitializer *lifecycle.MockInitializer,
 		)
 		expectedError error
@@ -46,7 +47,7 @@ func TestInitialization(t *testing.T) {
 				mockReadWriter *fileio.MockReadWriter,
 				mockHookManager *hook.MockManager,
 				_ *client.MockEnrollment,
-				mockSystemClient *client.MockSystem,
+				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
 			) {
 				gomock.InOrder(
@@ -59,7 +60,7 @@ func TestInitialization(t *testing.T) {
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
-					mockSystemClient.EXPECT().IsRebooted().Return(false),
+					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
@@ -75,7 +76,7 @@ func TestInitialization(t *testing.T) {
 				mockReadWriter *fileio.MockReadWriter,
 				mockHookManager *hook.MockManager,
 				_ *client.MockEnrollment,
-				mockSystemClient *client.MockSystem,
+				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
 			) {
 				bootedOSVersion := "2.0.0"
@@ -90,7 +91,7 @@ func TestInitialization(t *testing.T) {
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(true),
 					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOSVersion, true, nil),
-					mockSystemClient.EXPECT().IsRebooted().Return(false),
+					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
@@ -106,7 +107,7 @@ func TestInitialization(t *testing.T) {
 				mockReadWriter *fileio.MockReadWriter,
 				mockHookManager *hook.MockManager,
 				mockEnrollmentClient *client.MockEnrollment,
-				mockSystemClient *client.MockSystem,
+				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
 
 			) {
@@ -120,7 +121,7 @@ func TestInitialization(t *testing.T) {
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
-					mockSystemClient.EXPECT().IsRebooted().Return(false),
+					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
@@ -139,7 +140,7 @@ func TestInitialization(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockHookManager := hook.NewMockManager(ctrl)
 			mockEnrollmentClient := client.NewMockEnrollment(ctrl)
-			mockSystemClient := client.NewMockSystem(ctrl)
+			mockSystemInfoManager := systeminfo.NewMockManager(ctrl)
 			mockLifecycleInitializer := lifecycle.NewMockInitializer(ctrl)
 
 			b := &Bootstrap{
@@ -149,7 +150,7 @@ func TestInitialization(t *testing.T) {
 				lifecycle:               mockLifecycleInitializer,
 				deviceReadWriter:        mockReadWriter,
 				managementServiceConfig: &baseclient.Config{},
-				systemClient:            mockSystemClient,
+				systemInfoManager:       mockSystemInfoManager,
 				log:                     log.NewPrefixLogger("test"),
 			}
 
@@ -161,7 +162,7 @@ func TestInitialization(t *testing.T) {
 				mockReadWriter,
 				mockHookManager,
 				mockEnrollmentClient,
-				mockSystemClient,
+				mockSystemInfoManager,
 				mockLifecycleInitializer,
 			)
 

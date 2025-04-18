@@ -24,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -112,9 +113,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
 
-	// create system client
-	systemClient := client.NewSystem(executer, deviceReadWriter, a.config.DataDir)
-	if err := systemClient.Initialize(); err != nil {
+	// create systemInfo manager
+	systemInfoManager := systeminfo.NewManager(
+		a.log,
+		executer,
+		deviceReadWriter,
+		a.config.DataDir,
+		a.config.MergedInfoKeys(),
+		a.config.CollectSystemInfoTimeout,
+	)
+	if err := systemInfoManager.Initialize(); err != nil {
 		return err
 	}
 
@@ -147,7 +155,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 		deviceReadWriter,
 		podmanClient,
-		systemClient,
+		systemInfoManager,
 	)
 
 	// register the application manager with the shutdown manager
@@ -162,7 +170,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
-		systemClient,
 		a.log,
 	)
 
@@ -188,6 +195,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	statusManager.RegisterStatusExporter(resourceManager)
 	statusManager.RegisterStatusExporter(osManager)
 	statusManager.RegisterStatusExporter(specManager)
+	statusManager.RegisterStatusExporter(systemInfoManager)
 
 	// create config controller
 	configController := config.NewController(
@@ -204,7 +212,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		hookManager,
 		lifecycleManager,
 		&a.config.ManagementService.Config,
-		systemClient,
+		systemInfoManager,
 		a.log,
 	)
 
@@ -287,4 +295,8 @@ func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClie
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
 	return client, nil
+}
+
+func CollectSystemInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, hardwareMapPath string) (*systeminfo.Info, error) {
+	return systeminfo.CollectInfo(ctx, log, exec, reader, hardwareMapPath)
 }

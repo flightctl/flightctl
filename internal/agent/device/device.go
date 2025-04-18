@@ -127,7 +127,7 @@ func (a *Agent) Stop(ctx context.Context) error {
 }
 
 func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) error {
-	// to ensure that the agent is able correct for an invalid policy, it is reconciled first.
+	// to ensure that the agent is able to correct for an invalid policy, it is reconciled first.
 	// the new policy will go into affect on the next sync.
 	if err := a.policyManager.Sync(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("policy: %w", err)
@@ -161,7 +161,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) err
 	}
 
 	// the agent has validated the desired spec, downloaded all dependencies,
-	// and is ready to update. No changes have been made to the device's
+	// and is ready to update. no changes have been made to the device's
 	// configuration yet.
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
