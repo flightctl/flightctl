@@ -605,6 +605,9 @@ type DeviceSystemInfo struct {
 	// BootID Boot ID reported by the device.
 	BootID string `json:"bootID"`
 
+	// Facts A set of system facts.
+	Facts *SystemInfoFacts `json:"facts,omitempty"`
+
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem string `json:"operatingSystem"`
 }
@@ -1373,6 +1376,9 @@ type Status struct {
 	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
 	Status string `json:"status"`
 }
+
+// SystemInfoFacts A set of system facts.
+type SystemInfoFacts map[string]string
 
 // TemplateVersion TemplateVersion represents a version of a template.
 type TemplateVersion struct {

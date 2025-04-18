@@ -4025,7 +4025,15 @@ components:
         agentVersion:
           type: string
           description: The Agent version.
+        facts:
+          $ref: "#/components/schemas/SystemInfoFacts"
       description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
+    SystemInfoFacts:
+      type: object
+      description: A set of system facts.
+      additionalProperties:
+        type: string
+        description: The value of the fact.
     DeviceApplicationStatus:
       type: object
       required:
