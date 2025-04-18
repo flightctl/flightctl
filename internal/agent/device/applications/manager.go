@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -24,9 +25,9 @@ func NewManager(
 	log *log.PrefixLogger,
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
-	systemClient client.System,
+	systemInfo systeminfo.Manager,
 ) Manager {
-	bootTime := systemClient.BootTime()
+	bootTime := systemInfo.BootTime()
 	return &manager{
 		readWriter:    readWriter,
 		podmanMonitor: NewPodmanMonitor(log, podmanClient, bootTime, readWriter),

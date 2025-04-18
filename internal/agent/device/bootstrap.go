@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -24,14 +25,15 @@ const (
 )
 
 type Bootstrap struct {
-	deviceName       string
-	executer         executer.Executer
-	deviceReadWriter fileio.ReadWriter
-	specManager      spec.Manager
-	statusManager    status.Manager
-	hookManager      hook.Manager
-	lifecycle        lifecycle.Initializer
-	systemClient     client.System
+	deviceName        string
+	executer          executer.Executer
+	deviceReadWriter  fileio.ReadWriter
+	specManager       spec.Manager
+	statusManager     status.Manager
+	hookManager       hook.Manager
+	systemInfoManager systeminfo.Manager
+
+	lifecycle lifecycle.Initializer
 
 	managementServiceConfig *baseclient.Config
 	managementClient        client.Management
@@ -48,7 +50,7 @@ func NewBootstrap(
 	hookManager hook.Manager,
 	lifecycleInitializer lifecycle.Initializer,
 	managementServiceConfig *baseclient.Config,
-	systemClient client.System,
+	systemInfoManager systeminfo.Manager,
 	log *log.PrefixLogger,
 ) *Bootstrap {
 	return &Bootstrap{
@@ -60,7 +62,7 @@ func NewBootstrap(
 		hookManager:             hookManager,
 		lifecycle:               lifecycleInitializer,
 		managementServiceConfig: managementServiceConfig,
-		systemClient:            systemClient,
+		systemInfoManager:       systemInfoManager,
 		log:                     log,
 	}
 }
@@ -181,7 +183,7 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 		return err
 	}
 
-	if b.systemClient.IsRebooted() {
+	if b.systemInfoManager.IsRebooted() {
 		if err := b.hookManager.OnAfterRebooting(ctx); err != nil {
 			// TODO: rollback?
 			b.log.Errorf("running after rebooting hook: %v", err)

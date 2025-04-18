@@ -57,18 +57,6 @@ type Bootc interface {
 	Apply(ctx context.Context) error
 }
 
-type System interface {
-	// Initialize initializes the system client.
-	Initialize() error
-	// IsRebooted returns true if the system has been rebooted since the last boot.
-	IsRebooted() bool
-	// BootTime returns the time the system was booted as a string.
-	BootTime() string
-	// BootID returns the unique boot ID populated by the kernel. This is
-	// expected to be empty for integration and simulation tests.
-	BootID() string
-}
-
 // IsCommandAvailable checks if a command is available in the PATH.
 func IsCommandAvailable(cmdName string) bool {
 	_, err := exec.LookPath(cmdName)
