@@ -335,7 +335,8 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 		}
 	}
 
-	if err := a.appManager.BeforeUpdate(ctx, desired.Spec); err != nil {
+	isRollback := spec.IsRollingBack(current, desired)
+	if err := a.appManager.BeforeUpdate(ctx, desired.Spec, applications.WithRollback(isRollback)); err != nil {
 		return fmt.Errorf("applications: %w", err)
 	}
 
@@ -363,7 +364,7 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Devic
 		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
 
-	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {
+	if err := a.applicationsController.Sync(ctx, current, desired); err != nil {
 		return fmt.Errorf("applications: %w", err)
 	}
 
