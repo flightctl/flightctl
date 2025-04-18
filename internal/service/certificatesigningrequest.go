@@ -86,11 +86,11 @@ func signApprovedCertificateSigningRequest(ca *crypto.CAClient, request api.Cert
 	// Once we move all prefixes/name formation to the client this can become a simple
 	// comparison of u and *request.Metadata.Name
 
-	if crypto.BootstrapCNFromName(u) != crypto.BootstrapCNFromName(*request.Metadata.Name) {
+	if ca.BootstrapCNFromName(u) != ca.BootstrapCNFromName(*request.Metadata.Name) {
 		return nil, fmt.Errorf("%w - CN %s Metadata %s mismatch", flterrors.ErrSignCert, u, *request.Metadata.Name)
 	}
 
-	csr.Subject.CommonName = crypto.BootstrapCNFromName(u)
+	csr.Subject.CommonName = ca.BootstrapCNFromName(u)
 
 	expiry := DefaultEnrollmentCertExpirySeconds
 	if request.Spec.ExpirationSeconds != nil {
@@ -172,11 +172,11 @@ func (h *ServiceHandler) verifyCSRParameters(ctx context.Context, csr api.Certif
 	// We cannot check anything in that case.
 
 	if ok {
-		if csr.Spec.SignerName != "enrollment" {
+		if csr.Spec.SignerName != h.ca.Cfg.ClientBootstrapSignerName {
 			if csr.Metadata.Name == nil {
 				return errors.New("invalid csr record - no name in metadata")
 			}
-			if cn != crypto.BootstrapCNFromName(*csr.Metadata.Name) {
+			if cn != h.ca.BootstrapCNFromName(*csr.Metadata.Name) {
 				return errors.New("denied attempt to renew other entity certificate")
 			}
 		}
@@ -205,7 +205,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		return nil, StoreErrorToApiStatus(err, true, api.CertificateSigningRequestKind, csr.Metadata.Name)
 	}
 
-	if result.Spec.SignerName == "enrollment" {
+	if result.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
 		h.autoApprove(ctx, orgId, result)
 	}
 
@@ -265,7 +265,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 		return nil, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 	}
 
-	if result.Spec.SignerName == "enrollment" {
+	if result.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
 		h.autoApprove(ctx, orgId, result)
 	}
 	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
@@ -299,7 +299,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 		return nil, StoreErrorToApiStatus(err, created, api.CertificateSigningRequestKind, &name)
 	}
 
-	if result.Spec.SignerName == "enrollment" {
+	if result.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
 		h.autoApprove(ctx, orgId, result)
 	}
 	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {

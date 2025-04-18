@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,15 +19,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
-)
-
-const (
-	caCertValidityDays          = 365 * 10
-	serverCertValidityDays      = 365 * 1
-	clientBootStrapValidityDays = 365 * 1
-	signerCertName              = "ca"
-	serverCertName              = "server"
-	clientBootstrapCertName     = "client-enrollment"
 )
 
 func main() {
@@ -48,7 +38,7 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	ca, _, err := crypto.EnsureCA(certFile(signerCertName), keyFile(signerCertName), "", signerCertName, caCertValidityDays)
+	ca, _, err := crypto.EnsureCA(cfg.CA)
 	if err != nil {
 		log.Fatalf("ensuring CA cert: %v", err)
 	}
@@ -66,8 +56,8 @@ func main() {
 			log.Fatalf("failed to load provided certificate: %v", err)
 		}
 	} else {
-		srvCertFile := certFile(serverCertName)
-		srvKeyFile := keyFile(serverCertName)
+		srvCertFile := crypto.CertStorePath(cfg.Service.ServerCertName+".crt", cfg.Service.CertStore)
+		srvKeyFile := crypto.CertStorePath(cfg.Service.ServerCertName+".key", cfg.Service.CertStore)
 
 		// check if existing self-signed certificate is available
 		if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
@@ -81,7 +71,7 @@ func main() {
 				cfg.Service.AltNames = []string{"localhost"}
 			}
 
-			serverCerts, err = ca.MakeAndWriteServerCertificate(srvCertFile, srvKeyFile, cfg.Service.AltNames, serverCertValidityDays)
+			serverCerts, err = ca.MakeAndWriteServerCertificate(srvCertFile, srvKeyFile, cfg.Service.AltNames, cfg.CA.ServerCertValidityDays)
 			if err != nil {
 				log.Fatalf("failed to create self-signed certificate: %v", err)
 			}
@@ -100,7 +90,9 @@ func main() {
 		}
 	}
 
-	_, _, err = ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), crypto.ClientBootstrapCommonName, clientBootStrapValidityDays)
+	clientCertFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".crt", cfg.Service.CertStore)
+	clientKeyFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".key", cfg.Service.CertStore)
+	_, _, err = ca.EnsureClientCertificate(clientCertFile, clientKeyFile, cfg.CA.ClientBootstrapCommonName, cfg.CA.ClientBootstrapValidityDays)
 	if err != nil {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
 	}
@@ -183,12 +175,4 @@ func main() {
 	}
 
 	<-ctx.Done()
-}
-
-func certFile(name string) string {
-	return filepath.Join(config.CertificateDir(), name+".crt")
-}
-
-func keyFile(name string) string {
-	return filepath.Join(config.CertificateDir(), name+".key")
 }

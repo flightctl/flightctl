@@ -150,7 +150,7 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler *service.ServiceHandler)
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
-	h := transport.NewAgentTransportHandler(serviceHandler, s.log)
+	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
 	server.HandlerFromMux(h, router)
 	return router, nil
 }

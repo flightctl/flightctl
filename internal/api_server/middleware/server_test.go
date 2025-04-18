@@ -37,6 +37,7 @@ var _ = Describe("Low level server behavior", func() {
 		serverLog := log.InitLogs()
 		config := config.NewDefault()
 		config.Service.CertStore = tempDir
+		config.CA.InternalConfig.CertStore = tempDir
 
 		var serverCerts *crypto.TLSCertificateConfig
 
@@ -73,7 +74,7 @@ var _ = Describe("Low level server behavior", func() {
 	Context("TLS client peer CommonName", func() {
 		It("should be included as context in the request for client bootstrap", func() {
 			dataStr := requestFromTLSCNServer(ca.GetCABundleX509(), enrollmentCert, listener)
-			Expect(dataStr).To(Equal(crypto.ClientBootstrapCommonName))
+			Expect(dataStr).To(Equal(ca.Cfg.ClientBootstrapCommonName))
 		})
 	})
 
