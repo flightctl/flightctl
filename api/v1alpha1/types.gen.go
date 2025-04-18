@@ -1512,6 +1512,12 @@ type ListDevicesParams struct {
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
+// DownloadDeviceFileParams defines parameters for DownloadDeviceFile.
+type DownloadDeviceFileParams struct {
+	// Filename Full path of the file to download.
+	Filename string `form:"filename" json:"filename"`
+}
+
 // GetRenderedDeviceParams defines parameters for GetRenderedDevice.
 type GetRenderedDeviceParams struct {
 	// KnownRenderedVersion The last known renderedVersion.

@@ -114,3 +114,8 @@ func (h *TransportHandler) DecommissionDevice(w http.ResponseWriter, r *http.Req
 	body, status := h.serviceHandler.DecommissionDevice(r.Context(), name, decom)
 	SetResponse(w, body, status)
 }
+
+// (GET /api/v1/devices/{name}/download)
+func (h *TransportHandler) DownloadDeviceFile(w http.ResponseWriter, r *http.Request, name string, params api.DownloadDeviceFileParams) {
+	h.downloadDeviceFile(w, r, name, params)
+}

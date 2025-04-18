@@ -160,6 +160,9 @@ type ClientInterface interface {
 
 	DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DownloadDeviceFile request
+	DownloadDeviceFile(ctx context.Context, name string, params *DownloadDeviceFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetRenderedDevice request
 	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -639,6 +642,18 @@ func (c *Client) DecommissionDeviceWithBody(ctx context.Context, name string, co
 
 func (c *Client) DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDecommissionDeviceRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DownloadDeviceFile(ctx context.Context, name string, params *DownloadDeviceFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDownloadDeviceFileRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2256,6 +2271,58 @@ func NewDecommissionDeviceRequestWithBody(server string, name string, contentTyp
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDownloadDeviceFileRequest generates requests for DownloadDeviceFile
+func NewDownloadDeviceFileRequest(server string, name string, params *DownloadDeviceFileParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/download", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "filename", runtime.ParamLocationQuery, params.Filename); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -4591,6 +4658,9 @@ type ClientWithResponsesInterface interface {
 
 	DecommissionDeviceWithResponse(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
 
+	// DownloadDeviceFileWithResponse request
+	DownloadDeviceFileWithResponse(ctx context.Context, name string, params *DownloadDeviceFileParams, reqEditors ...RequestEditorFn) (*DownloadDeviceFileResponse, error)
+
 	// GetRenderedDeviceWithResponse request
 	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
 
@@ -5240,6 +5310,35 @@ func (r DecommissionDeviceResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r DecommissionDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DownloadDeviceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON500      *Status
+	JSON503      *Status
+	JSON504      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r DownloadDeviceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DownloadDeviceFileResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6691,6 +6790,15 @@ func (c *ClientWithResponses) DecommissionDeviceWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseDecommissionDeviceResponse(rsp)
+}
+
+// DownloadDeviceFileWithResponse request returning *DownloadDeviceFileResponse
+func (c *ClientWithResponses) DownloadDeviceFileWithResponse(ctx context.Context, name string, params *DownloadDeviceFileParams, reqEditors ...RequestEditorFn) (*DownloadDeviceFileResponse, error) {
+	rsp, err := c.DownloadDeviceFile(ctx, name, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDownloadDeviceFileResponse(rsp)
 }
 
 // GetRenderedDeviceWithResponse request returning *GetRenderedDeviceResponse
@@ -8295,6 +8403,81 @@ func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceRes
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDownloadDeviceFileResponse parses an HTTP response from a DownloadDeviceFileWithResponse call
+func ParseDownloadDeviceFileResponse(rsp *http.Response) (*DownloadDeviceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DownloadDeviceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON504 = &dest
 
 	}
 
