@@ -147,7 +147,7 @@ func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1
 
 func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error {
 	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceDecommissioning,
+		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateStarted),
 		Message: "The device has started decommissioning",
@@ -161,7 +161,7 @@ func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error
 
 func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) error {
 	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceDecommissioning,
+		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateComplete),
 		Message: "The device has completed decommissioning and will wipe its management certificate",
@@ -175,7 +175,7 @@ func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) err
 
 func (m *LifecycleManager) updateWithErrorCondition(ctx context.Context, errs []error) error {
 	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceDecommissioning,
+		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateError),
 		Message: fmt.Sprintf("The device has encountered one or more errors during decommissioning: %v", errors.Join(errs...)),

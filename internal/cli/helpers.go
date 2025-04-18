@@ -21,6 +21,7 @@ const (
 	ResourceSyncKind              = "resourcesync"
 	TemplateVersionKind           = "templateversion"
 	CertificateSigningRequestKind = "certificatesigningrequest"
+	EventKind                     = "event"
 )
 
 var (
@@ -32,6 +33,7 @@ var (
 		ResourceSyncKind:              "resourcesyncs",
 		TemplateVersionKind:           "templateversions",
 		CertificateSigningRequestKind: "certificatesigningrequests",
+		EventKind:                     "events",
 	}
 
 	shortnameKinds = map[string]string{

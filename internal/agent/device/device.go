@@ -142,7 +142,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) err
 	// yet.
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.DeviceUpdating,
+			Type:    v1alpha1.ConditionTypeDeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStatePreparing),
 			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.Version()),
@@ -165,7 +165,7 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) err
 	// configuration yet.
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.DeviceUpdating,
+			Type:    v1alpha1.ConditionTypeDeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStateReadyToUpdate),
 			Message: fmt.Sprintf("The device is ready to apply update to renderedVersion: %s", desired.Version()),
@@ -260,7 +260,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.Device, syncFn func(context.Context, *v1alpha1.Device, *v1alpha1.Device) error) error {
 	a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceUpdating,
+		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.UpdateStateRollingBack),
 		Message: "The device is rolling back to the previous renderedVersion: " + current.Version(),
@@ -280,7 +280,7 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.D
 
 func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.Device) error {
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceUpdating,
+		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusFalse,
 		Reason:  string(v1alpha1.UpdateStateUpdated),
 		Message: fmt.Sprintf("Updated to desired renderedVersion: %s", desired.Version()),
@@ -349,7 +349,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Device) error {
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.DeviceUpdating,
+			Type:    v1alpha1.ConditionTypeDeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStateApplyingUpdate),
 			Message: fmt.Sprintf("The device is applying renderedVersion: %s", desired.Version()),
@@ -483,7 +483,7 @@ func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.DeviceSpec)
 	}
 
 	updateErr = a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceUpdating,
+		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.UpdateStateRebooting),
 		Message: infoMsg,
@@ -502,7 +502,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, s
 
 	version := desired.Version()
 	conditionUpdate := v1alpha1.Condition{
-		Type: v1alpha1.DeviceUpdating,
+		Type: v1alpha1.ConditionTypeDeviceUpdating,
 	}
 
 	if !errors.IsRetryable(syncErr) {
