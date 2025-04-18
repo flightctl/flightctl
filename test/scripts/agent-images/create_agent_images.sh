@@ -37,7 +37,7 @@ build_images() {
             tmpdir=$(mktemp -d)
             trap 'rm -rf "$tmpdir"' EXIT
             cp "${containerfile_path}" "$tmpdir/Containerfile"
-            echo 'CMD ["/usr/bin/flightctl-agent"]' >> "$tmpdir/Containerfile"
+            printf '\nCMD ["/usr/bin/flightctl-agent"]\n' >> "$tmpdir/Containerfile"
             containerfile_path="$tmpdir/Containerfile"
             container_name="localhost:5000/flightctl-device-no-bootc:${img}"
         fi
