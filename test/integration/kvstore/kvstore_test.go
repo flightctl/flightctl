@@ -6,16 +6,25 @@ import (
 
 	"github.com/flightctl/flightctl/internal/kvstore"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestStore(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "KVstore Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("KVstore Suite")
+})
 
 var _ = Describe("FleetSelector", func() {
 	var (
@@ -26,7 +35,7 @@ var _ = Describe("FleetSelector", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		var err error

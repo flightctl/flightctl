@@ -28,19 +28,30 @@ const (
 	POLLING = "250ms"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestAgent(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Agent Suite")
 }
 
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Agent Suite")
+})
+
 var _ = Describe("Device Agent behavior", func() {
 	var (
-		h *harness.TestHarness
+		ctx context.Context
+		h   *harness.TestHarness
 	)
 
 	BeforeEach(func() {
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+
 		var err error
-		h, err = harness.NewTestHarness(GinkgoT().TempDir(), func(err error) {
+		h, err = harness.NewTestHarness(ctx, GinkgoT().TempDir(), func(err error) {
 			// this inline function handles any errors that are returned from go routines
 			fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
 			GinkgoWriter.Printf("Error in go routine: %v\n", err)

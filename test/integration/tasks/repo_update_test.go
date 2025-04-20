@@ -69,10 +69,11 @@ var _ = Describe("RepoUpdate", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
@@ -172,7 +173,7 @@ var _ = Describe("RepoUpdate", func() {
 
 	AfterEach(func() {
 		ctrl.Finish()
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	When("a Repository definition is updated", func() {

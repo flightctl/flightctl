@@ -101,6 +101,16 @@ type tracingConfig struct {
 	Insecure bool   `json:"insecure,omitempty"`
 }
 
+type ConfigOption func(*Config)
+
+func WithTracingEnabled() ConfigOption {
+	return func(c *Config) {
+		c.Tracing = &tracingConfig{
+			Enabled: true,
+		}
+	}
+}
+
 func ConfigDir() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName)
 }
@@ -117,7 +127,7 @@ func CertificateDir() string {
 	return filepath.Join(ConfigDir(), "certs")
 }
 
-func NewDefault() *Config {
+func NewDefault(opts ...ConfigOption) *Config {
 	c := &Config{
 		Database: &dbConfig{
 			Type:     "pgsql",
@@ -159,6 +169,11 @@ func NewDefault() *Config {
 	}
 	c.CA = ca.NewDefault(CertificateDir())
 	// CA certs are stored in the same location as Server Certs by default
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	return c
 }
 
