@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/device_publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -31,6 +32,7 @@ import (
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/experimental"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -159,14 +161,18 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	policyManager := policy.NewManager(a.log)
 
+	devicePublisher := device_publisher.New(deviceName,
+		util.Max(time.Duration(a.config.SpecFetchInterval), time.Second)/2,
+		backoff,
+		a.log)
+
 	// create spec manager
 	specManager := spec.NewManager(
-		deviceName,
 		a.config.DataDir,
 		policyManager,
 		deviceReadWriter,
 		osClient,
-		backoff,
+		devicePublisher.Subscribe(),
 		a.log,
 	)
 
@@ -236,6 +242,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		specManager,
+		devicePublisher,
 		statusManager,
 		hookManager,
 		lifecycleManager,
@@ -266,6 +273,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		grpcClient,
 		deviceName,
 		executer,
+		devicePublisher.Subscribe(),
 		a.log,
 	)
 
@@ -282,6 +290,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		statusManager,
 		specManager,
+		devicePublisher,
 		applicationManager,
 		systemdManager,
 		a.config.SpecFetchInterval,
