@@ -28,10 +28,18 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Tasks Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Tasks Suite")
+})
 
 var _ = Describe("FleetRollout", func() {
 	var (
@@ -54,11 +62,12 @@ var _ = Describe("FleetRollout", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
@@ -73,7 +82,7 @@ var _ = Describe("FleetRollout", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 		ctrl.Finish()
 	})
 
@@ -316,7 +325,7 @@ var _ = Describe("FleetRollout", func() {
 				device, err := model.NewDeviceFromApiResource(&otherupdate)
 				Expect(err).ToNot(HaveOccurred())
 				device.OrgID = orgId
-				result := db.Updates(device)
+				result := db.WithContext(ctx).Updates(device)
 				Expect(result.Error).ToNot(HaveOccurred())
 			}
 			deviceStore.SetIntegrationTestCreateOrUpdateCallback(race)
@@ -358,7 +367,7 @@ var _ = Describe("FleetRollout", func() {
 				device, err := model.NewDeviceFromApiResource(&otherupdate)
 				Expect(err).ToNot(HaveOccurred())
 				device.OrgID = orgId
-				result := db.Updates(device)
+				result := db.WithContext(ctx).Updates(device)
 				Expect(result.Error).ToNot(HaveOccurred())
 			}
 			deviceStore.SetIntegrationTestCreateOrUpdateCallback(race)

@@ -34,11 +34,11 @@ var _ = Describe("RepositoryStore create", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numRepositories = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		callbackCalled = false
 		callback = store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
 
@@ -46,12 +46,12 @@ var _ = Describe("RepositoryStore create", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
-		result := db.Create(&nilrepo)
+		result := db.WithContext(ctx).Create(&nilrepo)
 		Expect(result.Error).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("Repository store", func() {
@@ -123,7 +123,7 @@ var _ = Describe("RepositoryStore create", func() {
 		It("List with paging", func() {
 			// Delete the repo with nilspec so it doesn't interfere with the counts
 			nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
-			result := db.Delete(&nilrepo)
+			result := db.WithContext(ctx).Delete(&nilrepo)
 			Expect(result.Error).ToNot(HaveOccurred())
 
 			listParams := store.ListParams{Limit: 1000}
