@@ -3,7 +3,6 @@ package spec
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -14,9 +13,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/ring_buffer"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestBootstrapCheckRollback(t *testing.T) {
@@ -719,20 +718,6 @@ func TestRollback(t *testing.T) {
 	})
 }
 
-func TestSetClient(t *testing.T) {
-	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockClient := client.NewMockManagement(ctrl)
-
-	t.Run("sets the client", func(t *testing.T) {
-		s := &manager{}
-		s.SetClient(mockClient)
-		require.Equal(mockClient, s.managementClient)
-	})
-}
-
 func TestIsUpgrading(t *testing.T) {
 	require := require.New(t)
 
@@ -771,9 +756,9 @@ func TestGetDesired(t *testing.T) {
 
 	desiredPath := "test/desired.json"
 	rollbackPath := "test/rollback.json"
-	deviceName := "test-device"
 	image := "flightctl-device:v2"
 	specErr := errors.New("problem with spec")
+	devicePublisher := ring_buffer.NewRingBuffer[*v1alpha1.Device](10)
 
 	// Define the test cases
 	testCases := []struct {
@@ -786,25 +771,9 @@ func TestGetDesired(t *testing.T) {
 			name: "error reading desired spec",
 			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
 				mrw.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
-				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
-				mc.EXPECT().GetRenderedDevice(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
 			},
 			expectedDevice: nil,
 			expectedError:  errors.ErrReadingRenderedSpec,
-		},
-		{
-			name: "error when get management api call fails",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
-				renderedDesiredSpec := createTestRenderedDevice(image)
-				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
-				require.NoError(err)
-
-				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
-				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
-				mc.EXPECT().GetRenderedDevice(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
-			},
-			expectedDevice: nil,
-			expectedError:  errors.ErrGettingDeviceSpec,
 		},
 		{
 			name: "desired spec is returned when management api returns no content",
@@ -814,11 +783,9 @@ func TestGetDesired(t *testing.T) {
 				require.NoError(err)
 
 				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
-				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
 
-				mc.EXPECT().GetRenderedDevice(ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
 			},
 			expectedDevice: createTestRenderedDevice(image),
 			expectedError:  nil,
@@ -830,12 +797,10 @@ func TestGetDesired(t *testing.T) {
 				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
 				require.NoError(err)
 
-				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
 				mrw.EXPECT().WriteFile(desiredPath, marshaledDesiredSpec, gomock.Any()).Return(nil)
-
-				mc.EXPECT().GetRenderedDevice(ctx, gomock.Any(), gomock.Any()).Return(renderedDesiredSpec, 200, nil)
+				require.NoError(devicePublisher.Push(renderedDesiredSpec))
 			},
 			expectedDevice: createTestRenderedDevice(image),
 			expectedError:  nil,
@@ -844,13 +809,12 @@ func TestGetDesired(t *testing.T) {
 			name: "error when writing the desired spec fails",
 			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
 				device := createTestRenderedDevice(image)
-				mpq.EXPECT().IsFailed(gomock.Any()).Return(false)
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(device, true)
 
 				// API is returning a rendered version that is different from the read desired spec
 				apiResponse := newVersionedDevice("5")
-				mc.EXPECT().GetRenderedDevice(ctx, gomock.Any(), gomock.Any()).Return(apiResponse, 200, nil)
+				require.NoError(devicePublisher.Push(apiResponse))
 
 				// The difference results in a write call for the desired spec
 				mrw.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
@@ -868,21 +832,16 @@ func TestGetDesired(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockPriorityQueue := NewMockPriorityQueue(ctrl)
 
-			backoff := wait.Backoff{
-				Steps: 1,
-			}
 			log := log.NewPrefixLogger("test")
 
 			s := &manager{
-				backoff:          backoff,
 				log:              log,
-				deviceName:       deviceName,
 				deviceReadWriter: mockReadWriter,
 				desiredPath:      desiredPath,
 				rollbackPath:     rollbackPath,
-				managementClient: mockClient,
 				queue:            mockPriorityQueue,
 				cache:            newCache(log),
+				devicePublisher:  devicePublisher,
 			}
 
 			s.cache.current.renderedVersion = "1"
@@ -905,76 +864,6 @@ func TestGetDesired(t *testing.T) {
 			require.Equal(tc.expectedDevice, specResult)
 		})
 	}
-}
-
-func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
-	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	deviceName := "test-device"
-	mockClient := client.NewMockManagement(ctrl)
-	s := &manager{
-		deviceName:       deviceName,
-		managementClient: mockClient,
-	}
-
-	t.Run("request error", func(t *testing.T) {
-		requestErr := errors.New("failed to make request for spec")
-		mockClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(nil, http.StatusInternalServerError, requestErr)
-
-		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.Device{})
-		require.ErrorIs(err, errors.ErrGettingDeviceSpec)
-	})
-
-	t.Run("response status code has no content", func(t *testing.T) {
-		mockClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(nil, http.StatusNoContent, nil)
-
-		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.Device{})
-		require.ErrorIs(err, errors.ErrNoContent)
-	})
-
-	t.Run("response status code has conflict", func(t *testing.T) {
-		mockClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(nil, http.StatusConflict, nil)
-
-		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.Device{})
-		require.ErrorIs(err, errors.ErrNoContent)
-	})
-
-	t.Run("response is nil", func(t *testing.T) {
-		mockClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(nil, http.StatusOK, nil)
-
-		_, err := s.getRenderedFromManagementAPIWithRetry(ctx, "1", &v1alpha1.Device{})
-		require.ErrorIs(err, errors.ErrNilResponse)
-	})
-
-	t.Run("makes a request with empty params if no rendered version is passed", func(tt *testing.T) {
-		device := createTestRenderedDevice("requested-image:latest")
-		params := &v1alpha1.GetRenderedDeviceParams{}
-		mockClient.EXPECT().GetRenderedDevice(ctx, deviceName, params).Return(device, http.StatusOK, nil)
-
-		rendered := &v1alpha1.Device{}
-		success, err := s.getRenderedFromManagementAPIWithRetry(ctx, "", rendered)
-		require.NoError(err)
-		require.True(success)
-		require.Equal(device, rendered)
-	})
-
-	t.Run("makes a request with the passed renderedVersion when set", func(tt *testing.T) {
-		device := createTestRenderedDevice("requested-image:latest")
-		renderedVersion := "24"
-		params := &v1alpha1.GetRenderedDeviceParams{KnownRenderedVersion: &renderedVersion}
-		mockClient.EXPECT().GetRenderedDevice(ctx, deviceName, params).Return(device, http.StatusOK, nil)
-
-		rendered := &v1alpha1.Device{}
-		success, err := s.getRenderedFromManagementAPIWithRetry(ctx, "24", rendered)
-		require.NoError(err)
-		require.True(success)
-		require.Equal(device, rendered)
-	})
 }
 
 func Test_pathFromType(t *testing.T) {

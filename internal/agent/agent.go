@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/device_publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -138,14 +139,15 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	policyManager := policy.NewManager(a.log)
 
+	devicePublisher := device_publisher.New(deviceName, time.Duration(a.config.SpecFetchInterval), backoff, a.log)
+
 	// create spec manager
 	specManager := spec.NewManager(
-		deviceName,
 		a.config.DataDir,
 		policyManager,
 		deviceReadWriter,
 		osClient,
-		backoff,
+		devicePublisher.Subscribe(),
 		a.log,
 	)
 
@@ -215,6 +217,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		specManager,
+		devicePublisher,
 		statusManager,
 		hookManager,
 		lifecycleManager,
@@ -245,6 +248,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		grpcClient,
 		deviceName,
 		executer,
+		devicePublisher.Subscribe(),
 		a.log,
 	)
 
@@ -261,6 +265,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		statusManager,
 		specManager,
+		devicePublisher,
 		applicationManager,
 		systemdManager,
 		a.config.SpecFetchInterval,

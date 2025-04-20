@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/device_publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -34,6 +35,7 @@ type Agent struct {
 	deviceWriter           fileio.Writer
 	statusManager          status.Manager
 	specManager            spec.Manager
+	devicePublisher        device_publisher.DevicePublisher
 	hookManager            hook.Manager
 	appManager             applications.Manager
 	systemdManager         systemd.Manager
@@ -62,6 +64,7 @@ func NewAgent(
 	deviceWriter fileio.Writer,
 	statusManager status.Manager,
 	specManager spec.Manager,
+	devicePublisher device_publisher.DevicePublisher,
 	appManager applications.Manager,
 	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
@@ -84,6 +87,7 @@ func NewAgent(
 		deviceWriter:           deviceWriter,
 		statusManager:          statusManager,
 		specManager:            specManager,
+		devicePublisher:        devicePublisher,
 		hookManager:            hookManager,
 		osManager:              osManager,
 		policyManager:          policyManager,
@@ -106,6 +110,15 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Goroutine to handle consoles synchronization
+	go a.consoleController.Run(ctx, &wg)
+
+	// Goroutine to handle spec notifier which reads rendered devices from the server
+	go a.devicePublisher.Run(ctx, &wg)
+
 	// orchestrates periodic fetching of device specs and pushing status updates
 	engine := NewEngine(
 		a.fetchSpecInterval,
@@ -114,7 +127,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.statusUpdate,
 	)
 
-	return engine.Run(ctx)
+	err := engine.Run(ctx)
+	wg.Wait()
+	return err
 }
 
 // Stop ensures that the device agent stops reconciling during graceful shutdown.
@@ -370,10 +385,6 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Devic
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
 		}
-	}
-
-	if err := a.consoleController.Sync(ctx, desired.Spec); err != nil {
-		a.log.Errorf("Failed to sync console configuration: %s", err)
 	}
 
 	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {

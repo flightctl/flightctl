@@ -9,6 +9,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/device_publisher"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -22,9 +23,10 @@ const (
 )
 
 type ConsoleController struct {
-	grpcClient grpc_v1.RouterServiceClient
-	log        *log.PrefixLogger
-	deviceName string
+	grpcClient   grpc_v1.RouterServiceClient
+	log          *log.PrefixLogger
+	deviceName   string
+	subscription device_publisher.Subscription
 
 	activeSessions   []*session
 	inactiveSessions []*session
@@ -41,13 +43,15 @@ func NewController(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
 	executor executer.Executer,
+	subscription device_publisher.Subscription,
 	log *log.PrefixLogger,
 ) *ConsoleController {
 	return &ConsoleController{
-		grpcClient: grpcClient,
-		deviceName: deviceName,
-		executor:   executor,
-		log:        log,
+		grpcClient:   grpcClient,
+		deviceName:   deviceName,
+		executor:     executor,
+		subscription: subscription,
+		log:          log,
 	}
 }
 
@@ -149,7 +153,7 @@ func (c *ConsoleController) start(ctx context.Context, dc v1alpha1.DeviceConsole
 	s.run(ctx, sessionMetadata)
 }
 
-func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (c *ConsoleController) sync(ctx context.Context, desired *v1alpha1.DeviceSpec) {
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
@@ -158,8 +162,21 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.DeviceSp
 	for _, d := range desiredConsoles {
 		go c.start(ctx, d)
 	}
+}
 
-	return nil
+func (c *ConsoleController) Run(ctx context.Context, wg *sync.WaitGroup) {
+	c.log.Debug("Starting console controller")
+	defer c.log.Debug("Stopping console controller")
+	defer wg.Done()
+
+	for {
+		desired, err := c.subscription.Pop()
+		if err != nil {
+			c.log.Errorf("failed to pop console subscription: %v", err)
+			return
+		}
+		c.sync(ctx, desired.Spec)
+	}
 }
 
 func setSize(fd uintptr, size v1alpha1.TerminalSize) error {

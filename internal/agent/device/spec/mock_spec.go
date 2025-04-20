@@ -14,7 +14,6 @@ import (
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
-	client "github.com/flightctl/flightctl/internal/agent/client"
 	policy "github.com/flightctl/flightctl/internal/agent/device/policy"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -247,18 +246,6 @@ func (mr *MockManagerMockRecorder) Rollback(ctx any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockManager)(nil).Rollback), varargs...)
-}
-
-// SetClient mocks base method.
-func (m *MockManager) SetClient(arg0 client.Management) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetClient", arg0)
-}
-
-// SetClient indicates an expected call of SetClient.
-func (mr *MockManagerMockRecorder) SetClient(arg0 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClient", reflect.TypeOf((*MockManager)(nil).SetClient), arg0)
 }
 
 // SetUpgradeFailed mocks base method.
