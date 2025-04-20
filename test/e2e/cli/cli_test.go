@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -20,12 +21,18 @@ import (
 const TIMEOUT = "1m"
 const POLLING = "250ms"
 
+var (
+	suiteCtx context.Context
+)
+
 var _ = BeforeSuite(func() {
+	suiteCtx = util.InitSuiteTracerForGinkgo("CLI E2E Suite")
+
 	// This will be executed before all tests run.
 	var h *e2e.Harness
 
 	fmt.Println("Before all tests!")
-	h = e2e.NewTestHarness()
+	h = e2e.NewTestHarness(suiteCtx)
 	err := h.CleanUpAllResources()
 	Expect(err).ToNot(HaveOccurred())
 })
@@ -37,11 +44,13 @@ func TestCLI(t *testing.T) {
 
 var _ = Describe("cli operation", func() {
 	var (
+		ctx     context.Context
 		harness *e2e.Harness
 	)
 
 	BeforeEach(func() {
-		harness = e2e.NewTestHarness()
+		ctx = util.StartSpecTracerForGinkgo(suiteCtx)
+		harness = e2e.NewTestHarness(ctx)
 		login.LoginToAPIWithToken(harness)
 	})
 
@@ -280,12 +289,14 @@ var _ = Describe("cli operation", func() {
 
 var _ = Describe("cli login", func() {
 	var (
+		ctx     context.Context
 		harness *e2e.Harness
 	)
 
 	Context("login validation", func() {
 		BeforeEach(func() {
-			harness = e2e.NewTestHarness()
+			ctx = util.StartSpecTracerForGinkgo(suiteCtx)
+			harness = e2e.NewTestHarness(ctx)
 		})
 
 		It("Validations work when logging into flightctl CLI", Label("78748"), func() {

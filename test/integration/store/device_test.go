@@ -23,10 +23,18 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestStore(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Store Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Store Suite")
+})
 
 var _ = Describe("DeviceStore create", func() {
 	var (
@@ -45,11 +53,11 @@ var _ = Describe("DeviceStore create", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		devStore = storeInst.Device()
 		called = false
 		callback = store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) { called = true })
@@ -59,7 +67,7 @@ var _ = Describe("DeviceStore create", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	It("CreateOrUpdateDevice create mode race", func() {
@@ -80,7 +88,7 @@ var _ = Describe("DeviceStore create", func() {
 				return
 			}
 			raceCalled = true
-			result := db.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}, Spec: model.MakeJSONField(api.DeviceSpec{})})
+			result := db.WithContext(ctx).Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}, Spec: model.MakeJSONField(api.DeviceSpec{})})
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
@@ -114,7 +122,7 @@ var _ = Describe("DeviceStore create", func() {
 			device.OrgID = orgId
 			device.ResourceVersion = lo.ToPtr(int64(5))
 			Expect(err).ToNot(HaveOccurred())
-			result := db.Updates(device)
+			result := db.WithContext(ctx).Updates(device)
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)

@@ -1,6 +1,7 @@
 package selectors
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -23,10 +24,18 @@ const (
 	failedToParse   = "failed to parse"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestFieldSelectors(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Field Selectors E2E Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = util.InitSuiteTracerForGinkgo("Field Selectors E2E Suite")
+})
 
 // Utility function to generate dynamic timestamps
 func generateTimestamps() (string, string) {
@@ -45,9 +54,13 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		deviceAlias string
 	)
 
+	BeforeEach(func() {
+		_ = util.StartSpecTracerForGinkgo(suiteCtx)
+	})
+
 	// Setup for the suite
 	BeforeAll(func() {
-		harness = e2e.NewTestHarness()
+		harness = e2e.NewTestHarness(suiteCtx)
 		login.LoginToAPIWithToken(harness)
 	})
 

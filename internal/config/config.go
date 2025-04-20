@@ -98,6 +98,16 @@ type tracingConfig struct {
 	Insecure bool   `json:"insecure,omitempty"`
 }
 
+type ConfigOption func(*Config)
+
+func WithTracingEnabled() ConfigOption {
+	return func(c *Config) {
+		c.Tracing = &tracingConfig{
+			Enabled: true,
+		}
+	}
+}
+
 func ConfigDir() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName)
 }
@@ -114,7 +124,7 @@ func CertificateDir() string {
 	return filepath.Join(ConfigDir(), "certs")
 }
 
-func NewDefault() *Config {
+func NewDefault(opts ...ConfigOption) *Config {
 	c := &Config{
 		Database: &dbConfig{
 			Type:     "pgsql",
@@ -151,6 +161,11 @@ func NewDefault() *Config {
 			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
 		},
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	return c
 }
 
