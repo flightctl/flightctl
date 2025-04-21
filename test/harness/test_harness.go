@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
+	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/auth"
@@ -31,7 +32,7 @@ type TestHarness struct {
 	// internals for agent
 	cancelAgentCtx context.CancelFunc
 	agentFinished  chan struct{}
-	agentConfig    *agent.Config
+	agentConfig    *agent_config.Config
 
 	// internals for server
 	serverListener net.Listener
@@ -140,8 +141,8 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	fetchSpecInterval := util.Duration(2 * time.Second)
 	statusUpdateInterval := util.Duration(2 * time.Second)
 
-	os.Setenv(agent.TestRootDirEnvKey, testDirPath)
-	cfg := agent.NewDefault()
+	os.Setenv(agent_config.TestRootDirEnvKey, testDirPath)
+	cfg := agent_config.NewDefault()
 	// TODO: remove the cert/key modifications from default, and start storing
 	// the test harness files for those in the testDir/etc/flightctl/certs path
 	cfg.EnrollmentService = config.EnrollmentService{
@@ -194,7 +195,7 @@ func (h *TestHarness) Cleanup() {
 	// stop any pending API requests
 	h.cancelCtx()
 	// unset env var for the test dir path
-	os.Unsetenv(agent.TestRootDirEnvKey)
+	os.Unsetenv(agent_config.TestRootDirEnvKey)
 	h.ctrl.Finish()
 }
 
@@ -213,7 +214,7 @@ func (h *TestHarness) StopAgent() {
 
 func (h *TestHarness) StartAgent() {
 	agentLog := log.NewPrefixLogger("")
-	agentInstance := agent.New(agentLog, h.agentConfig)
+	agentInstance := agent.New(agentLog, h.agentConfig, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	h.agentFinished = make(chan struct{})
