@@ -79,21 +79,21 @@ global:
 ## @descriptionStart This section provides individual parameters for each component
 ## @descriptionEnd
 
-db:
+postgresql:
   enabled: true
-  image:
-    image: quay.io/sclorg/postgresql-16-c9s
-    tag: "20250214"
-    pullPolicy: ""
+  auth:
+    username: demouser
+
   masterUser: admin
   user: demouser
   maxConnections: 200
   storage:
     size: "60Gi"
-  resources:
-    requests:
-      cpu: "512m"
-      memory: "512Mi"
+  primary:
+    resources:
+      requests:
+        cpu: "512m"
+        memory: "512Mi"
 
 kv:
   enabled: true

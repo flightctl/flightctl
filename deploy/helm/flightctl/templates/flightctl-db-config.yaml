@@ -1,4 +1,4 @@
-{{ if .Values.db.enabled }}
+{{ if .Values.postgresql.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
