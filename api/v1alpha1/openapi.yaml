@@ -4024,6 +4024,7 @@ components:
         - operatingSystem
         - agentVersion
       type: object
+      description: System information collected from the device.
       properties:
         architecture:
           type: string
@@ -4037,7 +4038,19 @@ components:
         agentVersion:
           type: string
           description: The Agent version.
-      description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
+        customInfo:
+          $ref: "#/components/schemas/CustomDeviceInfo"
+      additionalProperties:
+        type: string
+        description: |
+          Optional system attributes exposed by the agent.
+          Each key corresponds to a configurable internal capability.
+    CustomDeviceInfo:
+      type: object
+      description: User-defined information about the device.
+      additionalProperties:
+        type: string
+        description: A user-defined custom property value.
     DeviceApplicationStatus:
       type: object
       required:
