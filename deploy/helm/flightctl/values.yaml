@@ -60,7 +60,7 @@ global:
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
-  exposeServicesMethod: "route" # route, nodePort, gateway
+  exposeServicesMethod: "custom" # route, nodePort, gateway, custom
   gatewayClass: ""
   nodePorts:
     api: 3443
