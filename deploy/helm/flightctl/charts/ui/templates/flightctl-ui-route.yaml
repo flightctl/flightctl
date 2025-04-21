@@ -21,7 +21,7 @@ spec:
     name: flightctl-ui
     weight: 100
   port:
-    targetPort: 8080-tcp
+    targetPort: flightctl-ui
   {{- if eq (include "flightctl.getHttpScheme" .) "https" }}
   tls:
     termination: edge

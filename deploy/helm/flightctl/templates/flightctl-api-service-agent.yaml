@@ -11,7 +11,7 @@ spec:
   type: NodePort
   {{- end }}
   ports:
-    - name: "agent-api"
+    - name: "flightctl-api-agent"
       port: 7443
       targetPort: 7443
       {{- if and .Values.global.nodePorts.agent (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
