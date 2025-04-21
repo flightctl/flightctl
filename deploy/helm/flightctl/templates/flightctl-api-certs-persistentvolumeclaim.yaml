@@ -1,4 +1,4 @@
-{{ if .Values.api.enabled }}
+{{ if and $.Values.api.enabled ne $.Values.global.exposeServicesMethod "custom" }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
