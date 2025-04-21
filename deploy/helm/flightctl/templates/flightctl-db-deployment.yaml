@@ -1,3 +1,4 @@
+{{ if .Values.flightctl.db.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -76,4 +77,4 @@ spec:
         - name: init-scripts
           configMap:
             name: flightctl-db
-
+{{ end }}

@@ -80,6 +80,7 @@ global:
 ## @descriptionEnd
 
 db:
+  enabled: true
   image:
     image: quay.io/sclorg/postgresql-16-c9s
     tag: "20250214"
