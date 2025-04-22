@@ -86,7 +86,6 @@ postgresql:
   dbName: "flightctl"
   auth:
     username: demouser
-    password: demopass
   maxConnections: 200
   storage:
     size: "60Gi"

@@ -29,18 +29,15 @@ spec:
             - name: KV_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-kv-secret
-                  key: password
+                  name: {{ $.Release.Name }}-redis
+                  key: redis-password
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Release.Name }}-db-secret
+                  name: {{ $.Release.Name }}-postgresql
                   key: password
             - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $.Release.Name }}-db-secret
-                  key: username
+              value: {{ .Values.postgresql.auth.username }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-worker-config
