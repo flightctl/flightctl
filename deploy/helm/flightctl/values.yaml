@@ -102,12 +102,11 @@ redis:
   port: 6379
   auth:
     password: adminpass
+  architecture: standalone
   master:
     persistence:
       enabled: true
       storageClass: ""
-  replica:
-    replicaCount: 1
 
 api:
   enabled: true
