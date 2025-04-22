@@ -5,6 +5,7 @@ apiVersion: v1
 metadata:
   name: gateway-cert
   namespace: {{ .Release.Namespace }}
+type: kubernetes.io/tls
 stringData:
   tls.crt: {{ .Values.global.baseDomainTls.cert | quote }}
   tls.key: {{ .Values.global.baseDomainTls.key | quote }}

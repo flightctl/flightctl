@@ -81,11 +81,12 @@ global:
 
 postgresql:
   enabled: true
+  hostname: "postgresql"
+  port: 5432
+  dbName: "flightctl"
   auth:
     username: demouser
-
-  masterUser: admin
-  user: demouser
+    password: demopass
   maxConnections: 200
   storage:
     size: "60Gi"
@@ -95,16 +96,19 @@ postgresql:
         cpu: "512m"
         memory: "512Mi"
 
-kv:
+redis:
   enabled: true
-  image:
-    image: quay.io/sclorg/redis-7-c9s
-    tag: "20250108"
-    pullPolicy: ""
-  password: adminpass
-  # Save if at least 1 key changed in 5 minutes
-  save: 300 1
-  loglevel: warning
+  hostname: "redis"
+  port: 6379
+  auth:
+    password: adminpass
+  master:
+    persistence:
+      enabled: true
+      storageClass: ""
+  replica:
+    replicaCount: 1
+
 api:
   enabled: true
   image:

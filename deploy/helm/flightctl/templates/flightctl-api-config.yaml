@@ -7,7 +7,7 @@ metadata:
 data:
   config.yaml: |-
     database:
-        hostname: flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        hostname: {{ $.Values.postgresql.hostname }}
         type: pgsql
         port: 5432
         name: flightctl
