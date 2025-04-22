@@ -34,13 +34,13 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
-                  key: masterPassword
+                  name: {{ $.Release.Name }}-db-secret
+                  key: password
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
-                  key: masterUser
+                  name: {{ $.Release.Name }}-db-secret
+                  key: username
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-worker-config
