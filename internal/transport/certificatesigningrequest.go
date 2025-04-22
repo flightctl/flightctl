@@ -75,6 +75,6 @@ func (h *TransportHandler) UpdateCertificateSigningRequestApproval(w http.Respon
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceCertificateSigningRequest(r.Context(), name, csr)
+	body, status := h.serviceHandler.UpdateCertificateSigningRequestApproval(r.Context(), name, csr)
 	SetResponse(w, body, status)
 }
