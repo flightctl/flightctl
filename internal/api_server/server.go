@@ -198,7 +198,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
 		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
-		ws.RegisterRoutes(router)
+		ws.RegisterRoutes(r)
 	})
 
 	srv := fcmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)
