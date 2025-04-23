@@ -27,5 +27,7 @@ RestartSteps=20
 KillMode=process 
 KillSignal=SIGINT
 
+ExecReload=/bin/kill -HUP $MAINPID
+
 [Install]
 WantedBy=multi-user.target

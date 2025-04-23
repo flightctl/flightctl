@@ -16,6 +16,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent"
+	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
@@ -182,8 +183,8 @@ func startAgent(ctx context.Context, agent *agent.Agent, log *logrus.Logger, age
 	activeAgents.Dec()
 }
 
-func createAgentConfigTemplate(dataDir string, configFile string) *agent.Config {
-	agentConfigTemplate := agent.NewDefault()
+func createAgentConfigTemplate(dataDir string, configFile string) *agent_config.Config {
+	agentConfigTemplate := agent_config.NewDefault()
 	agentConfigTemplate.ConfigDir = filepath.Dir(configFile)
 	if err := agentConfigTemplate.ParseConfigFile(configFile); err != nil {
 		log.Fatalf("Error parsing config: %v", err)
@@ -204,7 +205,7 @@ func createAgentConfigTemplate(dataDir string, configFile string) *agent.Config 
 	return agentConfigTemplate
 }
 
-func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, agentConfigTemplate *agent.Config) ([]*agent.Agent, []string) {
+func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, agentConfigTemplate *agent_config.Config) ([]*agent.Agent, []string) {
 	log.Infoln("creating agents")
 	agents := make([]*agent.Agent, numDevices)
 	agentsFolders := make([]string, numDevices)
@@ -214,7 +215,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		agentDir := filepath.Join(agentConfigTemplate.DataDir, agentName)
 		// Cleanup if exists and initialize the agent's expected
 		os.RemoveAll(agentDir)
-		if err := os.MkdirAll(filepath.Join(agentDir, agent.DefaultConfigDir), 0700); err != nil {
+		if err := os.MkdirAll(filepath.Join(agentDir, agent_config.DefaultConfigDir), 0700); err != nil {
 			log.Fatalf("Error creating directory: %v", err)
 		}
 
@@ -223,24 +224,24 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 			log.Fatalf("Error setting environment variable: %v", err)
 		}
 		for _, filename := range []string{"ca.crt", "client-enrollment.crt", "client-enrollment.key"} {
-			if err := copyFile(filepath.Join(certDir, filename), filepath.Join(agentDir, agent.DefaultConfigDir, filename)); err != nil {
+			if err := copyFile(filepath.Join(certDir, filename), filepath.Join(agentDir, agent_config.DefaultConfigDir, filename)); err != nil {
 				log.Fatalf("copying %s: %v", filename, err)
 			}
 		}
 
-		cfg := agent.NewDefault()
+		cfg := agent_config.NewDefault()
 		cfg.DefaultLabels["alias"] = agentName
-		cfg.ConfigDir = agent.DefaultConfigDir
-		cfg.DataDir = agent.DefaultConfigDir
+		cfg.ConfigDir = agent_config.DefaultConfigDir
+		cfg.DataDir = agent_config.DefaultConfigDir
 		cfg.EnrollmentService = config.EnrollmentService{}
 		cfg.EnrollmentService.Config = *client.NewDefault()
 		cfg.EnrollmentService.Config.Service = client.Service{
 			Server:               agentConfigTemplate.EnrollmentService.Config.Service.Server,
-			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent.CacertFile),
+			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent_config.CacertFile),
 		}
 		cfg.EnrollmentService.Config.AuthInfo = client.AuthInfo{
-			ClientCertificate: filepath.Join(cfg.ConfigDir, agent.EnrollmentCertFile),
-			ClientKey:         filepath.Join(cfg.ConfigDir, agent.EnrollmentKeyFile),
+			ClientCertificate: filepath.Join(cfg.ConfigDir, agent_config.EnrollmentCertFile),
+			ClientKey:         filepath.Join(cfg.ConfigDir, agent_config.EnrollmentKeyFile),
 		}
 		cfg.SpecFetchInterval = agentConfigTemplate.SpecFetchInterval
 		cfg.StatusUpdateInterval = agentConfigTemplate.StatusUpdateInterval
@@ -252,7 +253,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		cfg.ManagementService.Config = *client.NewDefault()
 		cfg.ManagementService.Service = client.Service{
 			Server:               agentConfigTemplate.ManagementService.Config.Service.Server,
-			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent.CacertFile),
+			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent_config.CacertFile),
 		}
 
 		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
@@ -264,7 +265,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		}
 
 		logWithPrefix := flightlog.NewPrefixLogger(agentName)
-		agents[i] = agent.New(logWithPrefix, cfg)
+		agents[i] = agent.New(logWithPrefix, cfg, "")
 		agentsFolders[i] = agentDir
 	}
 	return agents, agentsFolders

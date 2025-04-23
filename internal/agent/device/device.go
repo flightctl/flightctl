@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
@@ -123,6 +124,14 @@ func (a *Agent) Stop(ctx context.Context) error {
 			a.cancelFn()
 		}
 	})
+	return nil
+}
+
+func (a *Agent) ReloadLogLevel(ctx context.Context, config *agent_config.Config) error {
+	if config.LogLevel != "" {
+		a.log.Infof("updating log level to %s", config.LogLevel)
+		a.log.Level(config.LogLevel)
+	}
 	return nil
 }
 
