@@ -3730,13 +3730,12 @@ components:
           CPU: '#/components/schemas/CpuResourceMonitorSpec'
           Memory: '#/components/schemas/MemoryResourceMonitorSpec'
           Disk: '#/components/schemas/DiskResourceMonitorSpec'
+      required:
+        - monitorType
     ResourceMonitorSpec:
       type: object
       description: Specification for monitoring a resource.
       properties:
-        monitorType:
-          type: string
-          description: The type of resource to monitor.
         alertRules:
           type: array
           items:
@@ -3752,13 +3751,31 @@ components:
         - samplingInterval
     CpuResourceMonitorSpec:
       allOf:
+        - type: object
+          required: [ monitorType ]
+          properties:
+            monitorType:
+              type: string
+              description: The type of resource to monitor.
         - $ref: '#/components/schemas/ResourceMonitorSpec'
     MemoryResourceMonitorSpec:
       allOf:
+        - type: object
+          required: [ monitorType ]
+          properties:
+            monitorType:
+              type: string
+              description: The type of resource to monitor.
         - $ref: '#/components/schemas/ResourceMonitorSpec'
     DiskResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - type: object
+          required: [ monitorType ]
+          properties:
+            monitorType:
+              type: string
+              description: The type of resource to monitor.
         - type: object
           description: Specification for monitoring disk usage.
           required:
@@ -3767,11 +3784,6 @@ components:
             path:
               type: string
               description: The directory path to monitor for disk usage.
-    CustomResourceMonitorSpec:
-      allOf:
-        - $ref: '#/components/schemas/ResourceMonitorSpec'
-        - type: object
-          description: "Specification for monitoring custom resources."
     ResourceAlertRule:
       type: object
       properties:
