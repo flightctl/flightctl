@@ -2,12 +2,12 @@ package util
 
 // Resource types
 const (
-	Device                    = "device"
-	Fleet                     = "fleet"
-	EnrollmentRequest         = "enrollmentrequest"
-	Repository                = "repository"
-	ResourceSync              = "resourcesync"
-	CertificateSigningRequest = "certificatesigningrequest"
+	Device                    = "Device"
+	Fleet                     = "Fleet"
+	EnrollmentRequest         = "EnrollmentRequest"
+	Repository                = "Repository"
+	ResourceSync              = "ResourceSync"
+	CertificateSigningRequest = "CertificateSigningRequest"
 )
 
 var ResourceTypes = [...]string{Device, Fleet, EnrollmentRequest, Repository, ResourceSync, CertificateSigningRequest}
@@ -30,6 +30,7 @@ const (
 
 const (
 	// Ansible Galaxy collection name
-	AnsibleGalaxyCollection = "flightctl.core"
-	AnsibleDeviceInfoModule = "device_info"
+	AnsibleGalaxyCollection   = "flightctl.core"
+	AnsibleResourceInfoModule = "flightctl_resource_info"
+	AnsibleResourceModule     = "flightctl_resource"
 )

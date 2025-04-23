@@ -41,3 +41,4 @@ RUN useradd -ms /bin/bash user && \
 ## Add your flightctl configuration and certificates
 ADD bin/agent/etc/flightctl/config.yaml /etc/flightctl/
 ADD bin/agent/etc/flightctl/certs/* /etc/flightctl/certs/
+RUN  mkdir -p /etc/containers/registries.conf.d/ && echo -e '[[registry]]\nlocation = "192.168.0.23:5000"\ninsecure = true' > /etc/containers/registries.conf.d/flightctl-e2e.conf
