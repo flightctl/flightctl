@@ -39,26 +39,6 @@ func collectCPUInfo(reader fileio.Reader) (*CPUInfo, error) {
 	return cpuInfo, nil
 }
 
-
-func splitProcessorBlocks(content []byte) [][]byte {
-	lines := bytes.Split(content, []byte("\n"))
-	var blocks [][]byte
-	var currentBlock []byte
-
-	for _, line := range lines {
-		if bytes.HasPrefix(line, []byte("processor")) && len(currentBlock) > 0 {
-			blocks = append(blocks, currentBlock)
-			currentBlock = nil
-		}
-		currentBlock = append(currentBlock, line...)
-		currentBlock = append(currentBlock, '\n')
-	}
-	if len(currentBlock) > 0 {
-		blocks = append(blocks, currentBlock)
-	}
-	return blocks
-}
-
 // parseProcessorBlocks parses the processor blocks from the file content
 func parseProcessorBlocks(content []byte) (map[int]*ProcessorInfo, int) {
 	physicalProcessors := make(map[int]*ProcessorInfo)
@@ -120,6 +100,25 @@ func parseProcessorBlocks(content []byte) (map[int]*ProcessorInfo, int) {
 	}
 
 	return physicalProcessors, totalCores
+}
+
+func splitProcessorBlocks(content []byte) [][]byte {
+	lines := bytes.Split(content, []byte("\n"))
+	var blocks [][]byte
+	var currentBlock []byte
+
+	for _, line := range lines {
+		if bytes.HasPrefix(line, []byte("processor")) && len(currentBlock) > 0 {
+			blocks = append(blocks, currentBlock)
+			currentBlock = nil
+		}
+		currentBlock = append(currentBlock, line...)
+		currentBlock = append(currentBlock, '\n')
+	}
+	if len(currentBlock) > 0 {
+		blocks = append(blocks, currentBlock)
+	}
+	return blocks
 }
 
 func parseProcessorBlock(block []byte) (int, int, string, string, int) {
