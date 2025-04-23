@@ -124,6 +124,22 @@ const (
 	EncodingPlain  EncodingType = "plain"
 )
 
+// Defines values for EventReason.
+const (
+	ResourceCreated        EventReason = "ResourceCreated"
+	ResourceCreationFailed EventReason = "ResourceCreationFailed"
+	ResourceDeleted        EventReason = "ResourceDeleted"
+	ResourceDeletionFailed EventReason = "ResourceDeletionFailed"
+	ResourceUpdateFailed   EventReason = "ResourceUpdateFailed"
+	ResourceUpdated        EventReason = "ResourceUpdated"
+)
+
+// Defines values for EventType.
+const (
+	Normal  EventType = "Normal"
+	Warning EventType = "Warning"
+)
+
 // Defines values for FileOperation.
 const (
 	FileOperationCreated FileOperation = "created"
@@ -157,6 +173,24 @@ const (
 	ResourceAlertSeverityTypeCritical ResourceAlertSeverityType = "Critical"
 	ResourceAlertSeverityTypeInfo     ResourceAlertSeverityType = "Info"
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
+)
+
+// Defines values for ResourceKind.
+const (
+	ResourceKindCertificateSigningRequest ResourceKind = "CertificateSigningRequest"
+	ResourceKindDevice                    ResourceKind = "Device"
+	ResourceKindEnrollmentRequest         ResourceKind = "EnrollmentRequest"
+	ResourceKindFleet                     ResourceKind = "Fleet"
+	ResourceKindRepository                ResourceKind = "Repository"
+	ResourceKindResourceSync              ResourceKind = "ResourceSync"
+	ResourceKindTemplateVersion           ResourceKind = "TemplateVersion"
+)
+
+// Defines values for ResourceUpdatedDetailsUpdatedFields.
+const (
+	Labels ResourceUpdatedDetailsUpdatedFields = "labels"
+	Owner  ResourceUpdatedDetailsUpdatedFields = "owner"
+	Spec   ResourceUpdatedDetailsUpdatedFields = "spec"
 )
 
 // Defines values for RolloutStrategy.
@@ -799,6 +833,71 @@ type EnrollmentServiceService struct {
 	Server string `json:"server"`
 }
 
+// Event defines model for Event.
+type Event struct {
+	// Actor The name of the user or service that triggered the event. The value will be prefixed by either user: (for human users) or service: (for automated services).
+	Actor string `json:"actor"`
+
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Details Event-specific details, structured based on event type.
+	Details *EventDetails `json:"details,omitempty"`
+
+	// InvolvedObject A reference to a resource.
+	InvolvedObject ObjectReference `json:"involvedObject"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Message A human-readable description of the status of this operation.
+	Message string `json:"message"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Reason A short, machine-readable string that describes the reason for the event.
+	Reason EventReason `json:"reason"`
+
+	// Source The component that is responsible for the event.
+	Source EventSource `json:"source"`
+
+	// Type The type of the event. One of Normal, Warning.
+	Type EventType `json:"type"`
+}
+
+// EventReason A short, machine-readable string that describes the reason for the event.
+type EventReason string
+
+// EventType The type of the event. One of Normal, Warning.
+type EventType string
+
+// EventDetails Event-specific details, structured based on event type.
+type EventDetails struct {
+	union json.RawMessage
+}
+
+// EventList EventList is a list of Events.
+type EventList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of Events.
+	Items []Event `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// EventSource The component that is responsible for the event.
+type EventSource struct {
+	// Component The name of the component that is responsible for the event.
+	Component string `json:"component"`
+}
+
 // FileContent The content of a file.
 type FileContent struct {
 	// Content The plain text (UTF-8) or base64-encoded content of the file.
@@ -1156,6 +1255,15 @@ type ObjectMeta struct {
 	ResourceVersion *string `json:"resourceVersion,omitempty"`
 }
 
+// ObjectReference A reference to a resource.
+type ObjectReference struct {
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Name The name of the referenced object.
+	Name string `json:"name"`
+}
+
 // PatchRequest defines model for PatchRequest.
 type PatchRequest = []struct {
 	// Op The operation to perform.
@@ -1245,6 +1353,9 @@ type ResourceAlertRule struct {
 // ResourceAlertSeverityType Severity of the alert.
 type ResourceAlertSeverityType string
 
+// ResourceKind Resource types exposed via the API.
+type ResourceKind string
+
 // ResourceMonitor defines model for ResourceMonitor.
 type ResourceMonitor struct {
 	union json.RawMessage
@@ -1315,6 +1426,21 @@ type ResourceSyncStatus struct {
 	// ObservedGeneration The last generation that was synced.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
+
+// ResourceUpdatedDetails defines model for ResourceUpdatedDetails.
+type ResourceUpdatedDetails struct {
+	// NewOwner The new owner (if applicable).
+	NewOwner *string `json:"newOwner"`
+
+	// PreviousOwner The previous owner (if applicable).
+	PreviousOwner *string `json:"previousOwner"`
+
+	// UpdatedFields List of fields that were updated in the resource.
+	UpdatedFields []ResourceUpdatedDetailsUpdatedFields `json:"updatedFields"`
+}
+
+// ResourceUpdatedDetailsUpdatedFields defines model for ResourceUpdatedDetails.UpdatedFields.
+type ResourceUpdatedDetailsUpdatedFields string
 
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
@@ -1547,6 +1673,18 @@ type ListEnrollmentRequestsParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListEventsParams defines parameters for ListEvents.
+type ListEventsParams struct {
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of events to return in the response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 }
 
 // ListFleetsParams defines parameters for ListFleets.
@@ -2133,6 +2271,42 @@ func (t ConfigProviderSpec) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsResourceUpdatedDetails returns the union data inside the EventDetails as a ResourceUpdatedDetails
+func (t EventDetails) AsResourceUpdatedDetails() (ResourceUpdatedDetails, error) {
+	var body ResourceUpdatedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromResourceUpdatedDetails overwrites any union data inside the EventDetails as the provided ResourceUpdatedDetails
+func (t *EventDetails) FromResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeResourceUpdatedDetails performs a merge with any union data inside the EventDetails, using the provided ResourceUpdatedDetails
+func (t *EventDetails) MergeResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t EventDetails) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *EventDetails) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
