@@ -31,8 +31,8 @@ type extInt[M any] interface {
 	*M
 }
 type GenericStore[P extInt[M], M Model, A any, AL any] struct {
-	db  *gorm.DB
-	log logrus.FieldLogger
+	dbHandle *gorm.DB
+	log      logrus.FieldLogger
 
 	// Conversion functions between API and model types
 	apiToModelPtr  func(*A) (P, error)
@@ -57,7 +57,7 @@ func NewGenericStore[P extInt[M], M Model, A any, AL any](
 	listModelToAPI func([]M, *string, *int64) (AL, error),
 ) *GenericStore[P, M, A, AL] {
 	return &GenericStore[P, M, A, AL]{
-		db:                                    db,
+		dbHandle:                              db,
 		log:                                   log,
 		apiToModelPtr:                         apiToModelPtr,
 		modelPtrToAPI:                         modelPtrToAPI,
@@ -66,25 +66,29 @@ func NewGenericStore[P extInt[M], M Model, A any, AL any](
 	}
 }
 
-func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A, callback func(orgId uuid.UUID, before, after *A)) (*A, error) {
+func (s *GenericStore[P, M, A, AL]) getDB(ctx context.Context) *gorm.DB {
+	return s.dbHandle.WithContext(ctx)
+}
+
+func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, error) {
 	updated, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, true, ModeCreateOnly, nil, callback)
 	return updated, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, error) {
+func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, error) {
 	updated, _, err := retryCreateOrUpdate(func() (*A, bool, bool, error) {
 		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, validationCallback, callback)
 	})
 	return updated, err
 }
 
-func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, bool, error) {
+func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, bool, error) {
 	return retryCreateOrUpdate(func() (*A, bool, bool, error) {
 		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, validationCallback, callback)
 	})
 }
 
-func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, bool, bool, error) {
+func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, bool, bool, error) {
 	if resource == nil {
 		return nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -118,7 +122,7 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 			return nil, false, false, err
 		}
 
-		err = validationCallback(existingAPIResource, modifiedAPIResource)
+		err = validationCallback(ctx, existingAPIResource, modifiedAPIResource)
 		if err != nil {
 			return nil, false, false, err
 		}
@@ -149,7 +153,7 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 			return nil, false, false, err
 		}
 
-		callback(orgId, existingAPIResource, modifiedAPIResource)
+		callback(ctx, orgId, existingAPIResource, modifiedAPIResource)
 	}
 
 	apiResource, err := s.modelPtrToAPI(model)
@@ -159,7 +163,7 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 
 func (s *GenericStore[P, M, A, AL]) getExistingResource(ctx context.Context, name string, orgId uuid.UUID) (*M, error) {
 	var existingResource M
-	if err := s.db.WithContext(ctx).Where("name = ? and org_id = ?", name, orgId).First(&existingResource).Error; err != nil {
+	if err := s.getDB(ctx).Where("name = ? and org_id = ?", name, orgId).First(&existingResource).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
@@ -172,7 +176,7 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 	resource.SetGeneration(lo.ToPtr(int64(1)))
 	resource.SetResourceVersion(lo.ToPtr(int64(1)))
 
-	result := s.db.WithContext(ctx).Create(resource)
+	result := s.getDB(ctx).Create(resource)
 	if result.Error != nil {
 		err := ErrorFromGormError(result.Error)
 		return err == flterrors.ErrDuplicateName, err
@@ -209,7 +213,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	selectFields = append(selectFields, resource.GetNonNilFieldsFromResource()...)
 	selectFields = append(selectFields, fieldsToUnset...)
 
-	query := s.db.WithContext(ctx).Model(resource).
+	query := s.getDB(ctx).Model(resource).
 		Where("org_id = ? AND name = ? AND (resource_version IS NULL OR resource_version = ?)",
 			resource.GetOrgID(),
 			resource.GetName(),
@@ -228,7 +232,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 
 func (s *GenericStore[P, M, A, AL]) Get(ctx context.Context, orgId uuid.UUID, name string) (*A, error) {
 	var resource M
-	result := s.db.WithContext(ctx).Where("org_id = ? AND name = ? AND spec IS NOT NULL", orgId, name).First(&resource)
+	result := s.getDB(ctx).Where("org_id = ? AND name = ? AND spec IS NOT NULL", orgId, name).First(&resource)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
@@ -237,7 +241,7 @@ func (s *GenericStore[P, M, A, AL]) Get(ctx context.Context, orgId uuid.UUID, na
 	return apiResource, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, callback func(orgId uuid.UUID, before, after *A), associatedResources ...Resource) error {
+func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, callback func(ctx context.Context, orgId uuid.UUID, before, after *A), associatedResources ...Resource) error {
 	var deleted bool
 	var err error
 	if len(associatedResources) == 0 {
@@ -254,13 +258,13 @@ func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, call
 		if err != nil {
 			return err
 		}
-		callback(P(&resource).GetOrgID(), apiResource, nil)
+		callback(ctx, P(&resource).GetOrgID(), apiResource, nil)
 	}
 	return nil
 }
 
 func (s *GenericStore[P, M, A, AL]) delete(ctx context.Context, resource M) (bool, error) {
-	result := s.db.WithContext(ctx).Unscoped().Where("spec IS NOT NULL").Delete(&resource)
+	result := s.getDB(ctx).Unscoped().Where("spec IS NOT NULL").Delete(&resource)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -273,7 +277,7 @@ func (s *GenericStore[P, M, A, AL]) delete(ctx context.Context, resource M) (boo
 
 func (s *GenericStore[P, M, A, AL]) deleteWithAssociated(ctx context.Context, resource M, associatedResources ...Resource) (bool, error) {
 	deleted := false
-	err := s.db.WithContext(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
+	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		result := innerTx.Unscoped().Delete(&resource)
 		if result.Error != nil {
 			return ErrorFromGormError(result.Error)
@@ -297,15 +301,15 @@ func (s *GenericStore[P, M, A, AL]) deleteWithAssociated(ctx context.Context, re
 	return deleted, err
 }
 
-func (s *GenericStore[P, M, A, AL]) DeleteAll(ctx context.Context, orgId uuid.UUID, callback func(orgId uuid.UUID)) error {
+func (s *GenericStore[P, M, A, AL]) DeleteAll(ctx context.Context, orgId uuid.UUID, callback func(ctx context.Context, orgId uuid.UUID)) error {
 	var resource M
-	result := s.db.WithContext(ctx).Unscoped().Where("org_id = ? AND spec IS NOT NULL", orgId).Delete(&resource)
+	result := s.getDB(ctx).Unscoped().Where("org_id = ? AND spec IS NOT NULL", orgId).Delete(&resource)
 
 	if result.Error != nil {
 		return ErrorFromGormError(result.Error)
 	}
 	if callback != nil {
-		callback(orgId)
+		callback(ctx, orgId)
 	}
 
 	return nil
@@ -326,7 +330,7 @@ func (s *GenericStore[P, M, A, AL]) UpdateStatus(ctx context.Context, orgId uuid
 		return nil, err
 	}
 
-	result := s.db.WithContext(ctx).Model(model).Where("org_id = ? AND name = ?", orgId, model.GetName()).Clauses(clause.Returning{}).Updates(
+	result := s.getDB(ctx).Model(model).Where("org_id = ? AND name = ?", orgId, model.GetName()).Clauses(clause.Returning{}).Updates(
 		map[string]interface{}{
 			"status":           json,
 			"resource_version": gorm.Expr("resource_version + 1"),
@@ -348,7 +352,7 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 	var numRemaining *int64
 
 	var resource M
-	query, err := ListQuery(&resource).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&resource).Build(ctx, s.getDB(ctx), orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +384,7 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery, err := ListQuery(&resource).Build(ctx, s.db, orgId, listParams)
+			countQuery, err := ListQuery(&resource).Build(ctx, s.getDB(ctx), orgId, listParams)
 			if err != nil {
 				return nil, err
 			}

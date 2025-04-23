@@ -28,15 +28,15 @@ var _ = Describe("TemplateVersion", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		tvStore = storeInst.TemplateVersion()
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("TemplateVersion store", func() {
@@ -138,7 +138,7 @@ var _ = Describe("TemplateVersion", func() {
 			err = testutil.CreateTestTemplateVersions(ctx, numResources, tvStore, otherOrgId, "myfleet")
 			Expect(err).ToNot(HaveOccurred())
 
-			callback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
 			err = storeInst.Fleet().Delete(ctx, otherOrgId, "myfleet", callback)
 			Expect(err).ToNot(HaveOccurred())
 

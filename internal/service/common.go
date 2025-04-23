@@ -10,7 +10,6 @@ import (
 	"net/url"
 
 	jsonpatch "github.com/evanphx/json-patch"
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
@@ -33,7 +32,7 @@ func IsInternalRequest(ctx context.Context) bool {
 	return false
 }
 
-func NilOutManagedObjectMetaProperties(om *v1alpha1.ObjectMeta) {
+func NilOutManagedObjectMetaProperties(om *api.ObjectMeta) {
 	if om == nil {
 		return
 	}
@@ -45,7 +44,7 @@ func NilOutManagedObjectMetaProperties(om *v1alpha1.ObjectMeta) {
 }
 
 func validateAgainstSchema(ctx context.Context, obj []byte, objPath string) error {
-	swagger, err := v1alpha1.GetSwagger()
+	swagger, err := api.GetSwagger()
 	if err != nil {
 		return err
 	}

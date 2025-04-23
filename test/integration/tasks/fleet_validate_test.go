@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,7 +29,7 @@ var _ = Describe("FleetValidate", func() {
 		ctx              context.Context
 		orgId            uuid.UUID
 		storeInst        store.Store
-		serviceHandler   *service.ServiceHandler
+		serviceHandler   service.Service
 		cfg              *config.Config
 		dbName           string
 		callbackManager  tasks_client.CallbackManager
@@ -44,13 +45,14 @@ var _ = Describe("FleetValidate", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.WithValue(context.Background(), service.InternalRequestCtxKey, true)
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = context.WithValue(ctx, service.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockPublisher(ctrl)
-		publisher.EXPECT().Publish(gomock.Any()).Return(nil).AnyTimes()
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		callbackManager = tasks_client.NewCallbackManager(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
@@ -81,7 +83,7 @@ var _ = Describe("FleetValidate", func() {
 			Spec: specHttp,
 		}
 
-		repoCallback := store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) {})
+		repoCallback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
 		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback)
@@ -139,11 +141,11 @@ var _ = Describe("FleetValidate", func() {
 		badHttpConfig.HttpRef.FilePath = "http-path"
 		badHttpConfig.HttpRef.Suffix = lo.ToPtr("/suffix")
 
-		callback = store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
+		callback = store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	When("a Fleet has a valid configuration", func() {
