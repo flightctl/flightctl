@@ -101,7 +101,7 @@ postgresql:
 
 redis:
   enabled: true
-  hostname: "redis"
+  hostname: flightctl-redis-headless
   port: 6379
   auth:
     password: adminpass
