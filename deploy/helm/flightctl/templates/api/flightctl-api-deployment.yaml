@@ -34,8 +34,8 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Release.Name }}-postgresql
-                  key: password
+                  name: {{ $.Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" $.Release.Name) }}
+                  key: {{ $.Values.postgresql.auth.secretKeys.userPasswordKey | default "password" }}
             - name: DB_USER
               value: {{ .Values.postgresql.auth.username }}
             {{- if eq .Values.global.auth.type "none" }}
