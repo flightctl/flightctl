@@ -24,7 +24,7 @@ type IntegrationTestCallback func()
 // A is the API resource, for example: api.Device
 // AL is the API list, for example: api.DeviceList
 type Model interface {
-	model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion
+	model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
 }
 type extInt[M any] interface {
 	model.ResourceInterface
@@ -342,13 +342,22 @@ func (s *GenericStore[P, M, A, AL]) UpdateStatus(ctx context.Context, orgId uuid
 	return apiResource, nil
 }
 
-func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*AL, error) {
+func hasSpecColumn[M Model]() bool {
+	switch any(new(M)).(type) {
+	case *model.Event:
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, listParams ListParams, sortDirective *string) (*AL, error) {
 	var resourceList []M
 	var nextContinue *string
 	var numRemaining *int64
 
 	var resource M
-	query, err := ListQuery(&resource).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&resource, WithSortDirective(sortDirective)).Build(ctx, s.db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +366,9 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 		// Request 1 more than the user asked for to see if we need to return "continue"
 		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
 	}
-	query = query.Where("spec IS NOT NULL")
+	if hasSpecColumn[M]() {
+		query = query.Where("spec IS NOT NULL")
+	}
 	result := query.Find(&resourceList)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)

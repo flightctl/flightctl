@@ -239,7 +239,7 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
-	return s.genericStore.List(ctx, orgId, listParams)
+	return s.genericStore.List(ctx, orgId, listParams, nil)
 }
 
 func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error) {

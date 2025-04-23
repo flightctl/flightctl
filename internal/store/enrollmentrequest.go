@@ -94,7 +94,7 @@ func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name 
 }
 
 func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error) {
-	return s.genericStore.List(ctx, orgId, listParams)
+	return s.genericStore.List(ctx, orgId, listParams, nil)
 }
 
 func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {

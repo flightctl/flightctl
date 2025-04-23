@@ -63,9 +63,16 @@ func WithSelectorResolver(resolver selector.Resolver) ListQueryOption {
 	}
 }
 
+func WithSortDirective(sortDirective *string) ListQueryOption {
+	return func(q *listQuery) {
+		q.sortDirective = sortDirective
+	}
+}
+
 type listQuery struct {
-	dest     any
-	resolver selector.Resolver
+	dest          any
+	resolver      selector.Resolver
+	sortDirective *string
 }
 
 func ListQuery(dest any, opts ...ListQueryOption) *listQuery {
@@ -128,7 +135,11 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	if err != nil {
 		return nil, err
 	}
-	return query.Order("name"), nil
+	sortDirective := "name"
+	if lq.sortDirective != nil {
+		sortDirective = *lq.sortDirective
+	}
+	return query.Order(sortDirective), nil
 }
 
 func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string {

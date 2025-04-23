@@ -100,7 +100,7 @@ func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 }
 
 func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error) {
-	return s.genericStore.List(ctx, orgId, listParams)
+	return s.genericStore.List(ctx, orgId, listParams, nil)
 }
 
 // A method to get all Repositories with secrets, regardless of ownership. Used internally by the RepoTester.

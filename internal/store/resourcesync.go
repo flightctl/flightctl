@@ -100,7 +100,7 @@ func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name strin
 }
 
 func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error) {
-	return s.genericStore.List(ctx, orgId, listParams)
+	return s.genericStore.List(ctx, orgId, listParams, nil)
 }
 
 func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error {
