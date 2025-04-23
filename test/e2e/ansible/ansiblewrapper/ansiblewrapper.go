@@ -60,14 +60,12 @@ func runPlaybook(module string, args map[string]interface{}) (string, error) {
 		return "", err
 	}
 	// Ensure the temporary file is removed after execution
-	defer os.Remove(tmpFile)
+	//defer os.Remove(tmpFile)
 	var stderr bytes.Buffer
 	executor := &playbook.AnsiblePlaybookCmd{
 		Playbooks: []string{tmpFile},
 		PlaybookOptions: &playbook.AnsiblePlaybookOptions{
 			Verbose: false,
-			//StdoutCallback: "json",
-			//Stderr:         &stderr,
 			ExtraVars: map[string]interface{}{
 				"flightctl_config_file":    "~/.config/flightctl/client.yaml",
 				"flightctl_validate_certs": "False",
