@@ -39,13 +39,33 @@ func collectCPUInfo(reader fileio.Reader) (*CPUInfo, error) {
 	return cpuInfo, nil
 }
 
+
+func splitProcessorBlocks(content []byte) [][]byte {
+	lines := bytes.Split(content, []byte("\n"))
+	var blocks [][]byte
+	var currentBlock []byte
+
+	for _, line := range lines {
+		if bytes.HasPrefix(line, []byte("processor")) && len(currentBlock) > 0 {
+			blocks = append(blocks, currentBlock)
+			currentBlock = nil
+		}
+		currentBlock = append(currentBlock, line...)
+		currentBlock = append(currentBlock, '\n')
+	}
+	if len(currentBlock) > 0 {
+		blocks = append(blocks, currentBlock)
+	}
+	return blocks
+}
+
 // parseProcessorBlocks parses the processor blocks from the file content
 func parseProcessorBlocks(content []byte) (map[int]*ProcessorInfo, int) {
 	physicalProcessors := make(map[int]*ProcessorInfo)
 	coresSeen := make(map[int]map[int]bool)
 	totalCores := 0
 
-	blocks := bytes.Split(content, []byte("\n\n"))
+	blocks := splitProcessorBlocks(content)
 
 	for blockIndex, block := range blocks {
 		if len(bytes.TrimSpace(block)) == 0 {
