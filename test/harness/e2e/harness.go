@@ -51,7 +51,7 @@ func findTopLevelDir() string {
 		}
 	}
 	Fail("Could not find top-level directory")
-	// this return is not reachable but we need to satisfy the compiler
+	// this return is not reachable, but we need to satisfy the compiler
 	return ""
 }
 
@@ -781,4 +781,43 @@ func (h Harness) GetDevice(deviceId string) (*v1alpha1.Device, error) {
 	}
 	device := response.JSON200
 	return device, nil
+}
+
+// CheckRunningContainers verifies the expected number of running containers on the VM.
+func (h Harness) CheckRunningContainers() (string, error) {
+	out, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+// RunGetDevices executes "get devices" CLI command with optional arguments.
+func (h Harness) RunGetDevices(args ...string) (string, error) {
+	allArgs := append([]string{"get", "devices"}, args...)
+	return h.CLI(allArgs...)
+}
+
+// ManageResource performs an operation ("apply" or "delete") on a specified resource.
+func (h Harness) ManageResource(operation, resource string, args ...string) (string, error) {
+	switch operation {
+	case "apply":
+		return h.CLI("apply", "-f", util.GetTestExamplesYamlPath(resource))
+	case "delete":
+		return h.CLI("delete", resource)
+	default:
+		return "", fmt.Errorf("unsupported operation: %s", operation)
+	}
+}
+
+// ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
+func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
+	for _, condition := range d.Status.Conditions {
+		if string(condition.Type) == conditionType &&
+			condition.Reason == conditionReason &&
+			string(condition.Status) == conditionStatus {
+			return true
+		}
+	}
+	return false
 }

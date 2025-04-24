@@ -185,6 +185,7 @@ var (
 	tooManyAuthFailuresError  = "Too many authentication failures"
 )
 
+// sshdConfigurationContent defines the inline SSH configuration content for customizing the sshd settings on a device.
 var sshdConfigurationContent = `
 # Custom SSH Configuration
 PasswordAuthentication yes
@@ -192,6 +193,7 @@ ClientAliveInterval 300
 MaxAuthTries 1
 `
 
+// sshdConfigurationContent2 defines a multi-line string containing custom SSH server configuration settings.
 var sshdConfigurationContent2 = `
 # Custom SSH Configuration
 PermitRootLogin yes
@@ -199,6 +201,8 @@ PasswordAuthentication no
 ClientAliveInterval 300
 MaxAuthTries 2
 `
+
+// sshdHook defines a YAML configuration string that triggers a validation of SSH daemon configuration upon certain file events.
 var sshdHook = `
 - if:
   - path: /etc/ssh/sshd_config.d/
@@ -213,11 +217,13 @@ var inlineConfigSpec = v1alpha1.FileSpec{
 	Content: sshdConfigurationContent,
 }
 
+// inlineConfigValid is an instance of InlineConfigProviderSpec configured with inline file specifications and a provider name.
 var inlineConfigValid = v1alpha1.InlineConfigProviderSpec{
 	Inline: []v1alpha1.FileSpec{inlineConfigSpec},
 	Name:   inlineConfigName,
 }
 
+// inlineConfigSpec2 defines a file specification for creating a custom SSH server configuration file at a specified path.
 var inlineConfigSpec2 = v1alpha1.FileSpec{
 	Path:    inlinePath,
 	Mode:    modePointer,
@@ -258,6 +264,7 @@ var (
 	beforeUpdatingPath = "/etc/flightctl/hooks.d/beforeupdating/display-hook.yaml"
 )
 
+// inlineConfigSpec4 defines a file specification with path, mode, and content for the after-updating lifecycle hook.
 var inlineConfigSpec4 = v1alpha1.FileSpec{
 	Path:    afterUpdatingPath,
 	Mode:    modePointer,
@@ -284,6 +291,8 @@ var inlineConfigValidLifecycle = v1alpha1.InlineConfigProviderSpec{
 	Name:   inlineConfigLifecycleName,
 }
 
+// UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
+// It applies the provided configuration and waits for the device to reach the specified rendered version.
 func UpdateDeviceConfigWithRetries(harness *e2e.Harness, deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
 	harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 		device.Spec.Config = &configs
