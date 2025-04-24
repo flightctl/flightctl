@@ -9,8 +9,8 @@ data:
     database:
         hostname: {{ $.Values.postgresql.hostname }}
         type: pgsql
-        port: 5432
-        name: flightctl
+        port: {{ $.Values.postgresql.port }}
+        name: {{ $.Values.postgresql.dbName }}
     service:
         address: :3443
         agentEndpointAddress: :7443
@@ -39,8 +39,8 @@ data:
           - flightctl-api.{{ .Release.Namespace }}
           - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
     kv:
-        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
-        port: 6379
+        hostname: {{ $.Values.redis.hostname }}
+        port: {{ $.Values.redis.port }}
     {{- if not (eq .Values.global.auth.type "none")  }}
     auth:
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
