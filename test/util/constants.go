@@ -2,12 +2,12 @@ package util
 
 // Resource types
 const (
-	Device                    = "Device"
-	Fleet                     = "Fleet"
-	EnrollmentRequest         = "EnrollmentRequest"
-	Repository                = "Repository"
-	ResourceSync              = "ResourceSync"
-	CertificateSigningRequest = "CertificateSigningRequest"
+	Device                    = "device"
+	Fleet                     = "fleet"
+	EnrollmentRequest         = "enrollmentrequest"
+	Repository                = "repository"
+	ResourceSync              = "resourcesync"
+	CertificateSigningRequest = "certificatesigningrequest"
 )
 
 var ResourceTypes = [...]string{Device, Fleet, EnrollmentRequest, Repository, ResourceSync, CertificateSigningRequest}
@@ -27,6 +27,18 @@ const (
 	UpdateRenderedVersionSuccess  Message = "Updated to desired renderedVersion:"
 	UpdateRenderedVersionProgress Message = "the device is upgrading to renderedVersion:"
 )
+
+// Resource types
+const (
+	AnsibleDevice                    = "Device"
+	AnsibleFleet                     = "Fleet"
+	AnsibleEnrollmentRequest         = "EnrollmentRequest"
+	AnsibleRepository                = "Repository"
+	AnsibleResourceSync              = "ResourceSync"
+	AnsibleCertificateSigningRequest = "CertificateSigningRequest"
+)
+
+var AnsibleResourceTypes = [...]string{AnsibleDevice, AnsibleFleet, AnsibleEnrollmentRequest, AnsibleRepository, AnsibleResourceSync, AnsibleCertificateSigningRequest}
 
 const (
 	// Ansible Galaxy collection name

@@ -15,12 +15,12 @@ var _ = Describe("flightctl.core.device_info", Ordered, func() {
 	BeforeAll(func() {
 		testDevices = []map[string]interface{}{
 			{
-				"kind":        util.Device,
+				"kind":        util.AnsibleDevice,
 				"name":        "test-ansible-device",
 				"api_version": "flightctl.io/v1alpha1",
 			},
 			{
-				"kind":                util.Device,
+				"kind":                util.AnsibleDevice,
 				"name":                "test-ansible-device-2",
 				"resource_definition": "{{ lookup('file', 'device.yml') | from_yaml }}",
 			},
@@ -44,7 +44,7 @@ var _ = Describe("flightctl.core.device_info", Ordered, func() {
 
 	It("should retrieve all devices", func() {
 		result, err := ansiblewrapper.RunInfoModule(util.AnsibleResourceInfoModule, map[string]interface{}{
-			"kind": util.Device,
+			"kind": util.AnsibleDevice,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		logrus.Info(result)
