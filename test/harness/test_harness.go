@@ -16,7 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
@@ -120,7 +120,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	}()
 
 	go func() {
-		err := workerServer.Run(context.WithValue(ctx, service.InternalRequestCtxKey, true))
+		err := workerServer.Run(context.WithValue(ctx, consts.InternalRequestCtxKey, true))
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
 			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))

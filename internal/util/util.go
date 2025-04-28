@@ -35,6 +35,13 @@ func DefaultString(s string, defaultS string) string {
 	return s
 }
 
+func StringsAreEqual(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b // returns true if both are nil, false if only one is nil
+	}
+	return *a == *b // dereference and compare the actual string values
+}
+
 func DefaultIfError(fn StringerWithError, defaultS string) string {
 	s, err := fn()
 	if err != nil {

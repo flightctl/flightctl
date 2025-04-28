@@ -17,8 +17,8 @@ type ResourceSync interface {
 	InitialMigration() error
 
 	Create(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, error)
-	Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, bool, error)
+	Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, api.ResourceUpdatedDetails, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error
@@ -87,11 +87,11 @@ func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 	return s.genericStore.Create(ctx, orgId, resource, nil)
 }
 
-func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
+func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, api.ResourceUpdatedDetails, error) {
 	return s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
 }
 
-func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, error) {
+func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, bool, api.ResourceUpdatedDetails, error) {
 	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
 }
 

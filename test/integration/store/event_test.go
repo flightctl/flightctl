@@ -39,7 +39,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 					Name: lo.ToPtr("event-1"),
 				},
 				Type:    api.Normal,
-				Reason:  api.ResourceCreationSucceeded,
+				Reason:  api.ResourceCreated,
 				Message: "Resource created",
 				InvolvedObject: api.ObjectReference{
 					Kind: api.DeviceKind,
@@ -52,7 +52,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 					Name: lo.ToPtr("event-2"),
 				},
 				Type:    api.Normal,
-				Reason:  api.ResourceUpdateSucceeded,
+				Reason:  api.ResourceUpdated,
 				Message: "Resource updated",
 				InvolvedObject: api.ObjectReference{
 					Kind: api.FleetKind,
@@ -65,7 +65,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 					Name: lo.ToPtr("event-3"),
 				},
 				Type:    api.Normal,
-				Reason:  api.ResourceDeletionSucceeded,
+				Reason:  api.ResourceDeleted,
 				Message: "Resource deleted",
 				InvolvedObject: api.ObjectReference{
 					Kind: api.DeviceKind,
@@ -95,22 +95,22 @@ var _ = Describe("EventStore Integration Tests", func() {
 			Expect(eventList.Items).To(HaveLen(len(events)))
 
 			// Verify order (should be descending by timestamp - newest first)
-			Expect(eventList.Items[0].Reason).To(Equal(api.ResourceDeletionSucceeded))
-			Expect(eventList.Items[1].Reason).To(Equal(api.ResourceUpdateSucceeded))
-			Expect(eventList.Items[2].Reason).To(Equal(api.ResourceCreationSucceeded))
+			Expect(eventList.Items[0].Reason).To(Equal(api.ResourceDeleted))
+			Expect(eventList.Items[1].Reason).To(Equal(api.ResourceUpdated))
+			Expect(eventList.Items[2].Reason).To(Equal(api.ResourceCreated))
 		})
 
 		It("Filters events by reason", func() {
 			listParams := store.ListParams{
 				Limit: 100,
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
-					map[string]string{"reason": string(api.ResourceDeletionSucceeded)}, selector.WithPrivateSelectors()),
+					map[string]string{"reason": string(api.ResourceDeleted)}, selector.WithPrivateSelectors()),
 			}
 
 			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(eventList.Items)).To(Equal(1))
-			Expect(eventList.Items[0].Reason).To(Equal(api.ResourceDeletionSucceeded))
+			Expect(eventList.Items[0].Reason).To(Equal(api.ResourceDeleted))
 		})
 
 		It("Filters events by actor", func() {
@@ -123,8 +123,8 @@ var _ = Describe("EventStore Integration Tests", func() {
 			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(eventList.Items)).To(Equal(2))
-			Expect(eventList.Items[0].Reason).To(Equal(api.ResourceUpdateSucceeded))
-			Expect(eventList.Items[1].Reason).To(Equal(api.ResourceCreationSucceeded))
+			Expect(eventList.Items[0].Reason).To(Equal(api.ResourceUpdated))
+			Expect(eventList.Items[1].Reason).To(Equal(api.ResourceCreated))
 		})
 
 		It("Filters events by involved object", func() {
@@ -138,8 +138,8 @@ var _ = Describe("EventStore Integration Tests", func() {
 			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(eventList.Items)).To(Equal(2))
-			Expect(eventList.Items[0].Reason).To(Equal(api.ResourceDeletionSucceeded))
-			Expect(eventList.Items[1].Reason).To(Equal(api.ResourceCreationSucceeded))
+			Expect(eventList.Items[0].Reason).To(Equal(api.ResourceDeleted))
+			Expect(eventList.Items[1].Reason).To(Equal(api.ResourceCreated))
 		})
 	})
 })

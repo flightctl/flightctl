@@ -17,8 +17,8 @@ type CertificateSigningRequest interface {
 	InitialMigration() error
 
 	Create(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
-	Update(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, error)
+	Update(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.ResourceUpdatedDetails, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
@@ -88,11 +88,11 @@ func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.
 }
 
 // Warning: this is a user-facing function and will set the Status to nil
-func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
+func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.ResourceUpdatedDetails, error) {
 	return s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
 }
 
-func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, error) {
+func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, api.ResourceUpdatedDetails, error) {
 	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
 }
 

@@ -14,8 +14,8 @@ type Repository interface {
 	InitialMigration() error
 
 	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error)
-	Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, error)
+	Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, api.ResourceUpdatedDetails, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error
@@ -87,11 +87,11 @@ func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource 
 	return s.genericStore.Create(ctx, orgId, resource, callback)
 }
 
-func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error) {
+func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, api.ResourceUpdatedDetails, error) {
 	return s.genericStore.Update(ctx, orgId, resource, nil, true, nil, callback)
 }
 
-func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, error) {
+func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, api.ResourceUpdatedDetails, error) {
 	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, callback)
 }
 

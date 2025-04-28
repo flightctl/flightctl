@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -247,17 +248,18 @@ func createParamsFromKey(key string) string {
 	return params
 }
 
-func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, error)) (*A, bool, error) {
+func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, api.ResourceUpdatedDetails, error)) (*A, bool, api.ResourceUpdatedDetails, error) {
 	var (
 		a              *A
 		created, retry bool
+		updateDesc     api.ResourceUpdatedDetails
 		err            error
 	)
 	i := 0
-	for a, created, retry, err = fn(); retry && i < retryIterations; a, created, retry, err = fn() {
+	for a, created, retry, updateDesc, err = fn(); retry && i < retryIterations; a, created, retry, updateDesc, err = fn() {
 		i++
 	}
-	return a, created, err
+	return a, created, updateDesc, err
 }
 
 func retryUpdate(fn func() (bool, error)) error {

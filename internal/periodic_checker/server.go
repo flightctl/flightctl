@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
@@ -42,6 +43,8 @@ func New(
 // TODO: expose metrics
 func (s *Server) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
+	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-periodic")
 	defer cancel()
 
 	queuesProvider, err := queues.NewRedisProvider(context.Background(), s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)

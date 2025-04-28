@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -587,7 +588,7 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api
 			return fmt.Errorf("device owner changed, skipping rollout")
 		}
 		device.Spec = newDeviceSpec
-		newCtx := context.WithValue(ctx, service.DelayDeviceRenderCtxKey, delayDeviceRender)
+		newCtx := context.WithValue(ctx, consts.DelayDeviceRenderCtxKey, delayDeviceRender)
 		_, status = f.serviceHandler.ReplaceDevice(newCtx, *device.Metadata.Name, *device, nil)
 		if status.Code != http.StatusOK {
 			if status.Code == http.StatusConflict {

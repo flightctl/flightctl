@@ -5,10 +5,12 @@ import (
 	b64 "encoding/base64"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -67,94 +69,96 @@ func NewGenericStore[P extInt[M], M Model, A any, AL any](
 }
 
 func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A, callback func(orgId uuid.UUID, before, after *A)) (*A, error) {
-	updated, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, true, ModeCreateOnly, nil, callback)
+	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, true, ModeCreateOnly, nil, callback)
 	return updated, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, error) {
-	updated, _, err := retryCreateOrUpdate(func() (*A, bool, bool, error) {
+func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, api.ResourceUpdatedDetails, error) {
+	updated, _, updateDesc, err := retryCreateOrUpdate(func() (*A, bool, bool, api.ResourceUpdatedDetails, error) {
 		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, validationCallback, callback)
 	})
-	return updated, err
+	return updated, updateDesc, err
 }
 
-func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, bool, error) {
-	return retryCreateOrUpdate(func() (*A, bool, bool, error) {
+func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, bool, api.ResourceUpdatedDetails, error) {
+	return retryCreateOrUpdate(func() (*A, bool, bool, api.ResourceUpdatedDetails, error) {
 		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, validationCallback, callback)
 	})
 }
 
-func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, bool, bool, error) {
+func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, validationCallback func(before, after *A) error, callback func(orgId uuid.UUID, before, after *A)) (*A, bool, bool, api.ResourceUpdatedDetails, error) {
+	var updateDesc api.ResourceUpdatedDetails
 	if resource == nil {
-		return nil, false, false, flterrors.ErrResourceIsNil
+		return nil, false, false, updateDesc, flterrors.ErrResourceIsNil
 	}
 
-	model, err := s.apiToModelPtr(resource)
+	modelInst, err := s.apiToModelPtr(resource)
 	if err != nil {
-		return nil, false, false, err
+		return nil, false, false, updateDesc, err
 	}
-	model.SetOrgID(orgId)
+	modelInst.SetOrgID(orgId)
 	if fromAPI {
-		model.SetAnnotations(nil)
+		modelInst.SetAnnotations(nil)
 	}
 
-	existing, err := s.getExistingResource(ctx, model.GetName(), orgId)
+	existing, err := s.getExistingResource(ctx, modelInst.GetName(), orgId)
 	if err != nil {
-		return nil, false, false, err
+		return nil, false, false, updateDesc, err
 	}
 	exists := existing != nil
+	creating := !exists || P(existing).HasNilSpec()
 
 	var existingAPIResource *A
 	if existing != nil {
 		existingAPIResource, err = s.modelPtrToAPI(existing)
 		if err != nil {
-			return nil, false, false, err
+			return nil, creating, false, updateDesc, err
 		}
 	}
 
 	if validationCallback != nil {
-		modifiedAPIResource, err := s.modelPtrToAPI(model)
+		modifiedAPIResource, err := s.modelPtrToAPI(modelInst)
 		if err != nil {
-			return nil, false, false, err
+			return nil, creating, false, updateDesc, err
 		}
 
 		err = validationCallback(existingAPIResource, modifiedAPIResource)
 		if err != nil {
-			return nil, false, false, err
+			return nil, creating, false, updateDesc, err
 		}
 	}
 
 	if exists && mode == ModeCreateOnly {
-		return nil, false, false, flterrors.ErrDuplicateName
+		return nil, creating, false, updateDesc, flterrors.ErrDuplicateName
 	}
 	if !exists && mode == ModeUpdateOnly {
-		return nil, false, false, flterrors.ErrResourceNotFound
+		return nil, creating, false, updateDesc, flterrors.ErrResourceNotFound
 	}
 
 	s.IntegrationTestCreateOrUpdateCallback()
 
 	var retry bool
 	if !exists {
-		retry, err = s.createResource(ctx, model)
+		retry, err = s.createResource(ctx, modelInst)
 	} else {
-		retry, err = s.updateResource(ctx, fromAPI, existing, model, fieldsToUnset)
+		retry, updateDesc, err = s.updateResource(ctx, fromAPI, existing, modelInst, fieldsToUnset)
 	}
 	if err != nil {
-		return nil, false, retry, err
+		return nil, creating, retry, updateDesc, err
 	}
 
 	if callback != nil {
-		modifiedAPIResource, err := s.modelPtrToAPI(model)
+		modifiedAPIResource, err := s.modelPtrToAPI(modelInst)
 		if err != nil {
-			return nil, false, false, err
+			return nil, creating, false, updateDesc, err
 		}
 
 		callback(orgId, existingAPIResource, modifiedAPIResource)
 	}
 
-	apiResource, err := s.modelPtrToAPI(model)
+	apiResource, err := s.modelPtrToAPI(modelInst)
 
-	return apiResource, !exists || P(existing).HasNilSpec(), false, err
+	return apiResource, creating, false, updateDesc, err
 }
 
 func (s *GenericStore[P, M, A, AL]) getExistingResource(ctx context.Context, name string, orgId uuid.UUID) (*M, error) {
@@ -180,14 +184,15 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 	return false, nil
 }
 
-func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
+func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, api.ResourceUpdatedDetails, error) {
+	updateDesc := api.ResourceUpdatedDetails{}
 	sameSpec := resource.HasSameSpecAs(existing)
 	if !sameSpec {
 		if fromAPI {
 			hasOwner := len(lo.FromPtr(existing.GetOwner())) != 0
 			if hasOwner {
 				// Don't let the user update the spec if it has an owner
-				return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+				return false, updateDesc, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 			}
 		}
 
@@ -197,7 +202,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 
 	if resource.GetResourceVersion() != nil &&
 		lo.FromPtr(existing.GetResourceVersion()) != lo.FromPtr(resource.GetResourceVersion()) {
-		return false, flterrors.ErrResourceVersionConflict
+		return false, updateDesc, flterrors.ErrResourceVersionConflict
 	}
 
 	resource.SetResourceVersion(lo.ToPtr(lo.FromPtr(existing.GetResourceVersion()) + 1))
@@ -209,6 +214,16 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	selectFields = append(selectFields, resource.GetNonNilFieldsFromResource()...)
 	selectFields = append(selectFields, fieldsToUnset...)
 
+	if !sameSpec && slices.Contains(selectFields, "spec") {
+		updateDesc.UpdatedFields = append(updateDesc.UpdatedFields, api.Spec)
+	}
+	if !resource.GetLabels().Equals(existing.GetLabels()) && slices.Contains(selectFields, "labels") {
+		updateDesc.UpdatedFields = append(updateDesc.UpdatedFields, api.Labels)
+	}
+	if !util.StringsAreEqual(resource.GetOwner(), existing.GetOwner()) && slices.Contains(selectFields, "owner") {
+		updateDesc.UpdatedFields = append(updateDesc.UpdatedFields, api.Owner)
+	}
+
 	query := s.db.WithContext(ctx).Model(resource).
 		Where("org_id = ? AND name = ? AND (resource_version IS NULL OR resource_version = ?)",
 			resource.GetOrgID(),
@@ -218,12 +233,12 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 
 	result := query.Clauses(clause.Returning{}).Updates(resource)
 	if result.Error != nil {
-		return false, ErrorFromGormError(result.Error)
+		return false, updateDesc, ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return true, updateDesc, flterrors.ErrNoRowsUpdated
 	}
-	return false, nil
+	return false, updateDesc, nil
 }
 
 func (s *GenericStore[P, M, A, AL]) Get(ctx context.Context, orgId uuid.UUID, name string) (*A, error) {
