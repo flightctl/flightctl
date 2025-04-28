@@ -337,6 +337,68 @@ func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1alpha1.De
 	return nil
 }
 
+func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName string, appProvider any, envVars map[string]string) error {
+	logrus.Infof("UpdateApplication called with deviceId=%s, appName=%s, withRetries=%v", deviceId, appName, withRetries)
+
+	updateFunc := func(device *v1alpha1.Device) {
+		logrus.Infof("Starting update for device: %s", *device.Metadata.Name)
+		var appSpec v1alpha1.ApplicationProviderSpec
+		var err error
+
+		switch spec := appProvider.(type) {
+		case v1alpha1.InlineApplicationProviderSpec:
+			logrus.Infof("Processing InlineApplicationProviderSpec for %s", appName)
+			err = appSpec.FromInlineApplicationProviderSpec(spec)
+		case v1alpha1.ImageApplicationProviderSpec:
+			logrus.Infof("Processing ImageApplicationProviderSpec for %s", appName)
+			err = appSpec.FromImageApplicationProviderSpec(spec)
+		default:
+			logrus.Errorf("Unsupported application provider type: %T for %s", appProvider, appName)
+			return
+		}
+
+		if err != nil {
+			logrus.Errorf("Error converting application provider spec: %v", err)
+			return
+		}
+
+		appSpec.Name = &appName
+		appType := v1alpha1.AppTypeCompose
+		appSpec.AppType = &appType
+
+		if envVars != nil {
+			logrus.Infof("Setting environment variables for app %s: %v", appName, envVars)
+			appSpec.EnvVars = &envVars
+		}
+
+		if device.Spec.Applications == nil {
+			logrus.Infof("device.Spec.Applications is nil, initializing with app %s", appName)
+			device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+			return
+		}
+
+		for i, a := range *device.Spec.Applications {
+			if a.Name != nil && *a.Name == appName {
+				logrus.Infof("Updating existing application %s at index %d", appName, i)
+				(*device.Spec.Applications)[i] = appSpec
+				return
+			}
+		}
+
+		logrus.Infof("Appending new application %s to device %s", appName, *device.Metadata.Name)
+		*device.Spec.Applications = append(*device.Spec.Applications, appSpec)
+	}
+
+	if withRetries {
+		logrus.Info("Updating device with retries...")
+		h.UpdateDeviceWithRetries(deviceId, updateFunc)
+		return nil
+	}
+
+	logrus.Info("Updating device without retries...")
+	return h.UpdateDevice(deviceId, updateFunc)
+}
+
 func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
 	lastResourcePrint := ""
 
@@ -790,6 +852,58 @@ func (h Harness) CheckRunningContainers() (string, error) {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+func (h Harness) CheckApplicationDirectoryExist(applicationName string) error {
+	_, err := h.VM.RunSSH([]string{"test", "-d", "/etc/compose/manifests/" + applicationName}, nil)
+	return err
+}
+
+func (h Harness) CheckApplicationComposeFileExist(applicationName string, ComposeFile string) error {
+	_, err := h.VM.RunSSH([]string{"test", "-f", "/etc/compose/manifests/" + applicationName + "/" + ComposeFile}, nil)
+	return err
+}
+
+func (h Harness) CheckApplicationStatus(deviceId string, applicationName string) (v1alpha1.ApplicationStatusType, error) {
+	device, err := h.GetDevice(deviceId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get device %s: %w", deviceId, err)
+	}
+	for _, appStatus := range device.Status.Applications {
+		if appStatus.Name == applicationName {
+			return appStatus.Status, nil
+		}
+	}
+	return "", nil // Application status not found, return empty status and no error
+}
+
+func (h Harness) CheckEnvInjectedToApplication(envVarName string, image string) (string, error) {
+	containersOutput, err := h.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to list containers: %w", err)
+	}
+	lines := strings.Split(containersOutput.String(), "\n")
+	var containerIDs []string
+	for _, line := range lines {
+		if strings.Contains(line, image) {
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) == 2 {
+				containerID := strings.TrimSpace(parts[0])
+				containerIDs = append(containerIDs, containerID)
+				envOutput, err := h.VM.RunSSH([]string{"sudo", "podman", "exec", containerID, "printenv", envVarName}, nil)
+				if err == nil {
+					return strings.TrimSpace(envOutput.String()), nil
+				}
+			}
+		}
+	}
+	if len(containerIDs) == 0 {
+		logrus.Warnf("No containers with image %s found", image)
+		return "", nil // No error, but also no value found
+	} else {
+		logrus.Warnf("Environment variable '%s' not found in any of %d containers", envVarName, len(containerIDs))
+		return "", nil // No error, but also no value found
+	}
 }
 
 // RunGetDevices executes "get devices" CLI command with optional arguments.
