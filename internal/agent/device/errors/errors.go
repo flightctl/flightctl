@@ -77,6 +77,9 @@ var (
 	ErrDownloadPolicyNotReady = errors.New("download policy not ready")
 	ErrUpdatePolicyNotReady   = errors.New("update policy not ready")
 	ErrInvalidPolicyType      = errors.New("invalid policy type")
+
+	// bootc
+	ErrBootcStatusInvalidJSON = errors.New("bootc status did not return valid JSON")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
@@ -93,6 +96,11 @@ func IsRetryable(err error) bool {
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a
 		// new template version
+		return true
+	case errors.Is(err, ErrBootcStatusInvalidJSON):
+		// this is a retryable error because it means the bootc status did not
+		// return valid JSON. this is a bug in the bootc status and we should
+		// retry the request as the error is transient.
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false

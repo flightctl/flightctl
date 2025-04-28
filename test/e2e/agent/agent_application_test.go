@@ -42,7 +42,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Get the application url in the local registryand create the application config
+			// Get the application url in the local registry and create the application config
 			extIP = harness.RegistryEndpoint()
 			sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
 			var applicationConfig = v1alpha1.ImageApplicationProviderSpec{
@@ -66,7 +66,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the application compose is copied to the device")
-			manifestPath := fmt.Sprintf("/etc/compose/manifests/%s", sleepAppImage)
+			manifestPath := fmt.Sprintf("%s/%s", ComposeManifestPath, sleepAppImage)
 			stdout, err := harness.VM.RunSSH([]string{"ls", manifestPath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(ComposeFile))
@@ -78,9 +78,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(device.Status.ApplicationsSummary.Status).To(Equal(v1alpha1.ApplicationsSummaryStatusHealthy))
 
 			By("Check the containers are running in the device")
-			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+			output, err := harness.CheckRunningContainers()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(ExpectedNumSleepAppV1Containers))
+			Expect(output).To(ContainSubstring(ExpectedNumSleepAppV1Containers))
 
 			By("Update an application image tag")
 			repo, tag := parseImageReference(sleepAppImage)
@@ -125,9 +125,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			WaitForApplicationRunningStatus(harness, deviceId, updateImage)
 
 			By("Check that the new application containers are running")
-			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+			out, err := harness.CheckRunningContainers()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(ExpectedNumSleepAppV2Containers))
+			Expect(out).To(ContainSubstring(ExpectedNumSleepAppV2Containers))
 
 			By("Check that the envs of v2 app are present in the containers")
 			containerName, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "\"{{.Names}} {{.Names}}\"", "|", "head", "-n", "1", "|", "awk", "'{print $1}'"}, nil)
@@ -155,16 +155,26 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check all the containers are deleted")
-			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+			out, err = harness.CheckRunningContainers()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(ZeroContainers))
+			Expect(out).To(ContainSubstring(ZeroContainers))
 		})
 	})
 })
 
+const (
+
+	// ApplicationRunningStatus represents the status string used to signify that an application is currently running.
+	ApplicationRunningStatus = "status: Running"
+
+	// ComposeManifestPath defines the file system path where compose manifests are stored, typically used in deployment setups.
+	ComposeManifestPath = "/etc/compose/manifests"
+)
+
+// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status within a timeout.
 func WaitForApplicationRunningStatus(h *e2e.Harness, deviceId string, applicationImage string) {
 	logrus.Infof("Waiting for the application ready status")
-	h.WaitForDeviceContents(deviceId, "status: Running",
+	h.WaitForDeviceContents(deviceId, ApplicationRunningStatus,
 		func(device *v1alpha1.Device) bool {
 			for _, application := range device.Status.Applications {
 				if application.Name == applicationImage && application.Status == v1alpha1.ApplicationStatusRunning {

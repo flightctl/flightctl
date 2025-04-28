@@ -48,7 +48,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 		})
 
-		It("Verifying geneartion of enrollment request link", Label("75518"), func() {
+		It("Verifying generation of enrollment request link", Label("75518"), func() {
 			By("should be reporting device status on enrollment request")
 			// Get the enrollment Request ID from the console output
 			enrollmentID := harness.GetEnrollmentIDFromConsole()
@@ -135,8 +135,8 @@ var _ = Describe("VM Agent behavior", func() {
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s. Error", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
 					// returning true if it is reported an error status or if the device is rolled back to the previous version
-					return (conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError)) ||
-						(conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated)) && (device.Status.Config.RenderedVersion == strconv.Itoa(previousRenderedVersion))))
+					return e2e.ConditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError)) ||
+						(e2e.ConditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated)) && (device.Status.Config.RenderedVersion == strconv.Itoa(previousRenderedVersion)))
 				}, "2m")
 
 			Eventually(harness.GetDeviceWithUpdateStatus, TIMEOUT, POLLING).WithArguments(
@@ -160,12 +160,12 @@ var _ = Describe("VM Agent behavior", func() {
 			// Check the http config error is detected.
 			harness.WaitForDeviceContents(deviceId, `Error: failed fetching specified Repository definition`,
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "SpecValid", "False", "Invalid")
+					return e2e.ConditionExists(device, "SpecValid", "False", "Invalid")
 				}, "2m")
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
+					return e2e.ConditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
 				}, "2m")
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
@@ -191,12 +191,12 @@ var _ = Describe("VM Agent behavior", func() {
 			// Check the http config error is detected.
 			harness.WaitForDeviceContents(deviceId, "Error: sending HTTP Request",
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "SpecValid", "False", "Invalid")
+					return e2e.ConditionExists(device, "SpecValid", "False", "Invalid")
 				}, "2m")
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
-					return conditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
+					return e2e.ConditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
 				}, "2m")
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
@@ -213,32 +213,18 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 })
 
-func parseImageReference(image string) (string, string) {
-	// Split the image string by the colon to separate the repository and the tag.
-	parts := strings.Split(image, ":")
-
-	tag := ""
-	repo := ""
-
-	// The tag is the last part after the last colon.
-	if len(parts) > 1 {
-		tag = parts[len(parts)-1]
-		// The repository is composed of all parts before the last colon, joined back together with colons.
-		repo = strings.Join(parts[:len(parts)-1], ":")
-	}
-
-	return repo, tag
-}
-
+// mode defines the file permission bits, commonly used in Unix systems for files and directories.
 var mode = 0644
 var modePointer = &mode
 
+// inlineConfig defines a file specification with content, mode, and path for provisioning system files.
 var inlineConfig = v1alpha1.FileSpec{
 	Content: "This system is managed by flightctl.",
 	Mode:    modePointer,
 	Path:    "/etc/motd",
 }
 
+// validInlineConfig defines a valid inline configuration provider spec with pre-defined file specs and a name.
 var validInlineConfig = v1alpha1.InlineConfigProviderSpec{
 	Inline: []v1alpha1.FileSpec{inlineConfig},
 	Name:   "valid-inline-config",
@@ -249,14 +235,17 @@ var repoMetadata = v1alpha1.ObjectMeta{
 	Name: &name,
 }
 
+// httpRepoSpec initializes an HttpRepoSpec with an HTTP repository type and URL for clone or access operations.
 var httpRepoSpec = v1alpha1.HttpRepoSpec{
 	Type: v1alpha1.RepoSpecType("http"),
 	Url:  "https://github.com/flightctl/flightctl-demos.git",
 }
 
+// spec is a variable of type RepositorySpec used to describe configuration for a repository.
 var spec v1alpha1.RepositorySpec
 var _ = spec.FromHttpRepoSpec(httpRepoSpec)
 
+// httpRepo represents a v1alpha1.Repository with predefined ApiVersion, Kind, Metadata, and Spec values.
 var httpRepo = v1alpha1.Repository{
 	ApiVersion: "v1alpha1",
 	Kind:       "Repository",
@@ -264,7 +253,10 @@ var httpRepo = v1alpha1.Repository{
 	Spec:       spec,
 }
 
+// mountPath specifies the default file system path where the configuration is expected to be mounted.
 var mountPath = "/etc/config"
+
+// gitConfigInvalidRepo defines a GitConfigProviderSpec with an invalid repository name ("not-existing-repo") for test purposes.
 var gitConfigInvalidRepo = v1alpha1.GitConfigProviderSpec{
 	GitRef: struct {
 		MountPath      *string `json:"mountPath,omitempty"`
@@ -280,7 +272,10 @@ var gitConfigInvalidRepo = v1alpha1.GitConfigProviderSpec{
 	Name: "example-git-config-provider",
 }
 
+// suffix specifies a default path segment or query parameter that can be appended to a URL in HTTP configuration.
 var suffix = "/some/suffix"
+
+// httpConfigInvalidPath defines an invalid HTTP configuration with a non-existent file path for testing scenarios.
 var httpConfigInvalidPath = v1alpha1.HttpConfigProviderSpec{
 	HttpRef: struct {
 		FilePath   string  `json:"filePath"`
@@ -292,4 +287,24 @@ var httpConfigInvalidPath = v1alpha1.HttpConfigProviderSpec{
 		Suffix:     &suffix,
 	},
 	Name: "example-http-config-provider",
+}
+
+// parseImageReference splits an image reference string into the repository and tag components.
+// It returns the repository and tag as separate strings.
+// If no tag is present, the returned tag string will be empty.
+func parseImageReference(image string) (string, string) {
+	// Split the image string by the colon to separate the repository and the tag.
+	parts := strings.Split(image, ":")
+
+	tag := ""
+	repo := ""
+
+	// The tag is the last part after the last colon.
+	if len(parts) > 1 {
+		tag = parts[len(parts)-1]
+		// The repository is composed of all parts before the last colon, joined back together with colons.
+		repo = strings.Join(parts[:len(parts)-1], ":")
+	}
+
+	return repo, tag
 }

@@ -11,6 +11,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
@@ -25,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -40,16 +42,18 @@ const (
 )
 
 // New creates a new agent.
-func New(log *log.PrefixLogger, config *Config) *Agent {
+func New(log *log.PrefixLogger, config *agent_config.Config, configFile string) *Agent {
 	return &Agent{
-		config: config,
-		log:    log,
+		config:     config,
+		configFile: configFile,
+		log:        log,
 	}
 }
 
 type Agent struct {
-	config *Config
-	log    *log.PrefixLogger
+	config     *agent_config.Config
+	configFile string
+	log        *log.PrefixLogger
 }
 
 func (a *Agent) GetLogPrefix() string {
@@ -65,12 +69,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer cancel()
 
 	// create file io writer and reader
-	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.testRootDir))
+	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
 	// ensure the agent key exists if not create it.
 	if !a.config.ManagementService.Config.HasCredentials() {
-		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, DefaultCertsDirName, GeneratedCertFile)
-		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, DefaultCertsDirName, KeyFile)
+		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
+		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
 	}
 	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
 	if err != nil {
@@ -128,6 +132,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create shutdown manager
 	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
+
+	reloadManager := reload.New(a.configFile, a.config.ConfigDir, a.log)
 
 	policyManager := policy.NewManager(a.log)
 
@@ -275,13 +281,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	// register agent with shutdown manager
 	shutdownManager.Register("agent", agent.Stop)
 
+	// register log level reloader with reload manager
+	reloadManager.Register(agent.ReloadLogLevel)
+
 	go shutdownManager.Run(ctx)
+	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
+func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
 	if err != nil {
 		return nil, err

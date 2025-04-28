@@ -351,17 +351,8 @@ type ConfigProviderSpec struct {
 	union json.RawMessage
 }
 
-// CpuResourceMonitorSpec Specification for monitoring a resource.
-type CpuResourceMonitorSpec = ResourceMonitorSpec
-
-// CronExpression Cron expression format for scheduling times.
-// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
-// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
-// Example: `* 0-8,16-23 * * *`.
-type CronExpression = string
-
-// CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
-type CustomResourceMonitorSpec struct {
+// CpuResourceMonitorSpec defines model for CpuResourceMonitorSpec.
+type CpuResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
 	AlertRules []ResourceAlertRule `json:"alertRules"`
 
@@ -371,6 +362,12 @@ type CustomResourceMonitorSpec struct {
 	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
+
+// CronExpression Cron expression format for scheduling times.
+// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
+// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
+// Example: `* 0-8,16-23 * * *`.
+type CronExpression = string
 
 // Device Device represents a physical device.
 type Device struct {
@@ -1113,8 +1110,17 @@ type MatchExpressionOperator string
 // MatchExpressions A list of match expressions.
 type MatchExpressions = []MatchExpression
 
-// MemoryResourceMonitorSpec Specification for monitoring a resource.
-type MemoryResourceMonitorSpec = ResourceMonitorSpec
+// MemoryResourceMonitorSpec defines model for MemoryResourceMonitorSpec.
+type MemoryResourceMonitorSpec struct {
+	// AlertRules Array of alert rules. Only one alert per severity is allowed.
+	AlertRules []ResourceAlertRule `json:"alertRules"`
+
+	// MonitorType The type of resource to monitor.
+	MonitorType string `json:"monitorType"`
+
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
+	SamplingInterval string `json:"samplingInterval"`
+}
 
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 type ObjectMeta struct {
@@ -1241,9 +1247,6 @@ type ResourceMonitor struct {
 type ResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
 	AlertRules []ResourceAlertRule `json:"alertRules"`
-
-	// MonitorType The type of resource to monitor.
-	MonitorType string `json:"monitorType"`
 
 	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`

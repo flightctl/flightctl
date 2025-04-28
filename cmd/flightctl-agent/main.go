@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
+	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -58,17 +59,17 @@ func main() {
 
 type agentCmd struct {
 	log        *log.PrefixLogger
-	config     *agent.Config
+	config     *config.Config
 	configFile string
 }
 
 func NewAgentCommand() *agentCmd {
 	a := &agentCmd{
 		log:    log.NewPrefixLogger(""),
-		config: agent.NewDefault(),
+		config: config.NewDefault(),
 	}
 
-	flag.StringVar(&a.configFile, "config", agent.DefaultConfigFile, "Path to the agent's configuration file.")
+	flag.StringVar(&a.configFile, "config", config.DefaultConfigFile, "Path to the agent's configuration file.")
 	flag.Parse()
 
 	a.config.ConfigDir = filepath.Dir(a.configFile)
@@ -88,7 +89,7 @@ func NewAgentCommand() *agentCmd {
 }
 
 func (a *agentCmd) Execute() error {
-	agentInstance := agent.New(a.log, a.config)
+	agentInstance := agent.New(a.log, a.config, a.configFile)
 	if err := agentInstance.Run(context.Background()); err != nil {
 		a.log.Fatalf("running device agent: %v", err)
 	}
@@ -157,7 +158,7 @@ func printUsage() {
 func printAgentHelp() {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
 	var configFile string
-	fs.StringVar(&configFile, "config", agent.DefaultConfigFile, "Path to the agent's configuration file.")
+	fs.StringVar(&configFile, "config", config.DefaultConfigFile, "Path to the agent's configuration file.")
 	fmt.Printf("Usage of %s (agent mode):\n", os.Args[0])
 	fs.PrintDefaults()
 }

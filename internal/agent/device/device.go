@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
@@ -126,6 +127,14 @@ func (a *Agent) Stop(ctx context.Context) error {
 	return nil
 }
 
+func (a *Agent) ReloadLogLevel(ctx context.Context, config *agent_config.Config) error {
+	if config.LogLevel != "" {
+		a.log.Infof("updating log level to %s", config.LogLevel)
+		a.log.Level(config.LogLevel)
+	}
+	return nil
+}
+
 func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) error {
 	// to ensure that the agent is able to correct for an invalid policy, it is reconciled first.
 	// the new policy will go into affect on the next sync.
@@ -216,11 +225,15 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
-		// if the device is not upgrading, we should never see a sync error
-		// because the device is in a steady state. this is a potential bug in
-		// the reconciliation loop.
 		if !a.specManager.IsUpgrading() {
-			a.log.Errorf("Steady state is no longer in sync: %v", syncErr)
+			// if the device is not upgrading, we should never see a sync error
+			// because the device is in a steady state. this is a potential bug in
+			// the reconciliation loop if the error is not retryable.
+			if !errors.IsRetryable(syncErr) {
+				a.log.Errorf("Steady state is no longer in sync: %v", syncErr)
+			} else {
+				a.log.Warnf("Retryable error observed during the steady state: %v", syncErr)
+			}
 			return
 		}
 
@@ -418,6 +431,7 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.Devi
 
 	_, isOSReconciled, err := a.specManager.CheckOsReconciliation(ctx)
 	if err != nil {
+		a.log.Errorf("Error checking is os reconciled: %v", err)
 		return err
 	}
 

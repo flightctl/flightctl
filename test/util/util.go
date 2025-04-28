@@ -2,6 +2,7 @@ package util
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/client"
@@ -263,4 +265,26 @@ func GetEnrollmentIdFromText(text string) string {
 		return valuesRe.FindStringSubmatch(text)[1]
 	}
 	return ""
+}
+
+// RandString generates a random string of length 'n' using lowercase alphabetic characters.
+func RandString(n int) (string, error) {
+	const alphanum = "abcdefghijklmnopqrstuvwxyz"
+	var bytes = make([]byte, n)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate random string: %w", err)
+	}
+	for i, b := range bytes {
+		bytes[i] = alphanum[b%byte(len(alphanum))]
+	}
+	return string(bytes), nil
+}
+
+// GetCurrentYearBounds returns start of current and next year in RFC3339 format.
+func GetCurrentYearBounds() (string, string) {
+	now := time.Now()
+	startOfYear := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
+	endOfYear := time.Date(now.Year()+1, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	return startOfYear.Format(time.RFC3339), endOfYear.Format(time.RFC3339)
 }
