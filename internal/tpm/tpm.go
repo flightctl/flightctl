@@ -65,10 +65,11 @@ func OpenTPMSimulator() (*TPM, error) {
 	return &TPM{channel: simulator}, nil
 }
 
-func (t *TPM) Close() {
+func (t *TPM) Close() error {
 	if t != nil {
-		t.channel.Close()
+		return t.channel.Close()
 	}
+	return nil
 }
 
 func (t *TPM) GetPCRValues(measurements map[string]string) error {
