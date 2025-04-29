@@ -544,8 +544,8 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 // getSystemInfoMap collects system information from the system It executes
 // system commands and reads files to gather information about the system.
 // It returns a map of key-value pairs representing the system information.
-func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, infoKeys []string) InfoMap {
-	infoMap := make(InfoMap, len(infoKeys))
+func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, infoKeys []string, collectors map[string]CollectorFn) InfoMap {
+	infoMap := make(InfoMap, len(infoKeys)+len(collectors))
 
 	for _, key := range infoKeys {
 		if ctx.Err() != nil {
@@ -562,6 +562,16 @@ func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, in
 			log.Debugf("SystemInfo key returned an empty value: %s", key)
 		}
 		infoMap[key] = val
+	}
+
+	for key, collectorfn := range collectors {
+		_, alreadyExists := infoMap[key]
+		if alreadyExists {
+			log.Warnf("SystemInfo collector already populated: %s is %s", key, infoMap[key])
+		} else {
+			val := collectorfn(ctx)
+			infoMap[key] = val
+		}
 	}
 
 	return infoMap

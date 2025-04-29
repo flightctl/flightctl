@@ -124,6 +124,7 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) err
 		m.infoKeys,
 		m.customKeys,
 		m.bootID,
+		m.collectors,
 		filepath.Join(m.dataDir, HardwareMapFileName),
 	)
 
@@ -155,6 +156,7 @@ func collectDeviceSystemInfo(
 	infoKeys []string,
 	customKeys []string,
 	bootID string,
+	collectors map[string]CollectorFn,
 	hardwareMapPath string,
 ) v1alpha1.DeviceSystemInfo {
 	agentVersion := version.Get()
@@ -163,7 +165,7 @@ func collectDeviceSystemInfo(
 		log.Errorf("failed to collect system info: %v", err)
 	}
 
-	systemInfoMap := getSystemInfoMap(ctx, log, info, infoKeys)
+	systemInfoMap := getSystemInfoMap(ctx, log, info, infoKeys, collectors)
 	log.Tracef("system info map: %v", systemInfoMap)
 	s := v1alpha1.DeviceSystemInfo{
 		Architecture:         info.Architecture,
