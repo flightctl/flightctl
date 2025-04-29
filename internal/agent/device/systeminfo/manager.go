@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -17,15 +16,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
-)
-
-const (
-	// DefaultBootIDPath is the path to the boot ID file.
-	DefaultBootIDPath = "/proc/sys/kernel/random/boot_id"
-	// SystemBootFileName is the name of the file where the system boot status is stored.
-	SystemBootFileName = "system.json"
-	// HardwareMapFileName is the name of the file where the hardware map is stored.
-	HardwareMapFileName = "hardware-map.json"
+	"github.com/samber/lo"
 )
 
 type manager struct {
@@ -36,8 +27,10 @@ type manager struct {
 	exec              executer.Executer
 	readWriter        fileio.ReadWriter
 	dataDir           string
-	factKeys          []string
+	infoKeys          []string
+	customKeys        []string
 	collectionTimeout time.Duration
+	collectors        map[string]CollectorFn
 	collected         bool
 
 	log *log.PrefixLogger
@@ -48,21 +41,24 @@ func NewManager(
 	exec executer.Executer,
 	readWriter fileio.ReadWriter,
 	dataDir string,
-	factKeys []string,
+	infoKeys []string,
+	customKeys []string,
 	collectionTimeout util.Duration,
 ) *manager {
 	return &manager{
 		exec:              exec,
 		readWriter:        readWriter,
 		dataDir:           dataDir,
-		factKeys:          factKeys,
+		infoKeys:          infoKeys,
+		customKeys:        customKeys,
 		collectionTimeout: time.Duration(collectionTimeout),
+		collectors:        make(map[string]CollectorFn),
 		log:               log,
 	}
 }
 
-func (m *manager) Initialize() (err error) {
-	m.bootTime, err = getBootTime(m.exec)
+func (m *manager) Initialize(ctx context.Context) (err error) {
+	m.bootTime, err = getBootTime(ctx, m.exec)
 	if err != nil {
 		return err
 	}
@@ -83,7 +79,7 @@ func (m *manager) Initialize() (err error) {
 	// if we are rebooted or the previous status is empty, update the boot status on disk
 	if m.isRebooted || previousBoot.IsEmpty() {
 		// if we are rebooted, update the new boot status on disk
-		systemBootPath := filepath.Join(m.dataDir, SystemBootFileName)
+		systemBootPath := filepath.Join(m.dataDir, SystemFileName)
 		boot := Boot{
 			Time: m.bootTime,
 			ID:   m.bootID,
@@ -125,10 +121,10 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) err
 		m.log,
 		m.exec,
 		m.readWriter,
-		m.factKeys,
+		m.infoKeys,
+		m.customKeys,
 		m.bootID,
 		filepath.Join(m.dataDir, HardwareMapFileName),
-		m.dataDir,
 	)
 
 	m.collected = true
@@ -136,7 +132,17 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) err
 	return nil
 }
 
-func (m *manager) ReloadStatus() error {
+// RegisterCollector allows the caller to register a collector function for system information.
+func (m *manager) RegisterCollector(ctx context.Context, key string, fn CollectorFn) {
+	m.log.Debugf("Registering system info collector: %s", key)
+	if _, ok := m.collectors[key]; ok {
+		m.log.Errorf("Collector %s already registered", key)
+		return
+	}
+	m.collectors[key] = fn
+}
+
+func (m *manager) ReloadStatus(ctx context.Context) error {
 	return nil
 }
 
@@ -146,32 +152,35 @@ func collectDeviceSystemInfo(
 	log *log.PrefixLogger,
 	exec executer.Executer,
 	reader fileio.Reader,
-	factKeys []string,
+	infoKeys []string,
+	customKeys []string,
 	bootID string,
 	hardwareMapPath string,
-	dataDir string,
 ) v1alpha1.DeviceSystemInfo {
 	agentVersion := version.Get()
-	info, err := CollectInfo(ctx, log, exec, reader, hardwareMapPath)
+	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath)
 	if err != nil {
 		log.Errorf("failed to collect system info: %v", err)
 	}
 
-	facts := GenerateFacts(ctx, log, reader, exec, info, factKeys, dataDir)
-	log.Tracef("system info facts: %v", facts)
-	return v1alpha1.DeviceSystemInfo{
-		Architecture:    runtime.GOARCH,
-		OperatingSystem: runtime.GOOS,
-		BootID:          bootID,
-		AgentVersion:    agentVersion.GitVersion,
-		// TODO: plumb in the facts
-		// Facts:          facts,
+	systemInfoMap := getSystemInfoMap(ctx, log, info, infoKeys)
+	log.Tracef("system info map: %v", systemInfoMap)
+	s := v1alpha1.DeviceSystemInfo{
+		Architecture:         info.Architecture,
+		OperatingSystem:      info.OperatingSystem,
+		BootID:               bootID,
+		AgentVersion:         agentVersion.GitVersion,
+		AdditionalProperties: systemInfoMap,
 	}
+	if len(info.Custom) > 0 {
+		s.CustomInfo = lo.ToPtr(v1alpha1.CustomDeviceInfo(info.Custom))
+	}
+	return s
 }
 
 // getBoot returns the boot status from disk.
 func getBoot(readWriter fileio.ReadWriter, dataDir string) (*Boot, error) {
-	statusPath := filepath.Join(dataDir, SystemBootFileName)
+	statusPath := filepath.Join(dataDir, SystemFileName)
 	statusBytes, err := readWriter.ReadFile(statusPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -190,9 +199,9 @@ func getBoot(readWriter fileio.ReadWriter, dataDir string) (*Boot, error) {
 }
 
 // returns the boot time as a string.
-func getBootTime(exec executer.Executer) (string, error) {
+func getBootTime(ctx context.Context, exec executer.Executer) (string, error) {
 	args := []string{"-s"}
-	stdout, stderr, exitCode := exec.Execute("uptime", args...)
+	stdout, stderr, exitCode := exec.ExecuteWithContext(ctx, "uptime", args...)
 	if exitCode != 0 {
 		return "", fmt.Errorf("device uptime: %w", errors.FromStderr(stderr, exitCode))
 	}
@@ -208,7 +217,7 @@ func getBootTime(exec executer.Executer) (string, error) {
 
 // returns the boot ID. If the boot ID file is not found it returns unknown.
 func getBootID(reader fileio.Reader) (string, error) {
-	id, err := reader.ReadFile(DefaultBootIDPath)
+	id, err := reader.ReadFile(bootIDPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", nil

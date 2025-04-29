@@ -82,18 +82,30 @@ func (mr *MockManagerMockRecorder) IsRebooted() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsRebooted", reflect.TypeOf((*MockManager)(nil).IsRebooted))
 }
 
-// ReloadStatus mocks base method.
-func (m *MockManager) ReloadStatus() error {
+// RegisterCollector mocks base method.
+func (m *MockManager) RegisterCollector(ctx context.Context, name string, fn CollectorFn) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReloadStatus")
+	m.ctrl.Call(m, "RegisterCollector", ctx, name, fn)
+}
+
+// RegisterCollector indicates an expected call of RegisterCollector.
+func (mr *MockManagerMockRecorder) RegisterCollector(ctx, name, fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterCollector", reflect.TypeOf((*MockManager)(nil).RegisterCollector), ctx, name, fn)
+}
+
+// ReloadStatus mocks base method.
+func (m *MockManager) ReloadStatus(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReloadStatus", ctx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ReloadStatus indicates an expected call of ReloadStatus.
-func (mr *MockManagerMockRecorder) ReloadStatus() *gomock.Call {
+func (mr *MockManagerMockRecorder) ReloadStatus(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReloadStatus", reflect.TypeOf((*MockManager)(nil).ReloadStatus))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReloadStatus", reflect.TypeOf((*MockManager)(nil).ReloadStatus), ctx)
 }
 
 // Status mocks base method.

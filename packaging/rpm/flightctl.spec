@@ -97,6 +97,7 @@ The flightctl-services package provides installation and setup of files for runn
     cp bin/flightctl %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
+    mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
     mkdir -p %{buildroot}/usr/lib/flightctl/hooks.d/{afterupdating,beforeupdating,afterrebooting,beforerebooting}
     mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
     install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh

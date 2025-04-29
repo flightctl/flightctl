@@ -123,10 +123,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		a.config.DataDir,
-		a.config.MergedInfoKeys(),
-		a.config.CollectSystemInfoTimeout,
+		a.config.SystemInfo,
+		a.config.SystemInfoCustom,
+		a.config.SystemInfoTimeout,
 	)
-	if err := systemInfoManager.Initialize(); err != nil {
+	if err := systemInfoManager.Initialize(ctx); err != nil {
 		return err
 	}
 
@@ -305,8 +306,4 @@ func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClie
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
 	return client, nil
-}
-
-func CollectSystemInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, hardwareMapPath string) (*systeminfo.Info, error) {
-	return systeminfo.CollectInfo(ctx, log, exec, reader, hardwareMapPath)
 }

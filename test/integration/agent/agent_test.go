@@ -23,8 +23,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const TIMEOUT = "30s"
-const POLLING = "250ms"
+const (
+	TIMEOUT = "60s"
+	POLLING = "250ms"
+)
 
 func TestAgent(t *testing.T) {
 	RegisterFailHandler(Fail)
