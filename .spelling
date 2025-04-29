@@ -33,6 +33,7 @@ e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
+EPEL
 FIDO
 filesystem
 firewalld
