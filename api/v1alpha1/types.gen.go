@@ -369,6 +369,9 @@ type CpuResourceMonitorSpec struct {
 // Example: `* 0-8,16-23 * * *`.
 type CronExpression = string
 
+// CustomDeviceInfo User-defined information about the device.
+type CustomDeviceInfo map[string]string
+
 // Device Device represents a physical device.
 type Device struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -572,7 +575,7 @@ type DeviceStatus struct {
 	// Summary A summary of the health of the device hardware and operating system resources.
 	Summary DeviceSummaryStatus `json:"summary"`
 
-	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+	// SystemInfo System information collected from the device.
 	SystemInfo DeviceSystemInfo `json:"systemInfo"`
 
 	// Updated Current status of the device update.
@@ -591,7 +594,7 @@ type DeviceSummaryStatus struct {
 // DeviceSummaryStatusType Status of the device.
 type DeviceSummaryStatusType string
 
-// DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+// DeviceSystemInfo System information collected from the device.
 type DeviceSystemInfo struct {
 	// AgentVersion The Agent version.
 	AgentVersion string `json:"agentVersion"`
@@ -602,8 +605,12 @@ type DeviceSystemInfo struct {
 	// BootID Boot ID reported by the device.
 	BootID string `json:"bootID"`
 
+	// CustomInfo User-defined information about the device.
+	CustomInfo *CustomDeviceInfo `json:"customInfo,omitempty"`
+
 	// OperatingSystem The Operating System reported by the device.
-	OperatingSystem string `json:"operatingSystem"`
+	OperatingSystem      string            `json:"operatingSystem"`
+	AdditionalProperties map[string]string `json:"-"`
 }
 
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
@@ -1709,6 +1716,126 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
+
+// Getter for additional properties for DeviceSystemInfo. Returns the specified
+// element and whether it was found
+func (a DeviceSystemInfo) Get(fieldName string) (value string, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DeviceSystemInfo
+func (a *DeviceSystemInfo) Set(fieldName string, value string) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]string)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DeviceSystemInfo to handle AdditionalProperties
+func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["agentVersion"]; found {
+		err = json.Unmarshal(raw, &a.AgentVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'agentVersion': %w", err)
+		}
+		delete(object, "agentVersion")
+	}
+
+	if raw, found := object["architecture"]; found {
+		err = json.Unmarshal(raw, &a.Architecture)
+		if err != nil {
+			return fmt.Errorf("error reading 'architecture': %w", err)
+		}
+		delete(object, "architecture")
+	}
+
+	if raw, found := object["bootID"]; found {
+		err = json.Unmarshal(raw, &a.BootID)
+		if err != nil {
+			return fmt.Errorf("error reading 'bootID': %w", err)
+		}
+		delete(object, "bootID")
+	}
+
+	if raw, found := object["customInfo"]; found {
+		err = json.Unmarshal(raw, &a.CustomInfo)
+		if err != nil {
+			return fmt.Errorf("error reading 'customInfo': %w", err)
+		}
+		delete(object, "customInfo")
+	}
+
+	if raw, found := object["operatingSystem"]; found {
+		err = json.Unmarshal(raw, &a.OperatingSystem)
+		if err != nil {
+			return fmt.Errorf("error reading 'operatingSystem': %w", err)
+		}
+		delete(object, "operatingSystem")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]string)
+		for fieldName, fieldBuf := range object {
+			var fieldVal string
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DeviceSystemInfo to handle AdditionalProperties
+func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["agentVersion"], err = json.Marshal(a.AgentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'agentVersion': %w", err)
+	}
+
+	object["architecture"], err = json.Marshal(a.Architecture)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'architecture': %w", err)
+	}
+
+	object["bootID"], err = json.Marshal(a.BootID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'bootID': %w", err)
+	}
+
+	if a.CustomInfo != nil {
+		object["customInfo"], err = json.Marshal(a.CustomInfo)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'customInfo': %w", err)
+		}
+	}
+
+	object["operatingSystem"], err = json.Marshal(a.OperatingSystem)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'operatingSystem': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // AsImageApplicationProviderSpec returns the union data inside the ApplicationProviderSpec as a ImageApplicationProviderSpec
 func (t ApplicationProviderSpec) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {

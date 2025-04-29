@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -594,7 +595,8 @@ func (l *LabelSelector) Validate() []error {
 }
 
 func (d *DeviceSystemInfo) IsEmpty() bool {
-	return *d == DeviceSystemInfo{}
+	empty := DeviceSystemInfo{}
+	return reflect.DeepEqual(*d, empty)
 }
 
 func validateHttpConfig(config *HttpConfig) []error {
