@@ -44,7 +44,7 @@ if [ -f "$CERTS_SOURCE_PATH/server.crt" ]; then
   chown 1001:0 "$CERTS_DEST_PATH/server.crt"
   chmod 0440 "$CERTS_DEST_PATH/server.crt"
 else
-  echo "Warning: Server certificate not found at $CERTS_SOURCE_PATH/server.crt"
+  echo "Error: Server certificate not found at $CERTS_SOURCE_PATH/server.crt"
   exit 1
 fi
 if [ -f "$CERTS_SOURCE_PATH/server.key" ]; then
@@ -52,7 +52,7 @@ if [ -f "$CERTS_SOURCE_PATH/server.key" ]; then
   chown 1001:0 "$CERTS_DEST_PATH/server.key"
   chmod 0440 "$CERTS_DEST_PATH/server.key"
 else
-  echo "Warning: Server key not found at $CERTS_SOURCE_PATH/server.key"
+  echo "Error: Server key not found at $CERTS_SOURCE_PATH/server.key"
   exit 1
 fi
 
