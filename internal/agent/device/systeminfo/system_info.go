@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -570,7 +571,10 @@ func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, in
 			log.Warnf("SystemInfo collector already populated: %s is %s", key, infoMap[key])
 		} else {
 			val := collectorfn(ctx)
-			infoMap[key] = val
+			trimmed := strings.TrimSpace(val)
+			reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
+			sanitizedval := reg.ReplaceAllString(trimmed, "")
+			infoMap[key] = sanitizedval
 		}
 	}
 

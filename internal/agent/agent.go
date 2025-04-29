@@ -30,6 +30,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/experimental"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -129,6 +130,26 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 	if err := systemInfoManager.Initialize(ctx); err != nil {
 		return err
+	}
+
+	// generate tpm client only if experimental features are enabled
+	experimentalFeatures := experimental.NewFeatures()
+	if experimentalFeatures.IsEnabled() {
+		a.log.Warn("Experimental features enabled: creating TPM client")
+		tpmClient, err := lifecycle.NewTpmClient(a.log)
+		if err != nil {
+			a.log.Warnf("Experimental feature: tpm is not available: %v", err)
+		} else {
+			a.log.Warn("Experimental features enabled: registering TPM info collection functions")
+			err := tpmClient.UpdateNonce(make([]byte, 8))
+			if err != nil {
+				a.log.Errorf("Unable to update nonce in tpm client: %v", err)
+			}
+			systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
+			systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
+		}
+	} else {
+		a.log.Info("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
 	}
 
 	// create shutdown manager
