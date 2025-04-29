@@ -71,6 +71,16 @@ func (t *TPM) Close() {
 	}
 }
 
+func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
+	if t == nil {
+		return nil, fmt.Errorf("cannot get TPM vendor info: nil receiver in TPM struct")
+	}
+	if t.channel == nil {
+		return nil, fmt.Errorf("cannot get TPM vendor info: no channel available in TPM struct")
+	}
+	return tpm2.GetManufacturer(t.channel)
+}
+
 func (t *TPM) GetPCRValues(measurements map[string]string) error {
 	if t == nil {
 		return nil
