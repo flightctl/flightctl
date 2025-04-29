@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent"
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -128,7 +129,7 @@ func (s *systemInfoCmd) Execute() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	exec := &executer.CommonExecuter{}
-	info, err := agent.CollectSystemInfo(ctx, s.log, exec, reader, s.hardwareMapPath)
+	info, err := systeminfo.Collect(ctx, s.log, exec, reader, nil, s.hardwareMapPath, systeminfo.WithAllCustom())
 	if err != nil {
 		s.log.Fatalf("Error collecting system info: %v", err)
 	}

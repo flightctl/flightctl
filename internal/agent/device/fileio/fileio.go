@@ -12,6 +12,8 @@ const (
 	DefaultDirectoryPermissions os.FileMode = 0o755
 	// defaultFilePermissions houses the default mode to use when no file permissions are provided
 	DefaultFilePermissions os.FileMode = 0o644
+	// DefaultExecutablePermissions houses the default mode to use for executable files
+	DefaultExecutablePermissions os.FileMode = 0o755
 )
 
 type ManagedFile interface {
