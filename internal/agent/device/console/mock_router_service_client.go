@@ -42,6 +42,26 @@ func (m *MockRouterServiceClient) EXPECT() *MockRouterServiceClientMockRecorder 
 	return m.recorder
 }
 
+// GetSessions mocks base method.
+func (m *MockRouterServiceClient) GetSessions(ctx context.Context, in *grpc_v1.GetSessionsRequest, opts ...grpc.CallOption) (*grpc_v1.GetSessionsResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetSessions", varargs...)
+	ret0, _ := ret[0].(*grpc_v1.GetSessionsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSessions indicates an expected call of GetSessions.
+func (mr *MockRouterServiceClientMockRecorder) GetSessions(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessions", reflect.TypeOf((*MockRouterServiceClient)(nil).GetSessions), varargs...)
+}
+
 // Stream mocks base method.
 func (m *MockRouterServiceClient) Stream(ctx context.Context, opts ...grpc.CallOption) (grpc_v1.RouterService_StreamClient, error) {
 	m.ctrl.T.Helper()
@@ -220,6 +240,21 @@ func NewMockRouterServiceServer(ctrl *gomock.Controller) *MockRouterServiceServe
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockRouterServiceServer) EXPECT() *MockRouterServiceServerMockRecorder {
 	return m.recorder
+}
+
+// GetSessions mocks base method.
+func (m *MockRouterServiceServer) GetSessions(arg0 context.Context, arg1 *grpc_v1.GetSessionsRequest) (*grpc_v1.GetSessionsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSessions", arg0, arg1)
+	ret0, _ := ret[0].(*grpc_v1.GetSessionsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSessions indicates an expected call of GetSessions.
+func (mr *MockRouterServiceServerMockRecorder) GetSessions(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessions", reflect.TypeOf((*MockRouterServiceServer)(nil).GetSessions), arg0, arg1)
 }
 
 // Stream mocks base method.
