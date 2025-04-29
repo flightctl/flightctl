@@ -216,6 +216,7 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/pki
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
+    %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
 
     # Files mounted to data dir
@@ -224,6 +225,7 @@ rm -rf /usr/share/sosreport
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-kv
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-ui
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
@@ -233,6 +235,9 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
+    %{_datadir}/flightctl/flightctl-cli-artifacts/env.template
+    %{_datadir}/flightctl/flightctl-cli-artifacts/nginx.conf
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
     %{_datadir}/containers/systemd/flightctl*
 
     # Handle permissions for scripts run as part of the rpm post install
