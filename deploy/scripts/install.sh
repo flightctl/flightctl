@@ -27,9 +27,9 @@ get_services_for_tag() {
     local services=()
 
     if [[ "$image_tag" =~ -main- ]]; then
-        services+=("api" "periodic" "worker")
+        services+=("api" "periodic" "worker" "cli-artifacts")
     else
-        services+=("api" "periodic" "worker" "ui")
+        services+=("api" "periodic" "worker" "ui" "cli-artifacts")
     fi
 
     echo "${services[@]}"
