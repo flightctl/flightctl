@@ -30,6 +30,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/experimental"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -76,18 +77,19 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
 		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
 	}
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
+
+	experimentalFeatures := experimental.NewFeatures()
+	publicKey, signer, _, err := getDeviceKeyandSigner(experimentalFeatures, a.log, deviceReadWriter, a.config)
 	if err != nil {
 		return err
 	}
-
 	publicKeyHash, err := fcrypto.HashPublicKey(publicKey)
 	if err != nil {
 		return err
 	}
 
 	deviceName := strings.ToLower(base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(publicKeyHash))
-	csr, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), deviceName)
+	csr, err := fcrypto.MakeCSR(signer, deviceName)
 	if err != nil {
 		return err
 	}
@@ -306,4 +308,47 @@ func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClie
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
 	return client, nil
+}
+
+func getDeviceKeyandSigner(experimental *experimental.Features, l *log.PrefixLogger, drw fileio.ReadWriter, c *agent_config.Config) (crypto.PublicKey, crypto.Signer, *lifecycle.TpmClient, error) {
+	var (
+		publicKey  crypto.PublicKey
+		privateKey crypto.PrivateKey
+		signer     crypto.Signer
+		tpmClient  *lifecycle.TpmClient
+	)
+
+	if experimental.IsEnabled() {
+		l.Warn("experimental features enabled: creating TPM client")
+		tpmClient, err := lifecycle.NewTpmClient(l)
+		if err != nil {
+			l.Infof("tpm is not available: %v\n switching to software keys instead", err)
+			tpmClient = nil
+		} else {
+			publicKey = tpmClient.GetLocalAttestationPubKey()
+			signer, err = tpmClient.GetSigner()
+			if err != nil {
+				l.Errorf("unable to get TPM-based signer for CSR: %v\n switching to software keys instead", err)
+				_ = tpmClient.CloseTPM()
+				tpmClient = nil
+				publicKey = nil
+				signer = nil
+			}
+		}
+	}
+
+	if !experimental.IsEnabled() || tpmClient == nil {
+		if !experimental.IsEnabled() {
+			l.Infof("experimental features are not enabled: skipping creation of TPM client and TPM-based keys")
+		} else if tpmClient == nil {
+			l.Infof("experimental features are enabled, but TPM was not available for signing CSR: creating software keys")
+		}
+		var err error
+		publicKey, privateKey, _, err = fcrypto.EnsureKey(drw.PathFor(c.ManagementService.AuthInfo.ClientKey))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		signer = privateKey.(crypto.Signer)
+	}
+	return publicKey, signer, tpmClient, nil
 }
