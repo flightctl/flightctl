@@ -191,7 +191,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
+			repo, created, _, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
@@ -218,7 +218,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
+			repo, created, _, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(false))
@@ -245,7 +245,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
+			repo, created, _, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))

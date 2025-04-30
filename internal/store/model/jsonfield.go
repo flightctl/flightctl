@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 )
 
 // from https://www.terminateandstayresident.com/2022-07-13/orm-json
@@ -107,4 +108,8 @@ func (m JSONMap[K, V]) Value() (driver.Value, error) {
 	}
 
 	return jsonData, nil
+}
+
+func (m JSONMap[K, V]) Equals(other JSONMap[K, V]) bool {
+	return reflect.DeepEqual(m, other)
 }

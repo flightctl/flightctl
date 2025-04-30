@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	chi "github.com/go-chi/chi/v5/middleware"
 )
@@ -35,6 +38,22 @@ func RequestID(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), chi.RequestIDKey, requestID)
 		w.Header().Set(chi.RequestIDHeader, requestID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func AddEventMetadataToCtx(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-api")
+		userName := "none"
+		if auth.GetConfiguredAuthType() != auth.AuthTypeNil {
+			identity, err := common.GetIdentity(ctx)
+			if err == nil && identity != nil {
+				userName = identity.Username
+			}
+		}
+		ctx = context.WithValue(ctx, consts.EventActorCtxKey, fmt.Sprintf("user:%s", userName))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

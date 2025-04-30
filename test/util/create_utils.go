@@ -78,7 +78,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
 	callback := store.DeviceStoreCallback(func(uuid.UUID, *api.Device, *api.Device) {})
-	_, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback)
+	_, _, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}

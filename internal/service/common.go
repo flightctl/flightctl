@@ -12,22 +12,19 @@ import (
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 )
 
-type ctxKey string
-
 const (
-	MaxRecordsPerListRequest        = 1000
-	InternalRequestCtxKey    ctxKey = "internal_request"
-	DelayDeviceRenderCtxKey  ctxKey = "delayDeviceRender"
+	MaxRecordsPerListRequest = 1000
 )
 
 func IsInternalRequest(ctx context.Context) bool {
-	if internal, ok := ctx.Value(InternalRequestCtxKey).(bool); ok && internal {
+	if internal, ok := ctx.Value(consts.InternalRequestCtxKey).(bool); ok && internal {
 		return true
 	}
 	return false

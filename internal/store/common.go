@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -63,9 +64,16 @@ func WithSelectorResolver(resolver selector.Resolver) ListQueryOption {
 	}
 }
 
+func WithSortDirective(sortDirective *string) ListQueryOption {
+	return func(q *listQuery) {
+		q.sortDirective = sortDirective
+	}
+}
+
 type listQuery struct {
-	dest     any
-	resolver selector.Resolver
+	dest          any
+	resolver      selector.Resolver
+	sortDirective *string
 }
 
 func ListQuery(dest any, opts ...ListQueryOption) *listQuery {
@@ -128,7 +136,11 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	if err != nil {
 		return nil, err
 	}
-	return query.Order("name"), nil
+	sortDirective := "name"
+	if lq.sortDirective != nil {
+		sortDirective = *lq.sortDirective
+	}
+	return query.Order(sortDirective), nil
 }
 
 func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string {
@@ -236,17 +248,18 @@ func createParamsFromKey(key string) string {
 	return params
 }
 
-func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, error)) (*A, bool, error) {
+func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, api.ResourceUpdatedDetails, error)) (*A, bool, api.ResourceUpdatedDetails, error) {
 	var (
 		a              *A
 		created, retry bool
+		updateDesc     api.ResourceUpdatedDetails
 		err            error
 	)
 	i := 0
-	for a, created, retry, err = fn(); retry && i < retryIterations; a, created, retry, err = fn() {
+	for a, created, retry, updateDesc, err = fn(); retry && i < retryIterations; a, created, retry, updateDesc, err = fn() {
 		i++
 	}
-	return a, created, err
+	return a, created, updateDesc, err
 }
 
 func retryUpdate(fn func() (bool, error)) error {
