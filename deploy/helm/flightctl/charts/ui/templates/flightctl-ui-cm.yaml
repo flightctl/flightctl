@@ -6,7 +6,11 @@ metadata:
 data:
   FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
   {{- if .Values.cliArtifacts.enabled }}
+  {{- if .Values.cliArtifacts.baseURL }}
+  FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ .Values.cliArtifacts.baseURL | quote }}
+  {{- else }}
   FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getCliArtifactsUrl" . }}
+  {{- end }}
   {{- end }}
   FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.api.insecureSkipTlsVerify | quote }}
   IS_RHEM: {{ .Values.isRHEM | quote }}
