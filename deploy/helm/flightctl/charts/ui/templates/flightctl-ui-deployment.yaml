@@ -6,8 +6,6 @@ metadata:
   labels:
     app: flightctl-ui
     role: frontend
-  annotations:
-    checksum/config: {{ include (print $.Template.BasePath "/flightctl-ui-cm.yaml") . | sha256sum }}
 spec:
   replicas: 1
   selector:
@@ -19,6 +17,8 @@ spec:
       labels:
         app: flightctl-ui
         role: frontend
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/flightctl-ui-cm.yaml") . | sha256sum }}
     spec:
       containers:
         - env:
