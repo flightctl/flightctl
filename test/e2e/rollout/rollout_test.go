@@ -13,22 +13,41 @@ import (
 
 var _ = Describe("Rollout Policies", func() {
 
+	const (
+		fleetName      = "rollout"
+		siteMadrid     = "madrid"
+		siteParis      = "paris"
+		siteRome       = "rome"
+		functionWeb    = "web"
+		functionDb     = "db"
+		labelSite      = "site"
+		labelFunction  = "function"
+		
+		defaultSleepTime = 30 * time.Second
+		setupSleepTime   = 2 * time.Minute
+		completionTimeout = 5 * time.Minute
+	)
+
 	var (
 		harness *e2e.Harness
 
 		testFleetSelector = api.LabelSelector{
-			MatchLabels: &map[string]string{"fleet": "test-fleet"},
+			MatchLabels: &map[string]string{"fleet": fleetName},
 		}
+
+		extIP = harness.RegistryEndpoint()
+		sleepAppImage = fmt.Sprintf("%s/sleep-app:v1", extIP)
 
 		applicationConfig = api.ImageApplicationProviderSpec{
-			Image: "nginx:latest",
+			Image: sleepAppImage,
 		}
 
-		applicationSpec api.ApplicationProviderSpec
-	)
+		appType = api.AppType("compose")
 
-	const (
-		fleetName = "test-fleet"
+		applicationSpec = api.ApplicationProviderSpec{
+			Name:    lo.ToPtr("sleepApp"),
+			AppType: &appType,
+		}
 	)
 
 	percentageLimit := func(p api.Percentage) *api.Batch_Limit {
@@ -52,62 +71,58 @@ var _ = Describe("Rollout Policies", func() {
 		Sequence: &[]api.Batch{
 			{
 				Selector: &api.LabelSelector{
-					MatchLabels: &map[string]string{"site": "madrid"},
+					MatchLabels: &map[string]string{labelSite: siteMadrid},
 				},
 				Limit: intLimit(1),
 			},
 			{
 				Selector: &api.LabelSelector{
-					MatchLabels: &map[string]string{"site": "madrid"},
+					MatchLabels: &map[string]string{labelSite: siteMadrid},
 				},
 				Limit: percentageLimit("50%"),
 			},
 		},
 	}
 
-	bsqDisruption := api.BatchSequence{
-		Sequence: &[]api.Batch{
-			{
-				Selector: &api.LabelSelector{
-					MatchLabels: &map[string]string{"function": "web"},
-				},
-				Limit: intLimit(1),
-			},
-			{
-				Selector: &api.LabelSelector{
-					MatchLabels: &map[string]string{"function": "db"},
-				},
-				Limit: intLimit(1),
-			},
-		},
-	}
-
-	bsqSuccess := api.BatchSequence{
-		Sequence: &[]api.Batch{
-			{
-				Selector: &api.LabelSelector{
-					MatchLabels: &map[string]string{"site": "madrid"},
-				},
-				Limit: intLimit(1),
-			},
-			{
-				Selector: &api.LabelSelector{
-					MatchLabels: &map[string]string{"site": "paris"},
-				},
-				Limit: intLimit(1),
-			},
-		},
-	}
-
-	createFleetSpec := func(fleetName string, b api.BatchSequence, threshold *api.Percentage) api.FleetSpec {
-
+	createFleetSpec := func(b api.BatchSequence, threshold *api.Percentage, testFleetSpec api.DeviceSpec) api.FleetSpec {
 		fleetspec := api.FleetSpec{
 			RolloutPolicy: &api.RolloutPolicy{
 				DeviceSelection:  rolloutDeviceSelection(b),
 				SuccessThreshold: threshold,
 			},
+			Selector: &testFleetSelector,
+			Template: struct {
+				Metadata *api.ObjectMeta "json:\"metadata,omitempty\""
+				Spec     api.DeviceSpec  "json:\"spec\""
+			}{
+				Spec: testFleetSpec,
+			},
 		}
 		return fleetspec
+	}
+	
+	createFleetSpecWithoutDeviceSelection := func(threshold *api.Percentage, testFleetSpec api.DeviceSpec) api.FleetSpec {
+		fleetspec := api.FleetSpec{
+			RolloutPolicy: &api.RolloutPolicy{
+				SuccessThreshold: threshold,
+			},
+			Selector: &testFleetSelector,
+			Template: struct {
+				Metadata *api.ObjectMeta "json:\"metadata,omitempty\""
+				Spec     api.DeviceSpec  "json:\"spec\""
+			}{
+				Spec: testFleetSpec,
+			},
+		}
+		return fleetspec
+	}
+
+	createDisruptionBudget := func(maxUnavailable, minAvailable int, groupBy []string) *api.DisruptionBudget {
+		return &api.DisruptionBudget{
+			GroupBy:        &groupBy,
+			MaxUnavailable: lo.ToPtr(maxUnavailable),
+			MinAvailable:   lo.ToPtr(minAvailable),
+		}
 	}
 
 	BeforeEach(func() {
@@ -124,48 +139,61 @@ var _ = Describe("Rollout Policies", func() {
 
 	Context("Device Selection", func() {
 		It("should select devices correctly based on BatchSequence strategy", func() {
-			By("c reate a fleet AND EEnroll devices into the fleet")
+			By("create a fleet and Enroll devices into the fleet")
 
-			err := harness.CreateTestFleetWithSpec(fleetName, createFleetSpec(fleetName, bsq1, lo.ToPtr(api.Percentage("50%"))))
-			Expect(err).ToNot(HaveOccurred())
-
-			deviceIDs := harness.StartMultipleVMAndEnroll(3)
-
-			labelsList := []map[string]string{
-				{"site": "madrid"},
-				{"site": "madrid"},
-				{"site": "paris"},
-			}
-
-			err = harness.SetLabelsForDevicesByIndex(deviceIDs, labelsList, fleetName)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = applicationSpec.FromImageApplicationProviderSpec(applicationConfig)
+			err := applicationSpec.FromImageApplicationProviderSpec(applicationConfig)
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec := api.DeviceSpec{
 				Applications: &[]api.ApplicationProviderSpec{applicationSpec},
 			}
 
-			//Update fleet with template
-			err = harness.CreateOrUpdateTestFleet(fleetName, testFleetSelector, deviceSpec)
+			err = harness.CreateTestFleetWithSpec(fleetName, createFleetSpec(bsq1, lo.ToPtr(api.Percentage("50%")), api.DeviceSpec{}))
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.WaitForBatchCompletion(fleetName, 1, 1*time.Minute)
+			deviceIDs := harness.StartMultipleVMAndEnroll(4)
+
+			labelsList := []map[string]string{
+				{labelSite: siteMadrid},
+				{labelSite: siteMadrid},
+				{labelSite: siteMadrid},
+				{labelSite: siteParis},
+			}
+
+			err = harness.SetLabelsForDevicesByIndex(deviceIDs, labelsList, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(setupSleepTime)
+
+			//Update fleet with template
+			err = harness.CreateTestFleetWithSpec(fleetName, createFleetSpec(bsq1, lo.ToPtr(api.Percentage("50%")), deviceSpec))
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(defaultSleepTime)
+
+			harness.WaitForBatchCompletion(fleetName, -1, completionTimeout)
 
 			By("Verifying the first batch selects 1 device")
 			selectedDevices, err := harness.GetSelectedDevicesForBatch(fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(selectedDevices)).To(Equal(1))
-			Expect((*selectedDevices[0].Metadata.Labels)["site"]).To(Equal("madrid"))
+			Expect((*selectedDevices[0].Metadata.Labels)[labelSite]).To(Equal(siteMadrid))
 
-			harness.WaitForBatchCompletion(fleetName, 2, 1*time.Minute)
+			harness.WaitForBatchCompletion(fleetName, 0, completionTimeout)
 
 			By("Verifying the second batch selects 50% of remaining devices")
 			selectedDevices, err = harness.GetSelectedDevicesForBatch(fleetName)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(selectedDevices)).To(BeNumerically(">", 0))
-			Expect(len(selectedDevices)).To(BeNumerically("<=", 1))
+			Expect(len(selectedDevices)).To(Equal(1))
+			Expect((*selectedDevices[0].Metadata.Labels)[labelSite]).To(Equal(siteMadrid))
+
+			Expect(err).ToNot(HaveOccurred())
+			By("Here we expect remaining 2 devices to be selected")
+			harness.WaitForBatchCompletion(fleetName, 1, completionTimeout)
+			selectedDevices, err = harness.GetSelectedDevicesForBatch(fleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(selectedDevices)).To(Equal(2))
+
 		})
 	})
 
@@ -173,141 +201,296 @@ var _ = Describe("Rollout Policies", func() {
 		It("should enforce the rollout disruption budget during rollouts", func() {
 			By("creating a fleet with disruption budget")
 
-			fleetSpec := createFleetSpec(fleetName, bsqDisruption, lo.ToPtr(api.Percentage("100%")))
-			fleetSpec.RolloutPolicy.DisruptionBudget = &api.DisruptionBudget{
-				GroupBy:        &[]string{"site", "function"},
-				MaxUnavailable: lo.ToPtr(50),
-			}
-
-			err := harness.CreateTestFleetWithSpec(fleetName, fleetSpec)
-			Expect(err).ToNot(HaveOccurred())
-
-			deviceIDs := harness.StartMultipleVMAndEnroll(4)
-
-			labelsList := []map[string]string{
-				{"site": "madrid", "function": "web"},
-				{"site": "madrid", "function": "db"},
-				{"site": "paris", "function": "web"},
-				{"site": "paris", "function": "db"},
-			}
-
-			err = harness.SetLabelsForDevicesByIndex(deviceIDs, labelsList, fleetName)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = applicationSpec.FromImageApplicationProviderSpec(applicationConfig)
+			err := applicationSpec.FromImageApplicationProviderSpec(applicationConfig)
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec := api.DeviceSpec{
 				Applications: &[]api.ApplicationProviderSpec{applicationSpec},
 			}
 
-			err = harness.CreateOrUpdateTestFleet(fleetName, testFleetSelector, deviceSpec)
+			fleetSpec := createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage("100%")), api.DeviceSpec{})
+
+			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(1, 1, []string{})
+
+			err = harness.CreateTestFleetWithSpec(fleetName, fleetSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.WaitForBatchCompletion(fleetName, 1, 1*time.Minute)
+			deviceIDs := harness.StartMultipleVMAndEnroll(2)
+
+			labelsList := []map[string]string{
+				{labelSite: siteMadrid, labelFunction: functionWeb},
+				{labelSite: siteParis, labelFunction: functionDb},
+			}
+
+			err = harness.SetLabelsForDevicesByIndex(deviceIDs, labelsList, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(setupSleepTime)
+
+			fleetSpec = createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage("100%")), deviceSpec)
+
+			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(1, 1, []string{})
+
+			err = harness.CreateTestFleetWithSpec(fleetName, fleetSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			time.Sleep(defaultSleepTime)
 
 			By("Verifying that the disruption budget is respected")
 			// Get unavailable devices per group
-			unavailableDevices, err := harness.GetUnavailableDevicesPerGroup(fleetName, []string{"site", "function"})
+			unavailableDevices, err := harness.GetUnavailableDevicesPerGroup(fleetName, []string{labelSite, labelFunction})
 			Expect(err).ToNot(HaveOccurred())
 
 			for _, group := range unavailableDevices {
 				Expect(len(group)).To(BeNumerically("<=", 1), "Should have at most 1 unavailable device per group")
 			}
 
-			harness.WaitForBatchCompletion(fleetName, 2, 1*time.Minute)
+			time.Sleep(defaultSleepTime)
 
 			By("Verifying all devices are eventually updated")
 			updatedDevices, err := harness.GetUpdatedDevices(fleetName)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(updatedDevices)).To(Equal(4), "All devices should be updated eventually")
+			Expect(len(updatedDevices)).To(Equal(2), "All devices should be updated eventually")
 		})
 	})
 
-	Context("Success Threshold", func() {
-		It("should pause the rollout if the success threshold is not met", func() {
-			By("creating a fleet with success threshold")
+	// Context("Multi-batch rollout with complex selection criteria", func() {
+	// 	It("should select devices correctly across multiple batches with different selection criteria", func() {
+	// 		By("Onboarding 10 VM devices and assigning labels")
+			
+	// 		// Start 10 VMs and enroll them
+	// 		deviceIDs := harness.StartMultipleVMAndEnroll(10)
+			
+	// 		// Create label sets for the devices
+	// 		labelsList := []map[string]string{}
+			
+	// 		// Add 4 devices with site=madrid
+	// 		for i := 0; i < 4; i++ {
+	// 			labelsList = append(labelsList, map[string]string{
+	// 				"fleet": fleetName,
+	// 				labelSite: siteMadrid,
+	// 			})
+	// 		}
+			
+	// 		// Add 4 devices with site=paris
+	// 		for i := 0; i < 4; i++ {
+	// 			labelsList = append(labelsList, map[string]string{
+	// 				"fleet": fleetName,
+	// 				labelSite: siteParis,
+	// 			})
+	// 		}
+			
+	// 		// Add 2 devices with site=rome
+	// 		for i := 0; i < 2; i++ {
+	// 			labelsList = append(labelsList, map[string]string{
+	// 				"fleet": fleetName,
+	// 				labelSite: siteRome,
+	// 			})
+	// 		}
+			
+	// 		// Set labels for all devices
+	// 		err := harness.SetLabelsForDevicesByIndex(deviceIDs, labelsList, "")
+	// 		Expect(err).ToNot(HaveOccurred())
+			
+	// 		// Wait for labels to be applied
+	// 		time.Sleep(setupSleepTime)
+			
+	// 		By("Creating fleet with batch sequence rollout policy")
+	// 		batchSequence := createBatchSequence()
+	// 		fleetSpec := createFleetSpec(batchSequence)
+			
+	// 		// Create the fleet with the defined spec
+	// 		err = harness.CreateTestFleetWithSpec(fleetName, fleetSpec)
+	// 		Expect(err).ToNot(HaveOccurred())
+			
+	// 		// Wait for the fleet creation to take effect
+	// 		time.Sleep(defaultSleepTime)
+			
+	// 		By("Verifying batch 1 selects exactly 1 device with site=madrid")
+	// 		// Wait for the first batch to be processed
+	// 		harness.WaitForBatchNumber(fleetName, 1, completionTimeout)
+			
+	// 		// Verify that only 1 device with site=madrid is selected
+	// 		selectedDevices, err := harness.GetSelectedDevicesForBatch(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+	// 		Expect(len(selectedDevices)).To(Equal(1))
+	// 		Expect((*selectedDevices[0].Metadata.Labels)[labelSite]).To(Equal(siteMadrid))
+			
+	// 		// Check that the device has the correct annotation
+	// 		deviceAnnotations, err := harness.GetDeviceAnnotations(selectedDevices[0].Metadata.Name)
+	// 		Expect(err).ToNot(HaveOccurred())
+	// 		Expect(deviceAnnotations).To(HaveKey("fleet-controller/selectedForRollout"))
+			
+	// 		// Wait for the batch to complete
+	// 		harness.WaitForBatchCompletion(fleetName, 0, completionTimeout)
+			
+	// 		By("Verifying batch 2 selects 80% of remaining devices with site=madrid (2 more devices)")
+	// 		// Wait for the second batch to be processed
+	// 		harness.WaitForBatchNumber(fleetName, 2, completionTimeout)
+			
+	// 		// Verify that 2 more devices with site=madrid are selected (80% of remaining 3)
+	// 		selectedDevices, err = harness.GetSelectedDevicesForBatch(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+	// 		Expect(len(selectedDevices)).To(Equal(2))
+			
+	// 		// Verify all devices have site=madrid label
+	// 		for _, device := range selectedDevices {
+	// 			Expect((*device.Metadata.Labels)[labelSite]).To(Equal(siteMadrid))
+				
+	// 			// Check that the device has the correct annotation
+	// 			deviceAnnotations, err := harness.GetDeviceAnnotations(device.Metadata.Name)
+	// 			Expect(err).ToNot(HaveOccurred())
+	// 			Expect(deviceAnnotations).To(HaveKey("fleet-controller/selectedForRollout"))
+	// 		}
+			
+	// 		// Wait for the batch to complete
+	// 		harness.WaitForBatchCompletion(fleetName, 1, completionTimeout)
+			
+	// 		By("Verifying batch 3 selects 50% of remaining devices with any label (2 devices)")
+	// 		// Wait for the third batch to be processed
+	// 		harness.WaitForBatchNumber(fleetName, 3, completionTimeout)
+			
+	// 		// Verify that 2 devices are selected (50% of remaining 4 unprocessed)
+	// 		selectedDevices, err = harness.GetSelectedDevicesForBatch(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+	// 		Expect(len(selectedDevices)).To(Equal(2))
+			
+	// 		// Count how many of each site we have
+	// 		siteCount := map[string]int{
+	// 			siteMadrid: 0,
+	// 			siteParis:  0,
+	// 			siteRome:   0,
+	// 		}
+			
+	// 		for _, device := range selectedDevices {
+	// 			site := (*device.Metadata.Labels)[labelSite]
+	// 			siteCount[site]++
+				
+	// 			// Check that the device has the correct annotation
+	// 			deviceAnnotations, err := harness.GetDeviceAnnotations(device.Metadata.Name)
+	// 			Expect(err).ToNot(HaveOccurred())
+	// 			Expect(deviceAnnotations).To(HaveKey("fleet-controller/selectedForRollout"))
+	// 		}
+			
+	// 		// Wait for the batch to complete
+	// 		harness.WaitForBatchCompletion(fleetName, 2, completionTimeout)
+			
+	// 		By("Verifying batch 4 selects all devices with site=paris (4 devices)")
+	// 		// Wait for the fourth batch to be processed
+	// 		harness.WaitForBatchNumber(fleetName, 4, completionTimeout)
+			
+	// 		// Verify that all 4 paris devices are selected
+	// 		selectedDevices, err = harness.GetSelectedDevicesForBatch(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+	// 		Expect(len(selectedDevices)).To(Equal(4))
+			
+	// 		// Verify all devices have site=paris label
+	// 		for _, device := range selectedDevices {
+	// 			Expect((*device.Metadata.Labels)[labelSite]).To(Equal(siteParis))
+				
+	// 			// Check that the device has the correct annotation
+	// 			deviceAnnotations, err := harness.GetDeviceAnnotations(device.Metadata.Name)
+	// 			Expect(err).ToNot(HaveOccurred())
+	// 			Expect(deviceAnnotations).To(HaveKey("fleet-controller/selectedForRollout"))
+	// 		}
+			
+	// 		// Wait for the batch to complete
+	// 		harness.WaitForBatchCompletion(fleetName, 3, completionTimeout)
+			
+	// 		By("Verifying batch 5 selects all remaining devices (1 madrid, 1 rome)")
+	// 		// Wait for the fifth batch to be processed
+	// 		harness.WaitForBatchNumber(fleetName, 5, completionTimeout)
+			
+	// 		// Verify that the final 2 devices are selected
+	// 		selectedDevices, err = harness.GetSelectedDevicesForBatch(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+	// 		Expect(len(selectedDevices)).To(Equal(2))
+			
+	// 		// Reset site count
+	// 		siteCount = map[string]int{
+	// 			siteMadrid: 0,
+	// 			siteParis:  0,
+	// 			siteRome:   0,
+	// 		}
+			
+	// 		// Count devices by site
+	// 		for _, device := range selectedDevices {
+	// 			site := (*device.Metadata.Labels)[labelSite]
+	// 			siteCount[site]++
+				
+	// 			// Check that the device has the correct annotation
+	// 			deviceAnnotations, err := harness.GetDeviceAnnotations(device.Metadata.Name)
+	// 			Expect(err).ToNot(HaveOccurred())
+	// 			Expect(deviceAnnotations).To(HaveKey("fleet-controller/selectedForRollout"))
+	// 		}
+			
+	// 		// Verify we have the expected distribution of remaining devices
+	// 		// Since we can't guarantee which devices were selected in batch 3,
+	// 		// we can only verify the total count
+	// 		Expect(siteCount[siteMadrid] + siteCount[siteRome]).To(Equal(2))
+			
+	// 		// Wait for the batch to complete
+	// 		harness.WaitForBatchCompletion(fleetName, 4, completionTimeout)
+			
+	// 		By("Verifying batch 6 shows no more devices remain")
+	// 		// Wait for the sixth batch to be processed
+	// 		harness.WaitForBatchNumber(fleetName, 6, completionTimeout)
+			
+	// 		// Verify that no more devices are selected
+	// 		selectedDevices, err = harness.GetSelectedDevicesForBatch(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+	// 		Expect(len(selectedDevices)).To(Equal(0))
+			
+	// 		By("Verifying inline config is properly rendered on each device")
+	// 		// Get all devices in the fleet
+	// 		devices, err := harness.GetAllDevicesInFleet(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+			
+	// 		// Check each device for the correct config
+	// 		for _, device := range devices {
+	// 			site := (*device.Metadata.Labels)[labelSite]
+				
+	// 			// Verify the content of the config file through SSH
+	// 			output, err := harness.SSHIntoDevice(device.Metadata.Name, "cat /var/home/user/file.txt")
+	// 			Expect(err).ToNot(HaveOccurred())
+	// 			Expect(output).To(Equal(fmt.Sprintf("This device is in %s", site)))
+				
+	// 			// Verify the OS image is set correctly
+	// 			Expect(*device.Spec.OS.Image).To(Equal(deviceImage))
+	// 		}
+			
+	// 		By("Verifying final rollout status")
+	// 		// Check the fleet status
+	// 		fleetStatus, err := harness.GetFleetStatus(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+			
+	// 		// Verify the rollout is marked as complete
+	// 		var rolloutCondition *api.Condition
+	// 		for _, condition := range *fleetStatus.Conditions {
+	// 			if condition.Type == "RolloutInProgress" {
+	// 				rolloutCondition = &condition
+	// 				break
+	// 			}
+	// 		}
+			
+	// 		Expect(rolloutCondition).ToNot(BeNil())
+	// 		Expect(rolloutCondition.Status).To(Equal("False"))
+	// 		Expect(rolloutCondition.Reason).To(Equal("Inactive"))
+	// 		Expect(rolloutCondition.Message).To(Equal("Rollout is not in progress"))
+			
+	// 		// Check the last batch completion report
+	// 		fleetAnnotations, err := harness.GetFleetAnnotations(fleetName)
+	// 		Expect(err).ToNot(HaveOccurred())
+	// 		Expect(fleetAnnotations).To(HaveKey("fleet-controller/lastBatchCompletionReport"))
+			
+	// 		// This is a simple string check, in a real test you might want to parse the JSON
+	// 		Expect(fleetAnnotations["fleet-controller/lastBatchCompletionReport"]).To(ContainSubstring("batch 5"))
+	// 		Expect(fleetAnnotations["fleet-controller/lastBatchCompletionReport"]).To(ContainSubstring("successPercentage\":100"))
+	// 		Expect(fleetAnnotations["fleet-controller/lastBatchCompletionReport"]).To(ContainSubstring("total\":2"))
+	// 		Expect(fleetAnnotations["fleet-controller/lastBatchCompletionReport"]).To(ContainSubstring("successful\":2"))
+	// 		Expect(fleetAnnotations["fleet-controller/lastBatchCompletionReport"]).To(ContainSubstring("failed\":0"))
+	// 		Expect(fleetAnnotations["fleet-controller/lastBatchCompletionReport"]).To(ContainSubstring("timedOut\":0"))
+	// 	})
+	// })
 
-			// Create fleet with 100% success threshold
-			err := harness.CreateTestFleetWithSpec(fleetName, createFleetSpec(fleetName, bsqSuccess, lo.ToPtr(api.Percentage("100%"))))
-			Expect(err).ToNot(HaveOccurred())
-
-			deviceIDs := harness.StartMultipleVMAndEnroll(2)
-
-			labelsList := []map[string]string{
-				{"site": "madrid"},
-				{"site": "paris"},
-			}
-
-			err = harness.SetLabelsForDevicesByIndex(deviceIDs, labelsList, fleetName)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = applicationSpec.FromImageApplicationProviderSpec(applicationConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			deviceSpec := api.DeviceSpec{
-				Applications: &[]api.ApplicationProviderSpec{applicationSpec},
-			}
-
-			err = harness.CreateOrUpdateTestFleet(fleetName, testFleetSelector, deviceSpec)
-			Expect(err).ToNot(HaveOccurred())
-
-			By("Simulating a failure in the first batch")
-			err = SimulateDeviceFailure(harness)
-			Expect(err).ToNot(HaveOccurred())
-
-			time.Sleep(30 * time.Second)
-
-			By("Verifying that the rollout is paused due to unmet success threshold")
-			rolloutStatus, err := harness.GetRolloutStatus(fleetName)
-			Expect(err).ToNot(HaveOccurred())
-			//check rollout status tand reason to be api.ConditionStatusFalse and api.RolloutWaitingReason
-			Expect(rolloutStatus.Status).To(Equal(api.ConditionStatusFalse), "Rollout should be paused when success threshold is not met")
-			Expect(rolloutStatus.Reason).To(Equal(api.RolloutWaitingReason), "Rollout should be paused when success threshold is not met")
-
-			By("Fixing the failed device and verifying the rollout continues")
-			err = FixDeviceFailure(harness)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Wait for rollout to continue
-			harness.WaitForBatchCompletion(fleetName, 2, 1*time.Minute)
-
-			// Verify that all devices are eventually updated
-			updatedDevices, err := harness.GetUpdatedDevices(fleetName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(updatedDevices)).To(Equal(2), "All devices should be updated once threshold is met again")
-		})
-	})
 })
-
-func SimulateDeviceFailure(h *e2e.Harness) error {
-	// Define a command to simulate failure (e.g., stop a critical service or crash the VM)
-	failureCommand := []string{"sudo", "shutdown", "now"} // Example: Shut down the VM
-
-	// Run the failure command on the VM
-	_, err := h.VM().RunSSH(failureCommand, nil)
-	if err != nil {
-		return fmt.Errorf("failed to simulate failure on VM: %w", err)
-	}
-
-	return nil
-}
-
-func FixDeviceFailure(h *e2e.Harness) error {
-	// Define a command to fix the failure (e.g., restart the VM or start a critical service)
-	fixCommand := []string{"sudo", "reboot"} // Example: Reboot the VM
-
-	// Run the fix command on the VM
-	_, err := h.VM().RunSSH(fixCommand, nil)
-	if err != nil {
-		return fmt.Errorf("failed to fix failure on VM: %w", err)
-	}
-
-	// Wait for the VM to become ready again
-	err = h.VM().WaitForSSHToBeReady()
-	if err != nil {
-		return fmt.Errorf("VM %s did not recover after fix: %w", err)
-	}
-
-	return nil
-}

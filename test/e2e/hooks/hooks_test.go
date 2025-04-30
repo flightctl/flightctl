@@ -66,13 +66,13 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = UpdateDeviceConfigWithRetries(harness, deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			stdout, err := harness.VM().RunSSH([]string{"sudo", "cat", inlinePath}, nil)
+			stdout, err := harness.VM.RunSSH([]string{"sudo", "cat", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(sshdConfigurationContent))
 			logrus.Infof("the configuration %s was found in the device", inlineConfigName)
 
 			By("Check that the embedded sshd hook is triggered and sshd config reloaded trying to login with user and password")
-			_, err = harness.VM().RunSSHWithUser([]string{"pwd"}, nil, rootUser)
+			_, err = harness.VM.RunSSHWithUser([]string{"pwd"}, nil, rootUser)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(tooManyAuthFailuresError))
 
@@ -89,7 +89,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the embedded sshd hook is triggered and sshd config reloaded by trying to ssh with any user")
-			_, err = harness.VM().RunSSH([]string{"pwd"}, nil)
+			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(noPasswordLoginError))
@@ -120,10 +120,10 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = UpdateDeviceConfigWithRetries(harness, deviceId, configProviderSpec, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = harness.VM().RunSSH([]string{"pwd"}, nil)
+			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = harness.VM().RunSSHWithUser([]string{"pwd"}, nil, rootUser)
+			_, err = harness.VM.RunSSHWithUser([]string{"pwd"}, nil, rootUser)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(tooManyAuthFailuresError))
 
@@ -136,7 +136,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = UpdateDeviceConfigWithRetries(harness, deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = harness.VM().RunSSH([]string{"pwd"}, nil)
+			_, err = harness.VM.RunSSH([]string{"pwd"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check pre/after update and pre/after reboot hooks from inline config works")
@@ -163,7 +163,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that in the device logs the hooks were triggered")
-			logs, err := harness.VM().RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
+			logs, err := harness.VM.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(logs.String()).To(ContainSubstring("this is a test message from afterupdating hook"))
 			Expect(logs.String()).To(ContainSubstring("this is a test message from afterrebooting hook"))

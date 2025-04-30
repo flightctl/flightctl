@@ -67,7 +67,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Check that the application compose is copied to the device")
 			manifestPath := fmt.Sprintf("/etc/compose/manifests/%s", sleepAppImage)
-			stdout, err := harness.VM().RunSSH([]string{"ls", manifestPath}, nil)
+			stdout, err := harness.VM.RunSSH([]string{"ls", manifestPath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(ComposeFile))
 
@@ -78,7 +78,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(device.Status.ApplicationsSummary.Status).To(Equal(v1alpha1.ApplicationsSummaryStatusHealthy))
 
 			By("Check the containers are running in the device")
-			stdout, err = harness.VM().RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(ExpectedNumSleepAppV1Containers))
 
@@ -125,16 +125,16 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			WaitForApplicationRunningStatus(harness, deviceId, updateImage)
 
 			By("Check that the new application containers are running")
-			stdout, err = harness.VM().RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(ExpectedNumSleepAppV2Containers))
 
 			By("Check that the envs of v2 app are present in the containers")
-			containerName, err := harness.VM().RunSSH([]string{"sudo", "podman", "ps", "--format", "\"{{.Names}} {{.Names}}\"", "|", "head", "-n", "1", "|", "awk", "'{print $1}'"}, nil)
+			containerName, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "\"{{.Names}} {{.Names}}\"", "|", "head", "-n", "1", "|", "awk", "'{print $1}'"}, nil)
 			containerNameString := strings.Trim(containerName.String(), "\n")
 			Expect(err).ToNot(HaveOccurred())
 
-			stdout, err = harness.VM().RunSSH([]string{"sudo", "podman", "exec", containerNameString, "printenv"}, nil)
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "exec", containerNameString, "printenv"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("SIMPLE"))
 
@@ -155,7 +155,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check all the containers are deleted")
-			stdout, err = harness.VM().RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(ZeroContainers))
 		})
