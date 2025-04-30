@@ -166,6 +166,13 @@ const (
 	FileOperationUpdated FileOperation = "updated"
 )
 
+// Defines values for ImagePullPolicy.
+const (
+	PullAlways       ImagePullPolicy = "Always"
+	PullIfNotPresent ImagePullPolicy = "IfNotPresent"
+	PullNever        ImagePullPolicy = "Never"
+)
+
 // Defines values for MatchExpressionOperator.
 const (
 	DoesNotExist MatchExpressionOperator = "DoesNotExist"
@@ -270,6 +277,28 @@ type ApplicationProviderSpec struct {
 
 // ApplicationStatusType Status of a single application on the device.
 type ApplicationStatusType string
+
+// ApplicationVolume defines model for ApplicationVolume.
+type ApplicationVolume struct {
+	// Name Unique name of the volume used within the application.
+	Name  string `json:"name"`
+	union json.RawMessage
+}
+
+// ApplicationVolumeProviderSpec defines model for ApplicationVolumeProviderSpec.
+type ApplicationVolumeProviderSpec struct {
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+}
+
+// ApplicationVolumeStatus Status of a volume used by an application.
+type ApplicationVolumeStatus struct {
+	// Name Name of the volume.
+	Name string `json:"name"`
+
+	// Reference Reference to the deployed OCI-compliant image or artifact backing the volume.
+	Reference string `json:"reference"`
+}
 
 // ApplicationsSummaryStatusType Status of all applications on the device.
 type ApplicationsSummaryStatusType string
@@ -462,6 +491,9 @@ type DeviceApplicationStatus struct {
 
 	// Status Status of a single application on the device.
 	Status ApplicationStatusType `json:"status"`
+
+	// Volumes Status of volumes used by this application.
+	Volumes *[]ApplicationVolumeStatus `json:"volumes,omitempty"`
 }
 
 // DeviceApplicationsSummaryStatus A summary of the health of applications on the device.
@@ -1167,12 +1199,36 @@ type HttpRepoSpec struct {
 type ImageApplicationProviderSpec struct {
 	// Image Reference to the container image for the application package.
 	Image string `json:"image"`
+
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+}
+
+// ImagePullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
+type ImagePullPolicy string
+
+// ImageVolumeProviderSpec defines model for ImageVolumeProviderSpec.
+type ImageVolumeProviderSpec struct {
+	// Image Describes the source of an OCI-compliant image or artifact.
+	Image ImageVolumeSource `json:"image"`
+}
+
+// ImageVolumeSource Describes the source of an OCI-compliant image or artifact.
+type ImageVolumeSource struct {
+	// PullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
+	PullPolicy *ImagePullPolicy `json:"pullPolicy,omitempty"`
+
+	// Reference Reference to an OCI-compliant image or artifact in a registry. This may be a container image or another type of OCI artifact, as long as it conforms to the OCI image specification.
+	Reference string `json:"reference"`
 }
 
 // InlineApplicationProviderSpec defines model for InlineApplicationProviderSpec.
 type InlineApplicationProviderSpec struct {
 	// Inline A list of application content.
 	Inline []ApplicationContent `json:"inline"`
+
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
@@ -2118,6 +2174,75 @@ func (t *ApplicationProviderSpec) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return fmt.Errorf("error reading 'envVars': %w", err)
 		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	return err
+}
+
+// AsImageVolumeProviderSpec returns the union data inside the ApplicationVolume as a ImageVolumeProviderSpec
+func (t ApplicationVolume) AsImageVolumeProviderSpec() (ImageVolumeProviderSpec, error) {
+	var body ImageVolumeProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageVolumeProviderSpec overwrites any union data inside the ApplicationVolume as the provided ImageVolumeProviderSpec
+func (t *ApplicationVolume) FromImageVolumeProviderSpec(v ImageVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageVolumeProviderSpec performs a merge with any union data inside the ApplicationVolume, using the provided ImageVolumeProviderSpec
+func (t *ApplicationVolume) MergeImageVolumeProviderSpec(v ImageVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationVolume) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["name"], err = json.Marshal(t.Name)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'name': %w", err)
+	}
+
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationVolume) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
 	}
 
 	if raw, found := object["name"]; found {

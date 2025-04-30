@@ -795,57 +795,98 @@ func ValidateApplicationContent(content []byte, appType AppType) []error {
 
 func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
-	seenName := make(map[string]struct{})
+	seenAppNames := make(map[string]struct{})
+
 	for _, app := range apps {
+		seenVolumeNames := make(map[string]struct{})
 		providerType, err := validateAppProviderType(app)
 		if err != nil {
 			allErrs = append(allErrs, err)
+			continue
 		}
+
 		appName, err := ensureAppName(app, providerType)
 		if err != nil {
 			allErrs = append(allErrs, err)
+			continue
 		}
 
-		// ensure uniqueness of application name
-		if _, exists := seenName[appName]; exists {
+		if _, exists := seenAppNames[appName]; exists {
 			allErrs = append(allErrs, fmt.Errorf("duplicate application name: %s", appName))
-		} else {
-			seenName[appName] = struct{}{}
+			continue
+		}
+		seenAppNames[appName] = struct{}{}
+
+		var volumes *[]ApplicationVolume
+		switch providerType {
+		case ImageApplicationProviderType:
+			provider, err := app.AsImageApplicationProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid image application provider: %w", err))
+				continue
+			}
+			if provider.Image == "" && app.Name == nil {
+				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
+			}
+			allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName))...)
+			volumes = provider.Volumes
+
+		case InlineApplicationProviderType:
+			provider, err := app.AsInlineApplicationProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid inline application provider: %w", err))
+				continue
+			}
+			if app.AppType == nil {
+				allErrs = append(allErrs, fmt.Errorf("inline application type cannot be empty"))
+			}
+			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
+			volumes = provider.Volumes
+
+		default:
+			allErrs = append(allErrs, fmt.Errorf("no validations implemented for application provider type: %s", providerType))
+			continue
 		}
 
-		allErrs = append(allErrs, validateAppProvider(app, providerType, fleetTemplate)...)
 		allErrs = append(allErrs, app.Validate()...)
+
+		if volumes != nil {
+			for i, vol := range *volumes {
+				path := fmt.Sprintf("spec.applications[%s].volumes[%d]", appName, i)
+				if _, exists := seenVolumeNames[vol.Name]; exists {
+					allErrs = append(allErrs, fmt.Errorf("duplicate volume name for application: %s", vol.Name))
+					continue
+				}
+				seenVolumeNames[vol.Name] = struct{}{}
+
+				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
+				allErrs = append(allErrs, validateVolume(vol, path)...)
+			}
+		}
 	}
+
 	return allErrs
 }
 
-func validateAppProvider(app ApplicationProviderSpec, appType ApplicationProviderType, fleetTemplate bool) []error {
+func validateVolume(vol ApplicationVolume, path string) []error {
 	var errs []error
-	switch appType {
-	case ImageApplicationProviderType:
-		provider, err := app.AsImageApplicationProviderSpec()
+
+	providerType, err := vol.Type()
+	if err != nil {
+		return []error{fmt.Errorf("invalid application volume provider: %w", err)}
+	}
+
+	switch providerType {
+	case ImageApplicationVolumeProviderType:
+		imgProvider, err := vol.AsImageVolumeProviderSpec()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("invalid image application provider: %w", err))
-			return errs
+			errs = append(errs, fmt.Errorf("invalid image application volume provider: %w", err))
+		} else {
+			errs = append(errs, validation.ValidateOciImageReference(&imgProvider.Image.Reference, path+".image.reference")...)
 		}
 
-		if provider.Image == "" && app.Name == nil {
-			errs = append(errs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
-		}
-		errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
-	case InlineApplicationProviderType:
-		provider, err := app.AsInlineApplicationProviderSpec()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("invalid inline application provider: %w", err))
-			return errs
-		}
-		if app.AppType == nil {
-			errs = append(errs, fmt.Errorf("inline application type cannot be empty"))
-		}
-
-		errs = append(errs, provider.Validate(app.AppType, fleetTemplate)...)
 	default:
-		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
+		errs = append(errs, fmt.Errorf("unknown application volume provider type: %s", providerType))
 	}
 
 	return errs
