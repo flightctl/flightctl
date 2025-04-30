@@ -17,6 +17,8 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-worker
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/worker/flightctl-worker-config.yaml") . | sha256sum }}
     spec:
       serviceAccountName: flightctl-worker
       containers:

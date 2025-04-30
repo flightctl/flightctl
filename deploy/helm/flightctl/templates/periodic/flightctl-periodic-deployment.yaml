@@ -17,6 +17,8 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-periodic
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/periodic/flightctl-periodic-config.yaml") . | sha256sum }}
     spec:
       containers:
         - name: periodic

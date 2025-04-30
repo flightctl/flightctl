@@ -6,6 +6,7 @@ metadata:
     flightctl.service: flightctl-api
   name: flightctl-api
   namespace: {{ .Release.Namespace }}
+  
 spec:
   replicas: 1
   selector:
@@ -17,6 +18,8 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-api
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/api/flightctl-api-config.yaml") . | sha256sum }}
     spec:
       serviceAccountName: flightctl-api
       containers:
