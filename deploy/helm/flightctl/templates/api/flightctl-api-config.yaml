@@ -31,7 +31,11 @@ data:
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
         {{- end }}
+        {{- if .Values.ui.baseURL }}
+        baseUIUrl: {{ .Values.ui.baseURL }}
+        {{- else }}
         baseUIUrl: {{ include "flightctl.getUIUrl" . }}
+        {{- end }}
         altNames:
           - api.{{ include "flightctl.getBaseDomain" . }}
           - agent-api.{{ include "flightctl.getBaseDomain" . }}
