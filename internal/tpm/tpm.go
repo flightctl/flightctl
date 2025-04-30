@@ -17,7 +17,7 @@ import (
 
 const (
 	MinNonceLength     = 8
-	TpmSystemPath      = "/dev/tpm/tpm0"
+	TpmSystemPath      = "/dev/tpm0"
 	TpmVersionInfoPath = "/sys/class/tpm/tpm0/tpm_version_major"
 )
 
