@@ -60,10 +60,8 @@ spec:
               protocol: TCP
 
           volumeMounts:
-            {{- if ne $.Values.global.exposeServicesMethod "custom" }}
             - mountPath: /root/.flightctl/
               name: flightctl-api-certs
-            {{- end }}
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-api-config
               subPath: config.yaml
@@ -76,11 +74,9 @@ spec:
 
       restartPolicy: Always
       volumes:
-        {{- if ne $.Values.global.exposeServicesMethod "custom" }}
         - name: flightctl-api-certs
           persistentVolumeClaim:
             claimName: flightctl-api-certs
-        {{- end }}
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
