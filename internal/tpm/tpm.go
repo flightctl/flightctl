@@ -17,7 +17,7 @@ import (
 
 const (
 	MinNonceLength     = 8
-	TpmSystemPath      = "/dev/tpm/tpm0"
+	TpmSystemPath      = "/dev/tpm0"
 	TpmVersionInfoPath = "/sys/class/tpm/tpm0/tpm_version_major"
 )
 
@@ -65,10 +65,14 @@ func OpenTPMSimulator() (*TPM, error) {
 	return &TPM{channel: simulator}, nil
 }
 
-func (t *TPM) Close() {
-	if t != nil {
-		t.channel.Close()
+func (t *TPM) Close() error {
+	if t == nil {
+		return nil
 	}
+	if t.channel == nil {
+		return nil
+	}
+	return t.channel.Close()
 }
 
 func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
