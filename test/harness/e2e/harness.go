@@ -83,10 +83,9 @@ func NewTestHarness() *Harness {
 		Context:   ctx,
 		ctxCancel: cancel,
 		startTime: startTime,
-		VM: testVM,
+		VM:        testVM,
 	}
 }
-
 
 func (h *Harness) AddVM(vmParams vm.TestVM) vm.TestVMInterface {
 	testVM, err := vm.NewVM(vmParams)
@@ -947,7 +946,7 @@ func (h Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Devic
 		if annotations == nil {
 			continue
 		}
-		if _, ok := (*annotations)["fleet-controller/selectedForRollout"]; ok { 
+		if _, ok := (*annotations)["fleet-controller/selectedForRollout"]; ok {
 			result = append(result, &device)
 		}
 	}
@@ -1049,3 +1048,59 @@ func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error)
 	return v1alpha1.Condition{}, fmt.Errorf("fleet rollout condition not found")
 }
 
+func (h *Harness) SimulateNetworkFailure() error {
+	registryIP := h.RegistryEndpoint()
+
+	blockCommands := [][]string{
+		// Block traffic to the registry IP on common Docker registry ports
+		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "443", "-j", "DROP"},
+		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "80", "-j", "DROP"},
+		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "5000", "-j", "DROP"},
+	}
+
+	for _, cmd := range blockCommands {
+		stdout, err := h.VMs[0].RunSSH(cmd, nil)
+		if err != nil {
+			return fmt.Errorf("failed to add iptables rule %v: %v, stdout: %s", cmd, err, stdout)
+		}
+	}
+
+	stdout, err := h.VMs[0].RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to list iptables rules: %v", err)
+	} else {
+		logrus.Debugf("Current iptables rules:\n%s", stdout.String())
+	}
+
+	return nil
+}
+
+func (h *Harness) FixNetworkFailure() error {
+	registryIP := h.RegistryEndpoint()
+
+	unblockCommands := [][]string{
+		// Unblock traffic to the registry IP on common Docker registry ports
+		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "443", "-j", "DROP"},
+		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "80", "-j", "DROP"},
+		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "5000", "-j", "DROP"},
+	}
+
+	for _, cmd := range unblockCommands {
+		stdout, err := h.VMs[0].RunSSH(cmd, nil)
+		if err != nil {
+			return fmt.Errorf("failed to remove iptables rule %v: %v, stdout: %s", cmd, err, stdout)
+		}
+	}
+
+	// Clear any remaining DNS cache
+	_, _ = h.VMs[0].RunSSH([]string{"sudo", "systemd-resolve", "--flush-caches"}, nil)
+
+	stdout, err := h.VMs[0].RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to list iptables rules: %v", err)
+	} else {
+		logrus.Debugf("Current iptables rules after recovery:\n%s", stdout.String())
+	}
+
+	return nil
+}

@@ -21,7 +21,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 	BeforeEach(func() {
 		harness = e2e.NewTestHarness()
-		err := harness.VM().RunAndWaitForSSH()
+		err := harness.VM.RunAndWaitForSSH()
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -35,15 +35,15 @@ var _ = Describe("VM Agent behavior", func() {
 		It("Verify VM agent", Label("80455"), func() {
 			By("should print QR output to console")
 			// Wait for the top-most part of the QR output to appear
-			Eventually(harness.VM().GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
+			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
 
 			fmt.Println("============ Console output ============")
-			lines := strings.Split(harness.VM().GetConsoleOutput(), "\n")
+			lines := strings.Split(harness.VM.GetConsoleOutput(), "\n")
 			fmt.Println(strings.Join(lines[len(lines)-20:], "\n"))
 			fmt.Println("========================================")
 
 			By("should have flightctl-agent running")
-			stdout, err := harness.VM().RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+			stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 		})
@@ -103,7 +103,7 @@ var _ = Describe("VM Agent behavior", func() {
 				}, TIMEOUT)
 
 			// The device should have the online config.
-			stdout, err := harness.VM().RunSSH([]string{"cat", "/etc/motd"}, nil)
+			stdout, err := harness.VM.RunSSH([]string{"cat", "/etc/motd"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("This system is managed by flightctl."))
 
@@ -204,7 +204,7 @@ var _ = Describe("VM Agent behavior", func() {
 			By("should report 'Unknown' after the device vm is powered-off")
 
 			// Shutdown the vm.
-			err = harness.VM().Shutdown()
+			err = harness.VM.Shutdown()
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
