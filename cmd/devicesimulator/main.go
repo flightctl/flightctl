@@ -39,10 +39,6 @@ const (
 	cliVersionTitle = "flightctl simulator version"
 )
 
-var (
-	outputTypes = []string{jsonFormat, yamlFormat}
-)
-
 type simulatorConfig struct {
 	configFile         string
 	dataDir            string
