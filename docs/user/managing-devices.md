@@ -667,6 +667,8 @@ To disconnect, enter "exit" on the console. To force-disconnect, press `<ctrl>+b
 
 Decommissioning a device is the proper way to unenroll it and permanently remove it from Flight Control management. When a user requests the decommissioning of a device, the Flight Control service signals to the Flight Control agent to run a decommissioning process. This process includes erasing the agent's management certificate and key and with it the device's Flight Control identity. This is an action that cannot be undone. Decommissioning should be performed before deleting a device.
 
+Note: the `Unenroll` decommissioning target (currently the only one supported) will result in the device rebooting, creating a new identity and keys, and attempting to re-enroll. If you would like the device to re-enroll with a different management instance, update the config file first with new values for `enrollment-service.service.server` and `enrollment-service.enrollment-ui-endpoint` before decommissioning.
+
 To decommission a device:
 
 ```console
