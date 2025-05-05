@@ -49,7 +49,7 @@ type manager struct {
 	log          *log.PrefixLogger
 }
 
-func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
 	bootcInfo, err := m.client.Status(ctx)
 	if err != nil {
 		return err

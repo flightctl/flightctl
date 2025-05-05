@@ -141,7 +141,7 @@ func (m *ResourceManager) ResetAlertDefaults() error {
 }
 
 // Status returns the device status based on the resource monitors and for the device summary.
-func (m *ResourceManager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func (m *ResourceManager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
 	alerts := m.Alerts()
 
 	hasCriticalOrErrorResource := false

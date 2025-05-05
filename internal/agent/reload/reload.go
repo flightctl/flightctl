@@ -23,11 +23,10 @@ type Manager interface {
 }
 
 // NewManager creates a new reload manager.
-func NewManager(baseConfigFile, configDir string, log *log.PrefixLogger) Manager {
+func NewManager(configFile string, log *log.PrefixLogger) Manager {
 	return &manager{
-		log:            log,
-		configDir:      configDir,
-		baseConfigFile: baseConfigFile,
+		log:        log,
+		configFile: configFile,
 	}
 }
 
@@ -35,9 +34,8 @@ type manager struct {
 	mu        sync.Mutex
 	callbacks []Callback
 
-	baseConfigFile string
-	configDir      string
-	log            *log.PrefixLogger
+	configFile string
+	log        *log.PrefixLogger
 }
 
 func (m *manager) Run(ctx context.Context) {
@@ -62,7 +60,7 @@ func (m *manager) Reload(ctx context.Context) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, reloadTimeout)
 	defer cancel()
 
-	cfg, err := config.Load(m.baseConfigFile, m.configDir)
+	cfg, err := config.Load(m.configFile)
 	if err != nil {
 		m.log.Errorf("failed to load config: %v", err)
 		return

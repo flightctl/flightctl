@@ -260,12 +260,12 @@ func (cfg *Config) validateSyncIntervals() error {
 	return nil
 }
 
-func (cfg *Config) LoadWithOverrides(baseFile, confDir string) error {
-	if err := cfg.ParseConfigFile(baseFile); err != nil {
+func (cfg *Config) LoadWithOverrides(configFile string) error {
+	if err := cfg.ParseConfigFile(configFile); err != nil {
 		return err
 	}
 
-	confSubdir := filepath.Join(confDir, "conf.d")
+	confSubdir := filepath.Join(filepath.Dir(configFile), "conf.d")
 	entries, err := cfg.readWriter.ReadDir(confSubdir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -291,7 +291,10 @@ func (cfg *Config) LoadWithOverrides(baseFile, confDir string) error {
 		mergeConfigs(cfg, overrideCfg)
 	}
 
-	return cfg.Complete()
+	if err := cfg.Complete(); err != nil {
+		return err
+	}
+	return cfg.Validate()
 }
 
 func mergeConfigs(base, override *Config) {
@@ -309,9 +312,9 @@ func mergeConfigs(base, override *Config) {
 	}
 }
 
-func Load(configFile, configDir string) (*Config, error) {
+func Load(configFile string) (*Config, error) {
 	cfg := NewDefault()
-	if err := cfg.LoadWithOverrides(configFile, configDir); err != nil {
+	if err := cfg.LoadWithOverrides(configFile); err != nil {
 		return nil, err
 	}
 	return cfg, nil
