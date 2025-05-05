@@ -85,9 +85,10 @@ postgresql:
   port: 5432
   dbName: "flightctl"
   auth:
+    existingSecret: "flightctl-db-secret"
     username: demouser
     secretKeys:
-      adminPasswordKey: postgres-password
+      adminPasswordKey: masterPassword
       userPasswordKey: password
 
   maxConnections: 200
