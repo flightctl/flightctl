@@ -6,12 +6,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -24,9 +30,11 @@ type manager struct {
 	bootTime   string
 	isRebooted bool
 
-	exec              executer.Executer
-	readWriter        fileio.ReadWriter
-	dataDir           string
+	exec       executer.Executer
+	readWriter fileio.ReadWriter
+	dataDir    string
+
+	mu                sync.Mutex
 	infoKeys          []string
 	customKeys        []string
 	collectionTimeout time.Duration
@@ -97,6 +105,35 @@ func (m *manager) Initialize(ctx context.Context) (err error) {
 	return nil
 }
 
+// ReloadConfig reloads the system info from the agent config.
+func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.log.Info("Reloading system info config")
+
+	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
+		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
+		m.infoKeys = cfg.SystemInfo
+	}
+
+	if !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom) {
+		m.log.Infof("Updating custom system info keys: %v -> %v", m.customKeys, cfg.SystemInfoCustom)
+		m.customKeys = cfg.SystemInfoCustom
+	}
+
+	timeout := time.Duration(cfg.SystemInfoTimeout)
+	if m.collectionTimeout != timeout {
+		m.log.Infof("Updating system info collection timeout: %v -> %v", m.collectionTimeout, timeout)
+		m.collectionTimeout = timeout
+	}
+
+	return nil
+}
+
 func (m *manager) IsRebooted() bool {
 	return m.isRebooted
 }
@@ -109,28 +146,67 @@ func (m *manager) BootTime() string {
 	return m.bootTime
 }
 
-func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
-	if m.collected {
+func (m *manager) Status(ctx context.Context, deviceStatus *v1alpha1.DeviceStatus, opts ...status.CollectorOpt) error {
+	collectorOpts := status.CollectorOpts{}
+	for _, opt := range opts {
+		opt(&collectorOpts)
+	}
+	m.mu.Lock()
+
+	if m.collected && !collectorOpts.Force {
+		m.mu.Unlock()
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, m.collectionTimeout)
+
+	// set collected to true even if there is an error this is to prevent
+	// collecting system info multiple times
+	m.collected = true
+
+	// reduce scope of the mutex
+	timeout := m.collectionTimeout
+	infoKeys := slices.Clone(m.infoKeys)
+	customKeys := slices.Clone(m.customKeys)
+	bootID := m.bootID
+	collectors := make(map[string]CollectorFn, len(m.collectors))
+	for k, v := range m.collectors {
+		collectors[k] = v
+	}
+	dataDir := m.dataDir
+	m.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	status.SystemInfo = collectDeviceSystemInfo(
+	systemInfo, err := collectDeviceSystemInfo(
 		ctx,
 		m.log,
 		m.exec,
 		m.readWriter,
-		m.infoKeys,
-		m.customKeys,
-		m.bootID,
-		m.collectors,
-		filepath.Join(m.dataDir, HardwareMapFileName),
+		infoKeys,
+		customKeys,
+		bootID,
+		collectors,
+		filepath.Join(dataDir, HardwareMapFileName),
 	)
 
-	m.collected = true
+	if err != nil {
+		deviceStatus.SystemInfo = m.defaultSystemInfo()
+		return err
+	}
+	deviceStatus.SystemInfo = systemInfo
 
 	return nil
+}
+
+// defaultSystemInfo returns the default system info.
+func (m *manager) defaultSystemInfo() v1alpha1.DeviceSystemInfo {
+	return v1alpha1.DeviceSystemInfo{
+		BootID:               m.bootID,
+		AgentVersion:         version.Get().String(),
+		OperatingSystem:      runtime.GOOS,
+		Architecture:         runtime.GOARCH,
+		AdditionalProperties: make(map[string]string),
+	}
 }
 
 // RegisterCollector allows the caller to register a collector function for system information.
@@ -141,10 +217,6 @@ func (m *manager) RegisterCollector(ctx context.Context, key string, fn Collecto
 		return
 	}
 	m.collectors[key] = fn
-}
-
-func (m *manager) ReloadStatus(ctx context.Context) error {
-	return nil
 }
 
 // collectDeviceSystemInfo collects the system information from the device and returns it as a DeviceSystemInfo object.
@@ -158,11 +230,12 @@ func collectDeviceSystemInfo(
 	bootID string,
 	collectors map[string]CollectorFn,
 	hardwareMapPath string,
-) v1alpha1.DeviceSystemInfo {
+) (v1alpha1.DeviceSystemInfo, error) {
 	agentVersion := version.Get()
 	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath)
 	if err != nil {
-		log.Errorf("failed to collect system info: %v", err)
+		log.Errorf("Failed to collect system info: %v", err)
+		return v1alpha1.DeviceSystemInfo{}, err
 	}
 
 	systemInfoMap := getSystemInfoMap(ctx, log, info, infoKeys, collectors)
@@ -177,7 +250,7 @@ func collectDeviceSystemInfo(
 	if len(info.Custom) > 0 {
 		s.CustomInfo = lo.ToPtr(v1alpha1.CustomDeviceInfo(info.Custom))
 	}
-	return s
+	return s, nil
 }
 
 // getBoot returns the boot status from disk.
