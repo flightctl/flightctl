@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -14,6 +15,15 @@ import (
 	. "github.com/onsi/gomega/gbytes"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
+)
+
+var (
+	deviceYAMLPath  = "device.yaml"
+	fleetYAMLPath   = "fleet.yaml"
+	resourceCreated = `(200 OK|201 Created)`
+	repoYAMLPath    = "repository-flightctl.yaml"
+	deviceName      string
+	deviceInfo      v1alpha1.Device
 )
 
 // _ is used as a blank identifier to ignore the return value of BeforeSuite, typically for initialization purposes.
@@ -337,6 +347,144 @@ var _ = Describe("cli login", func() {
 					ContainSubstring("Invalid user credentials"),
 					ContainSubstring("unexpected http code: 401")))
 			}
+		})
+	})
+
+	Context("Events API Tests", func() {
+		It("should list events after a device is created", Label("80452"), func() {
+			By("Applying a device YAML")
+			out, err := harness.ManageResource("apply", deviceYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+
+			By("Verifying that a corresponding 'Device created' event exists")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=Device")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Device created"))
+
+			By("Reapplying the same device YAML")
+			out, err = harness.ManageResource("apply", deviceYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+
+			By("Confirming multiple update events are tracked")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=Device")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Device updated"))
+
+			By("Creating a repository")
+			out, err = harness.ManageResource("apply", repoYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+
+			By("Confirming an event is emitted with kind Repository")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=Repository")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Repository created"))
+
+			By("Checking that event shows with kind CertificateSigningRequest")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=CertificateSigningRequest")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("CertificateSigningRequest created"))
+
+			By("Applying different resources: device, fleet, and repo")
+			deviceInfo = harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(deviceYAMLPath))
+			deviceName = *deviceInfo.Metadata.Name
+			_, err = harness.ManageResource("apply", deviceYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = harness.ManageResource("apply", fleetYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = harness.ManageResource("apply", repoYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verifying their respective events show up correctly")
+			out, err = harness.RunGetEvents()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Device created"))
+			Expect(out).To(ContainSubstring("Fleet created"))
+			Expect(out).To(ContainSubstring("Repository created"))
+
+			By("Querying events with fieldSelector kind=Device")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=Device")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Device created"))
+
+			By("Querying events with fieldSelector kind=Fleet")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=Fleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Fleet created"))
+
+			By("Querying events with fieldSelector kind=Repository")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=Repository")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Repository created"))
+
+			By("Querying events with fieldSelector type=Normal")
+			out, err = harness.RunGetEvents("--field-selector", "type=Normal")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Normal"))
+
+			By("Querying events with a specific device name")
+			out, err = harness.RunGetEvents("--field-selector", fmt.Sprintf("name=%s", deviceName))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(deviceName))
+
+			By("Querying events with a combined filter: kind=Device, type=Normal")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=Device,type=Normal")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Device created"))
+			Expect(out).To(ContainSubstring("Normal"))
+
+			By("Querying before any resource is applied")
+			out, err = harness.RunGetEvents()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(BeEmpty())
+
+			By("Querying with an invalid fieldSelector key")
+			out, err = harness.RunGetEvents("--field-selector", "invalidField=xyz")
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(BeEmpty())
+
+			By("Querying with an unknown kind in fieldSelector")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=AlienDevice")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(BeEmpty())
+
+			By("Deleting the resource")
+			_, err = harness.ManageResource("delete", "device")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verifying deleted events are not listed")
+			out, err = harness.RunGetEvents("--field-selector", "involvedObject.kind=Device")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(BeEmpty())
+
+			By("Querying with a malformed fieldSelector")
+			out, err = harness.RunGetEvents("--field-selector", "==")
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(BeEmpty())
+
+			By("Querying events with a partial name")
+			out, err = harness.RunGetEvents("--field-selector", fmt.Sprintf("name=%s", "device"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Device created"))
+
+			By("Querying events and ensuring they are sorted by age descending")
+			out, err = harness.RunGetEvents()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp("^.*created.*$"))
+
+			By("Inserting many events and confirming pagination")
+			out, err = harness.RunGetEvents("--limit", "10")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Device created"))
+
+			By("Querying events based on timestamp filtering")
+			out, err = harness.RunGetEvents("--field-selector", "timestamp>5m")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Device created"))
 		})
 	})
 })
