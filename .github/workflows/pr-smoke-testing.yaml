@@ -72,7 +72,7 @@ jobs:
 
       - name: Simulator run
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+        run: bin/devicesimulator config=bin/agent/etc/flightctl/config.yaml count=1 stop-after=1m
 
       - name: Collect and Upload Logs
         if: always() && steps.filter.outputs.notdocs == 'true'
