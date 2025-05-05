@@ -22,10 +22,19 @@ type Manager interface {
 	Register(Callback)
 }
 
+// NewManager creates a new reload manager.
+func NewManager(baseConfigFile, configDir string, log *log.PrefixLogger) Manager {
+	return &manager{
+		log:            log,
+		configDir:      configDir,
+		baseConfigFile: baseConfigFile,
+	}
+}
+
 type manager struct {
-	mu             sync.Mutex
-	reloadMu       sync.Mutex
-	callbacks      []Callback
+	mu        sync.Mutex
+	callbacks []Callback
+
 	baseConfigFile string
 	configDir      string
 	log            *log.PrefixLogger
@@ -38,6 +47,7 @@ func (m *manager) Run(ctx context.Context) {
 	for {
 		select {
 		case <-signals:
+			m.log.Info("Agent received SIGHUP signal")
 			m.Reload(ctx)
 		case <-ctx.Done():
 			return
@@ -46,20 +56,23 @@ func (m *manager) Run(ctx context.Context) {
 }
 
 func (m *manager) Reload(ctx context.Context) {
-	m.log.Info("reloading config")
-	defer m.log.Info("config reloaded")
-	m.reloadMu.Lock()
-	defer m.reloadMu.Unlock()
+	m.log.Info("Reloading agent config")
+	defer m.log.Info("Agent config reloaded")
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, reloadTimeout)
 	defer cancel()
 
-	r := newReader(m.baseConfigFile, m.configDir)
-	cfg, err := r.readConfig()
+	cfg, err := config.Load(m.baseConfigFile, m.configDir)
 	if err != nil {
-		m.log.Errorf("failed to read config: %v", err)
+		m.log.Errorf("failed to load config: %v", err)
 		return
 	}
-	registered := m.callbacks
+
+	m.mu.Lock()
+	registered := make([]Callback, len(m.callbacks))
+	copy(registered, m.callbacks)
+	m.mu.Unlock()
+
 	for _, f := range registered {
 		if err := f(timeoutCtx, cfg); err != nil {
 			m.log.Errorf("Failed to reload device: %v", err)
@@ -71,12 +84,4 @@ func (m *manager) Register(c Callback) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callbacks = append(m.callbacks, c)
-}
-
-func New(baseConfigFile, configDir string, log *log.PrefixLogger) Manager {
-	return &manager{
-		log:            log,
-		configDir:      configDir,
-		baseConfigFile: baseConfigFile,
-	}
 }

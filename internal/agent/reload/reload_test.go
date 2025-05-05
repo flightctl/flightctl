@@ -30,7 +30,7 @@ func runTest(t *testing.T, dir, expected string) {
 	defer mu.Unlock()
 	log := log.NewPrefixLogger("test")
 	configFile := filepath.Join(dir, "config.yaml")
-	reloader := New(configFile, dir, log)
+	reloader := NewManager(configFile, dir, log)
 	var (
 		called   atomic.Bool
 		received atomic.Pointer[string]
@@ -51,8 +51,8 @@ func runTest(t *testing.T, dir, expected string) {
 
 func TestReloader(t *testing.T) {
 	const testDir = "testdata"
-	t.Run("No level definition", func(t *testing.T) {
-		runTest(t, filepath.Join(testDir, "t1"), "")
+	t.Run("No level definition fallback to default", func(t *testing.T) {
+		runTest(t, filepath.Join(testDir, "t1"), "info")
 	})
 	t.Run("Only top level definition", func(t *testing.T) {
 		runTest(t, filepath.Join(testDir, "t2"), "warning")
