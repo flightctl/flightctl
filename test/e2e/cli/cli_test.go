@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -14,6 +15,30 @@ import (
 	. "github.com/onsi/gomega/gbytes"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
+)
+
+var (
+	applyAction    = "apply"
+	deviceYAMLPath = "device.yaml"
+	deviceResource = "Device"
+	repoResource   = "Repository"
+	erResource     = "EnrollmentRequest"
+	fleetResource  = "Fleet"
+	forceFlag      = "-f"
+	eventCreated   = "created"
+	eventDeleted   = "deleted"
+	eventUpdated   = "updated"
+	invalidSyntax  = "invalid syntax"
+	kind           = "involvedObject.kind"
+	fieldSelector  = "--field-selector"
+	fleetYAMLPath  = "fleet.yaml"
+	limit          = "--limit"
+	repoName       = "flightctl"
+	repoYAMLPath   = "repository-flightctl.yaml"
+	erYAMLPath     = "enrollmentrequest.yaml"
+
+	deviceName string
+	deviceInfo v1alpha1.Device
 )
 
 // _ is used as a blank identifier to ignore the return value of BeforeSuite, typically for initialization purposes.
@@ -359,7 +384,152 @@ var _ = Describe("cli login", func() {
 			}
 		})
 	})
+
+	Context("Events API Tests", func() {
+		It("should list events resource is created/updated/deleted", Label("80452"), func() {
+
+			By("Applying different resources: device, fleet, repo and enrollment request")
+			deviceInfo = harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(deviceYAMLPath))
+			deviceName = *deviceInfo.Metadata.Name
+			_, err := harness.ManageResource(applyAction, deviceYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = harness.ManageResource(applyAction, fleetYAMLPath)
+			fleet := harness.GetFleetByYaml(util.GetTestExamplesYamlPath(fleetYAMLPath))
+			fleetName := *fleet.Metadata.Name
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = harness.ManageResource(applyAction, repoYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			out, err := harness.CLI(applyAction, forceFlag, util.GetTestExamplesYamlPath(erYAMLPath))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			er := harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath(erYAMLPath))
+
+			By("Verifying their respective events show up correctly")
+			out, err = harness.RunGetEvents()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(formatResourceEvent(deviceResource, deviceName, eventCreated)))
+			Expect(out).To(ContainSubstring(formatResourceEvent(fleetResource, fleetName, eventCreated)))
+			Expect(out).To(ContainSubstring(formatResourceEvent(repoResource, repoName, eventCreated)))
+			Expect(out).To(ContainSubstring(formatResourceEvent(erResource, *er.Metadata.Name, eventCreated)))
+
+			By("Updates - Reapplying different resources: device, fleet, and repo")
+			deviceInfo = harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(deviceYAMLPath))
+			deviceName = *deviceInfo.Metadata.Name
+			_, err = harness.ManageResource(applyAction, deviceYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = harness.ManageResource(applyAction, fleetYAMLPath)
+			fleet = harness.GetFleetByYaml(util.GetTestExamplesYamlPath(fleetYAMLPath))
+			fleetName = *fleet.Metadata.Name
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = harness.ManageResource(applyAction, repoYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			out, err = harness.CLI(applyAction, forceFlag, util.GetTestExamplesYamlPath(erYAMLPath))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			er = harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath(erYAMLPath))
+
+			By("Updates - Verifying their respective events show up correctly")
+			out, err = harness.RunGetEvents()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(formatResourceEvent(deviceResource, deviceName, eventUpdated)))
+			Expect(out).To(ContainSubstring(formatResourceEvent(fleetResource, fleetName, eventUpdated)))
+			Expect(out).To(ContainSubstring(formatResourceEvent(repoResource, repoName, eventUpdated)))
+			Expect(out).To(ContainSubstring(formatResourceEvent(erResource, *er.Metadata.Name, eventUpdated)))
+
+			By("Querying events with fieldSelector kind=Device")
+			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, deviceResource))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(formatResourceEvent(deviceResource, deviceName, eventCreated)))
+
+			By("Querying events with fieldSelector kind=Fleet")
+			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, fleetResource))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(formatResourceEvent("Fleet", fleetName, eventCreated)))
+
+			By("Querying events with fieldSelector kind=Repository")
+			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, repoResource))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(formatResourceEvent(repoResource, repoName, eventCreated)))
+
+			By("Querying events with fieldSelector type=Normal")
+			out, err = harness.RunGetEvents(fieldSelector, "type=Normal")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("Normal"))
+
+			By("Querying events with a specific device name")
+			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("involvedObject.name=%s", deviceName))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(deviceName))
+
+			By("Querying events with a combined filter: kind=Device, type=Normal")
+			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s,type=Normal", kind, deviceResource))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(formatResourceEvent(deviceResource, deviceName, eventCreated)))
+			Expect(out).To(ContainSubstring("Normal"))
+
+			By("Querying with an invalid fieldSelector key")
+			out, err = harness.RunGetEvents(fieldSelector, "invalidField=xyz")
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("unable to resolve selector name"))
+
+			By("Querying with an unknown kind in fieldSelector")
+			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=AlienDevice", kind))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).ToNot(ContainSubstring("Normal"))
+
+			By("Deleting the resource")
+			_, err = harness.ManageResource("delete", fmt.Sprintf("device/%s", deviceName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verifying deleted events are listed")
+			out, err = harness.RunGetEvents(limit, "1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(eventDeleted))
+
+			By("Querying events with limit=1")
+			out, err = harness.RunGetEvents(limit, "1")
+			Expect(err).ToNot(HaveOccurred())
+			lines := strings.Split(strings.TrimSpace(out), "\n")
+			Expect(len(lines)).To(Equal(2)) // 1 header + 1 event
+
+			By("Running with no argument")
+			out, err = harness.RunGetEvents(limit)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("flag needs an argument"))
+
+			By("Running with empty string as argument")
+			out, err = harness.RunGetEvents(limit, "")
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring(invalidSyntax))
+
+			By("Running with negative number")
+			out, err = harness.RunGetEvents(limit, "-1")
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("must be greater than 0"))
+
+			By("Running with non-integer string")
+			out, err = harness.RunGetEvents(limit, "xyz")
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring(invalidSyntax))
+
+			By("Running with too many args")
+			out, err = harness.RunGetEvents(limit, "1", "2")
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("accepts 1 arg(s), received 2"))
+		})
+	})
 })
+
+// formatResourceEvent formats the event's message and returns it as a string
+func formatResourceEvent(resource, name, action string) string {
+	return fmt.Sprintf("%s %s %s successfully", resource, name, action)
+}
 
 // GetVersionByPrefix searches the output for a line starting with the given prefix
 // and returns the trimmed value following the prefix. Returns an empty string if not found.

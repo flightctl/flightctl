@@ -798,6 +798,13 @@ func (h Harness) RunGetDevices(args ...string) (string, error) {
 	return h.CLI(allArgs...)
 }
 
+// RunGetEvents executes "get events" CLI command with optional arguments.
+func (h Harness) RunGetEvents(args ...string) (string, error) {
+	// Starting with the base command to get events
+	allArgs := append([]string{"get", "events"}, args...)
+	return h.CLI(allArgs...)
+}
+
 // ManageResource performs an operation ("apply" or "delete") on a specified resource.
 func (h Harness) ManageResource(operation, resource string, args ...string) (string, error) {
 	switch operation {
