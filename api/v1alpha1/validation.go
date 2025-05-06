@@ -654,7 +654,7 @@ func (a ApplicationProviderSpec) Validate() []error {
 	// name must be 1–253 characters long, start with a letter or number, and contain no whitespace
 	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, validation.DNS1123MaxLength, validation.GenericNameRegexp, validation.Dns1123LabelFmt)...)
 	// envVars keys and values must be between 1 and 253 characters
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, validation.DNS1123MaxLength, nil, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, validation.DNS1123MaxLength, validation.EnvVarNameRegexp, nil, "")...)
 	return allErrs
 }
 
