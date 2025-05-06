@@ -13,6 +13,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	ceserver "github.com/flightctl/flightctl/internal/cloudevents/server"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
@@ -98,6 +99,12 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	}
 
 	grpcServer := s.grpcServer.PrepareGRPCService()
+
+	if s.cfg.CloudEventsEnabled {
+		s.log.Println("Registering device cloudevents gRPC service")
+		deviceCloudEventsService := ceserver.RegisterCloudEventsService(s.log, grpcServer, serviceHandler)
+		ceserver.NewDeviceController(s.log, s.store, deviceCloudEventsService).Run(ctx)
+	}
 
 	handler := grpcMuxHandlerFunc(grpcServer, httpAPIHandler, s.log)
 	srv := tlsmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)

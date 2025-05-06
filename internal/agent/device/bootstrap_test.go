@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
-	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -23,8 +22,8 @@ import (
 func TestInitialization(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
-	config := config.NewDefault()
-	config.Service.CertStore = tmpDir
+	defaultConfig := config.NewDefault()
+	defaultConfig.Service.CertStore = tmpDir
 
 	testCases := []struct {
 		name       string
@@ -149,7 +148,7 @@ func TestInitialization(t *testing.T) {
 				hookManager:             mockHookManager,
 				lifecycle:               mockLifecycleInitializer,
 				deviceReadWriter:        mockReadWriter,
-				managementServiceConfig: &baseclient.Config{},
+				managementServiceConfig: &config.ManagementService{},
 				systemInfoManager:       mockSystemInfoManager,
 				log:                     log.NewPrefixLogger("test"),
 			}

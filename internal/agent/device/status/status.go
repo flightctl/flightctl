@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
+
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -205,7 +209,18 @@ func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusF
 	}
 
 	// TODO: handle retries
-	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
+	if err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+		err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device)
+		if kerrors.IsNotFound(err) {
+			return false, nil
+		}
+
+		if err != nil {
+			return false, err
+		}
+
+		return true, nil
+	}); err != nil {
 		return nil, fmt.Errorf("failed to update device status: %w", err)
 	}
 

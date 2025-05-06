@@ -13,7 +13,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
-	baseclient "github.com/flightctl/flightctl/internal/client"
+	ceagent "github.com/flightctl/flightctl/internal/cloudevents/agent"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -35,7 +36,7 @@ type Bootstrap struct {
 
 	lifecycle lifecycle.Initializer
 
-	managementServiceConfig *baseclient.Config
+	managementServiceConfig *config.ManagementService
 	managementClient        client.Management
 
 	log *log.PrefixLogger
@@ -49,7 +50,7 @@ func NewBootstrap(
 	statusManager status.Manager,
 	hookManager hook.Manager,
 	lifecycleInitializer lifecycle.Initializer,
-	managementServiceConfig *baseclient.Config,
+	managementServiceConfig *config.ManagementService,
 	systemInfoManager systeminfo.Manager,
 	log *log.PrefixLogger,
 ) *Bootstrap {
@@ -85,7 +86,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	if err := b.setManagementClient(); err != nil {
+	if err := b.setManagementClient(ctx); err != nil {
 		return err
 	}
 
@@ -258,7 +259,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	return nil
 }
 
-func (b *Bootstrap) setManagementClient() error {
+func (b *Bootstrap) setManagementClient(ctx context.Context) error {
 	managementCertExists, err := b.deviceReadWriter.PathExists(b.managementServiceConfig.GetClientCertificatePath())
 	if err != nil {
 		return fmt.Errorf("generated cert: %q: %w", b.managementServiceConfig.GetClientCertificatePath(), err)
@@ -269,8 +270,21 @@ func (b *Bootstrap) setManagementClient() error {
 		return fmt.Errorf("management client certificate does not exist")
 	}
 
+	if b.managementServiceConfig.CloudEventsEnabled {
+		grpcManagementClient, err := ceagent.NewManagement(ctx, &b.managementServiceConfig.Config, b.deviceName, b.log)
+		if err != nil {
+			return err
+		}
+		b.managementClient = grpcManagementClient
+		// initialize the management client for spec and status managers
+		b.statusManager.SetClient(b.managementClient)
+		b.specManager.SetClient(b.managementClient)
+		b.log.Info("Management client (grpc) set")
+		return nil
+	}
+
 	// create the management client
-	managementHTTPClient, err := client.NewFromConfig(b.managementServiceConfig)
+	managementHTTPClient, err := client.NewFromConfig(&b.managementServiceConfig.Config)
 	if err != nil {
 		return fmt.Errorf("create management client: %w", err)
 	}
