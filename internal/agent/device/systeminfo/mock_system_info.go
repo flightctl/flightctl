@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -94,30 +95,21 @@ func (mr *MockManagerMockRecorder) RegisterCollector(ctx, name, fn any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterCollector", reflect.TypeOf((*MockManager)(nil).RegisterCollector), ctx, name, fn)
 }
 
-// ReloadStatus mocks base method.
-func (m *MockManager) ReloadStatus(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReloadStatus", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ReloadStatus indicates an expected call of ReloadStatus.
-func (mr *MockManagerMockRecorder) ReloadStatus(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReloadStatus", reflect.TypeOf((*MockManager)(nil).ReloadStatus), ctx)
-}
-
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Status", arg0, arg1)
+	varargs := []any{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Status", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Status indicates an expected call of Status.
-func (mr *MockManagerMockRecorder) Status(arg0, arg1 any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), arg0, arg1)
+	varargs := append([]any{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), varargs...)
 }

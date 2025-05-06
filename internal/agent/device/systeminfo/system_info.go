@@ -48,8 +48,6 @@ type Manager interface {
 	BootID() string
 	// BootTime returns the time the system was booted
 	BootTime() string
-	// ReloadStatus collects system info and sends a patch status to the management API
-	ReloadStatus(ctx context.Context) error
 	// RegisterCollector registers a system info collector
 	RegisterCollector(ctx context.Context, name string, fn CollectorFn)
 	status.Exporter
@@ -261,10 +259,6 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 		log.Debugf("System information collection took %s", time.Since(now))
 	}()
 
-	isContextError := func(err error) bool {
-		return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-	}
-
 	info := &Info{
 		CollectedAt: time.Now().Format(time.RFC3339),
 		Hardware:    HardwareFacts{},
@@ -288,7 +282,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 
 	out, err := exec.CommandContext(ctx, "uname", "-r").Output()
 	if err != nil {
-		if isContextError(err) {
+		if errors.IsContext(err) {
 			log.Warningf("Context canceled during kernel info collection: %v", err)
 			return info, err
 		}
@@ -300,7 +294,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	// distribution info
 	distroInfo, err := collectDistributionInfo(ctx, exec, reader)
 	if err != nil {
-		if isContextError(err) {
+		if errors.IsContext(err) {
 			log.Warningf("Context canceled during distribution info collection: %v", err)
 			return info, err
 		}
@@ -358,7 +352,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	}
 	bootTime, err := getBootTime(ctx, exec)
 	if err != nil {
-		if isContextError(err) {
+		if errors.IsContext(err) {
 			log.Warningf("Context canceled during boot time collection: %v", err)
 			return info, err
 		}
@@ -376,7 +370,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	// network info
 	netInfo, err := collectNetworkInfo(ctx, log, exec, reader)
 	if err != nil {
-		if isContextError(err) {
+		if errors.IsContext(err) {
 			log.Warningf("Context canceled during network info collection: %v", err)
 			return info, err
 		}
@@ -389,7 +383,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	if len(customKeys) > 0 {
 		customInfo, err := getCustomInfoMap(ctx, log, customKeys, reader, exec, opts...)
 		if err != nil {
-			if isContextError(err) {
+			if errors.IsContext(err) {
 				log.Warningf("Context canceled during custom info collection: %v", err)
 				return info, err
 			}
@@ -618,7 +612,7 @@ func getCustomInfoMap(ctx context.Context, log *log.PrefixLogger, keys []string,
 		val, err := getCustomInfoValue(ctx, key, reader, exec, entries)
 		if err != nil {
 			log.Warnf("Failed to get custom info for key %s: %v", key, err)
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if errors.IsContext(err) {
 				// only return ctx errors
 				return nil, err
 			}

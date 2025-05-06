@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -66,22 +65,16 @@ type agentCmd struct {
 
 func NewAgentCommand() *agentCmd {
 	a := &agentCmd{
-		log:    log.NewPrefixLogger(""),
-		config: config.NewDefault(),
+		log: log.NewPrefixLogger(""),
 	}
 
 	flag.StringVar(&a.configFile, "config", config.DefaultConfigFile, "Path to the agent's configuration file.")
 	flag.Parse()
 
-	a.config.ConfigDir = filepath.Dir(a.configFile)
-	if err := a.config.ParseConfigFile(a.configFile); err != nil {
-		a.log.Fatalf("Error parsing config: %v", err)
-	}
-	if err := a.config.Complete(); err != nil {
-		a.log.Fatalf("Error completing config: %v", err)
-	}
-	if err := a.config.Validate(); err != nil {
-		a.log.Fatalf("Error validating config: %v", err)
+	var err error
+	a.config, err = config.Load(a.configFile)
+	if err != nil {
+		a.log.Fatalf("Error loading config: %v", err)
 	}
 
 	a.log.Level(a.config.LogLevel)

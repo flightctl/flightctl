@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -402,7 +403,7 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 	return bootedOSImage, desired.Spec.Os.Image == osStatus.GetBootedImage(), nil
 }
 
-func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
 	status.Config.RenderedVersion = s.cache.getRenderedVersion(Current)
 	return nil
 }

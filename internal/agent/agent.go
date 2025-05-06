@@ -153,9 +153,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create shutdown manager
-	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.NewManager(a.log, gracefulShutdownTimeout, cancel)
 
-	reloadManager := reload.New(a.configFile, a.config.ConfigDir, a.log)
+	reloadManager := reload.NewManager(a.configFile, a.log)
 
 	policyManager := policy.NewManager(a.log)
 
@@ -303,8 +303,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	// register agent with shutdown manager
 	shutdownManager.Register("agent", agent.Stop)
 
-	// register log level reloader with reload manager
-	reloadManager.Register(agent.ReloadLogLevel)
+	// register reloader with reload manager
+	reloadManager.Register(agent.ReloadConfig)
+	reloadManager.Register(systemInfoManager.ReloadConfig)
+	reloadManager.Register(statusManager.ReloadCollect)
 
 	go shutdownManager.Run(ctx)
 	go reloadManager.Run(ctx)

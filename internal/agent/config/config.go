@@ -6,6 +6,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -256,4 +258,81 @@ func (cfg *Config) validateSyncIntervals() error {
 		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
 	}
 	return nil
+}
+
+func (cfg *Config) LoadWithOverrides(configFile string) error {
+	if err := cfg.ParseConfigFile(configFile); err != nil {
+		return err
+	}
+
+	confSubdir := filepath.Join(filepath.Dir(configFile), "conf.d")
+	entries, err := cfg.readWriter.ReadDir(confSubdir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg.Complete()
+		}
+		return err
+	}
+
+	re := regexp.MustCompile(`^.*\.ya?ml$`)
+	for _, entry := range entries {
+		if entry.IsDir() || !re.MatchString(entry.Name()) {
+			continue
+		}
+		overrideCfg := &Config{}
+		overridePath := filepath.Join(confSubdir, entry.Name())
+		contents, err := cfg.readWriter.ReadFile(overridePath)
+		if err != nil {
+			return fmt.Errorf("reading override config %s: %w", overridePath, err)
+		}
+		if err := yaml.Unmarshal(contents, overrideCfg); err != nil {
+			return fmt.Errorf("unmarshalling override config %s: %w", overridePath, err)
+		}
+		mergeConfigs(cfg, overrideCfg)
+	}
+
+	if err := cfg.Complete(); err != nil {
+		return err
+	}
+	return cfg.Validate()
+}
+
+func mergeConfigs(base, override *Config) {
+	// log
+	overrideIfNotEmpty(&base.LogLevel, override.LogLevel)
+	overrideIfNotEmpty(&base.LogPrefix, override.LogPrefix)
+
+	// system info
+	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
+	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
+	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+
+	for k, v := range override.DefaultLabels {
+		base.DefaultLabels[k] = v
+	}
+}
+
+func Load(configFile string) (*Config, error) {
+	cfg := NewDefault()
+	if err := cfg.LoadWithOverrides(configFile); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// overrideIfNotEmpty replaces dst with src only if src is not empty.
+func overrideIfNotEmpty[T any](dst *T, src T) {
+	var empty T
+	if !reflect.DeepEqual(empty, src) {
+		*dst = src
+	}
+}
+
+// overrideSliceIfNotNil replaces dst with src only if src is not nil.
+// This allows default values to remain when a field is omitted,
+// while supporting explicit empty lists (`system-info: []`) to disable features.
+func overrideSliceIfNotNil[T any](dst *[]T, src []T) {
+	if src != nil {
+		*dst = src
+	}
 }
