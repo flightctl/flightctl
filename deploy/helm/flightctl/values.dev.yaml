@@ -9,12 +9,24 @@ global:
   nodePorts:
     api: 3443
     agent: 7443
-    db: 5432
-    kv: 6379
     keycloak: 8081
     prometheus: 9090
     gitserver: 3222
     registry: 5000
+
+postgresql:
+  primary:
+    service:
+      type: NodePort
+      nodePorts:
+        postgresql: 5432
+
+redis:
+  master:
+    service:
+      type: NodePort
+      nodePorts:
+        redis: "6379"
 
 api:
   image:

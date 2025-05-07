@@ -1,46 +1,49 @@
-{{ if .Values.api.enabled }}
+{{ if $.Values.api.enabled }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    flightctl.service: flightctl-api
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: api
   name: flightctl-api
-  namespace: {{ .Release.Namespace }}
-  
+  namespace: {{ $.Release.Namespace }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      flightctl.service: flightctl-api
+      {{- include "common.labels.matchLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: api
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        flightctl.service: flightctl-api
+        {{- include "common.labels.standard" $ | nindent 8 }}
+        app.kubernetes.io/component: api
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/api/flightctl-api-config.yaml") . | sha256sum }}
     spec:
       serviceAccountName: flightctl-api
       containers:
         - name: flightctl-api
-          image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.api.image.pullPolicy }}
+          image: {{ $.Values.api.image.image }}:{{ $.Values.api.image.tag | default $.Chart.AppVersion }}
+          imagePullPolicy: {{ $.Values.api.image.pullPolicy | default $.Values.global.imagePullPolicy }}
           env:
             - name: HOME
               value: "/root"
             - name: KV_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Release.Name }}-redis
-                  key: redis-password
+                  name: {{ $.Values.redis.auth.existingSecret | default (printf "%s-redis" $.Release.Name) }}
+                  key: {{ $.Values.redis.auth.existingSecretPasswordKey | default "redis-password" }}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ $.Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" $.Release.Name) }}
                   key: {{ $.Values.postgresql.auth.secretKeys.userPasswordKey | default "password" }}
             - name: DB_USER
-              value: {{ .Values.postgresql.auth.username }}
+              value: {{ $.Values.postgresql.auth.username }}
             {{- if eq .Values.global.auth.type "none" }}
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
@@ -66,7 +69,7 @@ spec:
               name: flightctl-api-config
               subPath: config.yaml
               readOnly: true
-            {{- if .Values.global.auth.k8s.externalApiToken}}
+            {{- if $.Values.global.auth.k8s.externalApiToken}}
             - mountPath: /var/flightctl/k8s
               name: flightctl-api-k8s-token
               readOnly: true
@@ -80,7 +83,7 @@ spec:
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
-        {{- if .Values.global.auth.k8s.externalApiToken}}
+        {{- if $.Values.global.auth.k8s.externalApiToken}}
         - name: flightctl-api-k8s-token
           secret:
             secretName: flightctl-api-k8s-token

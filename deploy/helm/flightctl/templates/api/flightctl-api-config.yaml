@@ -1,70 +1,76 @@
-{{ if .Values.api.enabled }}
+{{- if $.Values.api.enabled }}
+{{- $serviceMethod := include "flightctl.getServiceExposeMethod" . }}
+{{- $baseDomain := include "flightctl.getBaseDomain" . }}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-api-config
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: api
 data:
   config.yaml: |-
     database:
-        hostname: {{ $.Values.postgresql.hostname }}
+        hostname: {{ $.Values.postgresql.hostname | default (printf "%s-postgresql" $.Release.Name) }}
         type: pgsql
         port: {{ $.Values.postgresql.port }}
         name: {{ $.Values.postgresql.dbName }}
     service:
         address: :3443
         agentEndpointAddress: :7443
-        httpReadTimeout: {{ .Values.api.httpReadTimeout | default "5m" | quote }}
-        httpReadHeaderTimeout: {{ .Values.api.httpReadHeaderTimeout | default "5m" | quote }}
-        httpWriteTimeout: {{ .Values.api.httpWriteTimeout | default "5m" | quote }}
-        httpMaxNumHeaders: {{ default 32 .Values.api.httpMaxNumHeaders }}
-        httpMaxHeaderBytes: {{ default 33010 .Values.api.httpMaxHeaderBytes }}
-        httpMaxUrlLength: {{ default 2000 .Values.api.httpMaxUrlLength }}
-        httpMaxRequestSize: {{ default 53137200 .Values.api.httpMaxRequestSize }}
-        {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
-        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
+        httpReadTimeout: {{ $.Values.api.httpReadTimeout | default "5m" | quote }}
+        httpReadHeaderTimeout: {{ $.Values.api.httpReadHeaderTimeout | default "5m" | quote }}
+        httpWriteTimeout: {{ $.Values.api.httpWriteTimeout | default "5m" | quote }}
+        httpMaxNumHeaders: {{ $.Values.api.httpMaxNumHeaders | default 32 }}
+        httpMaxHeaderBytes: {{ $.Values.api.httpMaxHeaderBytes | default 33010 }}
+        httpMaxUrlLength: {{ $.Values.api.httpMaxUrlLength | default 2000 }}
+        httpMaxRequestSize: {{ $.Values.api.httpMaxRequestSize | default 53137200 }}
+        {{- if eq $serviceMethod "nodePort" }}
+        baseUrl: {{ printf "https://api.%s:%d/" $baseDomain (int $.Values.global.nodePorts.api) }}
+        baseAgentEndpointUrl: {{ printf "https://agent-api.%s:%d/" $baseDomain (int $.Values.global.nodePorts.agent) }}
+        {{- else if and (eq $serviceMethod "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
+        baseUrl: {{ printf "https://api.%s:%d/" $baseDomain (int $.Values.global.gatewayPorts.tls) }}
+        baseAgentEndpointUrl: {{ printf "https://agent-api.%s:%s/" $baseDomain (int $.Values.global.gatewayPorts.tls) }}
         {{- else }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
+        baseUrl: {{ printf "https://api.%s/" $baseDomain }}
+        baseAgentEndpointUrl: {{ printf "https://agent-api.%s/" $baseDomain }}
         {{- end }}
-        {{- if .Values.ui.baseURL }}
-        baseUIUrl: {{ .Values.ui.baseURL }}
+        {{- if $.Values.ui.baseURL }}
+        baseUIUrl: {{ $.Values.ui.baseURL }}
         {{- else }}
         baseUIUrl: {{ include "flightctl.getUIUrl" . }}
         {{- end }}
         altNames:
-          - api.{{ include "flightctl.getBaseDomain" . }}
-          - agent-api.{{ include "flightctl.getBaseDomain" . }}
+          - {{ printf "api.%s" $baseDomain }}
+          - {{ printf "agent-api.%s" $baseDomain }}
           - flightctl-api
-          - flightctl-api.{{ .Release.Namespace }}
-          - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
+          - {{ printf "flightctl-api.%s" $.Release.Namespace }}
+          - {{ printf "flightctl-api.%s.svc.cluster.local" $.Release.Namespace }}
     kv:
-        hostname: {{ $.Values.redis.hostname }}
+        hostname: {{ $.Values.redis.hostname | default (printf "%s-redis-master" $.Release.Name) }}
         port: {{ $.Values.redis.port }}
     {{- if not (eq .Values.global.auth.type "none")  }}
     auth:
-        insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
-        caCert: {{ .Values.global.auth.caCert }}
-        {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "k8s")  }}
+        insecureSkipTlsVerify: {{ $.Values.global.auth.insecureSkipTlsVerify }}
+        caCert: {{ $.Values.global.auth.caCert }}
+        {{- if or (eq $.Values.global.target "acm") (eq $.Values.global.auth.type "k8s")  }}
         k8s:
-            apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
+            apiUrl: {{ $.Values.global.auth.k8s.apiUrl }}
             externalOpenShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
-            rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
-        {{- else if eq .Values.global.auth.type "aap"}}
+            rbacNs: {{ $.Values.global.auth.k8s.rbacNs | default $.Release.Namespace }}
+        {{- else if eq $.Values.global.auth.type "aap"}}
         aap:
-          apiUrl: {{ .Values.global.auth.aap.apiUrl }}
-          externalApiUrl: {{ .Values.global.auth.aap.externalApiUrl }}
+          apiUrl: {{ $.Values.global.auth.aap.apiUrl }}
+          externalApiUrl: {{ $.Values.global.auth.aap.externalApiUrl }}
         {{- else }}
         oidc:
-            oidcAuthority: {{ .Values.global.auth.oidc.oidcAuthority }}
+            oidcAuthority: {{ $.Values.global.auth.oidc.oidcAuthority }}
             externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         {{- end }}
     {{- end }}
-    {{- if .Values.prometheus.enabled }}
+    {{- if $.Values.prometheus.enabled }}
     prometheus:
         address: ":15690"
         sloMax: 4.0

@@ -1,9 +1,13 @@
-{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+{{ if and ($.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+---
 apiVersion: gateway.networking.k8s.io/v1alpha2
 kind: TLSRoute
 metadata:
   name: flightctl-api-route-agent
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: api
 spec:
   parentRefs:
     - name: flightctl-gateway

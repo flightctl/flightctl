@@ -1,9 +1,13 @@
-{{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{ if and (not (eq $.Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: flightctl-api-from-ingress
   namespace:  {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: api
 spec:
   ingress:
   - from:
@@ -12,7 +16,8 @@ spec:
           network.openshift.io/policy-group: ingress
   podSelector:
     matchLabels:
-      flightctl.service: flightctl-api
+      {{- include "common.labels.matchLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: api
   policyTypes:
   - Ingress
  {{ end }}
