@@ -139,6 +139,11 @@ API_URL
 madrid
 paris
 apptype
+IPs
+SIGHUP
+JSON
+DMI
+UUID
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
