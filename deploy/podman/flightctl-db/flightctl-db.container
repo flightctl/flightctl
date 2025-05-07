@@ -14,6 +14,7 @@ Secret=flightctl-postgresql-user-password,type=env,target=POSTGRESQL_PASSWORD
 Volume=/usr/share/flightctl/flightctl-db/enable-superuser.sh:/usr/share/container-scripts/postgresql/start/enable-superuser.sh
 
 [Service]
+ExecStartPre=/usr/share/flightctl/init_host.sh
 Restart=always
 RestartSec=30
 

@@ -14,12 +14,6 @@ if ! deploy/scripts/install.sh; then
     exit 1
 fi
 
-# Run post installation script
-if ! deploy/scripts/post_install.sh; then
-    echo "Error: Installation failed"
-    exit 1
-fi
-
 start_service "flightctl.target"
 
 echo "Checking if all services are running..."

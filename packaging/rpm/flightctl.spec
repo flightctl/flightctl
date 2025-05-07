@@ -142,10 +142,6 @@ The flightctl-services package provides installation and setup of files for runn
     IMAGE_TAG=$(echo %{version} | tr '~' '-') \
     deploy/scripts/install.sh
 
-    # Copy files needed for post install into the build root
-    cp deploy/scripts/post_install.sh %{buildroot}%{_datadir}/flightctl/post_install.sh
-    cp deploy/scripts/secrets.sh %{buildroot}%{_datadir}/flightctl/secrets.sh
-
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
     cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
@@ -171,9 +167,6 @@ fi
 %posttrans selinux
 
 %selinux_relabel_post -s %{selinuxtype}
-
-%post services
-%{_datadir}/flightctl/post_install.sh
 
 # File listings
 # No %files section for the main package, so it won't be built
@@ -240,8 +233,8 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
     %{_datadir}/containers/systemd/flightctl*
 
-    # Handle permissions for scripts run as part of the rpm post install
-    %attr(0755,root,root) %{_datadir}/flightctl/post_install.sh
+    # Handle permissions for scripts setting host config
+    %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
 
     # Files mounted to lib dir
