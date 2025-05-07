@@ -36,6 +36,7 @@ EnrollmentRequests
 EPEL
 FIDO
 filesystem
+FIPS
 firewalld
 fleetless
 flightctl
@@ -46,6 +47,7 @@ greenboot
 hostname
 HTTPS
 i.e.
+infos
 IP
 JSON-encoded
 JWT
