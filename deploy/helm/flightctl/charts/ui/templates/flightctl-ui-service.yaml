@@ -7,7 +7,6 @@ metadata:
   labels:
     {{- include "common.labels.standard" $ | nindent 4 }}
     app.kubernetes.io/component: ui
-  {{- if eq (include "flightctl.getServiceExposeMethod" .) "route" }}
   {{- if eq .Values.global.target "acm" }}
   annotations:
     service.alpha.openshift.io/serving-cert-secret-name: flightctl-ui-serving-cert
@@ -25,5 +24,5 @@ spec:
       nodePort: {{ .Values.global.nodePorts.ui }}
       {{- end }}
   selector:
-    {{- include "common.labels.matchLabels" $ | nindent 6 }}
+    {{- include "common.labels.matchLabels" $ | nindent 4 }}
     app.kubernetes.io/component: ui
