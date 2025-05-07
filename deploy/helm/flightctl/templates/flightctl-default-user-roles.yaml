@@ -1,9 +1,12 @@
-{{ if eq .Values.global.target "acm" }}
+{{ if eq $.Values.global.target "acm" }}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: flightctl-admin
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+  namespace: {{ $.Values.global.auth.k8s.rbacNs | default $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
 rules:
   - verbs:
       - '*'
@@ -17,7 +20,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: flightctl-viewer
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+  namespace: {{ $.Values.global.auth.k8s.rbacNs | default $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -34,7 +39,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: flightctl-operator
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+  namespace: {{ $.Values.global.auth.k8s.rbacNs | default $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -70,7 +77,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: flightctl-installer
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+  namespace: {{ $.Values.global.auth.k8s.rbacNs | default $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
 rules:
   - verbs:
       - get
