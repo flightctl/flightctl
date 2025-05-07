@@ -85,7 +85,6 @@ postgresql:
   port: 5432
   dbName: "flightctl"
   auth:
-    existingSecret: "flightctl-db-secret"
     username: demouser
     secretKeys:
       adminPasswordKey: masterPassword
@@ -104,8 +103,6 @@ redis:
   enabled: true
   hostname: ""
   port: 6379
-  auth:
-    existingSecret: "flightctl-kv-secret"
   architecture: standalone
   master:
     persistence:
