@@ -40,7 +40,23 @@ NAME                                                  APPROVAL  APPROVER  APPROV
 
 Once approved, the device will get issued its initial management certificate and get registered to the device inventory and is now ready to be managed.
 
-## Viewing the Device Inventory and Device Details
+## Viewing and Customizing the Device System Information
+
+Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. Fields can optionally be promoted to labels during the enrollment process, this must be done manually or through external automation. Promoting fields to labels enables powerful grouping and querying capabilities, such as filtering devices by region or OS version. You can also define your own fields in `status.systemInfo.customInfo`, allowing the agent to collect user-defined metadata through custom commands.
+
+### Considerations for System Information
+
+Here are key considerations when using this feature:
+
+* **What’s Collected**: By default, the agent collects basic system information such as hostname, kernel version, OS distribution, product identifiers, and default network interface details. Additional fields such as BIOS data, GPU info, memory, and CPU details can be enabled through configuration. See [configuring agent](configuring-agent.md) for a full list of supported fields and how to customize collection.
+
+* **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [configuring agent](configuring-agent.md) for example usage.
+
+* **Collection Timing**: System info is collected during process bootstrap and then cached. It refreshes only if the agent restarts or receives a reload signal (SIGHUP). This avoids unnecessary overhead during regular status updates.
+
+* **Reboot Awareness**: The agent tracks boot time and boot ID, allowing Flight Control to detect whether the device has rebooted. This is useful for update coordination and lifecycle monitoring.
+
+* **Partial Data**: Not all fields may be available on every device or on every process start. Collection is best-effort missing values errors or timeouts will result in empty values.
 
 ### Viewing using the Web UI
 
