@@ -661,7 +661,19 @@ To connect, use the `flightctl console` command specifying the device's name, an
 flightctl console device/<some_device_name>
 ```
 
-To disconnect, enter "exit" on the console. To force-disconnect, press `<ctrl>+b` three times.
+To disconnect, enter "exit" on the console. To force-disconnect, press newline followed by `~.` (tilde period).
+
+The console can be used to run commands on the device, for example to check the status of the flightctl-agent service:
+
+```console
+flightctl console device/<some_device_name> -- systemctl status flightctl-agent
+```
+
+The console can be used to download a file from the device to your local machine, for example to download the systemd journal log:
+
+```console
+flightctl console device/<some_device_name> -- journalctl -o short-precise --no-pager > journal.log
+```
 
 ## Decommissioning Devices
 
