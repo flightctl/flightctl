@@ -1,9 +1,13 @@
-{{ if and (.Values.cliArtifacts.enabled) (eq .Values.global.target "acm")}}
+{{ if and ($.Values.cliArtifacts.enabled) (eq $.Values.global.target "acm")}}
 {{- $url := (include "flightctl.getCliArtifactsUrl" . )}}
+---
 apiVersion: console.openshift.io/v1
 kind: ConsoleCLIDownload
 metadata:
   name: flightctl-cli-downloads
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: cli-artifacts
 spec:
   description: Flight Control is a service for declarative management of fleets of edge devices and their workloads.
   displayName: flightctl - Flight Control Command Line Interface (CLI)

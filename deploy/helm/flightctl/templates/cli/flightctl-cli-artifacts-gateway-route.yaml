@@ -1,9 +1,13 @@
-{{ if and (.Values.cliArtifacts.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+{{ if and ($.Values.cliArtifacts.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: flightctl-cli-artifacts-route
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: cli-artifacts
 spec:
   parentRefs:
     - name: flightctl-gateway

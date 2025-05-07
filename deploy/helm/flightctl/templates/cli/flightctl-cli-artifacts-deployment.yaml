@@ -1,27 +1,31 @@
 {{- if .Values.cliArtifacts.enabled }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    flightctl.service: flightctl-cli-artifacts
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: cli-artifacts
   name: flightctl-cli-artifacts
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      flightctl.service: flightctl-cli-artifacts
+      {{- include "common.labels.matchLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: cli-artifacts
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        flightctl.service: flightctl-cli-artifacts
+        {{- include "common.labels.standard" $ | nindent 8 }}
+        app.kubernetes.io/component: cli-artifacts
     spec:
       containers:
         - name: flightctl-cli-artifacts
-          image: {{ .Values.cliArtifacts.image.image }}:{{ default .Chart.AppVersion .Values.cliArtifacts.image.tag }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.cliArtifacts.image.pullPolicy }}
+          image: {{ $.Values.cliArtifacts.image.image }}:{{ $.Values.cliArtifacts.image.tag | default $.Chart.AppVersion }}
+          imagePullPolicy: {{ $.Values.cliArtifacts.image.pullPolicy | default $.Values.global.imagePullPolicy }}
           ports:
             - containerPort: 8090
               name: cli-artifacts
