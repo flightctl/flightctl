@@ -1,44 +1,48 @@
-{{ if .Values.periodic.enabled }}
+{{ if $.Values.periodic.enabled }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    flightctl.service: flightctl-periodic
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: periodic
   name: flightctl-periodic
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ $.Values.global.internalNamespace | default .Release.Namespace }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      flightctl.service: flightctl-periodic
+      {{- include "common.labels.matchLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: periodic
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        flightctl.service: flightctl-periodic
+        {{- include "common.labels.standard" $ | nindent 8 }}
+        app.kubernetes.io/component: periodic
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/periodic/flightctl-periodic-config.yaml") . | sha256sum }}
     spec:
       containers:
         - name: periodic
-          image: {{ .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.periodic.image.pullPolicy }}
+          image: {{ $.Values.periodic.image.image }}:{{ $.Values.periodic.image.tag | default $.Chart.AppVersion }}
+          imagePullPolicy: {{ $.Values.periodic.image.pullPolicy | default $.Values.global.imagePullPolicy }}
           env:
             - name: HOME
               value: "/root"
             - name: KV_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Release.Name }}-redis
-                  key: redis-password
+                  name: {{ $.Values.redis.auth.existingSecret | default (printf "%s-redis" $.Release.Name) }}
+                  key: {{ $.Values.redis.auth.existingSecretPasswordKey | default "redis-password" }}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ $.Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" $.Release.Name) }}
                   key: {{ $.Values.postgresql.auth.secretKeys.userPasswordKey | default "password" }}
             - name: DB_USER
-              value: {{ .Values.postgresql.auth.username }}
+              value: {{ $.Values.postgresql.auth.username }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-periodic-config

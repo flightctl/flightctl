@@ -1,18 +1,22 @@
-{{ if .Values.periodic.enabled }}
+{{ if $.Values.periodic.enabled }}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-periodic-config
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ $.Values.global.internalNamespace | default $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: periodic
 data:
   config.yaml: |-
     database:
-        hostname: {{ $.Values.postgresql.hostname }}
+        hostname: {{ $.Values.postgresql.hostname | default (printf "%s-postgresql" $.Release.Name) }}
         type: pgsql
         port: {{ $.Values.postgresql.port }}
         name: {{ $.Values.postgresql.dbName }}
     service: {}
     kv:
-        hostname: {{ $.Values.redis.hostname }}
+        hostname: {{ $.Values.redis.hostname | default (printf "%s-redis-master" $.Release.Name) }}
         port: {{ $.Values.redis.port }}
 {{ end }}
