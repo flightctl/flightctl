@@ -10,7 +10,6 @@ import (
 	"github.com/google/go-tpm-tools/client"
 	pbattest "github.com/google/go-tpm-tools/proto/attest"
 	pbtpm "github.com/google/go-tpm-tools/proto/tpm"
-	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
@@ -55,14 +54,6 @@ func OpenTPM(devicePath string) (*TPM, error) {
 		return nil, err
 	}
 	return &TPM{devicePath: devicePath, channel: ch}, nil
-}
-
-func OpenTPMSimulator() (*TPM, error) {
-	simulator, err := simulator.Get()
-	if err != nil {
-		return &TPM{}, err
-	}
-	return &TPM{channel: simulator}, nil
 }
 
 func (t *TPM) Close() error {
