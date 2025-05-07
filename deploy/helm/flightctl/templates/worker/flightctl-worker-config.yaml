@@ -8,7 +8,7 @@ metadata:
 data:
   config.yaml: |-
     database:
-        hostname: {{ default $.Values.postgresql.hostname (printf "%s-postgresql" $.Release.Name) }}
+        hostname: {{ $.Values.postgresql.hostname | default (printf "%s-postgresql" $.Release.Name) }}
         type: pgsql
         port: {{ $.Values.postgresql.port }}
         name: {{ $.Values.postgresql.dbName }}
