@@ -146,5 +146,3 @@ secretsJob:
     image: quay.io/openshift/origin-cli
     tag: "4.20.0"
     pullPolicy: ""
-keycloak:
-  enabled: true

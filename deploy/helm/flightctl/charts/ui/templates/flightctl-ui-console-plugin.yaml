@@ -1,8 +1,12 @@
-{{- if eq (.Values.global).target "acm" }}
+{{- if eq .Values.global.target "acm" }}
+---
 apiVersion: console.openshift.io/v1
 kind: ConsolePlugin
 metadata:
   name: flightctl-plugin
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: ui
 spec:
   backend:
     service:

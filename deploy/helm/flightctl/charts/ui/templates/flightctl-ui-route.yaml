@@ -1,15 +1,18 @@
 {{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+---
 kind: Route
 apiVersion: route.openshift.io/v1
 metadata:
   name: flightctl-ui
   namespace: {{ .Release.Namespace }}
-  {{- if (.Values.global).appCode }}
   labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: ui
+    {{- if .Values.global.appCode }}
     external-exposed: 'true'
     paas.redhat.com/appcode: {{ .Values.global.appCode }}
     shard: external
-  {{ end }}
+    {{ end }}
 spec:
   {{- if .Values.baseURL }}
   host:  {{ .Values.baseURL }}

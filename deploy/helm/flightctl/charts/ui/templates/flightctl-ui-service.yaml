@@ -1,10 +1,13 @@
+---
 kind: Service
 apiVersion: v1
 metadata:
   name: flightctl-ui
   namespace: {{ .Release.Namespace }}
   labels:
-    app: flightctl-ui
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: ui
+  {{- if eq (include "flightctl.getServiceExposeMethod" .) "route" }}
   {{- if eq .Values.global.target "acm" }}
   annotations:
     service.alpha.openshift.io/serving-cert-secret-name: flightctl-ui-serving-cert
@@ -17,9 +20,10 @@ spec:
     - name: flightctl-ui
       protocol: TCP
       port: 8080
-      targetPort: 8080
+      targetPort: flightctl-ui
       {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort"}}
       nodePort: {{ .Values.global.nodePorts.ui }}
       {{- end }}
   selector:
-    app: flightctl-ui
+    {{- include "common.labels.matchLabels" $ | nindent 6 }}
+    app.kubernetes.io/component: ui
