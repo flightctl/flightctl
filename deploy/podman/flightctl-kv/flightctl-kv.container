@@ -1,6 +1,8 @@
 [Unit]
 Description=Flight Control Key Value service
 PartOf=flightctl.target
+After=flightctl-db.service
+Wants=flightctl-db.service
 
 [Container]
 ContainerName=flightctl-kv
