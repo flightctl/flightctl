@@ -1,0 +1,20 @@
+---
+apiVersion: monitoring.rhobs/v1alpha1
+kind: MonitoringStack
+metadata:
+  name: edge-monitoring-stack
+  labels:
+    mso: edge
+  namespace: openshift-operators
+spec:
+  alertmanagerConfig:
+    disabled: false
+  logLevel: debug
+  prometheusConfig:
+    replicas: 2
+    enableOtlpHttpReceiver: true
+  resourceSelector:
+    matchLabels:
+      app: edge-stack
+  retention: 1d
+
