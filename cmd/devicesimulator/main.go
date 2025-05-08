@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -27,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/version"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/yaml"
 )
@@ -39,6 +39,10 @@ const (
 	cliVersionTitle = "flightctl simulator version"
 )
 
+var (
+	outputTypes = []string{jsonFormat, yamlFormat}
+)
+
 func defaultConfigFilePath() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName, "agent.yaml")
 }
@@ -47,139 +51,86 @@ func defaultDataDir() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName, "data")
 }
 
-type cliConfig struct {
-	ConfigFile         string
-	DataDir            string
-	Labels             []string
-	NumDevices         int
-	InitialDeviceIndex int
-	MetricsAddr        string
-	StopAfter          time.Duration
-	VersionInfo        bool
-	VersionFormat      string
-	LogLevel           string
-}
-
-func parseKeyValueArgs() (*cliConfig, error) {
-	cfg := &cliConfig{
-		ConfigFile:         defaultConfigFilePath(),
-		DataDir:            defaultDataDir(),
-		Labels:             []string{},
-		NumDevices:         1,
-		InitialDeviceIndex: 0,
-		MetricsAddr:        "localhost:9093",
-		LogLevel:           "debug",
-	}
-
-	for _, arg := range os.Args[1:] {
-		if strings.HasPrefix(arg, "-") {
-			continue // skip any unknown flags
-		}
-		keyVal := strings.SplitN(arg, "=", 2)
-		if len(keyVal) != 2 {
-			return nil, fmt.Errorf("invalid argument format: %s, expected key=value", arg)
-		}
-		key := keyVal[0]
-		val := keyVal[1]
-		switch key {
-		case "config":
-			cfg.ConfigFile = val
-		case "data-dir":
-			cfg.DataDir = val
-		case "label":
-			cfg.Labels = append(cfg.Labels, val)
-		case "count":
-			n, err := strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("invalid count: %v", err)
-			}
-			cfg.NumDevices = n
-		case "initial-device-index":
-			idx, err := strconv.Atoi(val)
-			if err != nil {
-				return nil, fmt.Errorf("invalid initial-device-index: %v", err)
-			}
-			cfg.InitialDeviceIndex = idx
-		case "metrics":
-			cfg.MetricsAddr = val
-		case "stop-after":
-			dur, err := time.ParseDuration(val)
-			if err != nil {
-				return nil, fmt.Errorf("invalid stop-after duration: %v", err)
-			}
-			cfg.StopAfter = dur
-		case "version":
-			cfg.VersionInfo = val == "true"
-		case "output":
-			cfg.VersionFormat = val
-		case "log-level":
-			cfg.LogLevel = val
-		default:
-			return nil, fmt.Errorf("unknown argument: %s", key)
-		}
-	}
-	return cfg, nil
-}
-
 func main() {
 	log := flightlog.InitLogs()
+	configFile := pflag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
+	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
+	labels := pflag.StringArray("label", []string{}, "label applied to simulated devices, in the format key=value")
+	numDevices := pflag.Int("count", 1, "number of devices to simulate")
+	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))")
+	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
+	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
+	versionInfo := pflag.Bool("version", false, "Print device simulator version information")
+	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
+	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
-	cfg, err := parseKeyValueArgs()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing arguments: %v\n", err)
-		os.Exit(1)
+	pflag.Usage = func() {
+		fmt.Fprintf(pflag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
+		fmt.Println("This program starts a device simulator with the specified configuration. Below are the available flags:")
+		pflag.PrintDefaults()
 	}
+	pflag.Parse()
 
-	logLvl, err := logrus.ParseLevel(cfg.LogLevel)
+	logLvl, err := logrus.ParseLevel(*logLevel)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n", cfg.LogLevel)
+		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
+		pflag.Usage()
 		os.Exit(1)
 	}
 	log.SetLevel(logLvl)
 
-	if cfg.VersionInfo {
-		if err := reportVersion(&cfg.VersionFormat); err != nil {
+	if *versionInfo {
+		if err := reportVersion(versionFormat); err != nil {
 			fmt.Println(err.Error())
 			os.Exit(1)
 		}
 		os.Exit(0)
 	}
 
-	log.Infof("starting device simulator with %d devices", cfg.NumDevices)
-	formattedLabels := formatLabels(&cfg.Labels)
+	log.Infoln("command line flags:")
+	pflag.CommandLine.VisitAll(func(flg *pflag.Flag) {
+		log.Infof("  %s=%s", flg.Name, flg.Value)
+	})
 
-	agentConfigTemplate := createAgentConfigTemplate(cfg.DataDir, cfg.ConfigFile)
+	formattedLables := formatLabels(labels)
+
+	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile)
+
+	log.Infoln("starting device simulator")
+	defer log.Infoln("device simulator stopped")
 
 	log.Infoln("setting up metrics endpoint")
-	setupMetricsEndpoint(cfg.MetricsAddr)
+	setupMetricsEndpoint(*metricsAddr)
 
 	serviceClient, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
 	if err != nil {
 		log.Fatalf("Error creating service client: %v", err)
 	}
 
+	log.Infoln("creating agents")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	agents, agentsFolders := createAgents(log, cfg.NumDevices, cfg.InitialDeviceIndex, agentConfigTemplate)
+	agents, agentsFolders := createAgents(log, *numDevices, *initialDeviceIndex, agentConfigTemplate)
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigShutdown
+		signal.Stop(sigShutdown)
 		log.Printf("Shutdown signal received (%v).", sig)
 		cancel()
 	}()
 
-	for i := 0; i < cfg.NumDevices; i++ {
+	log.Infoln("running agents")
+	for i := 0; i < *numDevices; i++ {
+		// stagger the start of each agent
 		time.Sleep(time.Duration(rand.Float64() * float64(agentConfigTemplate.StatusUpdateInterval))) //nolint:gosec
 		agent := agents[i]
 		go startAgent(ctx, agent, log, i)
-		go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLabels)
+		go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLables)
 	}
-
-	if cfg.StopAfter > 0 {
-		time.AfterFunc(cfg.StopAfter, func() {
+	if stopAfter != nil && *stopAfter > 0 {
+		time.AfterFunc(*stopAfter, func() {
 			log.Infoln("stopping simulator after duration")
 			cancel()
 		})
