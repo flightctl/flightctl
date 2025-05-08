@@ -116,6 +116,7 @@ api:
     pullPolicy: ""
     tag: ""
   baseUIUrl: "" # ui.flightctl.example.com
+  certsStorage: 128Mi
 cliArtifacts:
   enabled: true
   image:

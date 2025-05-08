@@ -8,16 +8,16 @@ metadata:
   labels:
     {{- include "common.labels.standard" $ | nindent 4 }}
     app.kubernetes.io/component: api
-    {{ if .Values.global.appCode }}
-    paas.redhat.com/appcode: {{ .Values.global.appCode }}
+    {{ if $.Values.global.appCode }}
+    paas.redhat.com/appcode: {{ $.Values.global.appCode }}
     {{ end }}
   name: flightctl-api-certs
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Release.Namespace }}
 spec:
-  storageClassName: {{ .Values.global.storageClassName }}
+  storageClassName: {{ $.Values.global.storageClassName }}
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 128Mi
+      storage: {{ $.Values.api.certsStorage }}
 {{ end }}
