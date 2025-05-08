@@ -159,7 +159,7 @@ orin
 demouser
 v3.15
 values.yaml
-keycloak
+Keycloak
 flightctl.MY.DOMAIN
 global.flightctl.baseDomain
 ui.flightctl.MY.DOMAIN
@@ -190,6 +190,9 @@ WorkDir
 OverlappingSelectors
 factory-berlinsite
 factory-madridsite
+GroupBy
+MinAvailable
+MaxUnavailable
  - docs/user/building-images.md
 usr
 iso
