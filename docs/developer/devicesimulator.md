@@ -12,7 +12,7 @@ Copy the necessary setup files to run a `devicesimulator`.
 
 ### Running
 
-    bin/devicesimulator count=1
+    bin/devicesimulator --count=1
 
 # Remote simulator
 
@@ -37,11 +37,11 @@ Run the same commands per each host. Note: some commands must be run remotely.
 On each remote host run `devicesimulator` with at least two parameters:
 * count - number of devices to simulate on this host
 * initial-device-index - starting index for device name suffix. To simulate 600 devices on 3 hosts run:
-    > bin/devicesimulator count=200 \# device-00000 to device-00199
+    > bin/devicesimulator --count=200 \# device-00000 to device-00199
     > 
-    > bin/devicesimulator count=200 initial-device-index=200 \# device-00200 to device-00399
+    > bin/devicesimulator --count=200 --initial-device-index=200 \# device-00200 to device-00399
     > 
-    > bin/devicesimulator count=200 initial-device-index=400 \# device-00400 to device-00599
+    > bin/devicesimulator --count=200 --initial-device-index=400 \# device-00400 to device-00599
  
 Per each device a `podman event` will be created to consume its events. These tasks will never finish and will consume a considerable amount of memory. As a workaround run the following script on each host:
 
