@@ -102,25 +102,25 @@ func parseArguments() (*simulatorConfig, error) {
 
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
-
+		
 		if arg == "version" {
 			config.showVersion = true
 			continue
 		}
-
+		
 		if arg == "help" {
 			config.showHelp = true
 			continue
 		}
-
+		
 		parts := strings.SplitN(arg, "=", 2)
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid argument format: %s (expected key=value)", arg)
 		}
-
+		
 		key := parts[0]
 		value := parts[1]
-
+		
 		switch key {
 		case "config":
 			config.configFile = value
@@ -164,25 +164,25 @@ func parseArguments() (*simulatorConfig, error) {
 			return nil, fmt.Errorf("unknown argument: %s", key)
 		}
 	}
-
+	
 	return config, nil
 }
 
 func main() {
 	log := flightlog.InitLogs()
-
+	
 	config, err := parseArguments()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
 		printUsage()
 		os.Exit(1)
 	}
-
+	
 	if config.showHelp {
 		printUsage()
 		os.Exit(0)
 	}
-
+	
 	if config.showVersion {
 		if err := reportVersion(config.versionFormat); err != nil {
 			fmt.Println(err.Error())
@@ -190,7 +190,7 @@ func main() {
 		}
 		os.Exit(0)
 	}
-
+	
 	logLvl, err := logrus.ParseLevel(config.logLevel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", config.logLevel)
