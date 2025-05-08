@@ -136,7 +136,6 @@ var _ = Describe("Rollout Policies", func() {
 			err = tc.verifyAllDevicesUpdated(3)
 			Expect(err).ToNot(HaveOccurred())
 
-
 			By("Checking Disruption Budget by Grouping Devices")
 			err = tc.updateAppVersion("v2")
 			Expect(err).ToNot(HaveOccurred())
@@ -159,7 +158,7 @@ var _ = Describe("Rollout Policies", func() {
 
 			for _, group := range unavailableDevices {
 				Expect(len(group)).To(BeNumerically("==", 2), "Should select 2 devices in 1st batch")
-			}	
+			}
 		})
 	})
 
@@ -209,7 +208,7 @@ var _ = Describe("Rollout Policies", func() {
 			By("Verifying that the rollout is paused due to unmet success threshold")
 			rolloutStatus, err := tc.harness.GetRolloutStatus(fleetName)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(rolloutStatus.Status).To(Equal(api.ConditionStatusFalse), "Rollout should be paused when success threshold is not met")
+			Expect(rolloutStatus.Status).To(Equal(api.ConditionStatusFalse), "Rollout Update Status should be false")
 			Expect(rolloutStatus.Reason).To(Equal(api.RolloutSuspendedReason), "Rollout should be paused when success threshold is not met")
 
 			By("Fixing the failed device and verifying the rollout continues")

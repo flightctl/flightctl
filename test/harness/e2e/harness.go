@@ -209,20 +209,36 @@ func (h *Harness) StartVMAndEnroll() string {
 }
 
 func (h *Harness) StartMultipleVMAndEnroll(count int) ([]string, error) {
+	if count <= 0 {
+        return nil, fmt.Errorf("count must be positive, got %d", count)
+    }
+
 	// add count-1 vms to the harness using AddMultipleVMs method
 	vmParamsList := make([]vm.TestVM, count-1)
+	baseDir := GinkgoT().TempDir()
+    topDir := findTopLevelDir()
+    baseDiskPath := filepath.Join(topDir, "bin/output/qcow2/disk.qcow2")
 
 	for i := 0; i < count-1; i++ {
-		tempImagePath := filepath.Join(GinkgoT().TempDir(), fmt.Sprintf("disk-%d.qcow2", i))
-		err := exec.Command("cp", filepath.Join(findTopLevelDir(), "bin/output/qcow2/disk.qcow2"), tempImagePath).Run()
-		if err != nil {
-			return nil, fmt.Errorf("failed to copy disk image: %w", err)
-		}
+		vmName := "flightctl-e2e-vm-" + uuid.New().String()
+        overlayDiskPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", vmName))
+        
+        // Create a qcow2 overlay that uses the base image as backing file
+        cmd := exec.Command(
+            "qemu-img", "create", 
+            "-f", "qcow2", 
+            "-b", baseDiskPath, 
+            "-F", "qcow2", 
+            overlayDiskPath)
+        
+        if err := cmd.Run(); err != nil {
+            return nil, fmt.Errorf("failed to create overlay disk for VM %s: %w", vmName, err)
+        }
 
 		vmParamsList[i] = vm.TestVM{
 			TestDir:       GinkgoT().TempDir(),
 			VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
-			DiskImagePath: tempImagePath,
+			DiskImagePath: overlayDiskPath,
 			VMUser:        "user",
 			SSHPassword:   "user",
 			SSHPort:       2233 + i + 1,
@@ -1134,13 +1150,13 @@ func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error)
 }
 
 func (h *Harness) SimulateNetworkFailure() error {
-	registryIP, _, err := net.SplitHostPort(h.RegistryEndpoint())
+	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
 	if err != nil {
 		return fmt.Errorf("invalid registry endpoint: %v", err)
 	}
 
 	blockCommands := [][]string{
-		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "5000", "-j", "DROP"},
+		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", registryPort, "-j", "DROP"},
 	}
 
 	for _, cmd := range blockCommands {
@@ -1161,13 +1177,13 @@ func (h *Harness) SimulateNetworkFailure() error {
 }
 
 func (h *Harness) FixNetworkFailure() error {
-	registryIP, _, err := net.SplitHostPort(h.RegistryEndpoint())
+	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
 	if err != nil {
 		return fmt.Errorf("invalid registry endpoint: %v", err)
 	}
 
 	unblockCommands := [][]string{
-		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "5000", "-j", "DROP"},
+		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", registryPort, "-j", "DROP"},
 	}
 
 	for _, cmd := range unblockCommands {
