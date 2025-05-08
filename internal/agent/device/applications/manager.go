@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -85,22 +86,23 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 }
 
 // BeforeUpdate prepares the manager for reconciliation.
-func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	if desired.Applications == nil || len(*desired.Applications) == 0 {
 		m.log.Debug("No applications to pre-check")
 		return nil
 	}
 	m.log.Debug("Pre-checking application dependencies")
-	defer m.log.Info("Finished pre-checking application dependencies")
+	defer m.log.Debug("Finished pre-checking application dependencies")
 
 	providers, err := provider.FromDeviceSpec(ctx, m.log, m.podmanMonitor.client, m.readWriter, desired, provider.WithEmbedded())
 	if err != nil {
 		return fmt.Errorf("parsing apps: %w", err)
 	}
 
-	for _, provider := range providers {
+	isOSUpdate := spec.IsOSUpdate(current, desired)
+	for _, p := range providers {
 		// verify the application content is valid and dependencies are met.
-		if err := provider.Verify(ctx); err != nil {
+		if err := p.Verify(ctx, provider.WithOSUpdate(isOSUpdate)); err != nil {
 			return fmt.Errorf("initializing application: %w", err)
 		}
 	}

@@ -462,7 +462,7 @@ func (m *mockProvider) Spec() *provider.ApplicationSpec {
 	}
 }
 
-func (m *mockProvider) Verify(ctx context.Context) error {
+func (m *mockProvider) Verify(ctx context.Context, opts ...provider.VerifyOpt) error {
 	return nil
 }
 

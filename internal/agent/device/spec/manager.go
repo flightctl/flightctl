@@ -537,8 +537,32 @@ func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath s
 	return nil
 }
 
+// IsUpgrading checks if the current and desired spec versions are different.
 func IsUpgrading(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 	return current.Version() != desired.Version()
+}
+
+// IsOSUpdate checks if the OS image has changed between the current and desired spec.
+func IsOSUpdate(current *v1alpha1.DeviceSpec, desired *v1alpha1.DeviceSpec) bool {
+	if current == nil && desired != nil {
+		return true
+	}
+
+	// no update
+	if desired == nil {
+		return false
+	}
+
+	// current could be nil if it was never set
+	if current.Os == nil && desired.Os != nil {
+		return true
+	}
+
+	if current.Os != nil && desired.Os != nil {
+		return current.Os.Image != desired.Os.Image
+	}
+
+	return false
 }
 
 type rollbackConfig struct {
