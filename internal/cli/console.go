@@ -3,12 +3,16 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
@@ -40,7 +44,7 @@ func NewConsoleCmd() *cobra.Command {
 	o := DefaultConsoleOptions()
 
 	cmd := &cobra.Command{
-		Use:   "console device/NAME",
+		Use:   "console device/NAME [-- COMMAND [ARG...]]",
 		Short: "Connect a console to the remote device through the server.",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -57,6 +61,11 @@ func NewConsoleCmd() *cobra.Command {
 			// If no "--" was found, all args are flag arguments
 			if flagArgs == nil {
 				flagArgs = args
+			}
+			for _, flag := range flagArgs {
+				if lo.Contains([]string{"-h", "--help"}, flag) {
+					return cmd.Help()
+				}
 			}
 
 			// Manually parse only the flag arguments
@@ -96,6 +105,9 @@ func (o *ConsoleOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *ConsoleOptions) Validate(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("single argument having the form device/NAME is required")
+	}
 	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
@@ -201,15 +213,74 @@ func (o *ConsoleOptions) createSessionMetadata(t k8sTerm.TTY, passThroughArgs []
 	return string(b)
 }
 
-func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config, deviceName, token string, passThroughArgs []string) error {
+type disconnectionState int
 
+const (
+	normal disconnectionState = iota
+	newline
+	tilde
+	disconnected
+)
+
+type closeOnTildeDotReader struct {
+	r      io.Reader
+	state  disconnectionState
+	cancel context.CancelFunc
+}
+
+func newCloseOnTildeDotReader(inner io.Reader, cancel context.CancelFunc) *closeOnTildeDotReader {
+	return &closeOnTildeDotReader{
+		r:      inner,
+		cancel: cancel,
+		state:  normal,
+	}
+}
+
+func (e *closeOnTildeDotReader) Read(p []byte) (int, error) {
+	if e.state == disconnected {
+		e.cancel()
+		return 0, io.EOF
+	}
+
+	n, err := e.r.Read(p)
+	for i := 0; i < n; i++ {
+		switch p[i] {
+		case '\n', '\r':
+			e.state = newline
+		case '~':
+			if e.state == newline {
+				e.state = tilde
+				continue
+			}
+			e.state = normal
+		case '.':
+			if e.state == tilde {
+				e.state = disconnected
+				e.cancel()
+				// Return data up to the start of the sequence
+				return util.Max(i-2, 0), nil
+			}
+			e.state = normal
+		default:
+			e.state = normal
+		}
+	}
+
+	return n, err
+}
+
+func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config, deviceName, token string, passThroughArgs []string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	t := o.SetupTTY()
 
 	options := remotecommand.StreamOptions{
 		Stdout: os.Stdout,
 		Tty:    o.remoteTTY,
 	}
-	if o.remoteTTY || !t.IsTerminalIn() {
+	if t.Raw {
+		options.Stdin = newCloseOnTildeDotReader(os.Stdin, cancel)
+	} else if !t.IsTerminalIn() {
 		options.Stdin = os.Stdin
 	}
 	if !o.remoteTTY {
@@ -266,7 +337,9 @@ func (o *ConsoleOptions) analyzeResponseAndExit(err error) {
 		exitCode = concreteErr.Code
 	default:
 		exitCode = 255
-		fmt.Fprintf(os.Stderr, "Unexpected error type %T: %+v\n", err, err)
+		if !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "Unexpected error type %T: %+v\n", err, err)
+		}
 	}
 	os.Exit(exitCode)
 }
