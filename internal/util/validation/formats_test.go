@@ -64,6 +64,36 @@ func TestValidateOciImageReference(t *testing.T) {
 	}
 }
 
+func TestOciImageReferenceStrict(t *testing.T) {
+	assert := assert.New(t)
+
+	goodValues := []string{
+		"quay.io/flightctl",
+		"quay.io/flightctl/flightctl",
+		"quay.io/flightctl/flightctl:latest",
+		"quay.io/flightctl/flightctl@sha256:0123456789abcdef0123456789abcdef",
+		"quay.io/flightctl/flightctl:latest@sha256:0123456789abcdef0123456789abcdef",
+	}
+	for _, val := range goodValues {
+		assert.Empty(ValidateOciImageReferenceStrict(&val, "good.image.ref"))
+	}
+
+	badValues := []string{
+		"weird__and_invalid",
+		"flightctl",
+		"flightctl:latest",
+		"flightctl:v0.0.1",
+		"_underscore",
+		"not.a//domain",
+		"quay.io/flightctl/flightctl@sha256:0123456789abcdef0123456789abcde",
+		"image:" + strings.Repeat("a", 129),
+		strings.Repeat("a", 64),
+	}
+	for _, val := range badValues {
+		assert.NotEmpty(ValidateOciImageReferenceStrict(&val, "bad.image.ref"), fmt.Sprintf("value: %q", val))
+	}
+}
+
 func TestValidateGitRevision(t *testing.T) {
 	assert := assert.New(t)
 

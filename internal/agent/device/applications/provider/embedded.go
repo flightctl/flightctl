@@ -20,6 +20,10 @@ type embeddedProvider struct {
 }
 
 func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1alpha1.AppType) (Provider, error) {
+	appPath, err := pathFromAppType(appType, name, true)
+	if err != nil {
+		return nil, fmt.Errorf("getting app path: %w", err)
+	}
 	return &embeddedProvider{
 		log:        log,
 		podman:     podman,
@@ -27,6 +31,8 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 		spec: &ApplicationSpec{
 			Name:     name,
 			AppType:  appType,
+			ID:       lifecycle.NewComposeID(name),
+			Path:     appPath,
 			Embedded: true,
 			EnvVars:  make(map[string]string),
 		},
@@ -34,15 +40,9 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 }
 
 func (p *embeddedProvider) Verify(ctx context.Context) error {
-	appPath, err := pathFromAppType(p.spec.AppType, p.spec.Name, p.spec.Embedded)
-	if err != nil {
-		return fmt.Errorf("getting app path: %w", err)
-	}
 	switch p.spec.AppType {
 	case v1alpha1.AppTypeCompose:
-		p.spec.ID = lifecycle.NewComposeID(p.spec.Name)
-		p.spec.Path = appPath
-		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, appPath); err != nil {
+		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, p.spec.Path); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
 	default:
@@ -50,6 +50,7 @@ func (p *embeddedProvider) Verify(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (e *embeddedProvider) Name() string {
 	return e.spec.Name
 }
