@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,7 +55,7 @@ func findTopLevelDir() string {
 		}
 	}
 	Fail("Could not find top-level directory")
-	// this return is not reachable but we need to satisfy the compiler
+	// this return is not reachable, but we need to satisfy the compiler
 	return ""
 }
 
@@ -87,20 +88,25 @@ func NewTestHarness() *Harness {
 	}
 }
 
-func (h *Harness) AddVM(vmParams vm.TestVM) vm.TestVMInterface {
+func (h *Harness) AddVM(vmParams vm.TestVM) (vm.TestVMInterface, error) {
 	testVM, err := vm.NewVM(vmParams)
-	Expect(err).ToNot(HaveOccurred())
-
+	if err != nil {
+		return nil, err
+	}
 	h.VMs = append(h.VMs, testVM)
-	return testVM
+	return testVM, nil
 }
 
-func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) []vm.TestVMInterface {
+func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface, error) {
 	var createdVMs []vm.TestVMInterface
 	for _, params := range vmParamsList {
-		createdVMs = append(createdVMs, h.AddVM(params))
+		vm, err := h.AddVM(params)
+		if err != nil {
+			return nil, err
+		}
+		createdVMs = append(createdVMs, vm)
 	}
-	return createdVMs
+	return createdVMs, nil
 }
 
 // Harness cleanup, this will delete the VM and cancel the context
@@ -202,12 +208,16 @@ func (h *Harness) StartVMAndEnroll() string {
 	return enrollmentID
 }
 
-func (h *Harness) StartMultipleVMAndEnroll(count int) []string {
+func (h *Harness) StartMultipleVMAndEnroll(count int) ([]string, error) {
 	// add count-1 vms to the harness using AddMultipleVMs method
 	vmParamsList := make([]vm.TestVM, count-1)
+
 	for i := 0; i < count-1; i++ {
 		tempImagePath := filepath.Join(GinkgoT().TempDir(), fmt.Sprintf("disk-%d.qcow2", i))
-		exec.Command("cp", filepath.Join(findTopLevelDir(), "bin/output/qcow2/disk.qcow2"), tempImagePath).Run()
+		err := exec.Command("cp", filepath.Join(findTopLevelDir(), "bin/output/qcow2/disk.qcow2"), tempImagePath).Run()
+		if err != nil {
+			return nil, fmt.Errorf("failed to copy disk image: %w", err)
+		}
 
 		vmParamsList[i] = vm.TestVM{
 			TestDir:       GinkgoT().TempDir(),
@@ -219,13 +229,18 @@ func (h *Harness) StartMultipleVMAndEnroll(count int) []string {
 		}
 	}
 
-	h.AddMultipleVMs(vmParamsList)
+	_, err := h.AddMultipleVMs(vmParamsList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add multiple VMs: %w", err)
+	}
 
 	var enrollmentIDs []string
 
 	for _, vm := range h.VMs {
 		err := vm.RunAndWaitForSSH()
-		Expect(err).ToNot(HaveOccurred())
+		if err != nil {
+			return nil, fmt.Errorf("failed to run VM and wait for SSH: %w", err)
+		}
 
 		enrollmentID := h.GetEnrollmentIDFromConsole(vm)
 		logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
@@ -241,7 +256,7 @@ func (h *Harness) StartMultipleVMAndEnroll(count int) []string {
 		enrollmentIDs = append(enrollmentIDs, enrollmentID)
 	}
 
-	return enrollmentIDs
+	return enrollmentIDs, nil
 }
 
 func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) *apiclient.GetDeviceResponse {
@@ -779,24 +794,40 @@ func (h *Harness) GetDeviceOsImage(device *v1alpha1.Device) (image string, err e
 }
 
 // Create a test fleet resource
-func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, testFleetSelector v1alpha1.LabelSelector, testFleetSpec v1alpha1.DeviceSpec) error {
-	var testFleet = v1alpha1.Fleet{
+func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelector interface{}, deviceSpec ...v1alpha1.DeviceSpec) error {
+	testFleet := v1alpha1.Fleet{
 		ApiVersion: v1alpha1.FleetAPIVersion,
 		Kind:       v1alpha1.FleetKind,
 		Metadata: v1alpha1.ObjectMeta{
 			Name:   &testFleetName,
 			Labels: &map[string]string{},
 		},
-		Spec: v1alpha1.FleetSpec{
-			Selector: &testFleetSelector,
+	}
+
+	switch spec := fleetSpecOrSelector.(type) {
+	case v1alpha1.FleetSpec:
+		testFleet.Spec = spec
+
+	case v1alpha1.LabelSelector:
+
+		if len(deviceSpec) == 0 {
+			return fmt.Errorf("DeviceSpec is required when using LabelSelector")
+		}
+
+		testFleet.Spec = v1alpha1.FleetSpec{
+			Selector: &spec,
 			Template: struct {
 				Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
 				Spec     v1alpha1.DeviceSpec  "json:\"spec\""
 			}{
-				Spec: testFleetSpec,
+				Spec: deviceSpec[0],
 			},
-		},
+		}
+
+	default:
+		return fmt.Errorf("first parameter must be either FleetSpec or LabelSelector")
 	}
+
 	_, err := h.Client.ReplaceFleetWithResponse(h.Context, testFleetName, testFleet)
 	return err
 }
@@ -809,21 +840,6 @@ func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelec
 		},
 	}
 	err := h.CreateOrUpdateTestFleet(testFleetName, testFleetSelector, testFleetSpec)
-	return err
-}
-
-// create a fllet with fleet spec
-func (h *Harness) CreateTestFleetWithSpec(testFleetName string, testFleetSpec v1alpha1.FleetSpec) error {
-	var testFleet = v1alpha1.Fleet{
-		ApiVersion: v1alpha1.FleetAPIVersion,
-		Kind:       v1alpha1.FleetKind,
-		Metadata: v1alpha1.ObjectMeta{
-			Name:   &testFleetName,
-			Labels: &map[string]string{},
-		},
-		Spec: testFleetSpec,
-	}
-	_, err := h.Client.ReplaceFleetWithResponse(h.Context, testFleetName, testFleet)
 	return err
 }
 
@@ -884,12 +900,14 @@ func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []ma
 			for key, value := range labels {
 				(*device.Metadata.Labels)[key] = value
 			}
+			(*device.Metadata.Labels)["fleet"] = fleetName
 		})
+
 	}
 	return nil
 }
 
-func (h Harness) WaitForBatchCompletion(fleetName string, batchNumber int, timeout time.Duration) {
+func (h Harness) WaitForBatchStart(fleetName string, batchNumber int, timeout time.Duration) {
 	Eventually(func() int {
 		response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
 		if err != nil {
@@ -901,6 +919,11 @@ func (h Harness) WaitForBatchCompletion(fleetName string, batchNumber int, timeo
 			return -2
 		}
 		fleet := response.JSON200
+		if fleet == nil {
+			logrus.Debugf("fleet is nil")
+			return -2
+		}
+
 		annotations := fleet.Metadata.Annotations
 		if annotations == nil {
 			logrus.Debugf("annotations are nil")
@@ -919,10 +942,10 @@ func (h Harness) WaitForBatchCompletion(fleetName string, batchNumber int, timeo
 			return -2
 		}
 
-		logrus.Debugf("Current batch number: %d, waiting for > %d", batchNumberInt, batchNumber)
+		logrus.Debugf("Current batch number: %d, waiting for  %d", batchNumberInt, batchNumber)
 
 		return batchNumberInt
-	}, timeout, POLLINGLONG).Should(BeNumerically(">", batchNumber))
+	}, timeout, POLLINGLONG).Should(Equal(batchNumber))
 }
 
 func (h Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Device, error) {
@@ -1049,12 +1072,12 @@ func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error)
 }
 
 func (h *Harness) SimulateNetworkFailure() error {
-	registryIP := h.RegistryEndpoint()
+	registryIP, _, err := net.SplitHostPort(h.RegistryEndpoint())
+	if err != nil {
+		return fmt.Errorf("invalid registry endpoint: %v", err)
+	}
 
 	blockCommands := [][]string{
-		// Block traffic to the registry IP on common Docker registry ports
-		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "443", "-j", "DROP"},
-		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "80", "-j", "DROP"},
 		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "5000", "-j", "DROP"},
 	}
 
@@ -1076,12 +1099,12 @@ func (h *Harness) SimulateNetworkFailure() error {
 }
 
 func (h *Harness) FixNetworkFailure() error {
-	registryIP := h.RegistryEndpoint()
+	registryIP, _, err := net.SplitHostPort(h.RegistryEndpoint())
+	if err != nil {
+		return fmt.Errorf("invalid registry endpoint: %v", err)
+	}
 
 	unblockCommands := [][]string{
-		// Unblock traffic to the registry IP on common Docker registry ports
-		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "443", "-j", "DROP"},
-		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "80", "-j", "DROP"},
 		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", "5000", "-j", "DROP"},
 	}
 
@@ -1103,4 +1126,44 @@ func (h *Harness) FixNetworkFailure() error {
 	}
 
 	return nil
+}
+
+// CheckRunningContainers verifies the expected number of running containers on the VM.
+func (h Harness) CheckRunningContainers() (string, error) {
+	out, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+// RunGetDevices executes "get devices" CLI command with optional arguments.
+func (h Harness) RunGetDevices(args ...string) (string, error) {
+	allArgs := append([]string{"get", "devices"}, args...)
+	return h.CLI(allArgs...)
+}
+
+// ManageResource performs an operation ("apply" or "delete") on a specified resource.
+func (h Harness) ManageResource(operation, resource string, args ...string) (string, error) {
+	switch operation {
+	case "apply":
+		return h.CLI("apply", "-f", util.GetTestExamplesYamlPath(resource))
+	case "delete":
+		return h.CLI("delete", resource)
+	default:
+		return "", fmt.Errorf("unsupported operation: %s", operation)
+	}
+}
+
+// ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
+func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
+	for _, condition := range d.Status.Conditions {
+		if string(condition.Type) == conditionType &&
+			condition.Reason == conditionReason &&
+			string(condition.Status) == conditionStatus {
+			return true
+		}
+	}
+	return false
+
 }
