@@ -1,4 +1,4 @@
-{{- if .Values.cliArtifacts.enabled }}
+{{- if $.Values.cliArtifacts.enabled }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -7,7 +7,7 @@ metadata:
     {{- include "common.labels.standard" $ | nindent 4 }}
     app.kubernetes.io/component: cli-artifacts
   name: flightctl-cli-artifacts
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Release.Namespace }}
 spec:
   replicas: 1
   selector:

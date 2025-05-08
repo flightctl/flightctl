@@ -1,4 +1,4 @@
-{{ if .Values.global.clusterLevelSecretAccess }}
+{{ if $.Values.global.clusterLevelSecretAccess }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
