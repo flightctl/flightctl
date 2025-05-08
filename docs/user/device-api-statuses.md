@@ -209,6 +209,57 @@ stateDiagram
     Known --> Unknown
 ```
 
+## Lifecycle Status
+
+The Lifecycle Status represents whether the device is available to be managed and assigned to do work or is moving to an end-of-life state.
+
+The `device.status.lifecycle` field can have the following values:
+
+| Status | Description | Formal Definition<sup>1</sub> |
+| ------ | ----------- | ----------------------------- |
+| `Enrolled` | The device's Enrollment Request was approved and it will be able to connect to management to carry out normal operations using its management certificate. | `∃ er ∈ enrollmentrequest \| er[device] && er ∈{Complete}` |
+| `Decommissioning` | The device has been requested to decommission by a user and is no longer available to carry out normal operations. | `device.spec.decommissioning != nil` |
+| `Decommissioned` | The device has either completed its decommissioning process or has encountered an unrecoverable error in doing so. | `∃ c ∈ device.status.conditions \| c.type == DeviceDecommissioning && c.status == true && c.reason ∈ {DecommissionStateComplete, DecommissionStateError}` |
+| `Unknown` | The device has not properly enrolled. No device available through management should be in this state. | `∄ er ∈ enrollmentrequest \| er[device] && er ∈{Complete}` |
+
+The `device.status.conditions` field may contain a Condition of type `DeviceDecommissioning` whose `Condition.Reason` field contains the current state of a decommissioning in progress and can contain the following values:
+
+| Decommissioning State | Description |
+| ------------ | ----------- |
+| `Started` | The agent has received the request to decommission from the service and will take a series of previously defined decommissioning actions. |
+| `Completed` | The agent has completed its decommissioning process, up until the point of wiping its management certificate that is used to communicate with the service. |
+| `Error` | The agent has encountered an unrecoverable error during its decommissioning process and will not be able to take further actions. |
+
+The following state diagram shows the possible transitions between lifecycle statuses and states.
+
+```mermaid
+stateDiagram
+    direction LR
+
+    Unknown
+    state Known {
+        direction LR
+
+        state Decommissioning {
+            [*] --> DecommissioningRequested
+            DecommissioningRequested --> DecommissioningStarted
+        }
+
+        state Decommissioned {
+            [*] --> DecommissioningCompleted
+            [*] --> DecommissioningError
+        }
+
+        [*] --> Enrolled
+        Enrolled --> Decommissioning
+        Decommissioning --> Decommissioning
+        Decommissioning --> Decommissioned
+    }
+
+    [*] --> Unknown
+    Unknown --> Known
+```
+
 ## Helper Definitions
 
 The formal definition uses the following helper definitions:
