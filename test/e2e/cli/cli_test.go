@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"crypto/rand"
 	"fmt"
 	"os"
 	"strings"
@@ -17,9 +16,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const TIMEOUT = "1m"
-const POLLING = "250ms"
-
+// _ is used as a blank identifier to ignore the return value of BeforeSuite, typically for initialization purposes.
 var _ = BeforeSuite(func() {
 	// This will be executed before all tests run.
 	var h *e2e.Harness
@@ -30,11 +27,13 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 })
 
+// TestCLI initializes and runs the suite of end-to-end tests for the Command Line Interface (CLI).
 func TestCLI(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "CLI E2E Suite")
 }
 
+// _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
 var _ = Describe("cli operation", func() {
 	var (
 		harness *e2e.Harness
@@ -110,8 +109,14 @@ var _ = Describe("cli operation", func() {
 
 	Context("certificate generation per user", func() {
 		It("should have worked, and we can have a certificate", Label("75865"), func() {
-			By("The certificated is generated for the user")
-			out, err := harness.CLI("certificate", "request", "-n", randString(5))
+			By("The certificate is generated for the user")
+
+			// Capture both string and error
+			randomString, err := util.RandString(5)
+			Expect(err).ToNot(HaveOccurred()) // Check for error
+
+			// Use the string in the CLI command
+			out, err := harness.CLI("certificate", "request", "-n", randomString)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring("enrollment-service:"))
 		})
@@ -243,7 +248,8 @@ var _ = Describe("cli operation", func() {
 			er := harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath("enrollmentrequest.yaml"))
 
 			//Update er name
-			erNewName := randString(64)
+			erNewName, err := util.RandString(64)
+			Expect(err).ToNot(HaveOccurred())
 			*er.Metadata.Name = erNewName
 			erData, err := yaml.Marshal(&er)
 			Expect(err).ToNot(HaveOccurred())
@@ -263,7 +269,8 @@ var _ = Describe("cli operation", func() {
 			csr := harness.GetCertificateSigningRequestByYaml(util.GetTestExamplesYamlPath("csr.yaml"))
 
 			//Update csr name
-			csrNewName := randString(64)
+			csrNewName, err := util.RandString(64)
+			Expect(err).ToNot(HaveOccurred())
 			*csr.Metadata.Name = csrNewName
 			csrData, err := yaml.Marshal(&csr)
 			Expect(err).ToNot(HaveOccurred())
@@ -276,8 +283,28 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
-})
 
+	Context("Flightctl Version Checks", func() {
+		It("should show matching client and server versions", Label("79621"), func() {
+			By("Getting the version output")
+			out, err := harness.CLI("version")
+			clientVersionPrefix := "Client Version:"
+			serverVersionPrefix := "Server Version:"
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(clientVersionPrefix))
+			Expect(out).To(ContainSubstring(serverVersionPrefix))
+
+			By("Parsing client and server versions")
+			clientVersion := GetVersionByPrefix(out, clientVersionPrefix)
+			serverVersion := GetVersionByPrefix(out, serverVersionPrefix)
+
+			Expect(clientVersion).ToNot(BeEmpty(), "client version should be found")
+			Expect(serverVersion).ToNot(BeEmpty(), "server version should be found")
+			Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
+		})
+	})
+
+})
 var _ = Describe("cli login", func() {
 	var (
 		harness *e2e.Harness
@@ -334,19 +361,22 @@ var _ = Describe("cli login", func() {
 	})
 })
 
-func randString(n int) string {
-	const alphanum = "abcdefghijklmnopqrstuvwxyz"
-	var bytes = make([]byte, n)
-	if _, err := rand.Read(bytes); err != nil {
-		Expect(err).ToNot(HaveOccurred())
-		return ""
+// GetVersionByPrefix searches the output for a line starting with the given prefix
+// and returns the trimmed value following the prefix. Returns an empty string if not found.
+func GetVersionByPrefix(output, prefix string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
 	}
-	for i, b := range bytes {
-		bytes[i] = alphanum[b%byte(len(alphanum))]
-	}
-	return string(bytes)
+	return ""
 }
 
+// TIMEOUT represents the default duration string for timeout, set to 1 minute.
+const TIMEOUT = "1m"
+const POLLING = "250ms"
+
+// completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.
 const completeFleetYaml = `
 apiVersion: v1alpha1
 kind: Fleet
@@ -362,6 +392,7 @@ spec:
                 image: quay.io/redhat/rhde:9.2
 `
 
+// incompleteFleetYaml defines a YAML configuration string for a Fleet resource with minimal and incomplete fields.
 const incompleteFleetYaml = `
 apiVersion: v1alpha1
 kind: Fleet
@@ -374,6 +405,8 @@ spec:
 `
 
 var (
-	newTestKey   = "testKey"
+	newTestKey = "testKey"
+
+	// newTestValue holds the string value "newValue" used as a test variable in the application.
 	newTestValue = "newValue"
 )

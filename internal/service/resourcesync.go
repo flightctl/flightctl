@@ -24,7 +24,9 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.Resource
 	}
 
 	result, err := h.store.ResourceSync().Create(ctx, orgId, &rs)
-	return result, StoreErrorToApiStatus(err, true, api.ResourceSyncKind, rs.Metadata.Name)
+	status := StoreErrorToApiStatus(err, true, api.ResourceSyncKind, rs.Metadata.Name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.ResourceSyncKind, *rs.Metadata.Name, status, nil))
+	return result, status
 }
 
 func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListResourceSyncsParams) (*api.ResourceSyncList, api.Status) {
@@ -105,14 +107,18 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, name string, r
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs)
-	return result, StoreErrorToApiStatus(err, created, api.ResourceSyncKind, &name)
+	result, created, updateDesc, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs)
+	status := StoreErrorToApiStatus(err, created, api.ResourceSyncKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.ResourceSyncKind, name, status, &updateDesc))
+	return result, status
 }
 
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 	err := h.store.ResourceSync().Delete(ctx, orgId, name, h.store.Fleet().UnsetOwner)
-	return StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
+	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.ResourceSyncKind, name, status))
+	return status
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
@@ -148,8 +154,10 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, name string, pat
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
-	result, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
-	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
+	result, updateDesc, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
+	status := StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.ResourceSyncKind, name, status, &updateDesc))
+	return result, status
 }
 
 func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, name string, resourceSync api.ResourceSync) (*api.ResourceSync, api.Status) {

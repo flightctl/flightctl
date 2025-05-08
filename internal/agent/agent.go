@@ -11,6 +11,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
@@ -25,9 +26,11 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/experimental"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -40,16 +43,18 @@ const (
 )
 
 // New creates a new agent.
-func New(log *log.PrefixLogger, config *Config) *Agent {
+func New(log *log.PrefixLogger, config *agent_config.Config, configFile string) *Agent {
 	return &Agent{
-		config: config,
-		log:    log,
+		config:     config,
+		configFile: configFile,
+		log:        log,
 	}
 }
 
 type Agent struct {
-	config *Config
-	log    *log.PrefixLogger
+	config     *agent_config.Config
+	configFile string
+	log        *log.PrefixLogger
 }
 
 func (a *Agent) GetLogPrefix() string {
@@ -65,12 +70,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer cancel()
 
 	// create file io writer and reader
-	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.testRootDir))
+	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
 	// ensure the agent key exists if not create it.
 	if !a.config.ManagementService.Config.HasCredentials() {
-		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, DefaultCertsDirName, GeneratedCertFile)
-		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, DefaultCertsDirName, KeyFile)
+		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
+		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
 	}
 	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
 	if err != nil {
@@ -119,15 +124,38 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		a.config.DataDir,
-		a.config.MergedInfoKeys(),
-		a.config.CollectSystemInfoTimeout,
+		a.config.SystemInfo,
+		a.config.SystemInfoCustom,
+		a.config.SystemInfoTimeout,
 	)
-	if err := systemInfoManager.Initialize(); err != nil {
+	if err := systemInfoManager.Initialize(ctx); err != nil {
 		return err
 	}
 
+	// generate tpm client only if experimental features are enabled
+	experimentalFeatures := experimental.NewFeatures()
+	if experimentalFeatures.IsEnabled() {
+		a.log.Warn("Experimental features enabled: creating TPM client")
+		tpmClient, err := lifecycle.NewTpmClient(a.log)
+		if err != nil {
+			a.log.Warnf("Experimental feature: tpm is not available: %v", err)
+		} else {
+			a.log.Warn("Experimental features enabled: registering TPM info collection functions")
+			err := tpmClient.UpdateNonce(make([]byte, 8))
+			if err != nil {
+				a.log.Errorf("Unable to update nonce in tpm client: %v", err)
+			}
+			systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
+			systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
+		}
+	} else {
+		a.log.Info("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
+	}
+
 	// create shutdown manager
-	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.NewManager(a.log, gracefulShutdownTimeout, cancel)
+
+	reloadManager := reload.NewManager(a.configFile, a.log)
 
 	policyManager := policy.NewManager(a.log)
 
@@ -275,13 +303,19 @@ func (a *Agent) Run(ctx context.Context) error {
 	// register agent with shutdown manager
 	shutdownManager.Register("agent", agent.Stop)
 
+	// register reloader with reload manager
+	reloadManager.Register(agent.ReloadConfig)
+	reloadManager.Register(systemInfoManager.ReloadConfig)
+	reloadManager.Register(statusManager.ReloadCollect)
+
 	go shutdownManager.Run(ctx)
+	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
+func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
 	if err != nil {
 		return nil, err
@@ -295,8 +329,4 @@ func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClie
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
 	return client, nil
-}
-
-func CollectSystemInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, hardwareMapPath string) (*systeminfo.Info, error) {
-	return systeminfo.CollectInfo(ctx, log, exec, reader, hardwareMapPath)
 }

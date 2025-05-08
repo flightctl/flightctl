@@ -3,13 +3,18 @@ package systeminfo
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/config"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -20,7 +25,7 @@ import (
 const (
 	sysVirtualNetDir = "/sys/devices/virtual/net"
 	sysClassNetDir   = "/sys/class/net"
-	dmiDirClass      = "/sys/class/dmi/id"
+	dmiClassPath     = "/sys/class/dmi/id"
 	pciDevicesPath   = "/sys/bus/pci/devices"
 	osReleasePath    = "/etc/os-release"
 	resolveConfPath  = "/etc/resolv.conf"
@@ -28,9 +33,12 @@ const (
 	memInfoPath      = "/proc/meminfo"
 	ipv4RoutePath    = "/proc/net/route"
 	ipv6RoutePath    = "/proc/net/ipv6_route"
+	bootIDPath       = "/proc/sys/kernel/random/boot_id"
 
-	// ScriptOverrideDir is the directory where custom/overide scripts are stored
-	ScriptOverrideDir = "collect.d"
+	// SystemFileName is the name of the file where the system boot status is stored in the data-dir.
+	SystemFileName = "system.json"
+	// HardwareMapFileName is the name of the file where the hardware map is stored.
+	HardwareMapFileName = "hardware-map.yaml"
 )
 
 type Manager interface {
@@ -40,20 +48,26 @@ type Manager interface {
 	BootID() string
 	// BootTime returns the time the system was booted
 	BootTime() string
-	// ReloadStatus collects system info and sends a patch status to the management API
-	ReloadStatus() error
+	// RegisterCollector registers a system info collector
+	RegisterCollector(ctx context.Context, name string, fn CollectorFn)
 	status.Exporter
 }
 
+// CollectorFn is a function that collects system information. Collectors are
+// best effort and should log any errors.
+type CollectorFn func(ctx context.Context) string
+
 type Info struct {
-	Hostname     string                 `json:"hostname"`
-	Architecture string                 `json:"architecture"`
-	Kernel       string                 `json:"kernel"`
-	Distribution map[string]interface{} `json:"distribution,omitempty"`
-	Hardware     HardwareFacts          `json:"hardware"`
-	CollectedAt  string                 `json:"collected_at"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
-	Boot         Boot                   `json:"boot,omitempty"`
+	Hostname        string                 `json:"hostname"`
+	Architecture    string                 `json:"architecture"`
+	OperatingSystem string                 `json:"operatingSystem"`
+	Kernel          string                 `json:"kernel"`
+	Distribution    map[string]interface{} `json:"distribution,omitempty"`
+	Hardware        HardwareFacts          `json:"hardware"`
+	CollectedAt     string                 `json:"collectedAt"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	Boot            Boot                   `json:"boot,omitempty"`
+	Custom          map[string]string      `json:"custom,omitempty"`
 }
 
 // HardwareFacts contains hardware information gathered by ghw
@@ -78,9 +92,9 @@ type CPUInfo struct {
 // ProcessorInfo contains information about a single processor
 type ProcessorInfo struct {
 	ID                int      `json:"id"`
-	NumCores          int      `json:"num_cores"`
-	NumThreads        int      `json:"num_threads"`
-	NumThreadsPerCore int      `json:"num_threads_per_core"`
+	NumCores          int      `json:"numCores"`
+	NumThreads        int      `json:"numThreads"`
+	NumThreadsPerCore int      `json:"numThreadsPerCore"`
 	Vendor            string   `json:"vendor"`
 	Model             string   `json:"model"`
 	Capabilities      []string `json:"capabilities,omitempty"`
@@ -88,14 +102,14 @@ type ProcessorInfo struct {
 
 // MemoryInfo represents memory information
 type MemoryInfo struct {
-	TotalKB uint64                 `json:"total_kb"`
+	TotalKB uint64                 `json:"totalKb"`
 	Details map[string]interface{} `json:"details,omitempty"`
 }
 
 // BlockInfo represents block device information
 type BlockInfo struct {
-	TotalSizeBytes uint64      `json:"total_size_bytes"`
-	TotalSizeGB    float64     `json:"total_size_gb"`
+	TotalSizeBytes uint64      `json:"totalSizeBytes"`
+	TotalSizeGB    float64     `json:"totalSizeGb"`
 	Disks          []DiskInfo  `json:"disks"`
 	Mounts         []MountInfo `json:"mounts,omitempty"`
 }
@@ -103,41 +117,41 @@ type BlockInfo struct {
 // DiskInfo contains information about a single disk
 type DiskInfo struct {
 	Name              string          `json:"name"`
-	SizeBytes         uint64          `json:"size_bytes"`
-	SizeGB            float64         `json:"size_gb"`
-	DriveType         string          `json:"drive_type"`
-	StorageController string          `json:"storage_controller"`
+	SizeBytes         uint64          `json:"sizeBytes"`
+	SizeGB            float64         `json:"sizeGb"`
+	DriveType         string          `json:"driveType"`
+	StorageController string          `json:"storageController"`
 	Vendor            string          `json:"vendor,omitempty"`
 	Model             string          `json:"model,omitempty"`
-	SerialNumber      string          `json:"serial_number,omitempty"`
+	SerialNumber      string          `json:"serialNumber,omitempty"`
 	WWN               string          `json:"wwn,omitempty"`
-	BusType           string          `json:"bus_type,omitempty"`
+	BusType           string          `json:"busType,omitempty"`
 	Partitions        []PartitionInfo `json:"partitions,omitempty"`
 }
 
 // PartitionInfo contains information about a disk partition
 type PartitionInfo struct {
 	Name       string  `json:"name"`
-	SizeBytes  uint64  `json:"size_bytes"`
-	SizeGB     float64 `json:"size_gb"`
-	MountPoint string  `json:"mount_point,omitempty"`
+	SizeBytes  uint64  `json:"sizeBytes"`
+	SizeGB     float64 `json:"sizeGb"`
+	MountPoint string  `json:"mountPoint,omitempty"`
 	Type       string  `json:"type,omitempty"`
-	IsReadOnly bool    `json:"is_read_only,omitempty"`
+	IsReadOnly bool    `json:"isReadOnly,omitempty"`
 }
 
 // MountInfo contains information about a filesystem mount
 type MountInfo struct {
 	Device     string `json:"device"`
-	MountPoint string `json:"mount_point"`
-	FSType     string `json:"fs_type"`
+	MountPoint string `json:"mountPoint"`
+	FSType     string `json:"fsType"`
 	Options    string `json:"options"`
 }
 
 // NetworkInfo represents network information
 type NetworkInfo struct {
 	Interfaces   []InterfaceInfo `json:"interfaces"`
-	DefaultRoute *DefaultRoute   `json:"default_route,omitempty"`
-	DNSServers   []string        `json:"dns_servers,omitempty"`
+	DefaultRoute *DefaultRoute   `json:"defaultRoute,omitempty"`
+	DNSServers   []string        `json:"dnsServers,omitempty"`
 	FQDN         string          `json:"fqdn,omitempty"`
 }
 
@@ -151,9 +165,9 @@ type DefaultRoute struct {
 // InterfaceInfo contains information about a network interface
 type InterfaceInfo struct {
 	Name        string   `json:"name"`
-	MACAddress  string   `json:"mac_address"`
-	IsVirtual   bool     `json:"is_virtual"`
-	IPAddresses []string `json:"ip_addresses,omitempty"`
+	MACAddress  string   `json:"macAddress"`
+	IsVirtual   bool     `json:"isVirtual"`
+	IPAddresses []string `json:"ipAddresses,omitempty"`
 	MTU         int      `json:"mtu,omitempty"`
 	Status      string   `json:"status,omitempty"`
 }
@@ -165,27 +179,32 @@ type GPUInfo struct {
 
 // GPUDeviceInfo contains information about a GPU device
 type GPUDeviceInfo struct {
-	Index       int    `json:"index"`
-	Vendor      string `json:"vendor"`
-	Model       string `json:"model"`
-	DeviceID    string `json:"device_id,omitempty"`
-	PCIAddress  string `json:"pci_address,omitempty"`
-	RevisionID  string `json:"revision_id,omitempty"`
-	VendorID    string `json:"vendor_id,omitempty"`
-	MemoryBytes uint64 `json:"memory_bytes,omitempty"`
+	Index       int      `json:"index"`
+	Vendor      string   `json:"vendor"`
+	Model       string   `json:"model"`
+	DeviceID    string   `json:"deviceId,omitempty"`
+	PCIAddress  string   `json:"pciAddress,omitempty"`
+	RevisionID  string   `json:"revisionId,omitempty"`
+	VendorID    string   `json:"vendorId,omitempty"`
+	MemoryBytes uint64   `json:"memoryBytes,omitempty"`
+	Arch        string   `json:"architecture,omitempty"`
+	Features    []string `json:"features,omitempty"`
 }
 
 // PCIVendorInfo contains mapping information for vendors and models
 type PCIVendorInfo struct {
-	Models     []PCIModelInfo `yaml:"models"`
-	VendorID   string         `yaml:"vendorID"`
-	VendorName string         `yaml:"vendorName"`
+	Models     []PCIModelInfo `json:"models"`
+	VendorID   string         `json:"vendorID"`
+	VendorName string         `json:"vendorName"`
 }
 
 // PCIModelInfo contains information about a specific GPU model
 type PCIModelInfo struct {
-	PCIID   string `yaml:"pciID"`
-	PCIName string `yaml:"pciName"`
+	PCIID       string   `json:"pciID"`
+	PCIName     string   `json:"pciName"`
+	MemoryBytes uint64   `json:"memoryBytes,omitempty"`
+	Arch        string   `json:"architecture,omitempty"`
+	Features    []string `json:"features,omitempty"`
 }
 
 // BIOSInfo represents BIOS information
@@ -198,13 +217,15 @@ type BIOSInfo struct {
 // SystemInfo represents system information
 type SystemInfo struct {
 	Manufacturer string `json:"manufacturer"`
-	ProductName  string `json:"product_name"`
-	SerialNumber string `json:"serial_number,omitempty"`
+	ProductName  string `json:"productName"`
+	SerialNumber string `json:"serialNumber,omitempty"`
 	UUID         string `json:"uuid,omitempty"`
 	Version      string `json:"version,omitempty"`
 	Family       string `json:"family,omitempty"`
 	SKU          string `json:"sku,omitempty"`
 }
+
+type InfoMap map[string]string
 
 type Boot struct {
 	// Time is the time the system was booted.
@@ -217,8 +238,21 @@ func (b *Boot) IsEmpty() bool {
 	return b.Time == "" && b.ID == ""
 }
 
-// CollectInfo collects system information and returns a SystemInfoReport
-func CollectInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, hardwareMapFilePath string) (*Info, error) {
+type CollectCfg struct {
+	collectAllCustom bool
+}
+
+type CollectOpt func(*CollectCfg)
+
+// WithAllCustom sets the allCustom option to true enabling all custom scripts to be collected.
+func WithAllCustom() CollectOpt {
+	return func(cfg *CollectCfg) {
+		cfg.collectAllCustom = true
+	}
+}
+
+// Collect collects system information and returns it as a map of key-value pairs.
+func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, customKeys []string, hardwareMapFilePath string, opts ...CollectOpt) (*Info, error) {
 	now := time.Now()
 	log.Debugf("Collecting system information...")
 	defer func() {
@@ -230,6 +264,11 @@ func CollectInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Execu
 		Hardware:    HardwareFacts{},
 	}
 
+	if err := ctx.Err(); err != nil {
+		log.Warningf("Context canceled before collection started: %v", err)
+		return nil, err
+	}
+
 	// TODO: only collect requested info from fact keys
 
 	// system info
@@ -238,17 +277,27 @@ func CollectInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Execu
 	if err != nil {
 		log.Warningf("Failed to get hostname: %v", err)
 	}
-
+	info.OperatingSystem = runtime.GOOS
 	info.Architecture = runtime.GOARCH
-	if out, err := exec.CommandContext(ctx, "uname", "-r").Output(); err == nil {
-		info.Kernel = strings.TrimSpace(string(out))
+
+	out, err := exec.CommandContext(ctx, "uname", "-r").Output()
+	if err != nil {
+		if errors.IsContext(err) {
+			log.Warningf("Context canceled during kernel info collection: %v", err)
+			return info, err
+		}
+		log.Warningf("Failed to get kernel info: %v", err)
 	} else {
-		info.Kernel = runtime.GOOS
+		info.Kernel = strings.TrimSpace(string(out))
 	}
 
 	// distribution info
 	distroInfo, err := collectDistributionInfo(ctx, exec, reader)
 	if err != nil {
+		if errors.IsContext(err) {
+			log.Warningf("Context canceled during distribution info collection: %v", err)
+			return info, err
+		}
 		log.Warningf("Failed to get distribution info: %v", err)
 	} else {
 		info.Distribution = distroInfo
@@ -260,14 +309,6 @@ func CollectInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Execu
 		log.Warningf("Failed to get CPU info: %v", err)
 	} else {
 		info.Hardware.CPU = cpuInfo
-	}
-
-	// network info
-	netInfo, err := collectNetworkInfo(ctx, log, exec, reader)
-	if err != nil {
-		log.Warningf("Failed to get network info: %v", err)
-	} else {
-		info.Hardware.Network = netInfo
 	}
 
 	// gpu info
@@ -309,8 +350,12 @@ func CollectInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Execu
 	} else {
 		info.Boot.ID = bootID
 	}
-	bootTime, err := getBootTime(exec)
+	bootTime, err := getBootTime(ctx, exec)
 	if err != nil {
+		if errors.IsContext(err) {
+			log.Warningf("Context canceled during boot time collection: %v", err)
+			return info, err
+		}
 		log.Warningf("Failed to get boot time: %v", err)
 	} else {
 		info.Boot.Time = bootTime
@@ -322,6 +367,34 @@ func CollectInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Execu
 		"collector_type":    "flightctl-agent",
 	}
 
+	// network info
+	netInfo, err := collectNetworkInfo(ctx, log, exec, reader)
+	if err != nil {
+		if errors.IsContext(err) {
+			log.Warningf("Context canceled during network info collection: %v", err)
+			return info, err
+		}
+		log.Warningf("Failed to get network info: %v", err)
+	} else {
+		info.Hardware.Network = netInfo
+	}
+
+	// custom info
+	if len(customKeys) > 0 {
+		customInfo, err := getCustomInfoMap(ctx, log, customKeys, reader, exec, opts...)
+		if err != nil {
+			if errors.IsContext(err) {
+				log.Warningf("Context canceled during custom info collection: %v", err)
+				return info, err
+			}
+			log.Warningf("Failed to get custom info: %v", err)
+		} else {
+			info.Custom = customInfo
+		}
+	} else {
+		log.Infof("No custom info keys provided, skipping custom info collection")
+	}
+
 	return info, nil
 }
 
@@ -330,7 +403,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 	"hostname":     func(i *Info) string { return i.Hostname },
 	"architecture": func(i *Info) string { return i.Architecture },
 	"kernel":       func(i *Info) string { return i.Kernel },
-	"distro_name": func(i *Info) string {
+	"distroName": func(i *Info) string {
 		if i.Distribution == nil {
 			return ""
 		}
@@ -342,7 +415,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	"distro_version": func(i *Info) string {
+	"distroVersion": func(i *Info) string {
 		if i.Distribution == nil {
 			return ""
 		}
@@ -354,43 +427,43 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	"product_name": func(i *Info) string {
+	"productName": func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.ProductName
 		}
 		return ""
 	},
-	"product_serial": func(i *Info) string {
+	"productSerial": func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.SerialNumber
 		}
 		return ""
 	},
-	"product_uuid": func(i *Info) string {
+	"productUuid": func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.UUID
 		}
 		return ""
 	},
-	"bios_vendor": func(i *Info) string {
+	"biosVendor": func(i *Info) string {
 		if i.Hardware.BIOS != nil {
 			return i.Hardware.BIOS.Vendor
 		}
 		return ""
 	},
-	"bios_version": func(i *Info) string {
+	"biosVersion": func(i *Info) string {
 		if i.Hardware.BIOS != nil {
 			return i.Hardware.BIOS.Version
 		}
 		return ""
 	},
-	"default_interface": func(i *Info) string {
+	"netInterfaceDefault": func(i *Info) string {
 		if i.Hardware.Network != nil && i.Hardware.Network.DefaultRoute != nil {
 			return i.Hardware.Network.DefaultRoute.Interface
 		}
 		return ""
 	},
-	"default_ip_address": func(i *Info) string {
+	"netIpDefault": func(i *Info) string {
 		if i.Hardware.Network == nil || i.Hardware.Network.DefaultRoute == nil {
 			return ""
 		}
@@ -414,7 +487,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	"default_mac_address": func(i *Info) string {
+	"netMacDefault": func(i *Info) string {
 		if i.Hardware.Network == nil || i.Hardware.Network.DefaultRoute == nil {
 			return ""
 		}
@@ -435,27 +508,27 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		for idx, gpu := range i.Hardware.GPU {
 			parts = append(parts, fmt.Sprintf("[%d] %s %s", idx, gpu.Vendor, gpu.Model))
 		}
-		return strings.Join(parts, "; ")
+		return strings.Join(parts, ".")
 	},
-	"total_memory_mb": func(i *Info) string {
+	"memoryTotalKb": func(i *Info) string {
 		if i.Hardware.Memory == nil || i.Hardware.Memory.TotalKB <= 0 {
 			return ""
 		}
-		return fmt.Sprintf("%d", i.Hardware.Memory.TotalKB/1024)
+		return fmt.Sprintf("%d", i.Hardware.Memory.TotalKB)
 	},
-	"cpu_cores": func(i *Info) string {
+	"cpuCores": func(i *Info) string {
 		if i.Hardware.CPU != nil {
 			return fmt.Sprintf("%d", i.Hardware.CPU.TotalCores)
 		}
 		return ""
 	},
-	"cpu_processors": func(i *Info) string {
+	"cpuProcessors": func(i *Info) string {
 		if i.Hardware.CPU != nil {
 			return fmt.Sprintf("%d", len(i.Hardware.CPU.Processors))
 		}
 		return ""
 	},
-	"cpu_model": func(i *Info) string {
+	"cpuModel": func(i *Info) string {
 		if i.Hardware.CPU != nil && len(i.Hardware.CPU.Processors) > 0 {
 			return i.Hardware.CPU.Processors[0].Model
 		}
@@ -463,61 +536,174 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 	},
 }
 
-// DefaultInfoKeys is a list of default keys to be used when generating facts
-var DefaultInfoKeys = []string{
-	"hostname",
-	"architecture",
-	"kernel",
-	"distro_name",
-	"distro_version",
-	"product_name",
-	"product_uuid",
-	"default_interface",
-	"default_ip_address",
-	"default_mac_address",
+// getSystemInfoMap collects system information from the system It executes
+// system commands and reads files to gather information about the system.
+// It returns a map of key-value pairs representing the system information.
+func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, infoKeys []string, collectors map[string]CollectorFn) InfoMap {
+	infoMap := make(InfoMap, len(infoKeys)+len(collectors))
+
+	for _, key := range infoKeys {
+		if ctx.Err() != nil {
+			return infoMap
+		}
+
+		formatFn, exists := SupportedInfoKeys[key]
+		if !exists {
+			log.Errorf("Unsupported system info key: %s", key)
+			continue
+		}
+		val := formatFn(info)
+		if val == "" {
+			log.Debugf("SystemInfo key returned an empty value: %s", key)
+		}
+		infoMap[key] = val
+	}
+
+	for key, collectorfn := range collectors {
+		_, alreadyExists := infoMap[key]
+		if alreadyExists {
+			log.Warnf("SystemInfo collector already populated: %s is %s", key, infoMap[key])
+		} else {
+			val := collectorfn(ctx)
+			trimmed := strings.TrimSpace(val)
+			reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
+			sanitizedval := reg.ReplaceAllString(trimmed, "")
+			infoMap[key] = sanitizedval
+		}
+	}
+
+	return infoMap
 }
 
-// GenerateFacts generates a map of facts based on the provided keys and system information
-func GenerateFacts(ctx context.Context, log *log.PrefixLogger, reader fileio.Reader, exec executer.Executer, info *Info, keys []string, dataDir string) map[string]string {
-	labels := make(map[string]string)
+// getCustomInfoMap collects custom information from the system It executes
+// custom scripts located in the CustomInfoScriptDir directory and returns the
+// output as a map of key-value pairs.
+func getCustomInfoMap(ctx context.Context, log *log.PrefixLogger, keys []string, reader fileio.Reader, exec executer.Executer, opts ...CollectOpt) (map[string]string, error) {
+	cfg := &CollectCfg{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
+	exists, err := reader.PathExists(config.SystemInfoCustomScriptDir)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("custom info directory %q does not exist", config.SystemInfoCustomScriptDir)
+	}
+
+	entries, err := os.ReadDir(reader.PathFor(config.SystemInfoCustomScriptDir))
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg.collectAllCustom {
+		// discover all available scripts dynamically
+		keys = discoverKeysFromEntries(entries)
+	}
+
+	customInfoinfo := make(map[string]string, len(keys))
 	for _, key := range keys {
 		if ctx.Err() != nil {
-			log.Warningf("Context error while generating facts for key %s: %v", key, ctx.Err())
-			return labels
+			//  only return ctx errors
+			return nil, ctx.Err()
 		}
-		// eval override/custom
-		if val, ok := getOverrideValue(ctx, key, reader, exec, dataDir); ok {
-			labels[key] = val
+
+		val, err := getCustomInfoValue(ctx, key, reader, exec, entries)
+		if err != nil {
+			log.Warnf("Failed to get custom info for key %s: %v", key, err)
+			if errors.IsContext(err) {
+				// only return ctx errors
+				return nil, err
+			}
+		}
+
+		_, ok := customInfoinfo[key]
+		if ok {
+			// skip if the key already exists
+			log.Warnf("Custom info key %s already exists, skipping", key)
 			continue
 		}
 
-		if fn, ok := SupportedInfoKeys[key]; ok {
-			val := fn(info)
-			if val != "" {
-				labels[key] = val
-			}
+		// empty value is not an error
+		customInfoinfo[key] = val
+	}
+
+	return customInfoinfo, nil
+}
+
+// getCustomInfo takes a
+//
+// It supports multiple filename patterns based on a hostname:
+//   - myCustomInfo.sh
+//   - mycustominfo.sh
+//   - 01-mycustominfo.sh
+//   - 20-mycustominfo.pyp
+func getCustomInfoValue(ctx context.Context, key string, reader fileio.Reader, exec executer.Executer, entries []fs.DirEntry) (string, error) {
+	var candidates []string
+	keyLower := strings.ToLower(key)
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		baseLower := strings.ToLower(base)
+
+		// match exact key or prefix + "-" + key
+		// intentionally not using regex to avoid performance cost
+		if base == key || baseLower == keyLower ||
+			strings.HasSuffix(base, "-"+key) || strings.HasSuffix(baseLower, "-"+keyLower) {
+			candidates = append(candidates, name)
 		}
 	}
 
-	return labels
+	if len(candidates) == 0 {
+		return "", nil
+	}
+
+	// lexicographically sort the candidates
+	sort.Strings(candidates)
+
+	for _, name := range candidates {
+		scriptPath := filepath.Join(reader.PathFor(config.SystemInfoCustomScriptDir), name)
+
+		info, err := os.Stat(scriptPath)
+		if err != nil || info.IsDir() || info.Mode()&0111 == 0 {
+			continue
+		}
+
+		out, err := exec.CommandContext(ctx, scriptPath).Output()
+		if err != nil {
+			return "", err
+		}
+
+		return strings.TrimSpace(string(out)), nil
+	}
+
+	return "", nil
 }
 
-// getOverrideValue checks if a script exists in the override directory and executes it
-func getOverrideValue(ctx context.Context, key string, reader fileio.Reader, exec executer.Executer, dataDir string) (string, bool) {
-	scriptPath := filepath.Join(dataDir, ScriptOverrideDir, key)
-	info, err := os.Stat(reader.PathFor(scriptPath))
-	if err != nil || info.IsDir() {
-		return "", false
+// discoverCustomInfoKeys discovers all available custom info keys from the
+// entries in the CustomInfoScriptDir directory. It returns a slice of keys.
+func discoverKeysFromEntries(entries []fs.DirEntry) []string {
+	keys := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+
+		if base != "" {
+			keys = append(keys, base)
+		}
 	}
 
-	// TODO do we need to have a timeout for each we do have a global timeout.
-	out, err := exec.CommandContext(ctx, reader.PathFor(scriptPath)).Output()
-	if err != nil {
-		return "", false
-	}
-
-	return strings.TrimSpace(string(out)), true
+	return keys
 }
 
 // collectSystemInfo gathers system information
@@ -535,7 +721,7 @@ func collectSystemInfo(reader fileio.Reader) (*SystemInfo, error) {
 	}
 
 	for fileName, fieldPtr := range fileFieldMap {
-		filePath := filepath.Join(dmiDirClass, fileName)
+		filePath := filepath.Join(dmiClassPath, fileName)
 		content, err := reader.ReadFile(filePath)
 		if err == nil {
 			*fieldPtr = strings.TrimSpace(string(content))
@@ -612,7 +798,7 @@ func collectBIOSInfo(reader fileio.Reader) (*BIOSInfo, error) {
 	}
 
 	for fileName, fieldPtr := range fileFieldMap {
-		filePath := filepath.Join(dmiDirClass, fileName)
+		filePath := filepath.Join(dmiClassPath, fileName)
 		content, err := reader.ReadFile(filePath)
 		if err != nil {
 			// best effort: ignore errors for missing files and permissions

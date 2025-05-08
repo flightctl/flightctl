@@ -124,6 +124,22 @@ const (
 	EncodingPlain  EncodingType = "plain"
 )
 
+// Defines values for EventReason.
+const (
+	ResourceCreated        EventReason = "ResourceCreated"
+	ResourceCreationFailed EventReason = "ResourceCreationFailed"
+	ResourceDeleted        EventReason = "ResourceDeleted"
+	ResourceDeletionFailed EventReason = "ResourceDeletionFailed"
+	ResourceUpdateFailed   EventReason = "ResourceUpdateFailed"
+	ResourceUpdated        EventReason = "ResourceUpdated"
+)
+
+// Defines values for EventType.
+const (
+	Normal  EventType = "Normal"
+	Warning EventType = "Warning"
+)
+
 // Defines values for FileOperation.
 const (
 	FileOperationCreated FileOperation = "created"
@@ -157,6 +173,24 @@ const (
 	ResourceAlertSeverityTypeCritical ResourceAlertSeverityType = "Critical"
 	ResourceAlertSeverityTypeInfo     ResourceAlertSeverityType = "Info"
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
+)
+
+// Defines values for ResourceKind.
+const (
+	ResourceKindCertificateSigningRequest ResourceKind = "CertificateSigningRequest"
+	ResourceKindDevice                    ResourceKind = "Device"
+	ResourceKindEnrollmentRequest         ResourceKind = "EnrollmentRequest"
+	ResourceKindFleet                     ResourceKind = "Fleet"
+	ResourceKindRepository                ResourceKind = "Repository"
+	ResourceKindResourceSync              ResourceKind = "ResourceSync"
+	ResourceKindTemplateVersion           ResourceKind = "TemplateVersion"
+)
+
+// Defines values for ResourceUpdatedDetailsUpdatedFields.
+const (
+	Labels ResourceUpdatedDetailsUpdatedFields = "labels"
+	Owner  ResourceUpdatedDetailsUpdatedFields = "owner"
+	Spec   ResourceUpdatedDetailsUpdatedFields = "spec"
 )
 
 // Defines values for RolloutStrategy.
@@ -351,17 +385,8 @@ type ConfigProviderSpec struct {
 	union json.RawMessage
 }
 
-// CpuResourceMonitorSpec Specification for monitoring a resource.
-type CpuResourceMonitorSpec = ResourceMonitorSpec
-
-// CronExpression Cron expression format for scheduling times.
-// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
-// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
-// Example: `* 0-8,16-23 * * *`.
-type CronExpression = string
-
-// CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
-type CustomResourceMonitorSpec struct {
+// CpuResourceMonitorSpec defines model for CpuResourceMonitorSpec.
+type CpuResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
 	AlertRules []ResourceAlertRule `json:"alertRules"`
 
@@ -371,6 +396,15 @@ type CustomResourceMonitorSpec struct {
 	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
+
+// CronExpression Cron expression format for scheduling times.
+// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
+// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
+// Example: `* 0-8,16-23 * * *`.
+type CronExpression = string
+
+// CustomDeviceInfo User-defined information about the device.
+type CustomDeviceInfo map[string]string
 
 // Device Device represents a physical device.
 type Device struct {
@@ -575,7 +609,7 @@ type DeviceStatus struct {
 	// Summary A summary of the health of the device hardware and operating system resources.
 	Summary DeviceSummaryStatus `json:"summary"`
 
-	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+	// SystemInfo System information collected from the device.
 	SystemInfo DeviceSystemInfo `json:"systemInfo"`
 
 	// Updated Current status of the device update.
@@ -594,7 +628,7 @@ type DeviceSummaryStatus struct {
 // DeviceSummaryStatusType Status of the device.
 type DeviceSummaryStatusType string
 
-// DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+// DeviceSystemInfo System information collected from the device.
 type DeviceSystemInfo struct {
 	// AgentVersion The Agent version.
 	AgentVersion string `json:"agentVersion"`
@@ -605,8 +639,12 @@ type DeviceSystemInfo struct {
 	// BootID Boot ID reported by the device.
 	BootID string `json:"bootID"`
 
+	// CustomInfo User-defined information about the device.
+	CustomInfo *CustomDeviceInfo `json:"customInfo,omitempty"`
+
 	// OperatingSystem The Operating System reported by the device.
-	OperatingSystem string `json:"operatingSystem"`
+	OperatingSystem      string            `json:"operatingSystem"`
+	AdditionalProperties map[string]string `json:"-"`
 }
 
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
@@ -793,6 +831,71 @@ type EnrollmentServiceService struct {
 
 	// Server Server is the address of the Flight Control enrollment service (https://hostname:port).
 	Server string `json:"server"`
+}
+
+// Event defines model for Event.
+type Event struct {
+	// Actor The name of the user or service that triggered the event. The value will be prefixed by either user: (for human users) or service: (for automated services).
+	Actor string `json:"actor"`
+
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Details Event-specific details, structured based on event type.
+	Details *EventDetails `json:"details,omitempty"`
+
+	// InvolvedObject A reference to a resource.
+	InvolvedObject ObjectReference `json:"involvedObject"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Message A human-readable description of the status of this operation.
+	Message string `json:"message"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Reason A short, machine-readable string that describes the reason for the event.
+	Reason EventReason `json:"reason"`
+
+	// Source The component that is responsible for the event.
+	Source EventSource `json:"source"`
+
+	// Type The type of the event. One of Normal, Warning.
+	Type EventType `json:"type"`
+}
+
+// EventReason A short, machine-readable string that describes the reason for the event.
+type EventReason string
+
+// EventType The type of the event. One of Normal, Warning.
+type EventType string
+
+// EventDetails Event-specific details, structured based on event type.
+type EventDetails struct {
+	union json.RawMessage
+}
+
+// EventList EventList is a list of Events.
+type EventList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of Events.
+	Items []Event `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// EventSource The component that is responsible for the event.
+type EventSource struct {
+	// Component The name of the component that is responsible for the event.
+	Component string `json:"component"`
 }
 
 // FileContent The content of a file.
@@ -1113,8 +1216,17 @@ type MatchExpressionOperator string
 // MatchExpressions A list of match expressions.
 type MatchExpressions = []MatchExpression
 
-// MemoryResourceMonitorSpec Specification for monitoring a resource.
-type MemoryResourceMonitorSpec = ResourceMonitorSpec
+// MemoryResourceMonitorSpec defines model for MemoryResourceMonitorSpec.
+type MemoryResourceMonitorSpec struct {
+	// AlertRules Array of alert rules. Only one alert per severity is allowed.
+	AlertRules []ResourceAlertRule `json:"alertRules"`
+
+	// MonitorType The type of resource to monitor.
+	MonitorType string `json:"monitorType"`
+
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
+	SamplingInterval string `json:"samplingInterval"`
+}
 
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 type ObjectMeta struct {
@@ -1141,6 +1253,15 @@ type ObjectMeta struct {
 
 	// ResourceVersion An opaque string that identifies the server's internal version of an object.
 	ResourceVersion *string `json:"resourceVersion,omitempty"`
+}
+
+// ObjectReference A reference to a resource.
+type ObjectReference struct {
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Name The name of the referenced object.
+	Name string `json:"name"`
 }
 
 // PatchRequest defines model for PatchRequest.
@@ -1232,6 +1353,9 @@ type ResourceAlertRule struct {
 // ResourceAlertSeverityType Severity of the alert.
 type ResourceAlertSeverityType string
 
+// ResourceKind Resource types exposed via the API.
+type ResourceKind string
+
 // ResourceMonitor defines model for ResourceMonitor.
 type ResourceMonitor struct {
 	union json.RawMessage
@@ -1241,9 +1365,6 @@ type ResourceMonitor struct {
 type ResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
 	AlertRules []ResourceAlertRule `json:"alertRules"`
-
-	// MonitorType The type of resource to monitor.
-	MonitorType string `json:"monitorType"`
 
 	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
@@ -1305,6 +1426,21 @@ type ResourceSyncStatus struct {
 	// ObservedGeneration The last generation that was synced.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
+
+// ResourceUpdatedDetails defines model for ResourceUpdatedDetails.
+type ResourceUpdatedDetails struct {
+	// NewOwner The new owner (if applicable).
+	NewOwner *string `json:"newOwner"`
+
+	// PreviousOwner The previous owner (if applicable).
+	PreviousOwner *string `json:"previousOwner"`
+
+	// UpdatedFields List of fields that were updated in the resource.
+	UpdatedFields []ResourceUpdatedDetailsUpdatedFields `json:"updatedFields"`
+}
+
+// ResourceUpdatedDetailsUpdatedFields defines model for ResourceUpdatedDetails.UpdatedFields.
+type ResourceUpdatedDetailsUpdatedFields string
 
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
@@ -1539,6 +1675,18 @@ type ListEnrollmentRequestsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListEventsParams defines parameters for ListEvents.
+type ListEventsParams struct {
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of events to return in the response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+}
+
 // ListFleetsParams defines parameters for ListFleets.
 type ListFleetsParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -1706,6 +1854,126 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
+
+// Getter for additional properties for DeviceSystemInfo. Returns the specified
+// element and whether it was found
+func (a DeviceSystemInfo) Get(fieldName string) (value string, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DeviceSystemInfo
+func (a *DeviceSystemInfo) Set(fieldName string, value string) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]string)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DeviceSystemInfo to handle AdditionalProperties
+func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["agentVersion"]; found {
+		err = json.Unmarshal(raw, &a.AgentVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'agentVersion': %w", err)
+		}
+		delete(object, "agentVersion")
+	}
+
+	if raw, found := object["architecture"]; found {
+		err = json.Unmarshal(raw, &a.Architecture)
+		if err != nil {
+			return fmt.Errorf("error reading 'architecture': %w", err)
+		}
+		delete(object, "architecture")
+	}
+
+	if raw, found := object["bootID"]; found {
+		err = json.Unmarshal(raw, &a.BootID)
+		if err != nil {
+			return fmt.Errorf("error reading 'bootID': %w", err)
+		}
+		delete(object, "bootID")
+	}
+
+	if raw, found := object["customInfo"]; found {
+		err = json.Unmarshal(raw, &a.CustomInfo)
+		if err != nil {
+			return fmt.Errorf("error reading 'customInfo': %w", err)
+		}
+		delete(object, "customInfo")
+	}
+
+	if raw, found := object["operatingSystem"]; found {
+		err = json.Unmarshal(raw, &a.OperatingSystem)
+		if err != nil {
+			return fmt.Errorf("error reading 'operatingSystem': %w", err)
+		}
+		delete(object, "operatingSystem")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]string)
+		for fieldName, fieldBuf := range object {
+			var fieldVal string
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DeviceSystemInfo to handle AdditionalProperties
+func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["agentVersion"], err = json.Marshal(a.AgentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'agentVersion': %w", err)
+	}
+
+	object["architecture"], err = json.Marshal(a.Architecture)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'architecture': %w", err)
+	}
+
+	object["bootID"], err = json.Marshal(a.BootID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'bootID': %w", err)
+	}
+
+	if a.CustomInfo != nil {
+		object["customInfo"], err = json.Marshal(a.CustomInfo)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'customInfo': %w", err)
+		}
+	}
+
+	object["operatingSystem"], err = json.Marshal(a.OperatingSystem)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'operatingSystem': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // AsImageApplicationProviderSpec returns the union data inside the ApplicationProviderSpec as a ImageApplicationProviderSpec
 func (t ApplicationProviderSpec) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {
@@ -2003,6 +2271,42 @@ func (t ConfigProviderSpec) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsResourceUpdatedDetails returns the union data inside the EventDetails as a ResourceUpdatedDetails
+func (t EventDetails) AsResourceUpdatedDetails() (ResourceUpdatedDetails, error) {
+	var body ResourceUpdatedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromResourceUpdatedDetails overwrites any union data inside the EventDetails as the provided ResourceUpdatedDetails
+func (t *EventDetails) FromResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeResourceUpdatedDetails performs a merge with any union data inside the EventDetails, using the provided ResourceUpdatedDetails
+func (t *EventDetails) MergeResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t EventDetails) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *EventDetails) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

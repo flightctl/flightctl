@@ -15,10 +15,15 @@ import (
 type EnrollmentRequestStore struct {
 	store.Store
 	EnrollmentVal v1alpha1.EnrollmentRequest
+	EventVal      v1alpha1.Event
 }
 
 func (s *EnrollmentRequestStore) EnrollmentRequest() store.EnrollmentRequest {
 	return &DummyEnrollmentRequest{EnrollmentVal: s.EnrollmentVal}
+}
+
+func (s *EnrollmentRequestStore) Event() store.Event {
+	return &DummyEvent{EventVal: s.EventVal}
 }
 
 type DummyEnrollmentRequest struct {

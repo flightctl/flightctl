@@ -6,12 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
+	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -58,28 +59,22 @@ func main() {
 
 type agentCmd struct {
 	log        *log.PrefixLogger
-	config     *agent.Config
+	config     *config.Config
 	configFile string
 }
 
 func NewAgentCommand() *agentCmd {
 	a := &agentCmd{
-		log:    log.NewPrefixLogger(""),
-		config: agent.NewDefault(),
+		log: log.NewPrefixLogger(""),
 	}
 
-	flag.StringVar(&a.configFile, "config", agent.DefaultConfigFile, "Path to the agent's configuration file.")
+	flag.StringVar(&a.configFile, "config", config.DefaultConfigFile, "Path to the agent's configuration file.")
 	flag.Parse()
 
-	a.config.ConfigDir = filepath.Dir(a.configFile)
-	if err := a.config.ParseConfigFile(a.configFile); err != nil {
-		a.log.Fatalf("Error parsing config: %v", err)
-	}
-	if err := a.config.Complete(); err != nil {
-		a.log.Fatalf("Error completing config: %v", err)
-	}
-	if err := a.config.Validate(); err != nil {
-		a.log.Fatalf("Error validating config: %v", err)
+	var err error
+	a.config, err = config.Load(a.configFile)
+	if err != nil {
+		a.log.Fatalf("Error loading config: %v", err)
 	}
 
 	a.log.Level(a.config.LogLevel)
@@ -88,7 +83,7 @@ func NewAgentCommand() *agentCmd {
 }
 
 func (a *agentCmd) Execute() error {
-	agentInstance := agent.New(a.log, a.config)
+	agentInstance := agent.New(a.log, a.config, a.configFile)
 	if err := agentInstance.Run(context.Background()); err != nil {
 		a.log.Fatalf("running device agent: %v", err)
 	}
@@ -127,7 +122,7 @@ func (s *systemInfoCmd) Execute() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	exec := &executer.CommonExecuter{}
-	info, err := agent.CollectSystemInfo(ctx, s.log, exec, reader, s.hardwareMapPath)
+	info, err := systeminfo.Collect(ctx, s.log, exec, reader, nil, s.hardwareMapPath, systeminfo.WithAllCustom())
 	if err != nil {
 		s.log.Fatalf("Error collecting system info: %v", err)
 	}
@@ -157,7 +152,7 @@ func printUsage() {
 func printAgentHelp() {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
 	var configFile string
-	fs.StringVar(&configFile, "config", agent.DefaultConfigFile, "Path to the agent's configuration file.")
+	fs.StringVar(&configFile, "config", config.DefaultConfigFile, "Path to the agent's configuration file.")
 	fmt.Printf("Usage of %s (agent mode):\n", os.Args[0])
 	fs.PrintDefaults()
 }

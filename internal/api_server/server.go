@@ -170,6 +170,7 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		fcmiddleware.RequestID,
+		fcmiddleware.AddEventMetadataToCtx,
 		middleware.Logger,
 		middleware.Recoverer,
 	)
@@ -198,7 +199,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
 		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
-		ws.RegisterRoutes(router)
+		ws.RegisterRoutes(r)
 	})
 
 	srv := fcmiddleware.NewHTTPServer(router, s.log, s.cfg.Service.Address, s.cfg)

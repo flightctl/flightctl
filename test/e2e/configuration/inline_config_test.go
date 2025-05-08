@@ -236,6 +236,52 @@ var _ = Describe("Inline configuration tests", func() {
 	})
 })
 
+var (
+	inlineMode                = 0666
+	inlineNotationMode        = "-rw-rw-rw-"
+	inlineDefaultNotationMode = "-rw-r--r--"
+	inlineModePointer         = &inlineMode
+	invalidInlineMode         = 9999
+	inlineContent             = "This system is managed by flightctl"
+	inlinePath                = "/etc/inline"
+	inlinePath1               = "/etc/inline1"
+	inlinePath2               = "/etc/inline2"
+	relativePath              = "etc/inline3"
+	inlineUser                = "user"
+	inlineGroup               = "user"
+	inlineName1               = "valid-inline-config"
+	inlineName2               = "valid-inline-config-2"
+	inlineName2files          = "valid-inline-config-2-files"
+	invalidInlineName1        = "invalid-inline-config"
+)
+
+// Create reusable FileSpecs
+var (
+	inlineConfig                    = newFileSpec(inlinePath, nil, nil, nil, "")
+	inlineConfigMode                = newFileSpec(inlinePath, inlineModePointer, nil, nil, "")
+	inlineConfigUser                = newFileSpec(inlinePath, inlineModePointer, &inlineUser, &inlineGroup, "")
+	inlineConfigContent             = newFileSpec(inlinePath1, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
+	inlineConfigPath2               = newFileSpec(inlinePath2, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
+	invalidnlineConfigNoPath        = newFileSpec("", inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
+	invalidinlineConfigRelativePath = newFileSpec(relativePath, nil, nil, nil, "")
+	invalidInlineConfigInvalidMode  = newFileSpec(inlinePath, &invalidInlineMode, nil, nil, "")
+)
+
+// Create InlineConfigProviderSpecs
+var (
+	validInlineConfig                  = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfig})
+	validInlineConfigWithMode          = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigMode})
+	validInlineConfigWithUser          = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigUser})
+	validInlineConfigWithContent       = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigContent})
+	validInlineConfigWithPath2         = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigPath2})
+	validInlineConfigWithName2         = newInlineConfigProviderSpec(inlineName2, []v1alpha1.FileSpec{inlineConfigPath2})
+	validInlineConfigWith2Files        = newInlineConfigProviderSpec(inlineName2files, []v1alpha1.FileSpec{inlineConfigPath2, inlineConfigContent})
+	invalidInlineConfigWithoutPath     = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidnlineConfigNoPath})
+	invalidInlineConfigNoName          = newInlineConfigProviderSpec("", []v1alpha1.FileSpec{inlineConfig})
+	invalidInlineConfigRelativePath    = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidinlineConfigRelativePath})
+	invalidInlineConfigWithInvalidMode = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidInlineConfigInvalidMode})
+)
+
 func UpdateDeviceConfigWithRetries(harness *e2e.Harness, deviceId string, configs []v1alpha1.ConfigProviderSpec) {
 	harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 		device.Spec.Config = &configs
@@ -267,25 +313,6 @@ func getConfigurationFromInlineConfig(inlineConfig v1alpha1.InlineConfigProvider
 	return *validConfigs, nil
 }
 
-var (
-	inlineMode                = 0666
-	inlineNotationMode        = "-rw-rw-rw-"
-	inlineDefaultNotationMode = "-rw-r--r--"
-	inlineModePointer         = &inlineMode
-	invalidInlineMode         = 9999
-	inlineContent             = "This system is managed by flightctl"
-	inlinePath                = "/etc/inline"
-	inlinePath1               = "/etc/inline1"
-	inlinePath2               = "/etc/inline2"
-	relativePath              = "etc/inline3"
-	inlineUser                = "user"
-	inlineGroup               = "user"
-	inlineName1               = "valid-inline-config"
-	inlineName2               = "valid-inline-config-2"
-	inlineName2files          = "valid-inline-config-2-files"
-	invalidInlineName1        = "invalid-inline-config"
-)
-
 // Helper function to generate a FileSpec
 func newFileSpec(path string, mode *int, user *string, group *string, content string) v1alpha1.FileSpec {
 	return v1alpha1.FileSpec{
@@ -304,30 +331,3 @@ func newInlineConfigProviderSpec(name string, files []v1alpha1.FileSpec) v1alpha
 		Name:   name,
 	}
 }
-
-// Create reusable FileSpecs
-var (
-	inlineConfig                    = newFileSpec(inlinePath, nil, nil, nil, "")
-	inlineConfigMode                = newFileSpec(inlinePath, inlineModePointer, nil, nil, "")
-	inlineConfigUser                = newFileSpec(inlinePath, inlineModePointer, &inlineUser, &inlineGroup, "")
-	inlineConfigContent             = newFileSpec(inlinePath1, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	inlineConfigPath2               = newFileSpec(inlinePath2, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	invalidnlineConfigNoPath        = newFileSpec("", inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	invalidinlineConfigRelativePath = newFileSpec(relativePath, nil, nil, nil, "")
-	invalidInlineConfigInvalidMode  = newFileSpec(inlinePath, &invalidInlineMode, nil, nil, "")
-)
-
-// Create InlineConfigProviderSpecs
-var (
-	validInlineConfig                  = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfig})
-	validInlineConfigWithMode          = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigMode})
-	validInlineConfigWithUser          = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigUser})
-	validInlineConfigWithContent       = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigContent})
-	validInlineConfigWithPath2         = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigPath2})
-	validInlineConfigWithName2         = newInlineConfigProviderSpec(inlineName2, []v1alpha1.FileSpec{inlineConfigPath2})
-	validInlineConfigWith2Files        = newInlineConfigProviderSpec(inlineName2files, []v1alpha1.FileSpec{inlineConfigPath2, inlineConfigContent})
-	invalidInlineConfigWithoutPath     = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidnlineConfigNoPath})
-	invalidInlineConfigNoName          = newInlineConfigProviderSpec("", []v1alpha1.FileSpec{inlineConfig})
-	invalidInlineConfigRelativePath    = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidinlineConfigRelativePath})
-	invalidInlineConfigWithInvalidMode = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidInlineConfigInvalidMode})
-)

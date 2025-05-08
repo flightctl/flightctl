@@ -47,6 +47,21 @@ func GetAuthN() AuthNMiddleware {
 	return authN
 }
 
+type AuthType string
+
+const (
+	AuthTypeNil  AuthType = "nil"
+	AuthTypeK8s  AuthType = "k8s"
+	AuthTypeOIDC AuthType = "oidc"
+	AuthTypeAAP  AuthType = "aap"
+)
+
+func GetConfiguredAuthType() AuthType {
+	return configuredAuthType
+}
+
+var configuredAuthType AuthType
+
 func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
 	externalOpenShiftApiUrl := strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenShiftApiUrl, "/")
@@ -107,15 +122,19 @@ func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
 		log.Warnln("Auth disabled")
+		configuredAuthType = AuthTypeNil
 		authZ = NilAuth{}
 		authN = authZ.(AuthNMiddleware)
 	} else if cfg.Auth != nil {
 		var err error
 		if cfg.Auth.K8s != nil {
+			configuredAuthType = AuthTypeK8s
 			err = initK8sAuth(cfg, log)
 		} else if cfg.Auth.OIDC != nil {
+			configuredAuthType = AuthTypeOIDC
 			err = initOIDCAuth(cfg, log)
 		} else if cfg.Auth.AAP != nil {
+			configuredAuthType = AuthTypeAAP
 			err = initAAPAuth(cfg, log)
 		}
 

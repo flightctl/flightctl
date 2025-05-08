@@ -146,6 +146,9 @@ func (o *GetOptions) Validate(args []string) error {
 	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
 		return fmt.Errorf("'--rendered' can only be used when getting a single device")
 	}
+	if kind == EventKind && len(name) > 0 {
+		return fmt.Errorf("you cannot get a single event")
+	}
 	if o.Limit < 0 {
 		return fmt.Errorf("limit must be greater than 0")
 	}
@@ -242,6 +245,13 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListCertificateSigningRequestsWithResponse(ctx, &params)
+	case kind == EventKind:
+		params := api.ListEventsParams{
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
+		}
+		response, err = c.ListEventsWithResponse(ctx, &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -351,6 +361,8 @@ func (o *GetOptions) printTable(response interface{}, kind string, name string) 
 		o.printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
 		o.printCSRTable(w, *(response.(*apiclient.GetCertificateSigningRequestResponse).JSON200))
+	case kind == EventKind:
+		o.printEventsTable(w, response.(*apiclient.ListEventsResponse).JSON200.Items...)
 	default:
 		return fmt.Errorf("unknown resource type %s", kind)
 	}
@@ -567,6 +579,19 @@ func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateS
 			util.DefaultIfNil(csr.Spec.Username, NoneString),
 			duration,
 			condition,
+		)
+	}
+}
+
+func (o *GetOptions) printEventsTable(w *tabwriter.Writer, events ...api.Event) {
+	fmt.Fprintln(w, "AGE\tKIND\tNAME\tTYPE\tMESSAGE")
+	for _, e := range events {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			humanize.Time(*e.Metadata.CreationTimestamp),
+			e.InvolvedObject.Kind,
+			e.InvolvedObject.Name,
+			e.Type,
+			e.Message,
 		)
 	}
 }

@@ -38,7 +38,7 @@ runs:
           else
             namespace="${{ inputs.namespace-internal }}"
           fi
-          if kubectl logs -n $namespace deployment/$deployment --previous --all-containers=true \
+          if kubectl logs -n $namespace deployment/$deployment --all-containers=true \
              > ${{ inputs.log-directory }}/${deployment}_${timestamp}.log; then
             log_files_collected=true
           else

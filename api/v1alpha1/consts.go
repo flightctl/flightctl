@@ -63,6 +63,10 @@ const (
 	TemplateVersionAPIVersion = "v1alpha1"
 	TemplateVersionKind       = "TemplateVersion"
 	TemplateVersionListKind   = "TemplateVersionList"
+
+	EventAPIVersion = "v1alpha1"
+	EventKind       = "Event"
+	EventListKind   = "EventList"
 )
 
 type UpdateState string

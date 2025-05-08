@@ -14,12 +14,6 @@ if ! deploy/scripts/install.sh; then
     exit 1
 fi
 
-# Run post installation script
-if ! deploy/scripts/post_install.sh; then
-    echo "Error: Installation failed"
-    exit 1
-fi
-
 start_service "flightctl.target"
 
 echo "Checking if all services are running..."
@@ -32,7 +26,8 @@ timeout --foreground 300s bash -c '
             --filter "name=flightctl-periodic" \
             --filter "name=flightctl-db" \
             --filter "name=flightctl-kv" \
-            --filter "name=flightctl-ui" | wc -l | grep -q 6; then
+            --filter "name=flightctl-cli-artifacts" \
+            --filter "name=flightctl-ui" | wc -l | grep -q 7; then
             echo "All services are running"
             exit 0
         fi

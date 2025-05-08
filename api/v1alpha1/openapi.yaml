@@ -22,9 +22,11 @@ tags:
     description: Operations on Device resources.
   - name: enrollmentrequest
     description: Operations on EnrollmentRequest resources.
+  - name: event
+    description: Operations for retrieving events.
   - name: fleet
     description: Operations on Fleet resources.
-  - name: labels
+  - name: label
     description: Operations for retrieving labels across different resources.
   - name: repository
     description: Operations on Repository resources.
@@ -3208,7 +3210,7 @@ paths:
   /api/v1/labels:
     get:
       tags:
-        - labels
+        - label
       description: |
         Retrieves a distinct list of labels for the specified resource type.
       operationId: listLabels
@@ -3276,8 +3278,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/events:
+    get:
+      tags:
+        - event
+      description: |
+        Retrieves a list of events.
+      operationId: listEvents
+      parameters:
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of events to return in the response.
+          schema:
+            type: integer
+            format: int32
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   schemas:
+    ResourceKind:
+      type: string
+      enum: [CertificateSigningRequest, EnrollmentRequest, Device, Fleet, Repository, ResourceSync, TemplateVersion]
+      description: Resource types exposed via the API.
     DeviceDecommissionTargetType:
       type: string
       enum:
@@ -3730,13 +3791,12 @@ components:
           CPU: '#/components/schemas/CpuResourceMonitorSpec'
           Memory: '#/components/schemas/MemoryResourceMonitorSpec'
           Disk: '#/components/schemas/DiskResourceMonitorSpec'
+      required:
+        - monitorType
     ResourceMonitorSpec:
       type: object
       description: Specification for monitoring a resource.
       properties:
-        monitorType:
-          type: string
-          description: The type of resource to monitor.
         alertRules:
           type: array
           items:
@@ -3752,13 +3812,31 @@ components:
         - samplingInterval
     CpuResourceMonitorSpec:
       allOf:
+        - type: object
+          required: [ monitorType ]
+          properties:
+            monitorType:
+              type: string
+              description: The type of resource to monitor.
         - $ref: '#/components/schemas/ResourceMonitorSpec'
     MemoryResourceMonitorSpec:
       allOf:
+        - type: object
+          required: [ monitorType ]
+          properties:
+            monitorType:
+              type: string
+              description: The type of resource to monitor.
         - $ref: '#/components/schemas/ResourceMonitorSpec'
     DiskResourceMonitorSpec:
       allOf:
         - $ref: '#/components/schemas/ResourceMonitorSpec'
+        - type: object
+          required: [ monitorType ]
+          properties:
+            monitorType:
+              type: string
+              description: The type of resource to monitor.
         - type: object
           description: Specification for monitoring disk usage.
           required:
@@ -3767,11 +3845,6 @@ components:
             path:
               type: string
               description: The directory path to monitor for disk usage.
-    CustomResourceMonitorSpec:
-      allOf:
-        - $ref: '#/components/schemas/ResourceMonitorSpec'
-        - type: object
-          description: "Specification for monitoring custom resources."
     ResourceAlertRule:
       type: object
       properties:
@@ -4012,6 +4085,7 @@ components:
         - operatingSystem
         - agentVersion
       type: object
+      description: System information collected from the device.
       properties:
         architecture:
           type: string
@@ -4025,7 +4099,19 @@ components:
         agentVersion:
           type: string
           description: The Agent version.
-      description: "DeviceSystemInfo is a set of ids/uuids to uniquely identify the device."
+        customInfo:
+          $ref: "#/components/schemas/CustomDeviceInfo"
+      additionalProperties:
+        type: string
+        description: |
+          Optional system attributes exposed by the agent.
+          Each key corresponds to a configurable internal capability.
+    CustomDeviceInfo:
+      type: object
+      description: User-defined information about the device.
+      additionalProperties:
+        type: string
+        description: A user-defined custom property value.
     DeviceApplicationStatus:
       type: object
       required:
@@ -5099,3 +5185,120 @@ components:
           type: string
       required:
         - version
+    Event:
+      type: object
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - involvedObject
+        - reason
+        - message
+        - type
+        - source
+        - actor
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        involvedObject:
+          $ref: '#/components/schemas/ObjectReference'
+        reason:
+          type: string
+          description: A short, machine-readable string that describes the reason for the event.
+          enum:
+            - ResourceCreated
+            - ResourceCreationFailed
+            - ResourceUpdated
+            - ResourceUpdateFailed
+            - ResourceDeleted
+            - ResourceDeletionFailed
+        message:
+          type: string
+          description: A human-readable description of the status of this operation.
+        details:
+          $ref: '#/components/schemas/EventDetails'
+        type:
+          type: string
+          description: The type of the event. One of Normal, Warning.
+          enum:
+            - Normal
+            - Warning
+        source:
+          $ref: '#/components/schemas/EventSource'
+        actor:
+          type: string
+          description: 'The name of the user or service that triggered the event. The value will be prefixed by either user: (for human users) or service: (for automated services).'
+    EventSource:
+      type: object
+      description: The component that is responsible for the event.
+      required:
+        - component
+      properties:
+        component:
+          type: string
+          description: The name of the component that is responsible for the event.
+    ObjectReference:
+      type: object
+      description: A reference to a resource.
+      required:
+        - kind
+        - name
+      properties:
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        name:
+          type: string
+          description: The name of the referenced object.
+    EventList:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of Events.'
+          items:
+            $ref: '#/components/schemas/Event'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      description: EventList is a list of Events.
+    EventDetails:
+      type: object
+      description: Event-specific details, structured based on event type.
+      oneOf:
+        - $ref: "#/components/schemas/ResourceUpdatedDetails"
+    ResourceUpdatedDetails:
+      type: object
+      required:
+        - updatedFields
+      properties:
+        updatedFields:
+          type: array
+          items:
+            type: string
+            enum: [owner, labels, spec]
+          description: List of fields that were updated in the resource.
+        previousOwner:
+          type: string
+          nullable: true
+          description: The previous owner (if applicable).
+        newOwner:
+          type: string
+          nullable: true
+          description: The new owner (if applicable).

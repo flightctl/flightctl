@@ -24,6 +24,7 @@ type Store interface {
 	TemplateVersion() TemplateVersion
 	Repository() Repository
 	ResourceSync() ResourceSync
+	Event() Event
 	InitialMigration() error
 	Close() error
 }
@@ -36,6 +37,7 @@ type DataStore struct {
 	templateVersion           TemplateVersion
 	repository                Repository
 	resourceSync              ResourceSync
+	event                     Event
 
 	db *gorm.DB
 }
@@ -49,6 +51,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		templateVersion:           NewTemplateVersion(db, log),
 		repository:                NewRepository(db, log),
 		resourceSync:              NewResourceSync(db, log),
+		event:                     NewEvent(db, log),
 		db:                        db,
 	}
 }
@@ -81,6 +84,10 @@ func (s *DataStore) ResourceSync() ResourceSync {
 	return s.resourceSync
 }
 
+func (s *DataStore) Event() Event {
+	return s.event
+}
+
 func (s *DataStore) InitialMigration() error {
 	if err := s.Device().InitialMigration(); err != nil {
 		return err
@@ -101,6 +108,9 @@ func (s *DataStore) InitialMigration() error {
 		return err
 	}
 	if err := s.ResourceSync().InitialMigration(); err != nil {
+		return err
+	}
+	if err := s.Event().InitialMigration(); err != nil {
 		return err
 	}
 	return s.customizeMigration()

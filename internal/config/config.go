@@ -53,6 +53,7 @@ type svcConfig struct {
 	HttpMaxHeaderBytes    int           `json:"httpMaxHeaderBytes,omitempty"`
 	HttpMaxUrlLength      int           `json:"httpMaxUrlLength,omitempty"`
 	HttpMaxRequestSize    int           `json:"httpMaxRequestSize,omitempty"`
+	EventRetentionPeriod  util.Duration `json:"eventRetentionPeriod,omitempty"`
 }
 
 type kvConfig struct {
@@ -131,7 +132,8 @@ func NewDefault() *Config {
 			HttpMaxNumHeaders:     32,
 			HttpMaxHeaderBytes:    32 * 1024, // 32KB
 			HttpMaxUrlLength:      2000,
-			HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
+			HttpMaxRequestSize:    50 * 1024 * 1024,                  // 50MB
+			EventRetentionPeriod:  util.Duration(7 * 24 * time.Hour), // 1 week
 		},
 		KV: &kvConfig{
 			Hostname: "localhost",

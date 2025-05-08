@@ -9,6 +9,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -38,7 +39,9 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, &device)
 
 	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackManager.DeviceUpdatedCallback)
-	return result, StoreErrorToApiStatus(err, true, api.DeviceKind, device.Metadata.Name)
+	status := StoreErrorToApiStatus(err, true, api.DeviceKind, device.Metadata.Name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.DeviceKind, *device.Metadata.Name, status, nil))
+	return result, status
 }
 
 func convertDeviceListParams(params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.ListParams, api.Status) {
@@ -168,15 +171,17 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device 
 	}
 
 	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
-	delayDeviceRender, ok := ctx.Value(DelayDeviceRenderCtxKey).(bool)
+	delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
 	if ok && delayDeviceRender {
 		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
 	}
 
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, &device)
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, !IsInternalRequest(ctx), DeviceVerificationCallback, callback)
-	return result, StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
+	result, created, updateDesc, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, !IsInternalRequest(ctx), DeviceVerificationCallback, callback)
+	status := StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.DeviceKind, name, status, &updateDesc))
+	return result, status
 }
 
 func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, error) {
@@ -201,21 +206,24 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 	}
 
 	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
-	delayDeviceRender, ok := ctx.Value(DelayDeviceRenderCtxKey).(bool)
+	delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
 	if ok && delayDeviceRender {
 		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
 	}
 
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, &device)
 
-	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback)
+	dev, _, err := h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback)
+	return dev, err
 }
 
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
 	err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.DeviceKind, name, status))
+	return status
 }
 
 // (GET /api/v1/devices/{name}/status)
@@ -306,7 +314,7 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
 
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
+	result, _, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
@@ -365,8 +373,10 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
 
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
-	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	result, updateDesc, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &updateDesc))
+	return result, status
 }
 
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status) {
@@ -394,7 +404,7 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, de
 	}
 
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback)
+	result, _, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
