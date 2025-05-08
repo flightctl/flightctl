@@ -144,6 +144,9 @@ DMI
 UUID
 infos
 FIPS
+cron
+IANA
+crontab
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp

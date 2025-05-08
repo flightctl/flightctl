@@ -742,3 +742,51 @@ When the device has completed its decommissioning steps, the `status.lifecycle.s
 ```console
 flightctl delete devices/<some_device_name>
 ```
+
+## Scheduling Updates and Downloads
+
+The Flight Control agent supports time-based scheduling for update and download operations using cron style expressions. This allows you to restrict system modifications to defined maintenance windows or operational periods.
+
+Each device can define two independent schedules in the `updatePolicy` section of the `DeviceSpec`:
+
+* **`downloadSchedule`**: Defines when the device is allowed to download update artifacts such as OS image layers.
+* **`updateSchedule`**: Defines when the device is allowed to apply updates.
+
+Each schedule supports:
+
+| Parameter              | Description                                                                 |
+|------------------------|-----------------------------------------------------------------------------|
+| `at`                   | A [cron expression](https://man7.org/linux/man-pages/man5/crontab.5.html) specifying valid run times. |
+| `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device’s local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `startGraceDuration`   | (Optional) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
+
+The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](device-api-statuses.md#device-api-statuses).
+
+>[!TIP]
+> Use [crontab guru](https://crontab.guru/) to create and test cron expressions interactively.
+
+### Examples
+
+```yaml
+updatePolicy:
+  downloadSchedule:
+    at: "0 2 * * *"               # every day at 2:00 AM
+    timeZone: "America/New_York"
+    startGraceDuration: "30m"     # allow downloads until 2:30 AM
+  updateSchedule:
+    at: "0 4 * * 1"               # every Monday at 4:00 AM
+    timeZone: "America/New_York"
+    startGraceDuration: "1h"      # allow update until 5:00 AM
+```
+
+```yaml
+updatePolicy:
+  updateSchedule:
+    at: "0 5 14 5 *"              # May 15th at 5:00 AM
+    timeZone: "America/New_York"
+    startGraceDuration: "2h"      # allow update until 7:00 AM
+```
+
+> [!NOTE]
+> It’s best practice to define a `startGraceDuration` to allow for potential delays in agent execution. Without it, the update window may be missed.
+> Once an update begins within the allowed window, there is no enforced timeout the update may continue running beyond the grace period.
