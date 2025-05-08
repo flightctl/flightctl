@@ -144,6 +144,9 @@ SIGHUP
 JSON
 DMI
 UUID
+cron
+IANA
+crontab
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
