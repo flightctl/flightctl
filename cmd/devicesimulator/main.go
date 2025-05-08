@@ -39,24 +39,6 @@ const (
 	cliVersionTitle = "flightctl simulator version"
 )
 
-var (
-	outputTypes = []string{jsonFormat, yamlFormat}
-)
-
-type simulatorConfig struct {
-	configFile         string
-	dataDir            string
-	labels             []string
-	numDevices         int
-	initialDeviceIndex int
-	metricsAddr        string
-	stopAfter          time.Duration
-	versionFormat      string
-	logLevel           string
-	showVersion        bool
-	showHelp           bool
-}
-
 func defaultConfigFilePath() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName, "agent.yaml")
 }
@@ -65,195 +47,139 @@ func defaultDataDir() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName, "data")
 }
 
-func printUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
-	fmt.Fprintln(os.Stderr, "Options:")
-	fmt.Fprintln(os.Stderr, "  config=PATH            Path of the agent configuration template (default: ~/.flightctl/agent.yaml)")
-	fmt.Fprintln(os.Stderr, "  data-dir=PATH          Directory for storing simulator data (default: ~/.flightctl/data)")
-	fmt.Fprintln(os.Stderr, "  label=KEY=VALUE        Label applied to simulated devices (can be specified multiple times)")
-	fmt.Fprintln(os.Stderr, "  count=NUM              Number of devices to simulate (default: 1)")
-	fmt.Fprintln(os.Stderr, "  initial-device-index=NUM  Starting index for device name suffix (default: 0)")
-	fmt.Fprintln(os.Stderr, "  metrics=ADDR           Address for the metrics endpoint (default: localhost:9093)")
-	fmt.Fprintln(os.Stderr, "  stop-after=DURATION    Stop the simulator after the specified duration (e.g., 30s, 5m)")
-	fmt.Fprintln(os.Stderr, "  log-level=LEVEL        Logger verbosity level (fatal, error, warn, warning, info, debug) (default: debug)")
-	fmt.Fprintln(os.Stderr, "  version[=FORMAT]       Print version information and exit. FORMAT can be json or yaml (optional)")
-	fmt.Fprintln(os.Stderr, "  help                   Display this help message and exit")
-	fmt.Fprintln(os.Stderr, "\nExamples:")
-	fmt.Fprintf(os.Stderr, "  %s count=3 label=region=us-east\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "  %s version\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "  %s version=json\n", os.Args[0])
+type cliConfig struct {
+	ConfigFile         string
+	DataDir            string
+	Labels             []string
+	NumDevices         int
+	InitialDeviceIndex int
+	MetricsAddr        string
+	StopAfter          time.Duration
+	VersionInfo        bool
+	VersionFormat      string
+	LogLevel           string
 }
 
-func parseArguments() (*simulatorConfig, error) {
-	// Create default config
-	config := &simulatorConfig{
-		configFile:         defaultConfigFilePath(),
-		dataDir:            defaultDataDir(),
-		labels:             []string{},
-		numDevices:         1,
-		initialDeviceIndex: 0,
-		metricsAddr:        "localhost:9093",
-		stopAfter:          0,
-		logLevel:           "debug",
-		versionFormat:      "",
-		showVersion:        false,
-		showHelp:           false,
+func parseKeyValueArgs() (*cliConfig, error) {
+	cfg := &cliConfig{
+		ConfigFile:         defaultConfigFilePath(),
+		DataDir:            defaultDataDir(),
+		Labels:             []string{},
+		NumDevices:         1,
+		InitialDeviceIndex: 0,
+		MetricsAddr:        "localhost:9093",
+		LogLevel:           "debug",
 	}
 
-	if len(os.Args) < 2 {
-		return config, nil
-	}
-
-	for i := 1; i < len(os.Args); i++ {
-		arg := os.Args[i]
-		
-		if arg == "version" {
-			config.showVersion = true
-			continue
+	for _, arg := range os.Args[1:] {
+		if strings.HasPrefix(arg, "-") {
+			continue // skip any unknown flags
 		}
-		
-		if arg == "help" {
-			config.showHelp = true
-			continue
+		keyVal := strings.SplitN(arg, "=", 2)
+		if len(keyVal) != 2 {
+			return nil, fmt.Errorf("invalid argument format: %s, expected key=value", arg)
 		}
-		
-		parts := strings.SplitN(arg, "=", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid argument format: %s (expected key=value)", arg)
-		}
-		
-		key := parts[0]
-		value := parts[1]
-		
+		key := keyVal[0]
+		val := keyVal[1]
 		switch key {
 		case "config":
-			config.configFile = value
+			cfg.ConfigFile = val
 		case "data-dir":
-			config.dataDir = value
+			cfg.DataDir = val
 		case "label":
-			config.labels = append(config.labels, value)
+			cfg.Labels = append(cfg.Labels, val)
 		case "count":
-			num, err := strconv.Atoi(value)
-			if err != nil || num < 1 {
-				return nil, fmt.Errorf("count must be a positive number")
-			}
-			config.numDevices = num
-		case "initial-device-index":
-			num, err := strconv.Atoi(value)
-			if err != nil || num < 0 {
-				return nil, fmt.Errorf("initial-device-index must be a non-negative number")
-			}
-			config.initialDeviceIndex = num
-		case "metrics":
-			config.metricsAddr = value
-		case "stop-after":
-			duration, err := time.ParseDuration(value)
+			n, err := strconv.Atoi(val)
 			if err != nil {
-				return nil, fmt.Errorf("invalid duration for stop-after: %v", err)
+				return nil, fmt.Errorf("invalid count: %v", err)
 			}
-			config.stopAfter = duration
-		case "log-level":
-			config.logLevel = value
+			cfg.NumDevices = n
+		case "initial-device-index":
+			idx, err := strconv.Atoi(val)
+			if err != nil {
+				return nil, fmt.Errorf("invalid initial-device-index: %v", err)
+			}
+			cfg.InitialDeviceIndex = idx
+		case "metrics":
+			cfg.MetricsAddr = val
+		case "stop-after":
+			dur, err := time.ParseDuration(val)
+			if err != nil {
+				return nil, fmt.Errorf("invalid stop-after duration: %v", err)
+			}
+			cfg.StopAfter = dur
 		case "version":
-			config.showVersion = true
-			if value != "" && value != "true" {
-				config.versionFormat = value
-				if config.versionFormat != jsonFormat && config.versionFormat != yamlFormat {
-					return nil, fmt.Errorf("invalid version format: %s (expected json, yaml, or empty)", config.versionFormat)
-				}
-			}
-		case "help":
-			config.showHelp = true
+			cfg.VersionInfo = val == "true"
+		case "output":
+			cfg.VersionFormat = val
+		case "log-level":
+			cfg.LogLevel = val
 		default:
 			return nil, fmt.Errorf("unknown argument: %s", key)
 		}
 	}
-	
-	return config, nil
+	return cfg, nil
 }
 
 func main() {
 	log := flightlog.InitLogs()
-	
-	config, err := parseArguments()
+
+	cfg, err := parseKeyValueArgs()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
-		printUsage()
+		fmt.Fprintf(os.Stderr, "Error parsing arguments: %v\n", err)
 		os.Exit(1)
 	}
-	
-	if config.showHelp {
-		printUsage()
-		os.Exit(0)
+
+	logLvl, err := logrus.ParseLevel(cfg.LogLevel)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n", cfg.LogLevel)
+		os.Exit(1)
 	}
-	
-	if config.showVersion {
-		if err := reportVersion(config.versionFormat); err != nil {
+	log.SetLevel(logLvl)
+
+	if cfg.VersionInfo {
+		if err := reportVersion(&cfg.VersionFormat); err != nil {
 			fmt.Println(err.Error())
 			os.Exit(1)
 		}
 		os.Exit(0)
 	}
-	
-	logLvl, err := logrus.ParseLevel(config.logLevel)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", config.logLevel)
-		printUsage()
-		os.Exit(1)
-	}
-	log.SetLevel(logLvl)
 
-	log.Infoln("command line arguments:")
-	log.Infof("  config=%s", config.configFile)
-	log.Infof("  data-dir=%s", config.dataDir)
-	for _, label := range config.labels {
-		log.Infof("  label=%s", label)
-	}
-	log.Infof("  count=%d", config.numDevices)
-	log.Infof("  initial-device-index=%d", config.initialDeviceIndex)
-	log.Infof("  metrics=%s", config.metricsAddr)
-	log.Infof("  stop-after=%s", config.stopAfter)
-	log.Infof("  log-level=%s", config.logLevel)
+	log.Infof("starting device simulator with %d devices", cfg.NumDevices)
+	formattedLabels := formatLabels(&cfg.Labels)
 
-	formattedLabels := formatLabels(&config.labels)
-
-	agentConfigTemplate := createAgentConfigTemplate(config.dataDir, config.configFile)
-
-	log.Infoln("starting device simulator")
-	defer log.Infoln("device simulator stopped")
+	agentConfigTemplate := createAgentConfigTemplate(cfg.DataDir, cfg.ConfigFile)
 
 	log.Infoln("setting up metrics endpoint")
-	setupMetricsEndpoint(config.metricsAddr)
+	setupMetricsEndpoint(cfg.MetricsAddr)
 
 	serviceClient, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
 	if err != nil {
 		log.Fatalf("Error creating service client: %v", err)
 	}
 
-	log.Infoln("creating agents")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	agents, agentsFolders := createAgents(log, config.numDevices, config.initialDeviceIndex, agentConfigTemplate)
+
+	agents, agentsFolders := createAgents(log, cfg.NumDevices, cfg.InitialDeviceIndex, agentConfigTemplate)
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigShutdown
-		signal.Stop(sigShutdown)
 		log.Printf("Shutdown signal received (%v).", sig)
 		cancel()
 	}()
 
-	log.Infoln("running agents")
-	for i := 0; i < config.numDevices; i++ {
-		// stagger the start of each agent
+	for i := 0; i < cfg.NumDevices; i++ {
 		time.Sleep(time.Duration(rand.Float64() * float64(agentConfigTemplate.StatusUpdateInterval))) //nolint:gosec
 		agent := agents[i]
 		go startAgent(ctx, agent, log, i)
 		go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLabels)
 	}
-	if config.stopAfter > 0 {
-		time.AfterFunc(config.stopAfter, func() {
+
+	if cfg.StopAfter > 0 {
+		time.AfterFunc(cfg.StopAfter, func() {
 			log.Infoln("stopping simulator after duration")
 			cancel()
 		})
@@ -263,9 +189,9 @@ func main() {
 	log.Infoln("Simulator stopped.")
 }
 
-func reportVersion(versionFormat string) error {
+func reportVersion(versionFormat *string) error {
 	cliVersion := version.Get()
-	switch versionFormat {
+	switch *versionFormat {
 	case "":
 		fmt.Printf("%s: %s\n", cliVersionTitle, cliVersion.String())
 	case "yaml":
@@ -283,7 +209,7 @@ func reportVersion(versionFormat string) error {
 	default:
 		// There is a bug in the program if we hit this case.
 		// However, we follow a policy of never panicking.
-		return fmt.Errorf("VersionOptions were not validated: output=%q should have been rejected\n", versionFormat)
+		return fmt.Errorf("VersionOptions were not validated: --output=%q should have been rejected\n", *versionFormat)
 	}
 	return nil
 }
@@ -467,11 +393,11 @@ func copyFile(from, to string) error {
 	return err
 }
 
-func formatLabels(labelArgs *[]string) *map[string]string {
+func formatLabels(lableArgs *[]string) *map[string]string {
 	formattedLabels := map[string]string{}
 
-	if labelArgs != nil {
-		formattedLabels = util.LabelArrayToMap(*labelArgs)
+	if lableArgs != nil {
+		formattedLabels = util.LabelArrayToMap(*lableArgs)
 	}
 
 	formattedLabels["created_by"] = "device-simulator"
