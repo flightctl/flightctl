@@ -1,0 +1,11 @@
+#cloud-config
+
+users:
+  - name: services-user
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    shell: /bin/bash
+chpasswd:
+  expire: false
+  users:
+  - {name: services-user, password: password, type: text}
+ssh_pwauth: true
