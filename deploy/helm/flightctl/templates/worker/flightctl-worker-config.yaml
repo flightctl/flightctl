@@ -8,12 +8,12 @@ metadata:
 data:
   config.yaml: |-
     database:
-        hostname: {{ $.Values.postgresql.hostname | default (printf "%s-postgresql" $.Release.Name) }}
-        type: pgsql
-        port: {{ $.Values.postgresql.port }}
-        name: {{ $.Values.postgresql.dbName }}
+      hostname: {{ $.Values.postgresql.hostname | default (printf "%s-postgresql" $.Release.Name) }}
+      type: pgsql
+      port: {{ $.Values.postgresql.port }}
+      name: {{ $.Values.postgresql.dbName }}
     service: {}
     kv:
-        hostname: {{ $.Values.redis.hostname | default (printf "%s-redis-master" $.Release.Name) }}
-        port: {{ $.Values.redis.port }}
+      hostname: {{ $.Values.redis.hostname | default (printf "%s-redis-master" $.Release.Name) }}
+      port: {{ $.Values.redis.port }}
 {{ end }}

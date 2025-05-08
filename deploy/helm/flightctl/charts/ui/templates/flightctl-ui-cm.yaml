@@ -3,38 +3,38 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-ui
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "common.labels.standard" $ | nindent 4 }}
     app.kubernetes.io/component: ui
 data:
-  FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
-  {{- if .Values.cliArtifacts.enabled }}
-  {{- if .Values.cliArtifacts.baseURL }}
-  FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ .Values.cliArtifacts.baseURL | quote }}
+  FLIGHTCTL_SERVER: {{ $.Values.api.url | quote }}
+  {{- if $.Values.cliArtifacts.enabled }}
+  {{- if $.Values.cliArtifacts.baseURL }}
+  FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ $.Values.cliArtifacts.baseURL | quote }}
   {{- else }}
   FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getCliArtifactsUrl" . }}
   {{- end }}
   {{- end }}
-  FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.api.insecureSkipTlsVerify | quote }}
-  IS_RHEM: {{ .Values.isRHEM | quote }}
-  AUTH_INSECURE_SKIP_VERIFY: {{ .Values.auth.insecureSkipTlsVerify | default .Values.global.auth.insecureSkipTlsVerify | quote }}
-  AUTH_CLIENT_ID: {{ .Values.auth.clientId }}
-  {{- if eq .Values.global.target "acm" }}
-  K8S_RBAC_NS: {{ .Values.global.auth.k8s.rbacNs | default .Release.Namespace | quote }}
+  FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ $.Values.api.insecureSkipTlsVerify | quote }}
+  IS_RHEM: {{ $.Values.isRHEM | quote }}
+  AUTH_INSECURE_SKIP_VERIFY: {{ $.Values.auth.insecureSkipTlsVerify | default $.Values.global.auth.insecureSkipTlsVerify | quote }}
+  AUTH_CLIENT_ID: {{ $.Values.auth.clientId }}
+  {{- if eq $.Values.global.target "acm" }}
+  K8S_RBAC_NS: {{ $.Values.global.auth.k8s.rbacNs | default $.Release.Namespace | quote }}
   {{- else }}
-  {{- if .Values.baseURL }}
-  BASE_UI_URL: {{ .Values.baseURL | quote }}
+  {{- if $.Values.baseURL }}
+  BASE_UI_URL: {{ $.Values.baseURL | quote }}
   {{- else }}
   BASE_UI_URL: {{ include "flightctl.getUIUrl" . }}
   {{- end }}
-  {{- if eq .Values.global.target "standalone" }}
-  {{- if eq .Values.global.auth.type "builtin" }}
+  {{- if eq $.Values.global.target "standalone" }}
+  {{- if eq $.Values.global.auth.type "builtin" }}
   INTERNAL_AUTH_URL: http://keycloak:8081/realms/flightctl
-  {{- else if eq .Values.global.auth.type "oidc" }}
-  INTERNAL_AUTH_URL: {{ .Values.auth.internalAuthUrl | default .Values.global.auth.oidc.oidcAuthority | quote }}
+  {{- else if eq $.Values.global.auth.type "oidc" }}
+  INTERNAL_AUTH_URL: {{ $.Values.auth.internalAuthUrl | default $.Values.global.auth.oidc.oidcAuthority | quote }}
   {{- else if eq ((.Values.global).auth).type "aap" }}
-  INTERNAL_AUTH_URL: {{ .Values.auth.internalAuthUrl | default .Values.global.auth.aap.apiUrl | quote }}
+  INTERNAL_AUTH_URL: {{ $.Values.auth.internalAuthUrl | default $.Values.global.auth.aap.apiUrl | quote }}
   {{- end }}
   {{- end }}
   {{- end }}

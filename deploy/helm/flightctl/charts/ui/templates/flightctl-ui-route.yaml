@@ -1,21 +1,21 @@
-{{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{ if and (not (eq $.Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 ---
 kind: Route
 apiVersion: route.openshift.io/v1
 metadata:
   name: flightctl-ui
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "common.labels.standard" $ | nindent 4 }}
     app.kubernetes.io/component: ui
-    {{- if .Values.global.appCode }}
+    {{- if $.Values.global.appCode }}
     external-exposed: 'true'
-    paas.redhat.com/appcode: {{ .Values.global.appCode }}
+    paas.redhat.com/appcode: {{ $.Values.global.appCode }}
     shard: external
     {{ end }}
 spec:
-  {{- if .Values.baseURL }}
-  host:  {{ .Values.baseURL }}
+  {{- if $.Values.baseURL }}
+  host:  {{ $.Values.baseURL }}
   {{- else }}
   host:  ui.{{ include "flightctl.getBaseDomain" . }}
   {{- end }}
@@ -29,11 +29,10 @@ spec:
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
-    {{- if (.Values.global.baseDomainTls).cert }}
-    certificate: {{ .Values.global.baseDomainTls.cert | quote }}
-    key: {{ .Values.global.baseDomainTls.key | quote }}
+    {{- if $.Values.global.baseDomainTls.cert }}
+    certificate: {{ $.Values.global.baseDomainTls.cert | quote }}
+    key: {{ $.Values.global.baseDomainTls.key | quote }}
     {{- end }}
   {{- end }}
   wildcardPolicy: None
 {{ end }}
-    
