@@ -62,7 +62,7 @@ func printUsage() {
 
 func main() {
 	log := flightlog.InitLogs()
-	
+
 	// Define regular flags (unchanged)
 	configFile := pflag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
 	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
@@ -76,7 +76,7 @@ func main() {
 
 	// Override default usage
 	pflag.Usage = printUsage
-	
+
 	// Parse flags
 	pflag.Parse()
 
