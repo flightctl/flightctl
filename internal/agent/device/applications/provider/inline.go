@@ -52,12 +52,21 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 
 }
 
-func (p *inlineProvider) Verify(ctx context.Context) error {
+func (p *inlineProvider) Verify(ctx context.Context, opts ...VerifyOpt) error {
+	verifyOpts := &verifyOptions{}
+	for _, opt := range opts {
+		opt(verifyOpts)
+	}
+
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
-	if err := ensureDependenciesFromType(p.spec.AppType); err != nil {
-		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+
+	// ensure dependencies are installed only if there is no OS update
+	if !verifyOpts.isOSUpdate {
+		if err := ensureDependenciesFromType(p.spec.AppType); err != nil {
+			return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+		}
 	}
 	// create a temporary directory to copy the image contents
 	tmpAppPath, err := p.readWriter.MkdirTemp("app_temp")

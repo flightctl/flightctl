@@ -33,7 +33,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 	}, nil
 }
 
-func (p *embeddedProvider) Verify(ctx context.Context) error {
+func (p *embeddedProvider) Verify(ctx context.Context, opts ...VerifyOpt) error {
 	appPath, err := pathFromAppType(p.spec.AppType, p.spec.Name, p.spec.Embedded)
 	if err != nil {
 		return fmt.Errorf("getting app path: %w", err)

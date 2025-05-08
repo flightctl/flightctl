@@ -21,7 +21,7 @@ import (
 // and lifecycle operations for installation to disk.
 type Provider interface {
 	// Verify the application content is valid and dependencies are met.
-	Verify(ctx context.Context) error
+	Verify(ctx context.Context, opts ...VerifyOpt) error
 	// Install the application content to the device.
 	Install(ctx context.Context) error
 	// Remove the application content from the device.
@@ -332,4 +332,19 @@ func validateEnvVars(envVars map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// VerifyOpt represents an option for the Verify function
+type VerifyOpt func(*verifyOptions)
+
+// verifyOptions holds the configuration for verification operations
+type verifyOptions struct {
+	isOSUpdate bool
+}
+
+// WithOSUpdate returns an option to control whether OS updates should be verified
+func WithOSUpdate(enabled bool) VerifyOpt {
+	return func(opts *verifyOptions) {
+		opts.isOSUpdate = enabled
+	}
 }
