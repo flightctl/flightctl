@@ -284,6 +284,26 @@ var _ = Describe("cli operation", func() {
 		})
 	})
 
+	Context("Flightctl Version Checks", func() {
+		It("should show matching client and server versions", Label("79621"), func() {
+			By("Getting the version output")
+			out, err := harness.CLI("version")
+			clientVersionPrefix := "Client Version:"
+			serverVersionPrefix := "Server Version:"
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(clientVersionPrefix))
+			Expect(out).To(ContainSubstring(serverVersionPrefix))
+
+			By("Parsing client and server versions")
+			clientVersion := GetVersionByPrefix(out, clientVersionPrefix)
+			serverVersion := GetVersionByPrefix(out, serverVersionPrefix)
+
+			Expect(clientVersion).ToNot(BeEmpty(), "client version should be found")
+			Expect(serverVersion).ToNot(BeEmpty(), "server version should be found")
+			Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
+		})
+	})
+
 })
 var _ = Describe("cli login", func() {
 	var (
@@ -340,6 +360,17 @@ var _ = Describe("cli login", func() {
 		})
 	})
 })
+
+// GetVersionByPrefix searches the output for a line starting with the given prefix
+// and returns the trimmed value following the prefix. Returns an empty string if not found.
+func GetVersionByPrefix(output, prefix string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
+}
 
 // TIMEOUT represents the default duration string for timeout, set to 1 minute.
 const TIMEOUT = "1m"

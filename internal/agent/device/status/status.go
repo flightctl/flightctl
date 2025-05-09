@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -36,29 +38,31 @@ func NewManager(
 
 // Collector aggregates device status from various exporters.
 type StatusManager struct {
+	mu               sync.Mutex
 	deviceName       string
 	managementClient client.Management
 	exporters        []Exporter
-	log              *log.PrefixLogger
 	device           *v1alpha1.Device
+
+	log *log.PrefixLogger
 }
 
 type Exporter interface {
 	// Status collects status information and updates the device status.
-	Status(context.Context, *v1alpha1.DeviceStatus) error
+	Status(context.Context, *v1alpha1.DeviceStatus, ...CollectorOpt) error
 }
 
-type Collector interface {
+type Getter interface {
 	// Get returns the device status and is safe to call without a management client.
 	Get(context.Context) *v1alpha1.DeviceStatus
 }
 
 type Manager interface {
-	Collector
+	Getter
 	// Sync collects status information from all exporters and updates the device status.
 	Sync(context.Context) error
 	// Collect gathers status information from all exporters and is safe to call without a management client.
-	Collect(context.Context) error
+	Collect(context.Context, ...CollectorOpt) error
 	// RegisterStatusExporter registers an exporter to be called when collecting status.
 	RegisterStatusExporter(Exporter)
 	// Update updates the device status with the given update functions.
@@ -70,29 +74,49 @@ type Manager interface {
 }
 
 func (m *StatusManager) SetClient(managementClient client.Management) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.managementClient = managementClient
 }
 
 func (m *StatusManager) Get(ctx context.Context) *v1alpha1.DeviceStatus {
-	return m.device.Status
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// ensure status is immutable
+	statusCopy := *m.device.Status
+	return &statusCopy
 }
 
+// reset assumes the lock is held
 func (m *StatusManager) reset() {
 	m.device.Status.Applications = m.device.Status.Applications[:0]
 }
 
 func (m *StatusManager) RegisterStatusExporter(exporter Exporter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.exporters = append(m.exporters, exporter)
 }
 
-func (m *StatusManager) Collect(ctx context.Context) error {
+func (m *StatusManager) Collect(ctx context.Context, opts ...CollectorOpt) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.collect(ctx, opts...)
+}
+
+// collect assumes the lock is held
+func (m *StatusManager) collect(ctx context.Context, opts ...CollectorOpt) error {
 	m.reset()
+
 	errs := []error{}
 	for _, export := range m.exporters {
-		err := export.Status(ctx, m.device.Status)
-		if err != nil {
+		if err := export.Status(ctx, m.device.Status, opts...); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
 			errs = append(errs, err)
-			continue
 		}
 	}
 
@@ -103,17 +127,33 @@ func (m *StatusManager) Collect(ctx context.Context) error {
 	return nil
 }
 
-func (m *StatusManager) Sync(ctx context.Context) error {
-	if err := m.Collect(ctx); err != nil {
+// ReloadCollect collects status information from all exporters in the case that
+// the agent receives a SIGHUP signal.
+func (m *StatusManager) ReloadCollect(ctx context.Context, _ *config.Config) error {
+	// collect all status information from all exporters
+	if err := m.Collect(ctx, WithForceCollect()); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil
 		}
 		return err
 	}
+
+	return nil
+}
+
+func (m *StatusManager) Sync(ctx context.Context) error {
 	if m.managementClient == nil {
 		m.log.Warn("management client not set")
 		return nil
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.collect(ctx); err != nil {
+		return err
+	}
+
 	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
 		m.log.Warnf("Failed to update device status: %v", err)
 	}
@@ -125,10 +165,10 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 		return fmt.Errorf("management client not set")
 	}
 
-	if err := m.Collect(ctx); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return nil
-		}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.collect(ctx); err != nil {
 		return err
 	}
 
@@ -151,10 +191,10 @@ func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusF
 		return nil, fmt.Errorf("management client not set")
 	}
 
-	if err := m.Collect(ctx); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return &v1alpha1.DeviceStatus{}, nil
-		}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.collect(ctx); err != nil {
 		return nil, err
 	}
 
@@ -192,5 +232,19 @@ func SetOSImage(osStatus v1alpha1.DeviceOsStatus) UpdateStatusFn {
 		status.Os.Image = osStatus.Image
 		status.Os.ImageDigest = osStatus.ImageDigest
 		return nil
+	}
+}
+
+type CollectorOpts struct {
+	// Force forces the collection of status information from all exporters.
+	Force bool
+}
+
+type CollectorOpt func(*CollectorOpts)
+
+// WithForceCollect forces the collection of status information from all exporters.
+func WithForceCollect() CollectorOpt {
+	return func(o *CollectorOpts) {
+		o.Force = true
 	}
 }

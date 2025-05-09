@@ -15,10 +15,15 @@ import (
 type RepositoryStore struct {
 	store.Store
 	RepositoryVal api.Repository
+	EventVal      api.Event
 }
 
 func (s *RepositoryStore) Repository() store.Repository {
 	return &DummyRepository{RepositoryVal: s.RepositoryVal}
+}
+
+func (s *RepositoryStore) Event() store.Event {
+	return &DummyEvent{EventVal: s.EventVal}
 }
 
 type DummyRepository struct {
@@ -33,12 +38,12 @@ func (s *DummyRepository) Get(ctx context.Context, orgId uuid.UUID, name string)
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyRepository) Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback store.RepositoryStoreCallback) (*api.Repository, error) {
-	return repository, nil
+func (s *DummyRepository) Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback store.RepositoryStoreCallback) (*api.Repository, api.ResourceUpdatedDetails, error) {
+	return repository, api.ResourceUpdatedDetails{}, nil
 }
 
-func (s *DummyRepository) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback store.RepositoryStoreCallback) (*api.Repository, bool, error) {
-	return repository, false, nil
+func (s *DummyRepository) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback store.RepositoryStoreCallback) (*api.Repository, bool, api.ResourceUpdatedDetails, error) {
+	return repository, false, api.ResourceUpdatedDetails{}, nil
 }
 
 func verifyRepoPatchFailed(require *require.Assertions, status api.Status) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
@@ -42,6 +43,8 @@ func New(
 // TODO: expose metrics
 func (s *Server) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
+	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-periodic")
 	defer cancel()
 
 	queuesProvider, err := queues.NewRedisProvider(context.Background(), s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
@@ -96,6 +99,13 @@ func (s *Server) Run() error {
 		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, func() { disruptionBudget.Reconcile(ctx) })
 	disruptionBudgetThread.Start()
 	defer disruptionBudgetThread.Stop()
+
+	// Event cleanup
+	eventCleanup := tasks.NewEventCleanup(s.log, serviceHandler, s.cfg.Service.EventRetentionPeriod)
+	eventCleanupThread := thread.New(
+		s.log.WithField("pkg", "event-cleanup"), "Event cleanup", tasks.EventCleanupPollingInterval, eventCleanup.Poll)
+	eventCleanupThread.Start()
+	defer eventCleanupThread.Stop()
 
 	sigShutdown := make(chan os.Signal, 1)
 

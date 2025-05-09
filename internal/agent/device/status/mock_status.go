@@ -42,44 +42,49 @@ func (m *MockExporter) EXPECT() *MockExporterMockRecorder {
 }
 
 // Status mocks base method.
-func (m *MockExporter) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) error {
+func (m *MockExporter) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...CollectorOpt) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Status", arg0, arg1)
+	varargs := []any{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Status", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Status indicates an expected call of Status.
-func (mr *MockExporterMockRecorder) Status(arg0, arg1 any) *gomock.Call {
+func (mr *MockExporterMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockExporter)(nil).Status), arg0, arg1)
+	varargs := append([]any{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockExporter)(nil).Status), varargs...)
 }
 
-// MockCollector is a mock of Collector interface.
-type MockCollector struct {
+// MockGetter is a mock of Getter interface.
+type MockGetter struct {
 	ctrl     *gomock.Controller
-	recorder *MockCollectorMockRecorder
+	recorder *MockGetterMockRecorder
 }
 
-// MockCollectorMockRecorder is the mock recorder for MockCollector.
-type MockCollectorMockRecorder struct {
-	mock *MockCollector
+// MockGetterMockRecorder is the mock recorder for MockGetter.
+type MockGetterMockRecorder struct {
+	mock *MockGetter
 }
 
-// NewMockCollector creates a new mock instance.
-func NewMockCollector(ctrl *gomock.Controller) *MockCollector {
-	mock := &MockCollector{ctrl: ctrl}
-	mock.recorder = &MockCollectorMockRecorder{mock}
+// NewMockGetter creates a new mock instance.
+func NewMockGetter(ctrl *gomock.Controller) *MockGetter {
+	mock := &MockGetter{ctrl: ctrl}
+	mock.recorder = &MockGetterMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockCollector) EXPECT() *MockCollectorMockRecorder {
+func (m *MockGetter) EXPECT() *MockGetterMockRecorder {
 	return m.recorder
 }
 
 // Get mocks base method.
-func (m *MockCollector) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
+func (m *MockGetter) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0)
 	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
@@ -87,9 +92,9 @@ func (m *MockCollector) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockCollectorMockRecorder) Get(arg0 any) *gomock.Call {
+func (mr *MockGetterMockRecorder) Get(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockCollector)(nil).Get), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockGetter)(nil).Get), arg0)
 }
 
 // MockManager is a mock of Manager interface.
@@ -116,17 +121,22 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // Collect mocks base method.
-func (m *MockManager) Collect(arg0 context.Context) error {
+func (m *MockManager) Collect(arg0 context.Context, arg1 ...CollectorOpt) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Collect", arg0)
+	varargs := []any{arg0}
+	for _, a := range arg1 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Collect", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Collect indicates an expected call of Collect.
-func (mr *MockManagerMockRecorder) Collect(arg0 any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Collect(arg0 any, arg1 ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Collect", reflect.TypeOf((*MockManager)(nil).Collect), arg0)
+	varargs := append([]any{arg0}, arg1...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Collect", reflect.TypeOf((*MockManager)(nil).Collect), varargs...)
 }
 
 // Get mocks base method.

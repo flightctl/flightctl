@@ -117,24 +117,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	return engine.Run(ctx)
 }
 
-// Stop ensures that the device agent stops reconciling during graceful shutdown.
-func (a *Agent) Stop(ctx context.Context) error {
-	a.once.Do(func() {
-		if a.cancelFn != nil {
-			a.cancelFn()
-		}
-	})
-	return nil
-}
-
-func (a *Agent) ReloadLogLevel(ctx context.Context, config *agent_config.Config) error {
-	if config.LogLevel != "" {
-		a.log.Infof("updating log level to %s", config.LogLevel)
-		a.log.Level(config.LogLevel)
-	}
-	return nil
-}
-
 func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) error {
 	// to ensure that the agent is able to correct for an invalid policy, it is reconciled first.
 	// the new policy will go into affect on the next sync.
@@ -534,4 +516,28 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, s
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
 	}
+}
+
+// Stop ensures that the device agent stops reconciling during graceful shutdown.
+func (a *Agent) Stop(ctx context.Context) error {
+	a.once.Do(func() {
+		if a.cancelFn != nil {
+			a.cancelFn()
+		}
+	})
+	return nil
+}
+
+// ReloadConfig reloads the device agent configuration.
+// This is called when the device agent is reloaded.
+func (a *Agent) ReloadConfig(ctx context.Context, config *agent_config.Config) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	// reload the config for the device agent
+	if config.LogLevel != "" {
+		a.log.Infof("Updating log level to %s", config.LogLevel)
+		a.log.Level(config.LogLevel)
+	}
+	return nil
 }

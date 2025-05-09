@@ -16,6 +16,7 @@ import (
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	policy "github.com/flightctl/flightctl/internal/agent/device/policy"
+	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -276,17 +277,22 @@ func (mr *MockManagerMockRecorder) SetUpgradeFailed(version any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Status", arg0, arg1)
+	varargs := []any{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Status", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Status indicates an expected call of Status.
-func (mr *MockManagerMockRecorder) Status(arg0, arg1 any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), arg0, arg1)
+	varargs := append([]any{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), varargs...)
 }
 
 // Upgrade mocks base method.

@@ -25,7 +25,8 @@ type manager struct {
 	log        *log.PrefixLogger
 }
 
-func New(log *log.PrefixLogger, timeout time.Duration, cancelFn context.CancelFunc) Manager {
+// NewManager creates a new shutdown manager.
+func NewManager(log *log.PrefixLogger, timeout time.Duration, cancelFn context.CancelFunc) Manager {
 	return &manager{
 		registered: make(map[string]func(context.Context) error),
 		timeout:    timeout,

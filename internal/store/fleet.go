@@ -22,8 +22,8 @@ type Fleet interface {
 	InitialMigration() error
 
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
-	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, bool, error)
+	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, api.ResourceUpdatedDetails, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) error
@@ -101,11 +101,11 @@ func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 	return s.genericStore.Create(ctx, orgId, resource, callback)
 }
 
-func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, error) {
+func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, api.ResourceUpdatedDetails, error) {
 	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
 }
 
-func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, bool, error) {
+func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, bool, api.ResourceUpdatedDetails, error) {
 	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
 }
 

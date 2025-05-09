@@ -8,6 +8,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -70,7 +71,7 @@ var _ = Describe("RepoTester", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.WithValue(context.Background(), service.InternalRequestCtxKey, true)
+		ctx = context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(log)

@@ -171,3 +171,13 @@ func FromStderr(stderr string, exitCode int) error {
 	}
 	return fmt.Errorf("code: %d: %s", exitCode, stderr)
 }
+
+func IsContext(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return false
+}

@@ -1,3 +1,5 @@
+//go:build amd64 || arm64
+
 package tpm
 
 import (
@@ -10,20 +12,29 @@ import (
 	"testing"
 
 	"github.com/google/go-tpm-tools/client"
+	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/stretchr/testify/require"
 )
-
-// These unit tests all use the tpm simulator from go-tpm-tools.
 
 type TestFixture struct {
 	tpm *TPM
 }
 
+func openTPMSimulator(t *testing.T) (*TPM, error) {
+	t.Helper()
+	require := require.New(t)
+
+	simulator, err := simulator.Get()
+	require.NoError(err)
+
+	return &TPM{channel: simulator}, nil
+}
+
 func setupTestFixture(t *testing.T) (*TestFixture, error) {
 	t.Helper()
 
-	tpm, err := OpenTPMSimulator()
+	tpm, err := openTPMSimulator(t)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open tpm simulator")
 	}

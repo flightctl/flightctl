@@ -56,21 +56,28 @@ func NewPodmanMonitor(
 
 func (m *PodmanMonitor) Run(ctx context.Context) error {
 	m.log.Debugf("Starting podman monitor")
-	ctx, m.cancelFn = context.WithCancel(ctx)
+	ctx, cancelFn := context.WithCancel(ctx)
 
 	// list of podman events to listen for
 	events := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
 	m.log.Debugf("Replaying podman events since boot time: %s", m.bootTime)
-	m.cmd = m.client.EventsSinceCmd(ctx, events, m.bootTime)
+	cmd := m.client.EventsSinceCmd(ctx, events, m.bootTime)
 
-	stdoutPipe, err := m.cmd.StdoutPipe()
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
+		cancelFn()
 		return fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
 
-	if err := m.cmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
+		cancelFn()
 		return fmt.Errorf("failed to start podman events: %w", err)
 	}
+
+	m.mu.Lock()
+	m.cancelFn = cancelFn
+	m.cmd = cmd
+	m.mu.Unlock()
 
 	go m.listenForEvents(ctx, stdoutPipe)
 
@@ -84,13 +91,21 @@ func (m *PodmanMonitor) Stop(ctx context.Context) error {
 		if err := m.drain(ctx); err != nil {
 			errs = append(errs, err)
 		}
-		m.log.Infof("Podman drain complete")
-		m.cancelFn()
+		m.log.Infof("Podman drain completed")
+
+		m.mu.Lock()
+		cancelFn := m.cancelFn
+		cmd := m.cmd
+		m.mu.Unlock()
+
+		if cancelFn != nil {
+			cancelFn()
+		}
 
 		// its possible that we call stop before the monitor has been
 		// initialized
-		if m.cmd != nil {
-			if err := m.cmd.Wait(); err != nil {
+		if cmd != nil {
+			if err := cmd.Wait(); err != nil {
 				errs = append(errs, fmt.Errorf("failed to wait for podman events: %w", err))
 			}
 		}
@@ -383,7 +398,9 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 		return
 	}
 
+	m.mu.Lock()
 	app, ok := m.apps[projectName]
+	m.mu.Unlock()
 	if !ok {
 		m.log.Debugf("Application project not found: %s", projectName)
 		return
@@ -392,13 +409,18 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 }
 
 func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	inspectData, err := m.inspectContainer(ctx, event.ID)
 	if err != nil {
 		m.log.Errorf("Failed to inspect container: %v", err)
 	}
+
+	restarts, err := m.getContainerRestarts(inspectData)
+	if err != nil {
+		m.log.Errorf("Failed to get container restarts: %v", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	status := m.resolveStatus(event.Status, inspectData)
 	if status == StatusRemove {
@@ -407,11 +429,6 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 			m.log.Debugf("Removed container: %s", event.Name)
 		}
 		return
-	}
-
-	restarts, err := m.getContainerRestarts(inspectData)
-	if err != nil {
-		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
 	container, exists := app.Workload(event.Name)

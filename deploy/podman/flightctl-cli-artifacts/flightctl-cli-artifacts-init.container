@@ -1,0 +1,24 @@
+[Unit]
+After=flightctl-api.service
+Wants=flightctl-api.service
+PartOf=flightctl.target
+
+[Container]
+Image=registry.access.redhat.com/ubi9/ubi-minimal
+ContainerName=flightctl-cli-artifacts-config
+Volume=/usr/share/flightctl/flightctl-cli-artifacts:/config-source:ro,z
+Volume=/usr/share/flightctl/init_utils.sh:/utils/init_utils.sh:ro,z
+Volume=/etc/flightctl/flightctl-cli-artifacts:/config-destination:rw,z
+Volume=/etc/flightctl/service-config.yaml:/service-config.yaml:ro,z
+Volume=/etc/flightctl/pki:/certs-source:ro,z
+Volume=flightctl-cli-artifacts-certs:/certs-destination:rw,z
+Exec=/bin/sh /config-source/init.sh
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=flightctl.target

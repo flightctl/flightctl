@@ -30,11 +30,12 @@ Welcome to the Flight Control user documentation.
   * [Using Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks)
   * [Monitoring Device Resources](managing-devices.md#monitoring-device-resources)
   * [Accessing Devices Remotely](managing-devices.md#accessing-devices-remotely)
+  * [Scheduling Updates and Downloads](managing-devices.md#scheduling-updates-and-downloads)
 * **[Managing Device Fleets](managing-fleets.md)** - How to manage fleets of devices.
   * [Understanding Fleets](managing-fleets.md#understanding-fleets)
   * [Selecting Devices into a Fleet](managing-fleets.md#selecting-devices-into-a-fleet)
   * [Defining Device Templates](managing-fleets.md#defining-device-templates)
-  * [Defining Rollout Policies](rollout-policies.md)
+  * [Defining Rollout Policies](managing-fleets.md#defining-rollout-policies)
   * [Managing Fleets Using GitOps](managing-fleets.md#managing-fleets-using-gitops)
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](registering-microshift-devices-acm.md)
@@ -42,11 +43,10 @@ Welcome to the Flight Control user documentation.
 
 **Administrating Flight Control** - How to deploy and administrate a Flight Control service.
 
-* Installing and Configuring the Flight Control Service
-* [Configuring Flight Control to use k8s auth](kubernetes-auth.md)
+* Installing and Configuring the Flight Control Service and UI
+  * [Configuring Flight Control to use k8s auth](kubernetes-auth.md)
 * Installing and Using the Flight Control CLI
-* Installing and Using the Flight Control UI
-* Configuring the Flight Control Agent
+* [Configuring the Flight Control Agent](configuring-agent.md)
 * [Troubleshooting](troubleshooting.md)
 
 **References** - Useful references.

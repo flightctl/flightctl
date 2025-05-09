@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -117,7 +118,7 @@ func (m *manager) AfterUpdate(ctx context.Context) error {
 	return nil
 }
 
-func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, opts ...status.CollectorOpt) error {
 	applicationsStatus, applicationSummary, err := m.podmanMonitor.Status()
 	if err != nil {
 		return err

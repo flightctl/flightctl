@@ -94,9 +94,10 @@ RUN dnf -y copr enable @redhat-et/flightctl && \
     systemctl enable flightctl-agent.service
 
 # Optional: To enable podman-compose application support, uncomment below
-# RUN dnf -y install epel-release epel-next-release && \
-#    dnf -y install podman-compose && \
-#    systemctl enable podman.service
+# RUN dnf -y install epel-release && \
+#     dnf -y install podman-compose && \
+#     dnf -y clean all && \
+#     systemctl enable podman.service
 
 ADD config.yaml /etc/flightctl/
 ```
@@ -106,13 +107,6 @@ ADD config.yaml /etc/flightctl/
 
 > [!NOTE]
 If your device relies on an OS image from a private repository, [authentication credentials](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#configuring-container-pull-secrets_managing-users-groups-ssh-key-and-secrets-in-image-mode-for-rhel) (pull secrets) must be placed in the appropriate system path `/etc/ostree/auth.json`. Authentication must exist on the device before it can be consumed.
-
-> [!IMPORTANT]
-> When using Flight Control with a RHEL 9 base image, you need to disable the default automatic updates by adding the following command to the `Containerfile`:
->
-> ```console
-> RUN systemctl mask bootc-fetch-apply-updates.timer
-> ```
 
 Define the OCI registry, image repository, and image tag you want to use (ensure you have write-permissions to that repository):
 
@@ -126,6 +120,35 @@ Build the OS image for your target platform:
 
 ```console
 sudo podman build -t ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG} .
+```
+
+#### Using RHEL base images
+
+When using Flight Control with a RHEL 9 base image, you need to make a few changes to the `Containerfile`, specifically you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository in case you need `podman-compose`:
+
+```console
+FROM registry.redhat.io/rhel9/rhel-bootc:9.5
+
+RUN dnf -y copr enable @redhat-et/flightctl && \
+    dnf -y install flightctl-agent && \
+    dnf -y clean all && \
+    systemctl enable flightctl-agent.service && \
+    systemctl mask bootc-fetch-apply-updates.timer
+
+# Optional: To enable podman-compose application support, uncomment below
+# RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
+#     dnf -y install podman-compose && \
+#     dnf -y clean all && \
+#     rm -rf /var/{cache,log} /var/lib/{dnf,rhsm} && \
+#     systemctl enable podman.service
+
+ADD config.yaml /etc/flightctl/
+```
+
+You also need to log in to the Red Hat registry before building your image:
+
+```console
+sudo podman login registry.redhat.io
 ```
 
 ### Signing and Publishing the OS Image (bootc)
@@ -236,6 +259,7 @@ RUN dnf -y install cloud-init open-vm-tools && \
 # Optional: To enable podman-compose application support, uncomment below
 # RUN dnf -y install epel-release epel-next-release && \
 #    dnf -y install podman-compose && \
+#    dnf -y clean all && \
 #    systemctl enable podman.service
 ```
 

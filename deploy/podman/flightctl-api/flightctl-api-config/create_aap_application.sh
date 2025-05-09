@@ -16,7 +16,7 @@ create_oauth_application() {
   "organization": 1,
   "authorization_grant_type": "authorization-code",
   "client_type": "public",
-  "redirect_uris": "https://$base_domain:443/callback",
+  "redirect_uris": "https://$base_domain:443/callback http://127.0.0.1/callback",
   "app_url": "https://$base_domain:443"
 }
 EOF

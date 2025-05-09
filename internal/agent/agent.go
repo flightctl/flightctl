@@ -30,6 +30,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/experimental"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -123,17 +124,38 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		a.config.DataDir,
-		a.config.MergedInfoKeys(),
-		a.config.CollectSystemInfoTimeout,
+		a.config.SystemInfo,
+		a.config.SystemInfoCustom,
+		a.config.SystemInfoTimeout,
 	)
-	if err := systemInfoManager.Initialize(); err != nil {
+	if err := systemInfoManager.Initialize(ctx); err != nil {
 		return err
 	}
 
-	// create shutdown manager
-	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
+	// generate tpm client only if experimental features are enabled
+	experimentalFeatures := experimental.NewFeatures()
+	if experimentalFeatures.IsEnabled() {
+		a.log.Warn("Experimental features enabled: creating TPM client")
+		tpmClient, err := lifecycle.NewTpmClient(a.log)
+		if err != nil {
+			a.log.Warnf("Experimental feature: tpm is not available: %v", err)
+		} else {
+			a.log.Warn("Experimental features enabled: registering TPM info collection functions")
+			err := tpmClient.UpdateNonce(make([]byte, 8))
+			if err != nil {
+				a.log.Errorf("Unable to update nonce in tpm client: %v", err)
+			}
+			systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
+			systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
+		}
+	} else {
+		a.log.Info("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
+	}
 
-	reloadManager := reload.New(a.configFile, a.config.ConfigDir, a.log)
+	// create shutdown manager
+	shutdownManager := shutdown.NewManager(a.log, gracefulShutdownTimeout, cancel)
+
+	reloadManager := reload.NewManager(a.configFile, a.log)
 
 	policyManager := policy.NewManager(a.log)
 
@@ -281,8 +303,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	// register agent with shutdown manager
 	shutdownManager.Register("agent", agent.Stop)
 
-	// register log level reloader with reload manager
-	reloadManager.Register(agent.ReloadLogLevel)
+	// register reloader with reload manager
+	reloadManager.Register(agent.ReloadConfig)
+	reloadManager.Register(systemInfoManager.ReloadConfig)
+	reloadManager.Register(statusManager.ReloadCollect)
 
 	go shutdownManager.Run(ctx)
 	go reloadManager.Run(ctx)
@@ -305,8 +329,4 @@ func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClie
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
 	return client, nil
-}
-
-func CollectSystemInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, hardwareMapPath string) (*systeminfo.Info, error) {
-	return systeminfo.CollectInfo(ctx, log, exec, reader, hardwareMapPath)
 }

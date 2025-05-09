@@ -86,7 +86,7 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+		_, created, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(BeFalse())
 	})
@@ -120,7 +120,7 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+		dev, created, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(Equal(false))
 		Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -136,12 +136,12 @@ var _ = Describe("DeviceStore create", func() {
 		dev.Metadata.Owner = lo.ToPtr("newowner")
 		dev.Spec.Os.Image = "oldos"
 		// Update but don't save the new device, so we still have the old resourceVersion
-		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+		dev, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(called).To(BeTrue())
 
 		dev.Spec.Os.Image = "newos"
-		_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
+		_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
 		Expect(err).To(HaveOccurred())
 		Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 	})
@@ -339,7 +339,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: nil,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			dev, created, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -360,7 +360,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: &status,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			dev, created, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -373,12 +373,12 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = lo.ToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
-			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+			dev, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
 			dev.Spec.Os.Image = "newos"
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
+			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 		})
@@ -391,7 +391,7 @@ var _ = Describe("DeviceStore create", func() {
 			newDev := testutil.ReturnTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), nil, &map[string]string{"newkey": "newval"})
 			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
 
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback)
+			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
@@ -433,7 +433,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			dev.Metadata.Owner = lo.ToPtr("newowner")
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -444,7 +444,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			called = false
 			dev.Metadata.Owner = nil
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, false, nil, callback)
+			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 

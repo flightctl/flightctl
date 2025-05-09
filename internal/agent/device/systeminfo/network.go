@@ -18,7 +18,7 @@ import (
 
 const (
 	// Default route timeout and interval
-	defaultRouteTimeout  = 20 * time.Second
+	defaultRouteTimeout  = 45 * time.Second
 	defaultRouteInterval = 500 * time.Millisecond
 )
 
@@ -26,6 +26,31 @@ const (
 func collectNetworkInfo(ctx context.Context, log *log.PrefixLogger, exec executer.Executer, reader fileio.Reader) (*NetworkInfo, error) {
 	netInfo := &NetworkInfo{
 		Interfaces: []InterfaceInfo{},
+	}
+
+	// default route
+	//
+	// there's a potential race here if the IP is assigned via DHCP.
+	// we wait briefly to allow the interface to come up and obtain an IP.
+	// extending this wait could delay enrollment, so it's a trade-off.
+	defaultRoute, err := waitForDefaultRoute(ctx, log, reader, defaultRouteTimeout, defaultRouteInterval)
+	if err != nil {
+		log.Warningf("Default route not available: %v", err)
+	} else {
+		log.Infof("Detected default route: %s via %s", defaultRoute.Gateway, defaultRoute.Interface)
+		netInfo.DefaultRoute = defaultRoute
+	}
+
+	// dns servers
+	dnsServers, err := getDNSServers(reader)
+	if err == nil {
+		netInfo.DNSServers = dnsServers
+	}
+
+	// fqdn
+	fqdn, err := getFQDN(ctx, exec)
+	if err == nil {
+		netInfo.FQDN = fqdn
 	}
 
 	ifaces, err := net.Interfaces()
@@ -55,31 +80,6 @@ func collectNetworkInfo(ctx context.Context, log *log.PrefixLogger, exec execute
 		ifaceInfo.Status = getInterfaceStatus(iface.Name, reader)
 
 		netInfo.Interfaces = append(netInfo.Interfaces, ifaceInfo)
-	}
-
-	// default route
-	//
-	// there's a potential race here if the IP is assigned via DHCP.
-	// we wait briefly to allow the interface to come up and obtain an IP.
-	// extending this wait could delay enrollment, so it's a trade-off.
-	defaultRoute, err := waitForDefaultRoute(ctx, log, reader, defaultRouteTimeout, defaultRouteInterval)
-	if err != nil {
-		log.Warningf("Default route not available: %v", err)
-	} else {
-		log.Infof("Detected default route: %s via %s", defaultRoute.Gateway, defaultRoute.Interface)
-		netInfo.DefaultRoute = defaultRoute
-	}
-
-	// dns servers
-	dnsServers, err := getDNSServers(reader)
-	if err == nil {
-		netInfo.DNSServers = dnsServers
-	}
-
-	// fqdn
-	fqdn, err := getFQDN(ctx, exec)
-	if err == nil {
-		netInfo.FQDN = fqdn
 	}
 
 	return netInfo, nil
@@ -174,23 +174,53 @@ func getFQDN(ctx context.Context, exec executer.Executer) (string, error) {
 	return strings.TrimSuffix(names[0], "."), nil
 }
 
-// waitForDefaultRoute waits for the default route to be available
-// within the specified timeout and interval
+// waitForDefaultRoute waits for the default route to be available and a usable IP
+// within the specified timeout and interval.
 func waitForDefaultRoute(ctx context.Context, log *log.PrefixLogger, reader fileio.Reader, timeout, interval time.Duration) (*DefaultRoute, error) {
 	var route *DefaultRoute
 
 	err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
 		r, err := getDefaultRoute(reader)
 		if err != nil {
-			log.Debugf("retrying route detection: %v", err)
+			log.Infof("Waiting for default route...")
 			return false, nil
 		}
-		route = r
-		return true, nil
+
+		// check if any of the addresses are usable
+		ifaces, err := net.Interfaces()
+		if err != nil {
+			log.Warningf("Error refreshing interfaces: %v", err)
+			return false, nil
+		}
+
+		for _, iface := range ifaces {
+			if iface.Name != r.Interface {
+				continue
+			}
+
+			addrs, err := iface.Addrs()
+			if err != nil {
+				log.Warningf("Error reading addresses for %s: %v", r.Interface, err)
+				return false, nil
+			}
+
+			for _, addr := range addrs {
+				parsedIP := net.ParseIP(strings.Split(addr.String(), "/")[0])
+				if parsedIP != nil && !parsedIP.IsLinkLocalUnicast() {
+					route = r
+					return true, nil
+				}
+			}
+
+			break
+		}
+
+		log.Infof("Default route via %s found, waiting for usable IP", r.Interface)
+		return false, nil
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to detect default route within %s: %w", timeout, err)
+		return nil, fmt.Errorf("failed to detect default route with usable IP within %s: %w", timeout, err)
 	}
 
 	return route, nil
@@ -210,7 +240,7 @@ func getDefaultRoute(reader fileio.Reader) (*DefaultRoute, error) {
 		return route, nil
 	}
 
-	return nil, fmt.Errorf("no default route found (IPv4 or IPv6)")
+	return nil, fmt.Errorf("no default route found")
 }
 
 // getDefaultRouteIPv4 attempts to determine the default IPv4 gateway

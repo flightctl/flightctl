@@ -99,7 +99,7 @@ func (h *TransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	body, status := h.serviceHandler.PatchDevice(r.Context(), name, patch)
+	body, status := h.serviceHandler.PatchDeviceStatus(r.Context(), name, patch)
 	SetResponse(w, body, status)
 }
 

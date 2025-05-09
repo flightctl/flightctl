@@ -181,7 +181,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 				},
 				Status: nil,
 			}
-			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
+			er, created, _, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
@@ -203,7 +203,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Certificate: lo.ToPtr("bogus-cert"),
 				},
 			}
-			er, created, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
+			er, created, _, err := storeInst.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))

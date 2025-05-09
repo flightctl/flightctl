@@ -27,9 +27,9 @@ get_services_for_tag() {
     local services=()
 
     if [[ "$image_tag" =~ -main- ]]; then
-        services+=("api" "periodic" "worker")
+        services+=("api" "periodic" "worker" "cli-artifacts")
     else
-        services+=("api" "periodic" "worker" "ui")
+        services+=("api" "periodic" "worker" "ui" "cli-artifacts")
     fi
 
     echo "${services[@]}"
@@ -71,6 +71,7 @@ render_files() {
     render_service "db" "${SOURCE_DIR}"
     render_service "kv" "${SOURCE_DIR}"
     render_service "ui" "${SOURCE_DIR}"
+    render_service "cli-artifacts" "${SOURCE_DIR}"
 
     update_image_tags "${IMAGE_TAG}"
 
@@ -78,6 +79,7 @@ render_files() {
     mkdir -p "${CONFIG_WRITEABLE_DIR}/pki"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-api"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-ui"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-cli-artifacts"
 
     move_shared_files "${SOURCE_DIR}"
 }

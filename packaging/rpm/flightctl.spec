@@ -97,6 +97,7 @@ The flightctl-services package provides installation and setup of files for runn
     cp bin/flightctl %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
+    mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
     mkdir -p %{buildroot}/usr/lib/flightctl/hooks.d/{afterupdating,beforeupdating,afterrebooting,beforerebooting}
     mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
     install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
@@ -141,10 +142,6 @@ The flightctl-services package provides installation and setup of files for runn
     IMAGE_TAG=$(echo %{version} | tr '~' '-') \
     deploy/scripts/install.sh
 
-    # Copy files needed for post install into the build root
-    cp deploy/scripts/post_install.sh %{buildroot}%{_datadir}/flightctl/post_install.sh
-    cp deploy/scripts/secrets.sh %{buildroot}%{_datadir}/flightctl/secrets.sh
-
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
     cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
@@ -170,9 +167,6 @@ fi
 %posttrans selinux
 
 %selinux_relabel_post -s %{selinuxtype}
-
-%post services
-%{_datadir}/flightctl/post_install.sh
 
 # File listings
 # No %files section for the main package, so it won't be built
@@ -215,6 +209,7 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/pki
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
+    %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
 
     # Files mounted to data dir
@@ -223,6 +218,7 @@ rm -rf /usr/share/sosreport
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-kv
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-ui
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
@@ -232,10 +228,13 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
+    %{_datadir}/flightctl/flightctl-cli-artifacts/env.template
+    %{_datadir}/flightctl/flightctl-cli-artifacts/nginx.conf
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
     %{_datadir}/containers/systemd/flightctl*
 
-    # Handle permissions for scripts run as part of the rpm post install
-    %attr(0755,root,root) %{_datadir}/flightctl/post_install.sh
+    # Handle permissions for scripts setting host config
+    %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
 
     # Files mounted to lib dir

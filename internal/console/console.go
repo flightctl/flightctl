@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
@@ -74,7 +75,7 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 		}
 		(*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 		m.log.Infof("About to save annotations %+v", *device.Metadata.Annotations)
-		_, err = m.serviceHandler.UpdateDevice(context.WithValue(ctx, service.InternalRequestCtxKey, true), deviceName, *device, nil)
+		_, err = m.serviceHandler.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
 		}

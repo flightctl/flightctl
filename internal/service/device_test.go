@@ -21,6 +21,7 @@ import (
 type DeviceStore struct {
 	store.Store
 	DeviceVal api.Device
+	EventVal  api.Event
 }
 
 func (s *DeviceStore) Device() store.Device {
@@ -30,6 +31,15 @@ func (s *DeviceStore) Device() store.Device {
 type DummyDevice struct {
 	store.Device
 	DeviceVal api.Device
+}
+
+func (s *DeviceStore) Event() store.Event {
+	return &DummyEvent{EventVal: s.EventVal}
+}
+
+type DummyEvent struct {
+	store.Event
+	EventVal api.Event
 }
 
 type dummyPublisher struct{}
@@ -53,12 +63,16 @@ func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*api.Device, error) {
-	return device, nil
+func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*api.Device, api.ResourceUpdatedDetails, error) {
+	return device, api.ResourceUpdatedDetails{}, nil
 }
 
-func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*api.Device, bool, error) {
-	return device, false, nil
+func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error) {
+	return device, false, api.ResourceUpdatedDetails{}, nil
+}
+
+func (s *DummyEvent) Create(ctx context.Context, orgId uuid.UUID, event *api.Event) error {
+	return nil
 }
 
 func verifyDevicePatchSucceeded(require *require.Assertions, expectedDevice api.Device, resp *api.Device, status api.Status) {

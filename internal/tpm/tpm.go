@@ -10,14 +10,13 @@ import (
 	"github.com/google/go-tpm-tools/client"
 	pbattest "github.com/google/go-tpm-tools/proto/attest"
 	pbtpm "github.com/google/go-tpm-tools/proto/tpm"
-	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
 
 const (
 	MinNonceLength     = 8
-	TpmSystemPath      = "/dev/tpm/tpm0"
+	TpmSystemPath      = "/dev/tpm0"
 	TpmVersionInfoPath = "/sys/class/tpm/tpm0/tpm_version_major"
 )
 
@@ -57,18 +56,24 @@ func OpenTPM(devicePath string) (*TPM, error) {
 	return &TPM{devicePath: devicePath, channel: ch}, nil
 }
 
-func OpenTPMSimulator() (*TPM, error) {
-	simulator, err := simulator.Get()
-	if err != nil {
-		return &TPM{}, err
+func (t *TPM) Close() error {
+	if t == nil {
+		return nil
 	}
-	return &TPM{channel: simulator}, nil
+	if t.channel == nil {
+		return nil
+	}
+	return t.channel.Close()
 }
 
-func (t *TPM) Close() {
-	if t != nil {
-		t.channel.Close()
+func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
+	if t == nil {
+		return nil, fmt.Errorf("cannot get TPM vendor info: nil receiver in TPM struct")
 	}
+	if t.channel == nil {
+		return nil, fmt.Errorf("cannot get TPM vendor info: no channel available in TPM struct")
+	}
+	return tpm2.GetManufacturer(t.channel)
 }
 
 func (t *TPM) GetPCRValues(measurements map[string]string) error {
