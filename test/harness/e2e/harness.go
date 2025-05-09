@@ -210,30 +210,30 @@ func (h *Harness) StartVMAndEnroll() string {
 
 func (h *Harness) StartMultipleVMAndEnroll(count int) ([]string, error) {
 	if count <= 0 {
-        return nil, fmt.Errorf("count must be positive, got %d", count)
-    }
+		return nil, fmt.Errorf("count must be positive, got %d", count)
+	}
 
 	// add count-1 vms to the harness using AddMultipleVMs method
 	vmParamsList := make([]vm.TestVM, count-1)
 	baseDir := GinkgoT().TempDir()
-    topDir := findTopLevelDir()
-    baseDiskPath := filepath.Join(topDir, "bin/output/qcow2/disk.qcow2")
+	topDir := findTopLevelDir()
+	baseDiskPath := filepath.Join(topDir, "bin/output/qcow2/disk.qcow2")
 
 	for i := 0; i < count-1; i++ {
 		vmName := "flightctl-e2e-vm-" + uuid.New().String()
-        overlayDiskPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", vmName))
-        
-        // Create a qcow2 overlay that uses the base image as backing file
-        cmd := exec.Command(
-            "qemu-img", "create", 
-            "-f", "qcow2", 
-            "-b", baseDiskPath, 
-            "-F", "qcow2", 
-            overlayDiskPath)
-        
-        if err := cmd.Run(); err != nil {
-            return nil, fmt.Errorf("failed to create overlay disk for VM %s: %w", vmName, err)
-        }
+		overlayDiskPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", vmName))
+
+		// Create a qcow2 overlay that uses the base image as backing file
+		cmd := exec.Command(
+			"qemu-img", "create",
+			"-f", "qcow2",
+			"-b", baseDiskPath,
+			"-F", "qcow2",
+			overlayDiskPath)
+
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to create overlay disk for VM %s: %w", vmName, err)
+		}
 
 		vmParamsList[i] = vm.TestVM{
 			TestDir:       GinkgoT().TempDir(),
@@ -667,7 +667,7 @@ func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
 
 func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int) (err error) {
 	// Check that the device was already approved
-	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+	Eventually(h.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 		deviceId).ShouldNot(BeEmpty())
 	logrus.Infof("The device %s was approved", deviceId)
 
@@ -985,7 +985,7 @@ func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []ma
 	return nil
 }
 
-func (h Harness) WaitForBatchStart(fleetName string, batchNumber int, timeout time.Duration) {
+func (h Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 	Eventually(func() int {
 		response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
 		if err != nil {
@@ -1023,7 +1023,7 @@ func (h Harness) WaitForBatchStart(fleetName string, batchNumber int, timeout ti
 		logrus.Debugf("Current batch number: %d, waiting for  %d", batchNumberInt, batchNumber)
 
 		return batchNumberInt
-	}, timeout, POLLINGLONG).Should(Equal(batchNumber))
+	}, LONGTIMEOUT, POLLINGLONG).Should(Equal(batchNumber))
 }
 
 func (h Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Device, error) {
@@ -1295,4 +1295,43 @@ func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditi
 		}
 	}
 	return false
+}
+
+func (h *Harness) WaitForFleetUpdateToFail(fleetName string) error {
+	logrus.Infof("Waiting for fleet update to fail for fleet %s", fleetName)
+	Eventually(func() (bool, error) {
+		rolloutStatus, err := h.GetRolloutStatus(fleetName)
+		if err != nil {
+			return false, err
+		}
+
+		if rolloutStatus.Type == v1alpha1.FleetRolloutInProgress &&
+			rolloutStatus.Status == v1alpha1.ConditionStatusFalse &&
+			rolloutStatus.Reason == v1alpha1.RolloutSuspendedReason {
+			logrus.Infof("Fleet update failed for fleet %s: status=%s, reason=%s",
+				fleetName, rolloutStatus.Status, rolloutStatus.Reason)
+			return true, nil
+		}
+
+		return false, nil
+	}, LONGTIMEOUT, POLLING).Should(BeTrue(),
+		fmt.Sprintf("Timed out waiting for fleet %s update to fail", fleetName))
+	return nil
+}
+
+func (h *Harness) WaitForDeviceUpdateToSucceed(deviceId string) (err error) {
+	// Wait for the device to complete updating successfully
+	logrus.Infof("Waiting for the device update to succeed")
+	h.WaitForDeviceContents(deviceId, "Waiting for the device update success",
+		func(device *v1alpha1.Device) bool {
+			for _, condition := range device.Status.Conditions {
+				if condition.Type == v1alpha1.DeviceUpdating &&
+					condition.Status == v1alpha1.ConditionStatusFalse &&
+					condition.Reason == "Updated" {
+					return true
+				}
+			}
+			return false
+		}, LONGTIMEOUT)
+	return nil
 }

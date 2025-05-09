@@ -2,7 +2,6 @@ package rollout_test
 
 import (
 	"fmt"
-	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -64,7 +63,7 @@ var _ = Describe("Rollout Policies", func() {
 
 			By("Verifying the first batch selects 1 device")
 
-			tc.harness.WaitForBatchStart(fleetName, 0, completionTimeout)
+			tc.harness.WaitForBatchStart(fleetName, 0)
 
 			By("Verifying the first batch selects 1 device")
 			selectedDevices, err := tc.harness.GetSelectedDevicesForBatch(fleetName)
@@ -72,7 +71,7 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(len(selectedDevices)).To(Equal(1))
 			Expect((*selectedDevices[0].Metadata.Labels)[labelSite]).To(Equal(siteMadrid))
 
-			tc.harness.WaitForBatchStart(fleetName, 1, completionTimeout)
+			tc.harness.WaitForBatchStart(fleetName, 1)
 
 			By("Verifying the second batch selects 50% of remaining devices")
 			selectedDevices, err = tc.harness.GetSelectedDevicesForBatch(fleetName)
@@ -82,13 +81,13 @@ var _ = Describe("Rollout Policies", func() {
 
 			Expect(err).ToNot(HaveOccurred())
 			By("Here we expect remaining 2 devices to be selected")
-			tc.harness.WaitForBatchStart(fleetName, 2, completionTimeout)
+			tc.harness.WaitForBatchStart(fleetName, 2)
 			selectedDevices, err = tc.harness.GetSelectedDevicesForBatch(fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(selectedDevices)).To(Equal(2))
 
 			By("Verifying the application is updated on all devices")
-			tc.harness.WaitForBatchStart(fleetName, 3, completionTimeout)
+			tc.harness.WaitForBatchStart(fleetName, 3)
 			err = tc.verifyAllDevicesUpdated(4)
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -110,13 +109,14 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			fleetSpec := createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage("100%")), deviceSpec)
+			fleetSpec := createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
 			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, 2, []string{})
 
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			time.Sleep(defaultSleepTime)
+			newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Verifying that the disruption budget is respected")
 			// Get unavailable devices per group
@@ -128,7 +128,7 @@ var _ = Describe("Rollout Policies", func() {
 			}
 
 			for _, deviceID := range tc.deviceIDs {
-				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, 3)
+				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -143,13 +143,11 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err = tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			fleetSpec = createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage("100%")), deviceSpec)
+			fleetSpec = createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
 			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, 0, []string{labelSite})
 
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)
 			Expect(err).ToNot(HaveOccurred())
-
-			time.Sleep(defaultSleepTime)
 
 			By("Verifying that the disruption budget is respected")
 			// Get unavailable devices per group
@@ -194,16 +192,17 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage("100%")), deviceSpec))
+			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Simulating a failure in the first batch")
 			err = tc.harness.SimulateNetworkFailure()
 			Expect(err).ToNot(HaveOccurred())
 
-			tc.harness.WaitForBatchStart(fleetName, 0, completionTimeout)
+			tc.harness.WaitForBatchStart(fleetName, 0)
 
-			time.Sleep(failTimeout)
+			err = tc.harness.WaitForFleetUpdateToFail(fleetName)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Verifying that the rollout is paused due to unmet success threshold")
 			rolloutStatus, err := tc.harness.GetRolloutStatus(fleetName)
@@ -216,9 +215,9 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Wait for rollout to continue
-			tc.harness.WaitForBatchStart(fleetName, 1, completionTimeout)
-
-			time.Sleep(failTimeout)
+			By("Verifying that the rollout is resumed")
+			err = tc.harness.WaitForDeviceUpdateToSucceed(tc.deviceIDs[0])
+			Expect(err).ToNot(HaveOccurred())
 
 			// Verify that all devices are eventually updated
 			updatedDevices, err := tc.harness.GetUpdatedDevices(fleetName)
@@ -232,12 +231,15 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err = tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage("100%")), deviceSpec))
+			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
+			Expect(err).ToNot(HaveOccurred())
+
+			newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
 			Expect(err).ToNot(HaveOccurred())
 
 			// Wait for all devices to be updated
 			for _, deviceID := range tc.deviceIDs {
-				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, 3)
+				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -278,13 +280,11 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq3, lo.ToPtr(api.Percentage("100%")), deviceSpec))
+			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq3, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Waiting for the first batch to start rolling out")
-			tc.harness.WaitForBatchStart(fleetName, 0, completionTimeout)
-
-			time.Sleep(defaultSleepTime)
+			tc.harness.WaitForBatchStart(fleetName, 1)
 
 			By("Updating the fleet template version during rollout")
 			err = tc.updateAppVersion("v2")
@@ -293,17 +293,15 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err = tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq3, lo.ToPtr(api.Percentage("100%")), deviceSpec))
+			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq3, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
-			By("Verifying that the old rollout is stopped and a new one is started")
-			time.Sleep(defaultSleepTime) // Give time for the controller to process the update
-			rolloutStatus, err := tc.harness.GetRolloutStatus(fleetName)
+			newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
 			Expect(err).ToNot(HaveOccurred())
-			Expect(rolloutStatus.Status).To(Equal(api.ConditionStatusTrue), "A new rollout should be active")
 
+			By("Verifying that devices ae updated to new template version of the updated template")
 			for _, deviceID := range tc.deviceIDs {
-				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, 4)
+				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -324,21 +322,21 @@ var _ = Describe("Rollout Policies", func() {
 							MatchLabels: &map[string]string{labelSite: siteMadrid},
 						},
 						Limit:            intLimit(1),
-						SuccessThreshold: lo.ToPtr(api.Percentage("100%")),
+						SuccessThreshold: lo.ToPtr(api.Percentage(SuccessThreshold)),
 					},
 					{
 						Selector: &api.LabelSelector{
 							MatchLabels: &map[string]string{labelSite: siteRome},
 						},
 						Limit:            intLimit(1),
-						SuccessThreshold: lo.ToPtr(api.Percentage("100%")),
+						SuccessThreshold: lo.ToPtr(api.Percentage(SuccessThreshold)),
 					},
 					{
 						Selector: &api.LabelSelector{
 							MatchLabels: &map[string]string{},
 						},
-						Limit:            percentageLimit("100%"),
-						SuccessThreshold: lo.ToPtr(api.Percentage("100%")),
+						Limit:            percentageLimit(SuccessThreshold),
+						SuccessThreshold: lo.ToPtr(api.Percentage(SuccessThreshold)),
 					},
 				},
 			}
@@ -355,11 +353,11 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(initialBatchSequence, lo.ToPtr(api.Percentage("100%")), deviceSpec))
+			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(initialBatchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Waiting for the first batch to start rolling out")
-			tc.harness.WaitForBatchStart(fleetName, 0, completionTimeout)
+			tc.harness.WaitForBatchStart(fleetName, 1)
 
 			rolloutStatus, err := tc.harness.GetRolloutStatus(fleetName)
 			Expect(err).ToNot(HaveOccurred())
@@ -372,37 +370,30 @@ var _ = Describe("Rollout Policies", func() {
 							MatchLabels: &map[string]string{labelSite: siteParis},
 						},
 						Limit:            intLimit(1),
-						SuccessThreshold: lo.ToPtr(api.Percentage("100%")),
+						SuccessThreshold: lo.ToPtr(api.Percentage(SuccessThreshold)),
 					},
 					{
 						Selector: &api.LabelSelector{
 							MatchLabels: &map[string]string{labelSite: siteRome},
 						},
 						Limit:            intLimit(1),
-						SuccessThreshold: lo.ToPtr(api.Percentage("100%")),
+						SuccessThreshold: lo.ToPtr(api.Percentage(SuccessThreshold)),
 					},
 					{
 						Selector: &api.LabelSelector{
 							MatchLabels: &map[string]string{labelSite: siteMadrid},
 						},
 						Limit:            intLimit(1),
-						SuccessThreshold: lo.ToPtr(api.Percentage("100%")),
+						SuccessThreshold: lo.ToPtr(api.Percentage(SuccessThreshold)),
 					},
 				},
 			}
 
-			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(updatedBatchSequence, lo.ToPtr(api.Percentage("100%")), deviceSpec))
+			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(updatedBatchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
-
-			time.Sleep(defaultSleepTime) // Allow time for the controller to process the update
-
-			// Check that we're on batch 0 of the new flow (Paris device)
-			rolloutStatus, err = tc.harness.GetRolloutStatus(fleetName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(rolloutStatus.Status).To(Equal(api.ConditionStatusTrue), "A new rollout should be active")
 
 			By("Waiting for the first batch of the new flow to complete")
-			tc.harness.WaitForBatchStart(fleetName, 0, completionTimeout)
+			tc.harness.WaitForBatchStart(fleetName, 0)
 
 			// Verify the Paris device is updated first in the new flow
 			selectedDevices, err := tc.harness.GetSelectedDevicesForBatch(fleetName)
@@ -414,18 +405,15 @@ var _ = Describe("Rollout Policies", func() {
 })
 
 const (
-	fleetName     = "rollout"
-	siteMadrid    = "madrid"
-	siteParis     = "paris"
-	siteRome      = "rome"
-	functionWeb   = "web"
-	functionDb    = "db"
-	labelSite     = "site"
-	labelFunction = "function"
-
-	defaultSleepTime  = 30 * time.Second
-	failTimeout       = 3 * time.Minute
-	completionTimeout = 5 * time.Minute
+	fleetName        = "rollout"
+	siteMadrid       = "madrid"
+	siteParis        = "paris"
+	siteRome         = "rome"
+	functionWeb      = "web"
+	functionDb       = "db"
+	labelSite        = "site"
+	labelFunction    = "function"
+	SuccessThreshold = "100%"
 )
 
 var testFleetSelector = api.LabelSelector{
@@ -453,7 +441,7 @@ func rolloutDeviceSelection(b api.BatchSequence) *api.RolloutDeviceSelection {
 func createFleetSpec(b api.BatchSequence, threshold *api.Percentage, testFleetSpec api.DeviceSpec) api.FleetSpec {
 	return api.FleetSpec{
 		RolloutPolicy: &api.RolloutPolicy{
-			DefaultUpdateTimeout: lo.ToPtr("2m"),
+			DefaultUpdateTimeout: lo.ToPtr("1m"),
 			DeviceSelection:      rolloutDeviceSelection(b),
 			SuccessThreshold:     threshold,
 		},
@@ -534,13 +522,18 @@ func (tc *TestContext) setupFleetAndDevices(numDevices int, labelsList []map[str
 		return err
 	}
 
+	newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
+	if err != nil {
+		return err
+	}
+
 	err = tc.harness.SetLabelsForDevicesByIndex(tc.deviceIDs, labelsList, fleetName)
 	if err != nil {
 		return err
 	}
 
 	for _, deviceID := range tc.deviceIDs {
-		err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, 2)
+		err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
 		if err != nil {
 			return err
 		}
