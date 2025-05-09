@@ -287,6 +287,53 @@ func (p *Podman) RemoveContainer(ctx context.Context, labels []string) error {
 	return nil
 }
 
+func (p *Podman) CreateVolume(ctx context.Context, name string, labels []string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"volume", "create", "--name", name}
+	for _, label := range labels {
+		args = append(args, "--label", label)
+	}
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("create volume: %s: %w", strings.TrimSpace(stdout), errors.FromStderr(stderr, exitCode))
+	}
+
+	inspectArgs := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
+	mountpointOut, inspectStderr, inspectExit := p.exec.ExecuteWithContext(ctx, podmanCmd, inspectArgs...)
+	if inspectExit != 0 {
+		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(inspectStderr, inspectExit))
+	}
+
+	mountpoint := strings.TrimSpace(mountpointOut)
+
+	return mountpoint, nil
+}
+
+func (p *Podman) VolumeExists(ctx context.Context, name string) bool {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"volume", "exists", name}
+	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	return exitCode == 0
+}
+
+func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	return strings.TrimSpace(stdout), nil
+}
+
 func (p *Podman) RemoveVolumes(ctx context.Context, labels []string) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
@@ -417,13 +464,13 @@ func copyContainerData(ctx context.Context, log *log.PrefixLogger, writer fileio
 				log.Debugf("Skipping merged directory: %s", filePath)
 				return nil
 			}
-			log.Debugf("Creating directory: %s", info.Name())
+			log.Debugf("Creating directory: %s", filepath.Join(writer.PathFor(destPath), info.Name()))
 
 			// ensure any directories in the image are also created
 			return writer.MkdirAll(filepath.Join(destPath, info.Name()), fileio.DefaultDirectoryPermissions)
 		}
 
-		return copyContainerFile(filePath, writer.PathFor(destPath))
+		return copyContainerFile(log, filePath, writer.PathFor(destPath))
 	})
 	if err != nil {
 		return fmt.Errorf("error during copy: %w", err)
@@ -432,9 +479,10 @@ func copyContainerData(ctx context.Context, log *log.PrefixLogger, writer fileio
 	return nil
 }
 
-func copyContainerFile(from, to string) error {
+func copyContainerFile(log *log.PrefixLogger, from, to string) error {
 	// local writer ensures that the container from directory is correct.
 	writer := fileio.NewWriter()
+	log.Tracef("Copying file from %s to %s", from, to)
 	if err := writer.CopyFile(from, to); err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
 	}
