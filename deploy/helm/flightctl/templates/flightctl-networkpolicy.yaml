@@ -1,9 +1,12 @@
-{{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{ if and (not (eq $.Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-from-flightctl
-  namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace:  {{ $.Values.global.internalNamespace | default $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
 spec:
   ingress:
   - from:
@@ -12,9 +15,9 @@ spec:
         - key: kubernetes.io/metadata.name
           operator: In
           values:
-          - {{ .Release.Namespace }}
-          - {{ default .Release.Namespace .Values.global.internalNamespace }}
-          {{- if eq .Values.global.target "acm"  }}
+          - {{ $.Release.Namespace }}
+          - {{ $.Values.global.internalNamespace | default $.Release.Namespace }}
+          {{- if eq $.Values.global.target "acm"  }}
           - openshift-console
           {{- end  }}
       podSelector: {}

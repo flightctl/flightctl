@@ -1,0 +1,19 @@
+{{ if $.Values.worker.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-worker-config
+  namespace: {{ $.Values.global.internalNamespace | default $.Release.Namespace }}
+data:
+  config.yaml: |-
+    database:
+      hostname: {{ $.Values.postgresql.hostname | default (printf "%s-postgresql" $.Release.Name) }}
+      type: pgsql
+      port: {{ $.Values.postgresql.port }}
+      name: {{ $.Values.postgresql.dbName }}
+    service: {}
+    kv:
+      hostname: {{ $.Values.redis.hostname | default (printf "%s-redis-master" $.Release.Name) }}
+      port: {{ $.Values.redis.port }}
+{{ end }}

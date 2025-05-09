@@ -3,22 +3,21 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-ui-from-router
-  namespace: {{ $.Release.Namespace }}
+  name: flightctl-api-from-ingress
+  namespace:  {{ $.Release.Namespace }}
   labels:
     {{- include "common.labels.standard" $ | nindent 4 }}
-    app.kubernetes.io/component: ui
+    app.kubernetes.io/component: api
 spec:
   ingress:
   - from:
     - namespaceSelector:
         matchLabels:
-          policy-group.network.openshift.io/ingress: ""
-      podSelector: {}
+          network.openshift.io/policy-group: ingress
   podSelector:
     matchLabels:
       {{- include "common.labels.matchLabels" $ | nindent 6 }}
-      app.kubernetes.io/component: ui
+      app.kubernetes.io/component: api
   policyTypes:
   - Ingress
-{{ end }}
+ {{ end }}

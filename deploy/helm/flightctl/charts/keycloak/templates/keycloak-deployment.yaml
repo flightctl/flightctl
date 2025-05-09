@@ -16,6 +16,8 @@ spec:
       creationTimestamp: null
       labels:
         app: keycloak
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/keycloak-realm-secret.yaml") . | sha256sum }}
     spec:
       containers:
       - name: keycloak

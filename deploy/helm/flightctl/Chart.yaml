@@ -11,3 +11,16 @@ dependencies:
   - name: ui
     condition: ui.enabled
     version: "0.0.1"
+  - name: postgresql
+    condition: postgresql.enabled
+    version: "16.6.3"
+    repository: https://charts.bitnami.com/bitnami
+  - name: redis
+    condition: redis.enabled
+    version: "20.13.0"
+    repository: https://charts.bitnami.com/bitnami
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+    - bitnami-common
+    version: 2.x.x

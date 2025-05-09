@@ -1,0 +1,15 @@
+{{ if $.Values.global.clusterLevelSecretAccess }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: worker
+  name: flightctl-worker
+  namespace: {{ $.Values.global.internalNamespace | default $.Release.Namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+{{ end }}
