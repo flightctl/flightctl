@@ -63,7 +63,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 	}
 
 	image := p.spec.ImageProvider.Image
-	if err := ensureImageExists(ctx, p.log, p.podman, image); err != nil {
+	if err := ensureImageExists(ctx, p.log, p.podman, image, v1alpha1.PullIfNotPresent); err != nil {
 		return fmt.Errorf("pulling image: %w", err)
 	}
 

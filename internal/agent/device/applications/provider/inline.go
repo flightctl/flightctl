@@ -82,6 +82,9 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
+		if err := ensureVolumes(ctx, p.log, p.podman, p.spec.InlineProvider.Volumes); err != nil {
+			return fmt.Errorf("ensuring volumes: %w", err)
+		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
@@ -97,6 +100,59 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
+	var imageVolumes []v1alpha1.ImageVolumeProviderSpec
+	for _, item := range lo.FromPtr(p.spec.InlineProvider.Volumes) {
+		vType, err := item.Type()
+		if err != nil {
+			return fmt.Errorf("getting volume type: %w", err)
+		}
+		switch vType {
+		case v1alpha1.ImageVolumeProviderType:
+			imageVolume, err := item.AsImageVolumeProviderSpec()
+			if err != nil {
+				return fmt.Errorf("getting image volume spec: %w", err)
+			}
+			imageVolumes = append(imageVolumes, imageVolume)
+		default:
+			return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, vType)
+		}
+	}
+
+	if err := ensureImageVolumes(ctx, p.log, p.readWriter, p.podman, imageVolumes); err != nil {
+		return fmt.Errorf("creating volumes: %w", err)
+	}
+
+	return nil
+}
+
+func ensureImageVolumes(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *client.Podman, volumes []v1alpha1.ImageVolumeProviderSpec) error {
+	for _, volume := range volumes {
+		imageRef := volume.Image.Reference
+		if podman.VolumeExists(ctx, volume.Name) {
+			log.Tracef("Volume %q already exists, skipping creation", volume.Name)
+			volumePath, err := podman.InspectVolumeMount(ctx, volume.Name)
+			if err != nil {
+				return fmt.Errorf("inspect volume %q: %w", volume.Name, err)
+			}
+			if err := writer.RemoveContents(volume.Name); err != nil {
+				return fmt.Errorf("removing volume content %q: %w", volume.Name, err)
+			}
+			if err := podman.CopyContainerData(ctx, imageRef, volumePath); err != nil {
+				return fmt.Errorf("copy image contents: %w", err)
+			}
+			continue
+		}
+		log.Infof("Creating volume %q from image %q", volume.Name, imageRef)
+		volumePath, err := podman.CreateVolume(ctx, volume.Name, nil)
+		if err != nil {
+			return fmt.Errorf("creating volume %q: %w", volume.Name, err)
+		}
+		//TODO: update the volume with the image contents based on pull policy
+		if err := podman.CopyContainerData(ctx, imageRef, volumePath); err != nil {
+			return fmt.Errorf("copy image contents: %w", err)
+		}
+
+	}
 	return nil
 }
 
