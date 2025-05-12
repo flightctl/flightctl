@@ -1,4 +1,4 @@
-{{ if $.Values.api.enabled }}
+{{- if $.Values.api.enabled }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -13,9 +13,10 @@ metadata:
     {{ end }}
 spec:
   storageClassName: {{ $.Values.global.storageClassName | quote }}
+  volumeMode: Filesystem
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: {{ $.Values.api.certsStorage | quote }}
-{{ end }}
+{{- end }}

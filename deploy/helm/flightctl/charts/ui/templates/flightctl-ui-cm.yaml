@@ -26,7 +26,7 @@ data:
   {{- if $.Values.baseURL }}
   BASE_UI_URL: {{ $.Values.baseURL | quote }}
   {{- else }}
-  BASE_UI_URL: {{ include "flightctl.getUIUrl" . }}
+  BASE_UI_URL: {{ include "flightctl.getUIUrl" . | quote }}
   {{- end }}
   {{- if eq $.Values.global.target "standalone" }}
   {{- if eq $.Values.global.auth.type "builtin" }}

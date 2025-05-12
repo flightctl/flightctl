@@ -1,4 +1,4 @@
-{{ if $.Values.api.enabled }}
+{{- if $.Values.api.enabled }}
 ---
 apiVersion: v1
 kind: Service
@@ -22,4 +22,4 @@ spec:
   selector:
     {{- include "common.labels.matchLabels" $ | nindent 4 }}
     app.kubernetes.io/component: api
-{{ end }}
+{{- end }}

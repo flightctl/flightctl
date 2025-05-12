@@ -1,4 +1,4 @@
-{{ if $.Values.worker.enabled }}
+{{- if $.Values.worker.enabled }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -54,4 +54,4 @@ spec:
         - name: flightctl-worker-config
           configMap:
             name: flightctl-worker-config
-{{ end }}
+{{- end }}

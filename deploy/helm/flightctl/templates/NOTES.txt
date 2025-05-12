@@ -14,6 +14,6 @@ A demo user "demouser" has been created for you. You can retrieve its password b
 
 {{- end }}
 
-You can login using the following CLI command:
+You can log in using the following CLI command:
    
     flightctl login {{ include "flightctl.getApiUrl" $ }} --insecure-skip-tls-verify --web
