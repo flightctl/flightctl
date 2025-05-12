@@ -32,7 +32,7 @@ data:
         baseAgentEndpointUrl: {{ printf "https://agent-api.%s:%d/" $baseDomain (int $.Values.global.nodePorts.agent) }}
         {{- else if and (eq $serviceMethod "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
         baseUrl: {{ printf "https://api.%s:%d/" $baseDomain (int $.Values.global.gatewayPorts.tls) }}
-        baseAgentEndpointUrl: {{ printf "https://agent-api.%s:%s/" $baseDomain (int $.Values.global.gatewayPorts.tls) }}
+        baseAgentEndpointUrl: {{ printf "https://agent-api.%s:%d/" $baseDomain (int $.Values.global.gatewayPorts.tls) }}
         {{- else }}
         baseUrl: {{ printf "https://api.%s/" $baseDomain }}
         baseAgentEndpointUrl: {{ printf "https://agent-api.%s/" $baseDomain }}
