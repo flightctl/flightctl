@@ -10,14 +10,14 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          network.openshift.io/policy-group: ingress
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: ingress
   podSelector:
     matchLabels:
       {{- include "common.labels.matchLabels" $ | nindent 6 }}
       app.kubernetes.io/component: api
   policyTypes:
-  - Ingress
+    - Ingress
 {{- end }}
