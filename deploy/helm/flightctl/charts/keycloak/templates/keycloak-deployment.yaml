@@ -16,8 +16,10 @@ spec:
       creationTimestamp: null
       labels:
         app: keycloak
+      {{ if and .Values.global.generateSecrets (and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin")) }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/keycloak-realm-secret.yaml") . | sha256sum }}
+      {{ end }}
     spec:
       containers:
       - name: keycloak
