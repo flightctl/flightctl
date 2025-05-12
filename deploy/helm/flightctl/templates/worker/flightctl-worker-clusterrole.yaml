@@ -7,7 +7,6 @@ metadata:
     {{- include "common.labels.standard" $ | nindent 4 }}
     app.kubernetes.io/component: worker
   name: flightctl-worker
-  namespace: {{ $.Values.global.internalNamespace | default $.Release.Namespace }}
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
