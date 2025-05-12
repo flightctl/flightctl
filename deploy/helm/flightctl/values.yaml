@@ -60,7 +60,7 @@ global:
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
-  exposeServicesMethod: "route" # route, nodePort, gateway
+  exposeServicesMethod: "route" # route, nodePort, gateway, custom
   gatewayClass: ""
   nodePorts:
     api: 3443
@@ -79,31 +79,36 @@ global:
 ## @descriptionStart This section provides individual parameters for each component
 ## @descriptionEnd
 
-db:
-  image:
-    image: quay.io/sclorg/postgresql-16-c9s
-    tag: "20250214"
-    pullPolicy: ""
-  masterUser: admin
-  user: demouser
+postgresql:
+  enabled: true
+  hostname: ""
+  port: 5432
+  dbName: "flightctl"
+  auth:
+    username: demouser
+    secretKeys:
+      adminPasswordKey: masterPassword
+      userPasswordKey: password
+
   maxConnections: 200
   storage:
     size: "60Gi"
-  resources:
-    requests:
-      cpu: "512m"
-      memory: "512Mi"
+  primary:
+    resources:
+      requests:
+        cpu: "512m"
+        memory: "512Mi"
 
-kv:
+redis:
   enabled: true
-  image:
-    image: quay.io/sclorg/redis-7-c9s
-    tag: "20250108"
-    pullPolicy: ""
-  password: adminpass
-  # Save if at least 1 key changed in 5 minutes
-  save: 300 1
-  loglevel: warning
+  hostname: ""
+  port: 6379
+  architecture: standalone
+  master:
+    persistence:
+      enabled: true
+      storageClass: ""
+
 api:
   enabled: true
   image:
@@ -111,6 +116,7 @@ api:
     pullPolicy: ""
     tag: ""
   baseUIUrl: "" # ui.flightctl.example.com
+  certsStorage: 128Mi
 cliArtifacts:
   enabled: true
   image:

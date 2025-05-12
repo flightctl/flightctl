@@ -1,0 +1,57 @@
+{{- if $.Values.worker.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: worker
+  name: flightctl-worker
+  namespace: {{ $.Values.global.internalNamespace | default $.Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.labels.matchLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels.standard" $ | nindent 8 }}
+        app.kubernetes.io/component: worker
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/worker/flightctl-worker-config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: flightctl-worker
+      containers:
+        - name: flightctl-worker
+          image: {{ $.Values.worker.image.image }}:{{ $.Values.worker.image.tag | default $.Chart.AppVersion }}
+          imagePullPolicy: {{ $.Values.worker.image.pullPolicy | default $.Values.global.imagePullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.redis.auth.existingSecret | default (printf "%s-redis" $.Release.Name) }}
+                  key: {{ $.Values.redis.auth.existingSecretPasswordKey | default "redis-password" }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" $.Release.Name) }}
+                  key: {{ $.Values.postgresql.auth.secretKeys.userPasswordKey | default "password" }}
+            - name: DB_USER
+              value: {{ $.Values.postgresql.auth.username }}
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-worker-config
+              subPath: config.yaml
+              readOnly: true
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-worker-config
+          configMap:
+            name: flightctl-worker-config
+{{- end }}

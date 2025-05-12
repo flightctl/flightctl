@@ -1,0 +1,22 @@
+{{- if $.Values.api.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: flightctl-api-certs
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: api
+    {{ if $.Values.global.appCode }}
+    paas.redhat.com/appcode: {{ $.Values.global.appCode }}
+    {{ end }}
+spec:
+  storageClassName: {{ $.Values.global.storageClassName | quote }}
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ $.Values.api.certsStorage | quote }}
+{{- end }}
