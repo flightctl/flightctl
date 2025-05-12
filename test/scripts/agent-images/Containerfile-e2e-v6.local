@@ -6,4 +6,7 @@
 
 FROM localhost:5000/flightctl-device:base
 
+RUN dnf install -y \
+        unzip
+
 COPY ./test/e2e/hooks/sshd-hook.yaml /usr/lib/flightctl/hooks.d/afterupdating/sshd-hook.yaml
