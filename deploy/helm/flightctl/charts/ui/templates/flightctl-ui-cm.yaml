@@ -33,7 +33,7 @@ data:
   INTERNAL_AUTH_URL: http://keycloak:8081/realms/flightctl
   {{- else if eq $.Values.global.auth.type "oidc" }}
   INTERNAL_AUTH_URL: {{ $.Values.auth.internalAuthUrl | default $.Values.global.auth.oidc.oidcAuthority | quote }}
-  {{- else if eq ((.Values.global).auth).type "aap" }}
+  {{- else if eq $.Values.global.auth.type "aap" }}
   INTERNAL_AUTH_URL: {{ $.Values.auth.internalAuthUrl | default $.Values.global.auth.aap.apiUrl | quote }}
   {{- end }}
   {{- end }}

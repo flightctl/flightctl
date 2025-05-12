@@ -1,4 +1,4 @@
-{{ if and ($.Values.cliArtifacts.enabled) (eq $.Values.global.target "acm")}}
+{{- if and ($.Values.cliArtifacts.enabled) (eq $.Values.global.target "acm")}}
 {{- $url := (include "flightctl.getCliArtifactsUrl" . )}}
 ---
 apiVersion: console.openshift.io/v1
@@ -24,4 +24,4 @@ spec:
       text: Download flightctl for Mac for ARM 64
     - href: '{{ $url }}/arm64/windows/flightctl-windows-arm64.zip'
       text: Download flightctl for Windows for ARM 64
-{{ end }}
+{{- end }}

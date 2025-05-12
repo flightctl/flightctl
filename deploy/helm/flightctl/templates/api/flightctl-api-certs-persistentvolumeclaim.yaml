@@ -14,10 +14,10 @@ metadata:
   name: flightctl-api-certs
   namespace: {{ $.Release.Namespace }}
 spec:
-  storageClassName: {{ $.Values.global.storageClassName }}
+  storageClassName: {{ $.Values.global.storageClassName | quote }}
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ $.Values.api.certsStorage }}
+      storage: {{ $.Values.api.certsStorage | quote }}
 {{ end }}

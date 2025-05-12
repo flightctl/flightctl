@@ -1,4 +1,4 @@
-{{ if and ($.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{- if and ($.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 ---
 apiVersion: route.openshift.io/v1
 kind: Route
@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/component: api
     {{- if $.Values.global.appCode }}
     external-exposed: "true"
-    paas.redhat.com/appcode: {{ .Values.global.appCode }}
+    paas.redhat.com/appcode: {{ $.Values.global.appCode }}
     shard: external
     {{- end }}
   name: flightctl-api-route
@@ -25,4 +25,4 @@ spec:
     name: flightctl-api
     weight: 100
   wildcardPolicy: None
-{{ end }}
+{{- end }}

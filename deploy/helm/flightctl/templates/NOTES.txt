@@ -2,9 +2,9 @@ Thank you for installing Flight Control.
 
 
 {{- if $.Values.ui.enabled }}
-You can access the Flight Control UI at {{ include "flightctl.getUIUrl" . }}
+You can access the Flight Control UI at {{ include "flightctl.getUIUrl" $ }}
 {{- end }}
-You can access the Flight Control API at {{ include "flightctl.getApiUrl" . }}
+You can access the Flight Control API at {{ include "flightctl.getApiUrl" $ }}
 
 
 {{- if and (eq $.Values.global.auth.type "builtin") (not (eq $.Values.global.target "acm")) }}
@@ -16,4 +16,4 @@ A demo user "demouser" has been created for you. You can retrieve its password b
 
 You can login using the following CLI command:
    
-    flightctl login {{ include "flightctl.getApiUrl" . }} --insecure-skip-tls-verify --web
+    flightctl login {{ include "flightctl.getApiUrl" $ }} --insecure-skip-tls-verify --web

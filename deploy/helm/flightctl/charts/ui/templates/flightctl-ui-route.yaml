@@ -1,7 +1,7 @@
-{{ if and (not (eq $.Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{- if and (not (eq $.Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 ---
-kind: Route
 apiVersion: route.openshift.io/v1
+kind: Route
 metadata:
   name: flightctl-ui
   namespace: {{ $.Release.Namespace }}
@@ -35,4 +35,4 @@ spec:
     {{- end }}
   {{- end }}
   wildcardPolicy: None
-{{ end }}
+{{- end }}

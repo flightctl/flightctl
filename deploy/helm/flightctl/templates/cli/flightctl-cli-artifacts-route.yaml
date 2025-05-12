@@ -21,7 +21,7 @@ spec:
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
-    {{- if ($.Values.global.baseDomainTls).cert }}
+    {{- if and $.Values.global.baseDomainTls.cert $.Values.global.baseDomainTls.key }}
     certificate: {{ $.Values.global.baseDomainTls.cert | quote }}
     key: {{ $.Values.global.baseDomainTls.key | quote }}
     {{- end }}

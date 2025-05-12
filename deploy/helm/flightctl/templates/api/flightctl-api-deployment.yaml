@@ -1,4 +1,4 @@
-{{ if $.Values.api.enabled }}
+{{- if $.Values.api.enabled }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -22,7 +22,7 @@ spec:
         {{- include "common.labels.standard" $ | nindent 8 }}
         app.kubernetes.io/component: api
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/api/flightctl-api-config.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/api/flightctl-api-config.yaml") $ | sha256sum }}
     spec:
       serviceAccountName: flightctl-api
       containers:
@@ -44,7 +44,7 @@ spec:
                   key: {{ $.Values.postgresql.auth.secretKeys.userPasswordKey | default "password" }}
             - name: DB_USER
               value: {{ $.Values.postgresql.auth.username }}
-            {{- if eq .Values.global.auth.type "none" }}
+            {{- if eq $.Values.global.auth.type "none" }}
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
             {{- end }}
@@ -88,4 +88,4 @@ spec:
           secret:
             secretName: flightctl-api-k8s-token
         {{- end}}
-{{ end }}
+{{- end }}
