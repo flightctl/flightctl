@@ -48,7 +48,7 @@ type Manager interface {
 	Update(ctx context.Context, provider provider.Provider) error
 	// BeforeUpdate is called prior to installing an application to ensure the
 	// application is valid and dependencies are met.
-	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
 	AfterUpdate(ctx context.Context) error
 	// Stop halts the application running on the device.

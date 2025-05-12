@@ -106,17 +106,17 @@ func (mr *MockManagerMockRecorder) AfterUpdate(ctx any) *gomock.Call {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *MockManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, desired)
+	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, current, desired)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // BeforeUpdate indicates an expected call of BeforeUpdate.
-func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
+func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, current, desired any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockManager)(nil).BeforeUpdate), ctx, desired)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockManager)(nil).BeforeUpdate), ctx, current, desired)
 }
 
 // Ensure mocks base method.

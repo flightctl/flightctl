@@ -330,7 +330,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 		}
 	}
 
-	if err := a.appManager.BeforeUpdate(ctx, desired.Spec); err != nil {
+	if err := a.appManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("applications: %w", err)
 	}
 
