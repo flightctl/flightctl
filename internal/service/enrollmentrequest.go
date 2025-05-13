@@ -158,13 +158,6 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.
 	}
 }
 
-func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context) api.Status {
-	orgId := store.NullOrgId
-
-	err := h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
-	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, nil)
-}
-
 func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
 
