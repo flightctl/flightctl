@@ -50,13 +50,6 @@ func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListR
 	}
 }
 
-func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context) api.Status {
-	orgId := store.NullOrgId
-
-	err := h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
-	return StoreErrorToApiStatus(err, false, api.ResourceSyncKind, nil)
-}
-
 func (h *ServiceHandler) GetResourceSync(ctx context.Context, name string) (*api.ResourceSync, api.Status) {
 	orgId := store.NullOrgId
 

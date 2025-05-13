@@ -25,12 +25,6 @@ func (h *TransportHandler) ListEnrollmentRequests(w http.ResponseWriter, r *http
 	SetResponse(w, body, status)
 }
 
-// (DELETE /api/v1/enrollmentrequests)
-func (h *TransportHandler) DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
-	status := h.serviceHandler.DeleteEnrollmentRequests(r.Context())
-	SetResponse(w, nil, status)
-}
-
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *TransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetEnrollmentRequest(r.Context(), name)

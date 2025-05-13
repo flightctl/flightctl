@@ -102,13 +102,6 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, params api.ListDevices
 	}
 }
 
-func (h *ServiceHandler) DeleteDevices(ctx context.Context) api.Status {
-	orgId := store.NullOrgId
-
-	err := h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
-}
-
 func (h *ServiceHandler) GetDevice(ctx context.Context, name string) (*api.Device, api.Status) {
 	orgId := store.NullOrgId
 
