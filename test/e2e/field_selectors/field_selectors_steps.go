@@ -13,11 +13,23 @@ import (
 )
 
 func filteringDevicesWithFieldSelectorAndOperator(harness *e2e.Harness, fieldSelector string, operator string, fieldValue string) (string, []string, error) {
+	return filteringResourcesWithFieldSelectorAndOperator(harness, resources.Devices, fieldSelector, operator, fieldValue)
+}
+
+func filteringFleetsWithFieldSelectorAndOperator(harness *e2e.Harness, fieldSelector string, operator string, fieldValue string) (string, []string, error) {
+	return filteringResourcesWithFieldSelectorAndOperator(harness, resources.Fleets, fieldSelector, operator, fieldValue)
+}
+
+func filteringRepositoriesWithFieldSelectorAndOperator(harness *e2e.Harness, fieldSelector string, operator string, fieldValue string) (string, []string, error) {
+	return filteringResourcesWithFieldSelectorAndOperator(harness, resources.Repositories, fieldSelector, operator, fieldValue)
+}
+
+func filteringResourcesWithFieldSelectorAndOperator(harness *e2e.Harness, resourceType string, fieldSelector string, operator string, fieldValue string) (string, []string, error) {
 	fieldSelectorOperator, err := resources.ToFieldSelectorOperator(operator)
 	if err != nil {
 		return "", nil, err
 	}
-	response, err := resources.FilterWithFieldValueCondition(harness, resources.Devices, fieldSelector, fieldSelectorOperator, fieldValue)
+	response, err := resources.FilterWithFieldValueCondition(harness, resourceType, fieldSelector, fieldSelectorOperator, fieldValue)
 	fmt.Println(response)
 
 	var supportedFields []string
@@ -41,48 +53,6 @@ func extractSupportedFields(output string) ([]string, error) {
 	}
 	fields := strings.Split(matches[1], " ")
 	return fields, nil
-}
-
-func filteringFleetsWithFieldSelectorAndOperator(harness *e2e.Harness, fieldSelector string, operator string, fieldValue string) (string, []string, error) {
-	fieldSelectorOperator, err := resources.ToFieldSelectorOperator(operator)
-	if err != nil {
-		return "", nil, err
-	}
-	response, err := resources.FilterWithFieldValueCondition(harness, resources.Fleets, fieldSelector, fieldSelectorOperator, fieldValue)
-	fmt.Println(response)
-
-	var supportedFields []string
-	if err != nil && strings.Contains(response, resources.UnknownOrUnsupportedSelectorError) {
-		supportedFields, err = extractSupportedFields(response)
-	}
-	if err != nil && strings.Contains(response, resources.FailedToResolveOperatorError) {
-		err = nil
-	}
-	if err != nil && strings.Contains(response, resources.InvalidFieldSelectorSyntax) {
-		err = nil
-	}
-	return response, supportedFields, err
-}
-
-func filteringRepositoriesWithFieldSelectorAndOperator(harness *e2e.Harness, fieldSelector string, operator string, fieldValue string) (string, []string, error) {
-	fieldSelectorOperator, err := resources.ToFieldSelectorOperator(operator)
-	if err != nil {
-		return "", nil, err
-	}
-	response, err := resources.FilterWithFieldValueCondition(harness, resources.Repositories, fieldSelector, fieldSelectorOperator, fieldValue)
-	fmt.Println(response)
-
-	var supportedFields []string
-	if err != nil && strings.Contains(response, resources.UnknownOrUnsupportedSelectorError) {
-		supportedFields, err = extractSupportedFields(response)
-	}
-	if err != nil && strings.Contains(response, resources.FailedToResolveOperatorError) {
-		err = nil
-	}
-	if err != nil && strings.Contains(response, resources.InvalidFieldSelectorSyntax) {
-		err = nil
-	}
-	return response, supportedFields, err
 }
 
 func filterDevicesWithCreationTimeDuringCurrentYear(harness *e2e.Harness, fieldName string) (string, error) {
