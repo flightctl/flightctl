@@ -66,15 +66,7 @@ func filterRepositoriesWithCreationTimeDuringCurrentYear(harness *e2e.Harness, f
 	return resources.FilterWithCreationTimeDuringCurrentYear(harness, resources.Repositories, fieldName)
 }
 
-func responseShouldContainExpectedDevices(response string, err error, count int) error {
-	return resources.SomeRowsAreListedInResponse(response, err, count)
-}
-
-func responseShouldContainExpectedFleets(response string, err error, count int) error {
-	return resources.SomeRowsAreListedInResponse(response, err, count)
-}
-
-func responseShouldContainExpectedRepositories(response string, err error, count int) error {
+func responseShouldContainExpectedResources(response string, err error, count int) error {
 	return resources.SomeRowsAreListedInResponse(response, err, count)
 }
 
@@ -120,9 +112,10 @@ func createFleetsWithNamePrefix(harness *e2e.Harness, count int, namePrefix stri
 	for i := 0; i < count; i++ {
 		fleetName := fmt.Sprintf("%s%d", namePrefix, i)
 		fleet, err := resources.CreateFleet(harness, fleetName, templateImage, &map[string]string{"fleet": fleetName})
-		if err == nil {
-			*fleets = append(*fleets, fleet)
+		if err != nil {
+			return fmt.Errorf("failed to create fleet '%s': %w", fleetName, err)
 		}
+		*fleets = append(*fleets, fleet)
 	}
 	return nil
 }
@@ -137,9 +130,10 @@ func createRepositoriesWithNamePrefix(harness *e2e.Harness, count int, namePrefi
 	for i := 0; i < count; i++ {
 		repositoryName := fmt.Sprintf("%s%d", namePrefix, i)
 		repository, err := resources.CreateRepository(harness, repositoryName, repoUrl)
-		if err == nil {
-			*repositories = append(*repositories, repository)
+		if err != nil {
+			return fmt.Errorf("failed to create repository '%s': %w", repositoryName, err)
 		}
+		*repositories = append(*repositories, repository)
 	}
 	return nil
 }

@@ -66,7 +66,7 @@ var _ = Describe("Field Selectors", func() {
 			filteringDevicesResponse, _, err := filteringDevicesWithFieldSelectorAndOperator(harness, "@invalid-selector", "Equals", "invalid-value")
 			Expect(err).ShouldNot(HaveOccurred())
 
-			Expect(responseShouldContainExpectedDevices(filteringDevicesResponse, err, 0)).To(Succeed())
+			Expect(responseShouldContainExpectedResources(filteringDevicesResponse, err, 0)).To(Succeed())
 		})
 	})
 
@@ -82,7 +82,7 @@ var _ = Describe("Field Selectors", func() {
 				filteringDevicesResponse, _, err := filteringDevicesWithFieldSelectorAndOperator(harness, "metadata.name", "Equals", value)
 				Expect(err).ShouldNot(HaveOccurred())
 
-				Expect(responseShouldContainExpectedDevices(filteringDevicesResponse, err, expectedCount)).To(Succeed())
+				Expect(responseShouldContainExpectedResources(filteringDevicesResponse, err, expectedCount)).To(Succeed())
 			},
 			Entry("should match device-1", "device-1", 1),
 			Entry("should match device-5", "device-5", 1),
@@ -112,7 +112,7 @@ var _ = Describe("Field Selectors", func() {
 				filteringDevicesResponse, _, err := filteringDevicesWithFieldSelectorAndOperator(harness, "metadata.owner", "Equals", value)
 				Expect(err).ShouldNot(HaveOccurred())
 
-				Expect(responseShouldContainExpectedDevices(filteringDevicesResponse, err, expectedCount)).To(Succeed())
+				Expect(responseShouldContainExpectedResources(filteringDevicesResponse, err, expectedCount)).To(Succeed())
 			},
 			Entry("should match Fleet/fleet-1", "Fleet/fleet-1", 5),
 			Entry("should match Fleet/fleet-2", "Fleet/fleet-2", 5),
@@ -131,7 +131,7 @@ var _ = Describe("Field Selectors", func() {
 			filteringDevicesResponse, err := filterDevicesWithCreationTimeDuringCurrentYear(harness, "metadata.creationTimestamp")
 			Expect(err).ShouldNot(HaveOccurred())
 
-			Expect(responseShouldContainExpectedDevices(filteringDevicesResponse, err, 10)).To(Succeed())
+			Expect(responseShouldContainExpectedResources(filteringDevicesResponse, err, 10)).To(Succeed())
 		})
 	})
 
@@ -147,7 +147,7 @@ var _ = Describe("Field Selectors", func() {
 				filteringFleetsResponse, _, err := filteringFleetsWithFieldSelectorAndOperator(harness, "metadata.name", "Equals", value)
 				Expect(err).ShouldNot(HaveOccurred())
 
-				Expect(responseShouldContainExpectedFleets(filteringFleetsResponse, err, expectedCount)).To(Succeed())
+				Expect(responseShouldContainExpectedResources(filteringFleetsResponse, err, expectedCount)).To(Succeed())
 			},
 			Entry("should match fleet-1", "fleet-1", 1),
 			Entry("should match fleet-5", "fleet-5", 1),
@@ -166,7 +166,7 @@ var _ = Describe("Field Selectors", func() {
 			filteringFleetsResponse, err := filterFleetsWithCreationTimeDuringCurrentYear(harness, "metadata.creationTimestamp")
 			Expect(err).ShouldNot(HaveOccurred())
 
-			Expect(responseShouldContainExpectedFleets(filteringFleetsResponse, err, 10)).To(Succeed())
+			Expect(responseShouldContainExpectedResources(filteringFleetsResponse, err, 10)).To(Succeed())
 		})
 	})
 
@@ -182,7 +182,7 @@ var _ = Describe("Field Selectors", func() {
 				filteringRepositoriesResponse, _, err := filteringRepositoriesWithFieldSelectorAndOperator(harness, "metadata.name", "Equals", value)
 				Expect(err).ShouldNot(HaveOccurred())
 
-				Expect(responseShouldContainExpectedRepositories(filteringRepositoriesResponse, err, expectedCount)).To(Succeed())
+				Expect(responseShouldContainExpectedResources(filteringRepositoriesResponse, err, expectedCount)).To(Succeed())
 			},
 			Entry("should match repository-1", "repository-1", 1),
 			Entry("should match repository-5", "repository-5", 1),
@@ -201,7 +201,7 @@ var _ = Describe("Field Selectors", func() {
 			filteringRepositoriesResponse, err := filterRepositoriesWithCreationTimeDuringCurrentYear(harness, "metadata.creationTimestamp")
 			Expect(err).ShouldNot(HaveOccurred())
 
-			Expect(responseShouldContainExpectedRepositories(filteringRepositoriesResponse, err, 10)).To(Succeed())
+			Expect(responseShouldContainExpectedResources(filteringRepositoriesResponse, err, 10)).To(Succeed())
 		})
 	})
 })

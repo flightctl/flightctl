@@ -46,7 +46,7 @@ var _ = Describe("Field Selectors Operators", func() {
 				filteringDevicesResponse, _, err := filteringDevicesWithFieldSelectorAndOperator(harness, field, operator, value)
 				Expect(err).ShouldNot(HaveOccurred())
 
-				Expect(responseShouldContainExpectedDevices(filteringDevicesResponse, err, expectedCount)).To(Succeed())
+				Expect(responseShouldContainExpectedResources(filteringDevicesResponse, err, expectedCount)).To(Succeed())
 			},
 			// Metadata name examples
 			Entry("metadata.name NotEquals device-1", "metadata.name", "NotEquals", "device-1", 9),
@@ -121,7 +121,7 @@ var _ = Describe("Field Selectors Operators", func() {
 
 				filteringFleetsResponse, _, err := filteringFleetsWithFieldSelectorAndOperator(harness, field, operator, value)
 
-				Expect(responseShouldContainExpectedFleets(filteringFleetsResponse, err, expectedCount)).To(Succeed())
+				Expect(responseShouldContainExpectedResources(filteringFleetsResponse, err, expectedCount)).To(Succeed())
 			},
 			// Fleet metadata.name examples
 			Entry("metadata.name NotEquals fleet-1", "metadata.name", "NotEquals", "fleet-1", 9),
@@ -150,7 +150,7 @@ var _ = Describe("Field Selectors Operators", func() {
 
 				filteringRepositoriesResponse, _, err := filteringRepositoriesWithFieldSelectorAndOperator(harness, field, operator, value)
 
-				Expect(responseShouldContainExpectedRepositories(filteringRepositoriesResponse, err, expectedCount)).To(Succeed())
+				Expect(responseShouldContainExpectedResources(filteringRepositoriesResponse, err, expectedCount)).To(Succeed())
 			},
 			// Repository metadata.name examples
 			Entry("metadata.name NotEquals repository-1", "metadata.name", "NotEquals", "repository-1", 9),
