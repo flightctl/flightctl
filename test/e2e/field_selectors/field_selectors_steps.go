@@ -30,7 +30,6 @@ func filteringResourcesWithFieldSelectorAndOperator(harness *e2e.Harness, resour
 		return "", nil, err
 	}
 	response, err := resources.FilterWithFieldValueCondition(harness, resourceType, fieldSelector, fieldSelectorOperator, fieldValue)
-	fmt.Println(response)
 
 	var supportedFields []string
 	if err != nil && strings.Contains(response, resources.UnknownOrUnsupportedSelectorError) {
@@ -56,21 +55,15 @@ func extractSupportedFields(output string) ([]string, error) {
 }
 
 func filterDevicesWithCreationTimeDuringCurrentYear(harness *e2e.Harness, fieldName string) (string, error) {
-	response, err := resources.FilterWithCreationTimeDuringCurrentYear(harness, resources.Devices, fieldName)
-	fmt.Println(response)
-	return response, err
+	return resources.FilterWithCreationTimeDuringCurrentYear(harness, resources.Devices, fieldName)
 }
 
 func filterFleetsWithCreationTimeDuringCurrentYear(harness *e2e.Harness, fieldName string) (string, error) {
-	response, err := resources.FilterWithCreationTimeDuringCurrentYear(harness, resources.Fleets, fieldName)
-	fmt.Println(response)
-	return response, err
+	return resources.FilterWithCreationTimeDuringCurrentYear(harness, resources.Fleets, fieldName)
 }
 
 func filterRepositoriesWithCreationTimeDuringCurrentYear(harness *e2e.Harness, fieldName string) (string, error) {
-	response, err := resources.FilterWithCreationTimeDuringCurrentYear(harness, resources.Repositories, fieldName)
-	fmt.Println(response)
-	return response, err
+	return resources.FilterWithCreationTimeDuringCurrentYear(harness, resources.Repositories, fieldName)
 }
 
 func responseShouldContainExpectedDevices(response string, err error, count int) error {
