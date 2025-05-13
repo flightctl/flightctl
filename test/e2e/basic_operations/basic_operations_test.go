@@ -52,7 +52,7 @@ var _ = Describe("Basic Operations", func() {
 
 func extractDeviceNameFromExampleFile(harness *e2e.Harness, deviceFileName string) (string, error) {
 	device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(deviceFileName))
-	if &device == nil || &device.Metadata == nil || device.Metadata.Name == nil {
+	if &device.Metadata == nil || device.Metadata.Name == nil {
 		return "", fmt.Errorf("device name should not be empty")
 	}
 	return strings.TrimSpace(*device.Metadata.Name), nil
@@ -60,7 +60,7 @@ func extractDeviceNameFromExampleFile(harness *e2e.Harness, deviceFileName strin
 
 func extractFleetNameFromExampleFile(harness *e2e.Harness, fleetFileName string) (string, error) {
 	fleet := harness.GetFleetByYaml(util.GetTestExamplesYamlPath(fleetFileName))
-	if &fleet == nil || &fleet.Metadata == nil || fleet.Metadata.Name == nil {
+	if &fleet.Metadata == nil || fleet.Metadata.Name == nil {
 		return "", fmt.Errorf("fleet name should not be empty")
 	}
 	return strings.TrimSpace(*fleet.Metadata.Name), nil
@@ -68,7 +68,7 @@ func extractFleetNameFromExampleFile(harness *e2e.Harness, fleetFileName string)
 
 func extractRepositoryNameFromExampleFile(harness *e2e.Harness, repositoryFileName string) (string, error) {
 	repository := harness.GetRepositoryByYaml(util.GetTestExamplesYamlPath(repositoryFileName))
-	if &repository == nil || &repository.Metadata == nil || repository.Metadata.Name == nil {
+	if &repository.Metadata == nil || repository.Metadata.Name == nil {
 		return "", fmt.Errorf("repository name should not be empty")
 	}
 	return strings.TrimSpace(*repository.Metadata.Name), nil

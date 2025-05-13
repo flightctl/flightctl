@@ -23,7 +23,12 @@ func CreateDevice(harness *e2e.Harness, name string, labels *map[string]string) 
 		},
 	}
 
-	return device, applyToCreateFromText(harness, marshalToString(device))
+	yamlStr, err := marshalToString(device)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal device: %w", err)
+	}
+
+	return device, applyToCreateFromText(harness, yamlStr)
 }
 
 func DeleteDevices(harness *e2e.Harness, devices []*api.Device) error {
@@ -61,7 +66,12 @@ func CreateFleet(harness *e2e.Harness, name string, templateImage string, labels
 		},
 	}
 
-	return fleet, applyToCreateFromText(harness, marshalToString(fleet))
+	yamlStr, err := marshalToString(fleet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal fleet: %w", err)
+	}
+
+	return fleet, applyToCreateFromText(harness, yamlStr)
 }
 
 func DeleteFleets(harness *e2e.Harness, fleets []*api.Fleet) error {
@@ -93,7 +103,12 @@ func CreateRepository(harness *e2e.Harness, name string, url string) (*api.Repos
 		Spec: spec,
 	}
 
-	return repository, applyToCreateFromText(harness, marshalToString(repository))
+	yamlStr, err := marshalToString(repository)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal repository: %w", err)
+	}
+
+	return repository, applyToCreateFromText(harness, yamlStr)
 }
 
 func DeleteRepositories(harness *e2e.Harness, repositories []*api.Repository) error {
@@ -106,9 +121,12 @@ func DeleteRepositories(harness *e2e.Harness, repositories []*api.Repository) er
 	return nil
 }
 
-func marshalToString(v interface{}) string {
-	data, _ := yaml.Marshal(v)
-	return string(data)
+func marshalToString(v interface{}) (string, error) {
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal object: %w", err)
+	}
+	return string(data), nil
 }
 
 func applyToCreateFromText(harness *e2e.Harness, text string) error {

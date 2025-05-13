@@ -58,6 +58,9 @@ func filteringFleetsWithFieldSelectorAndOperator(harness *e2e.Harness, fieldSele
 	if err != nil && strings.Contains(response, resources.FailedToResolveOperatorError) {
 		err = nil
 	}
+	if err != nil && strings.Contains(response, resources.InvalidFieldSelectorSyntax) {
+		err = nil
+	}
 	return response, supportedFields, err
 }
 
@@ -74,6 +77,9 @@ func filteringRepositoriesWithFieldSelectorAndOperator(harness *e2e.Harness, fie
 		supportedFields, err = extractSupportedFields(response)
 	}
 	if err != nil && strings.Contains(response, resources.FailedToResolveOperatorError) {
+		err = nil
+	}
+	if err != nil && strings.Contains(response, resources.InvalidFieldSelectorSyntax) {
 		err = nil
 	}
 	return response, supportedFields, err
@@ -122,21 +128,23 @@ func createDevicesWithNamePrefixAndFleet(harness *e2e.Harness, count int, namePr
 	for i := 0; i < count; i++ {
 		deviceName := fmt.Sprintf("%s%d", namePrefix, i)
 		device, err := resources.CreateDevice(harness, deviceName, &map[string]string{"fleet": fleetName})
-		if err == nil {
-			*devices = append(*devices, device)
+		if err != nil {
+			return fmt.Errorf("failed to create device '%s': %w", deviceName, err)
 		}
+		*devices = append(*devices, device)
 	}
 	return nil
 }
 
 func createFleet(harness *e2e.Harness, name string, templateImage string, fleets *[]*api.Fleet) error {
 	fleet, err := resources.CreateFleet(harness, name, templateImage, &map[string]string{"fleet": name})
-	if err == nil {
-		*fleets = append(*fleets, fleet)
+	if err != nil {
+		return fmt.Errorf("failed to create fleet '%s': %w", name, err)
 	}
+	*fleets = append(*fleets, fleet)
 	time.Sleep(500 * time.Millisecond) // This sleep allows async binding between fleet to devices to complete
 
-	return err
+	return nil
 }
 
 func createFleetsWithNamePrefix(harness *e2e.Harness, count int, namePrefix string, templateImage string, fleets *[]*api.Fleet) error {
