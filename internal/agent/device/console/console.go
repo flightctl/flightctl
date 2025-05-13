@@ -9,6 +9,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -22,9 +23,10 @@ const (
 )
 
 type ConsoleController struct {
-	grpcClient grpc_v1.RouterServiceClient
-	log        *log.PrefixLogger
-	deviceName string
+	grpcClient   grpc_v1.RouterServiceClient
+	log          *log.PrefixLogger
+	deviceName   string
+	subscription publisher.Subscription
 
 	activeSessions   []*session
 	inactiveSessions []*session
@@ -41,13 +43,15 @@ func NewController(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
 	executor executer.Executer,
+	subscription publisher.Subscription,
 	log *log.PrefixLogger,
 ) *ConsoleController {
 	return &ConsoleController{
-		grpcClient: grpcClient,
-		deviceName: deviceName,
-		executor:   executor,
-		log:        log,
+		grpcClient:   grpcClient,
+		deviceName:   deviceName,
+		executor:     executor,
+		subscription: subscription,
+		log:          log,
 	}
 }
 
@@ -149,7 +153,7 @@ func (c *ConsoleController) start(ctx context.Context, dc v1alpha1.DeviceConsole
 	s.run(ctx, sessionMetadata)
 }
 
-func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (c *ConsoleController) sync(ctx context.Context, desired *v1alpha1.DeviceSpec) {
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
@@ -158,8 +162,26 @@ func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.DeviceSp
 	for _, d := range desiredConsoles {
 		go c.start(ctx, d)
 	}
+}
 
-	return nil
+func (c *ConsoleController) Run(ctx context.Context, wg *sync.WaitGroup) {
+	c.log.Debug("Starting console controller")
+	defer c.log.Debug("Stopping console controller")
+	defer wg.Done()
+
+	for {
+		// The Pop() call will block until a new desired device spec is available
+		// It is the responsibility of the publisher to stop the subscription
+		// in case the controller needs to exit the loop.  When the publisher
+		// stops, the subscription will be closed and the Pop() call will return
+		// an error.
+		desired, err := c.subscription.Pop()
+		if err != nil {
+			c.log.Warnf("failed to pop console subscription: %v", err)
+			return
+		}
+		c.sync(ctx, desired.Spec)
+	}
 }
 
 func setSize(fd uintptr, size v1alpha1.TerminalSize) error {

@@ -4,39 +4,33 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"path/filepath"
-	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var _ Manager = (*manager)(nil)
 
 // Manager is responsible for managing the rendered device spec.
 type manager struct {
-	deviceName   string
 	currentPath  string
 	desiredPath  string
 	rollbackPath string
 
 	deviceReadWriter fileio.ReadWriter
-	managementClient client.Management
 	osClient         os.Client
+	devicePublisher  publisher.Subscription
+	cache            *cache
+	queue            PriorityQueue
 
-	cache *cache
-	queue PriorityQueue
-
-	log     *log.PrefixLogger
-	backoff wait.Backoff
+	log *log.PrefixLogger
 }
 
 // NewManager creates a new device spec manager.
@@ -44,12 +38,11 @@ type manager struct {
 // Note: This manager is designed for sequential operations only and is not
 // thread-safe.
 func NewManager(
-	deviceName string,
 	dataDir string,
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
 	osClient os.Client,
-	backoff wait.Backoff,
+	devicePublisher publisher.Subscription,
 	log *log.PrefixLogger,
 ) Manager {
 	queue := newPriorityQueue(
@@ -61,14 +54,13 @@ func NewManager(
 		log,
 	)
 	return &manager{
-		deviceName:       deviceName,
 		currentPath:      filepath.Join(dataDir, string(Current)+".json"),
 		desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
 		rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
-		backoff:          backoff,
 		cache:            newCache(log),
+		devicePublisher:  devicePublisher,
 		queue:            queue,
 		log:              log,
 	}
@@ -314,41 +306,41 @@ func (s *manager) OSVersion(specType Type) string {
 	return s.cache.getOSVersion(specType)
 }
 
+// consumeLatest consumes the latest device spec from the device publisher channel.
+// it will consume all available messages until the channel is empty.
+func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
+	var consumed bool
+
+	// consume all available messages from the device publisher and add them to the local queue
+	for {
+		newDesired, popped, err := s.devicePublisher.TryPop()
+		if err != nil {
+			return false, err
+		}
+		if !popped {
+			break
+		}
+		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
+		s.queue.Add(ctx, newDesired)
+		consumed = true
+	}
+	return consumed, nil
+}
+
 func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error) {
-	renderedVersion, err := s.getRenderedVersion()
+	consumed, err := s.consumeLatest(ctx)
 	if err != nil {
 		return nil, false, err
 	}
-	newDesired := &v1alpha1.Device{}
+	if !consumed {
 
-	startTime := time.Now()
-	err = wait.ExponentialBackoff(s.backoff, func() (bool, error) {
-		return s.getRenderedFromManagementAPIWithRetry(ctx, renderedVersion, newDesired)
-	})
-
-	// log slow calls
-	duration := time.Since(startTime)
-	if duration > time.Minute {
-		s.log.Debugf("Dialing management API took: %v", duration)
-	}
-
-	if err != nil {
+		// no new spec available, read the current desired spec from disk and add it to the queue
 		desired, readErr := s.Read(Desired)
 		if readErr != nil {
 			return nil, false, readErr
 		}
-		// no content means there is no new rendered version
-		if errors.Is(err, errors.ErrNoContent) || errors.IsTimeoutError(err) {
-			s.log.Debug("No new template version from management service")
-		} else {
-			s.log.Errorf("Received non-retryable error from management service: %v", err)
-			return nil, false, err
-		}
 		s.log.Debugf("Requeuing current desired spec from disk version: %s", desired.Version())
 		s.queue.Add(ctx, desired)
-	} else {
-		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
-		s.queue.Add(ctx, newDesired)
 	}
 
 	return s.getDeviceFromQueue(ctx)
@@ -374,10 +366,6 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 	}
 
 	return desired, false, nil
-}
-
-func (s *manager) SetClient(client client.Management) {
-	s.managementClient = client
 }
 
 func (s *manager) IsOSUpdate() bool {
@@ -468,40 +456,6 @@ func (s *manager) pathFromType(specType Type) (string, error) {
 		return "", fmt.Errorf("%w: %s", errors.ErrInvalidSpecType, specType)
 	}
 	return filePath, nil
-}
-
-func (m *manager) getRenderedFromManagementAPIWithRetry(
-	ctx context.Context,
-	renderedVersion string,
-	rendered *v1alpha1.Device,
-) (bool, error) {
-	params := &v1alpha1.GetRenderedDeviceParams{}
-	if renderedVersion != "" {
-		params.KnownRenderedVersion = &renderedVersion
-	}
-
-	resp, statusCode, err := m.managementClient.GetRenderedDevice(ctx, m.deviceName, params)
-	if err != nil {
-		return false, fmt.Errorf("%w: %w", errors.ErrGettingDeviceSpec, err)
-	}
-
-	switch statusCode {
-	case http.StatusOK:
-		if resp == nil {
-			// 200 OK but response is nil
-			return false, errors.ErrNilResponse
-		}
-		*rendered = *resp
-		return true, nil
-
-	case http.StatusNoContent, http.StatusConflict:
-		// instead of treating it as an error indicate that no new content is available
-		return true, errors.ErrNoContent
-
-	default:
-		// unexpected status codes
-		return false, fmt.Errorf("%w: unexpected status code %d", errors.ErrGettingDeviceSpec, statusCode)
-	}
 }
 
 func readDeviceFromFile(

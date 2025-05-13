@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -60,8 +59,6 @@ type Manager interface {
 	ClearRollback() error
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
-	// SetClient sets the management API client.
-	SetClient(client.Management)
 	// GetDesired returns the desired rendered device from the management API.
 	GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error)
 	// CheckPolicy validates the update policy is ready to process.
