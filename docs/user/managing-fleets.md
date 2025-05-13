@@ -117,3 +117,117 @@ The following fields in device templates support placeholders (including within 
 | Git Config Provider | targetRevision, path |
 | HTTP Config Provider | URL suffix, path |
 | Inline Config Provider | content, path |
+
+## Defining Rollout Policies
+
+You can define policies that govern how a change to a fleet's device template gets rolled out across devices of the fleet. This gives you control over
+
+* groups of devices to update together (e.g. "one deployment site at a time"),
+* the order in which groups are updated (e.g. "first sites in country A, then in country B"),
+* the number or ratio of devices updating at a given time (e.g. "first 1%, then 10%, then the rest"), and
+* the service availability during the rollout (e.g. "update no more than two devices per site at a time").
+
+Rollout policies in Flight Control build on label selection of devices (see [Organizing Devices](managing-devices.md#organizing-devices)) and are thus adaptable to a wide range of use cases.
+
+### Defining a Device Selection Strategy
+
+Currently, Flight Control only supports the `BatchSequence` strategy for device selection. This strategy defines a stepwise rollout process where devices are grouped into batches based on specific criteria.
+
+Batches are updated sequentially. After each batch completes, the rollout proceeds to the next batch, but only if the success ratio of the previous batch meets or exceeds the specified *success threshold*:
+
+```text
+# of successful updates in the batch
+------------------------------------  * 100% >= success threshold [%]
+     # of devices in the batch
+```
+
+In a batch sequence, the final batch is an implicit batch. It is not specified in the batch sequence. It selects all devices in a fleet that have not been selected by the explicit batches in the sequence.
+
+To roll out updates in a sequence of batches, add a rollout policy to your fleet specification that defines a device selection strategy. Select the strategy `BatchSequence` and add a list of batch definitions. A device selection strategy uses the following parameters:
+
+| Parameter | Description |
+| --------- | ----------- |
+| Strategy | The device selection strategy. Must be `BatchSequence`. |
+| Sequence | A list of explicit batch definitions that will be processed in sequence. |
+
+A batch definition takes the following parameters, of which at least one must be defined:
+
+| Parameter | Description |
+| --------- | ----------- |
+| Selector | (Optional) A label selector that selects devices to be included into the batch. Label selection works analogous to [Selecting Devices into a Fleet](managing-fleets.md#selecting-devices-into-a-fleet), but limited to the device population of all devices in the fleet. |
+| Limit | (Optional) Defines how many devices should be included in a batch at most. The limit can be specified either as an absolute number of devices or as percentage of the device population. If a selector is specified as well, that device population is the devices in the fleet that match the selector, otherwise it is all devices in the fleet. |
+
+#### Defining a Device Selection Strategy on the CLI
+
+To define a device selection strategy for the rollout, add a `rolloutPolicy` section to the fleet's specification that defines a `deviceSelection` strategy and a `successThreshold`.
+
+The following example defines a rollout policy with 5 batches (4 explicit and 1 implicit), so that updates are rolled out across the fleet as follows:
+
+1. Update 1 device from the set of devices labeled `stage: canary`.
+2. Update 10% of devices from the set of devices labeled `region: emea`.
+3. Update all remaining devices from the set of devices labeled `region: emea`.
+4. Update 10% of all devices in the fleet (might be none, if the previous batch already updated 10% of the total population of the fleet).
+5. (Implicit) Update all remaining devices in the fleet (might be none).
+
+```yaml
+apiVersion: v1alpha1
+kind: Fleet
+metadata:
+  name: default
+spec:
+  selector:
+    [...]
+  template:
+    [...]
+  rolloutPolicy:
+    deviceSelection:
+      strategy: 'BatchSequence'
+      sequence:
+        - selector:
+            matchLabels:
+              stage: canary
+          limit: 1
+        - selector:
+            matchLabels:
+              region: emea
+          limit: 1%
+        - selector:
+            matchLabels:
+              region: emea
+        - limit: 10%
+    successThreshold: 95%
+```
+
+### Defining a Disruption Budget
+
+You can define a disruption budget to limit the number of devices that may be updated in parallel, ensuring a minimal level of service availability.
+
+A disruption budget takes the following parameters:
+
+| Parameter | Description |
+| --------- | ----------- |
+| GroupBy | Defines how devices are grouped when applying the disruption budget. The grouping is done by label keys. |
+| MinAvailable | (Optional) Specifies the minimum number of devices per group that must remain available during a rollout. |
+| MaxUnavailable | (Optional) Limits the number of devices per group that can be unavailable at the same time. |
+
+#### Defining a Disruption Budget on the CLI
+
+To define a disruption budget for the rollout, add a `rolloutPolicy` section to the fleet's specification that defines a `disruptionBudget` section.
+
+The following example assumes a fleet of smart displays in retail stores that are labeled with the store they are located in (`store: some-store-location`). To ensure a minimum of 2 displays in each store remain available during a rollout, define a disruption budget that groups displays store (`groupBy: ["store"]`), each group having `minAvailable: 2`:
+
+```yaml
+apiVersion: v1alpha1
+kind: Fleet
+metadata:
+  name: smart-display-fleet
+spec:
+  selector:
+    [...]
+  template:
+    [...]
+  rolloutPolicy:
+    disruptionBudget:
+      groupBy: ["store"]
+      minAvailable: 2
+```
