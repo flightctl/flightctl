@@ -392,7 +392,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 			info.Custom = customInfo
 		}
 	} else {
-		log.Infof("No custom info keys provided, skipping custom info collection")
+		log.Debugf("No custom info keys provided, skipping custom info collection")
 	}
 
 	return info, nil
