@@ -149,7 +149,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
 		}
 	} else {
-		a.log.Info("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
+		a.log.Debug("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
 	}
 
 	// create shutdown manager
