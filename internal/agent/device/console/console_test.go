@@ -279,10 +279,13 @@ func TestConsole(t *testing.T) {
 		}, 2*time.Second, 50*time.Millisecond, "Expected error to contain 'Success'")
 	})
 
-	t.Run("echo stdin with tty, close stdin", func(t *testing.T) {
+	t.Run("echo stdin with tty", func(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
-		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil, nil, true))
+		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", &v1alpha1.TerminalSize{
+			Width:  256,
+			Height: 50,
+		}, nil, true))
 
 		mockStream(v)
 		mockCloseSend(v)
