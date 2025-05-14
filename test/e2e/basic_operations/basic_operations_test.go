@@ -25,10 +25,6 @@ var _ = Describe("Basic Operations", func() {
 		harness *e2e.Harness
 	)
 
-	AfterEach(func() {
-		Expect(harness.CleanUpAllResources()).To(Succeed())
-	})
-
 	DescribeTable("Create a resource from example file",
 		func(resourceType string, fileName string, extractResourceNameFromExampleFile func(*e2e.Harness, string) (string, error)) {
 			name, err := extractResourceNameFromExampleFile(harness, fileName)
@@ -43,10 +39,14 @@ var _ = Describe("Basic Operations", func() {
 			matched, err := regexp.MatchString(createdResource, output)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(matched).To(BeTrue(), fmt.Sprintf("Expected output to match pattern '%s'", createdResource))
+
+			response, err := resources.Delete(harness, resourceType, name)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(response).Should(BeEmpty(), fmt.Sprintf("Resource deletion response should be empty for %s", fileName))
 		},
-		Entry("Create a device from example file", "device", "device.yaml", extractDeviceNameFromExampleFile),
-		Entry("Create a fleet from example file", "fleet", "fleet.yaml", extractFleetNameFromExampleFile),
-		Entry("Create a repository from example file", "repository", "repository-flightctl.yaml", extractRepositoryNameFromExampleFile),
+		Entry("Create a device from example file", util.Device, "device.yaml", extractDeviceNameFromExampleFile),
+		Entry("Create a fleet from example file", util.Fleet, "fleet.yaml", extractFleetNameFromExampleFile),
+		Entry("Create a repository from example file", util.Repository, "repository-flightctl.yaml", extractRepositoryNameFromExampleFile),
 	)
 })
 
