@@ -495,3 +495,82 @@ services:
 		})
 	}
 }
+
+func TestValidateAlertRules(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name             string
+		rules            []ResourceAlertRule
+		samplingInterval string
+		wantErrs         []error
+	}{
+		{
+			name: "valid increasing thresholds",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeInfo, Percentage: 10, Duration: "3s"},
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 20, Duration: "4s"},
+				{Severity: ResourceAlertSeverityTypeCritical, Percentage: 30, Duration: "3s"},
+			},
+			samplingInterval: "1s",
+			wantErrs:         nil,
+		},
+		{
+			name: "info equals warning",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeInfo, Percentage: 20, Duration: "4s"},
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 20, Duration: "3s"},
+			},
+			wantErrs:         []error{ErrInfoAlertLessThanWarn},
+			samplingInterval: "1s",
+		},
+		{
+			name: "warning greater than critical",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 50, Duration: "4s"},
+				{Severity: ResourceAlertSeverityTypeCritical, Percentage: 40, Duration: "3s"},
+			},
+			wantErrs:         []error{ErrWarnAlertLessThanCritical},
+			samplingInterval: "1s",
+		},
+		{
+			name: "info greater than critical",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeInfo, Percentage: 90, Duration: "3s"},
+				{Severity: ResourceAlertSeverityTypeCritical, Percentage: 70, Duration: "4s"},
+			},
+			wantErrs:         []error{ErrInfoAlertLessThanCritical},
+			samplingInterval: "1s",
+		},
+		{
+			name: "duplicate severity and percentage",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 10, Duration: "3s"},
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 10, Duration: "3s"},
+			},
+			wantErrs:         []error{ErrDuplicateAlertSeverity},
+			samplingInterval: "1s",
+		},
+		{
+			name: "duplicate severity",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 20, Duration: "3s"},
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 10, Duration: "5s"},
+			},
+			wantErrs:         []error{ErrDuplicateAlertSeverity},
+			samplingInterval: "1s",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validateAlertRules(tt.rules, tt.samplingInterval)
+			if len(tt.wantErrs) > 0 {
+				require.Len(errs, len(tt.wantErrs), "expected %d errors but got %d", len(tt.wantErrs), len(errs))
+				for i, wantErr := range tt.wantErrs {
+					require.ErrorIs(errs[i], wantErr, "expected error at index %d to be %v, got: %v", i, wantErr, errs[i])
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
+}

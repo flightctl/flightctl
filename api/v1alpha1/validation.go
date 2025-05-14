@@ -24,7 +24,13 @@ const (
 	maxInlineLength            = 1024 * 1024
 )
 
-var ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
+var (
+	ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
+	ErrInfoAlertLessThanWarn                 = errors.New("info alert percentage must be less than warning")
+	ErrInfoAlertLessThanCritical             = errors.New("info alert percentage must be less than critical")
+	ErrWarnAlertLessThanCritical             = errors.New("warning alert percentage must be less than critical")
+	ErrDuplicateAlertSeverity                = errors.New("duplicate alertRule severity")
+)
 
 type Validator interface {
 	Validate() []error
@@ -196,42 +202,60 @@ func (r ResourceMonitor) Validate() []error {
 		allErrs = append(allErrs, err)
 	}
 
-	validateAlertRulesFn := func(alertRules []ResourceAlertRule, samplingInterval string) []error {
-		seen := make(map[string]struct{})
-		for _, rule := range alertRules {
-			// ensure uniqueness of Severity per resource type
-			if _, exists := seen[string(rule.Severity)]; exists {
-				allErrs = append(allErrs, fmt.Errorf("duplicate alertRule severity: %s", rule.Severity))
-			} else {
-				seen[string(rule.Severity)] = struct{}{}
-			}
-			allErrs = append(allErrs, rule.Validate(samplingInterval)...)
-		}
-		return allErrs
-	}
-
 	switch monitorType {
 	case "CPU":
 		spec, err := r.AsCpuResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
-		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	case "Disk":
 		spec, err := r.AsDiskResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
 		allErrs = append(allErrs, validation.ValidateString(&spec.Path, "spec.resources[].disk.path", 0, 2048, nil, "")...)
-		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	case "Memory":
 		spec, err := r.AsMemoryResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
-		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown monitor type valid types are CPU, Disk and Memory: %s", monitorType))
+	}
+
+	return allErrs
+}
+
+func validateAlertRules(alertRules []ResourceAlertRule, samplingInterval string) []error {
+	var allErrs []error
+	seen := make(map[ResourceAlertSeverityType]struct{})
+	percentages := make(map[ResourceAlertSeverityType]float32)
+
+	for _, rule := range alertRules {
+		if _, exists := seen[rule.Severity]; exists {
+			allErrs = append(allErrs, fmt.Errorf("%w: %s", ErrDuplicateAlertSeverity, rule.Severity))
+			continue
+		}
+		seen[rule.Severity] = struct{}{}
+		percentages[rule.Severity] = rule.Percentage
+		allErrs = append(allErrs, rule.Validate(samplingInterval)...)
+	}
+
+	info, hasInfo := percentages[ResourceAlertSeverityTypeInfo]
+	warning, hasWarning := percentages[ResourceAlertSeverityTypeWarning]
+	critical, hasCritical := percentages[ResourceAlertSeverityTypeCritical]
+
+	if hasInfo && hasWarning && info >= warning {
+		allErrs = append(allErrs, ErrInfoAlertLessThanWarn)
+	}
+	if hasInfo && hasCritical && info >= critical {
+		allErrs = append(allErrs, ErrInfoAlertLessThanCritical)
+	}
+	if hasWarning && hasCritical && warning >= critical {
+		allErrs = append(allErrs, ErrWarnAlertLessThanCritical)
 	}
 
 	return allErrs
