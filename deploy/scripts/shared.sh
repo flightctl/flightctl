@@ -70,6 +70,7 @@ move_shared_files() {
 
     # Copy read only files
     cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils.sh"
+    cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils_host.sh"
     cp "${source_dir}/scripts/init_host.sh" "${CONFIG_READONLY_DIR}/init_host.sh"
     cp "${source_dir}/scripts/secrets.sh" "${CONFIG_READONLY_DIR}/secrets.sh"
 }

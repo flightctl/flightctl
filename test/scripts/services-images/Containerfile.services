@@ -5,13 +5,13 @@ COPY /bin/rpm/flightctl-services-*.rpm /tmp/
 
 # Install the locally built rpm
 RUN dnf -y localinstall /tmp/flightctl-services-*.rpm && \
-    dnf clean all && \
     rm -rf /tmp/*
 
-# Enable the flightctl service to start at boot
-RUN systemctl enable flightctl.target
+# Install cloud-init
+RUN dnf -y install cloud-init && \
+    dnf -y clean all
 
+# Enable services to start at boot
+RUN systemctl enable flightctl.target cloud-init
 
-RUN dnf -y install cloud-init && sudo systemctl enable cloud-init
-
-# TODO add bootc clean thing
+RUN bootc container lint
