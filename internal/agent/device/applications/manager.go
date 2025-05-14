@@ -91,7 +91,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec
 		return nil
 	}
 	m.log.Debug("Pre-checking application dependencies")
-	defer m.log.Info("Finished pre-checking application dependencies")
+	defer m.log.Debug("Finished pre-checking application dependencies")
 
 	providers, err := provider.FromDeviceSpec(ctx, m.log, m.podmanMonitor.client, m.readWriter, desired, provider.WithEmbedded())
 	if err != nil {
