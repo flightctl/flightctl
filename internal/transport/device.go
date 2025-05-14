@@ -25,7 +25,6 @@ func (h *TransportHandler) ListDevices(w http.ResponseWriter, r *http.Request, p
 	SetResponse(w, body, status)
 }
 
-
 // (GET /api/v1/devices/{name})
 func (h *TransportHandler) GetDevice(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetDevice(r.Context(), name)

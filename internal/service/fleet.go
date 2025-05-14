@@ -85,7 +85,6 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, params api.ListFleetsPa
 	}
 }
 
-
 func (h *ServiceHandler) GetFleet(ctx context.Context, name string, params api.GetFleetParams) (*api.Fleet, api.Status) {
 	orgId := store.NullOrgId
 

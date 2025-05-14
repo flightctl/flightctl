@@ -80,7 +80,6 @@ func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListR
 	}
 }
 
-
 func (h *ServiceHandler) GetResourceSync(ctx context.Context, name string) (*api.ResourceSync, api.Status) {
 	orgId := store.NullOrgId
 
