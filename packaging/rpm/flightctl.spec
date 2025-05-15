@@ -69,6 +69,333 @@ Requires: podman
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
+%package otel-collector
+Summary: OpenTelemetry Collector for FlightCtl
+Requires:       podman
+Requires:       systemd
+Requires:       yq
+Requires(post): systemd, yq, gettext
+Requires(preun):systemd
+Requires(postun):systemd
+Requires:       selinux-policy-targeted
+
+%description otel-collector
+This package provides the OpenTelemetry Collector for FlightCtl metric collection.
+The collector runs in a Podman container managed by systemd and can be installed
+and used independently without requiring core FlightCtl services to be running.
+
+%package observability
+Summary: Complete FlightCtl observability stack
+Requires:       flightctl-otel-collector = %{version}-%{release}
+Requires:       /usr/sbin/semanage
+Requires:       /usr/sbin/restorecon
+Requires:       podman
+Requires:       systemd
+Requires(post): systemd, yq, gettext
+Requires(preun):systemd
+Requires(postun):systemd
+Requires:       selinux-policy-targeted
+
+%description observability
+This package provides the complete FlightCtl Observability Stack, including
+Prometheus for metric storage, Grafana for visualization, and
+OpenTelemetry Collector for metric collection. All components run in Podman containers
+managed by systemd and can be installed independently without requiring core FlightCtl
+services to be running. This package automatically includes the flightctl-otel-collector package.
+
+
+%files otel-collector
+# OpenTelemetry Collector specific files
+/etc/otelcol/otelcol-config.yaml
+/opt/flightctl-observability/templates/flightctl-otel-collector.container.template
+
+# Shared rendering infrastructure for otel-collector
+/etc/flightctl/scripts/render-templates.sh
+/etc/flightctl/definitions/otel-collector.defs
+
+# Configuration management script - needed for standalone otel-collector deployment  
+/usr/local/bin/flightctl-render-observability
+
+# Observability network quadlet
+/etc/containers/systemd/flightctl-observability.network
+
+# Systemd target for service grouping
+/usr/lib/systemd/system/flightctl-otel-collector.target
+
+# Systemd target for service grouping
+/usr/lib/systemd/system/flightctl-otel-collector.target
+
+# Directories owned by the otel-collector RPM
+%dir /etc/otelcol
+%dir /var/lib/otelcol
+%dir /opt/flightctl-observability/templates
+%dir /etc/flightctl
+%dir /etc/flightctl/scripts
+%dir /etc/flightctl/definitions
+
+# Ghost file for generated container file
+%ghost /etc/containers/systemd/flightctl-otel-collector.container
+
+%files observability
+# Static configuration files (Prometheus and Grafana only)
+/etc/prometheus/prometheus.yml
+
+/etc/flightctl/scripts/render-templates.sh
+/etc/flightctl/definitions/observability.defs
+
+# Template source files (Prometheus, Grafana, and UserInfo Proxy)
+/opt/flightctl-observability/templates/grafana.ini.template
+/opt/flightctl-observability/templates/flightctl-grafana.container.template
+/opt/flightctl-observability/templates/flightctl-prometheus.container.template
+/opt/flightctl-observability/templates/flightctl-userinfo-proxy.container.template
+
+/etc/grafana/provisioning/datasources/prometheus.yaml
+
+/etc/grafana/provisioning/dashboards/flightctl.yaml
+
+# The files that will be generated in %post must be listed as %ghost files.
+%ghost /etc/grafana/grafana.ini
+%ghost /etc/containers/systemd/flightctl-grafana.container
+%ghost /etc/containers/systemd/flightctl-prometheus.container
+%ghost /etc/containers/systemd/flightctl-userinfo-proxy.container
+
+# Configuration management script
+/usr/local/bin/flightctl-render-observability
+
+# Systemd target for full observability stack
+/usr/lib/systemd/system/flightctl-observability.target
+
+# Directories owned by the observability RPM (Prometheus and Grafana only)
+%dir /etc/prometheus
+%dir /etc/grafana
+%dir /etc/grafana/provisioning
+%dir /etc/grafana/provisioning/datasources
+%dir /etc/grafana/provisioning/dashboards
+%dir /etc/grafana/provisioning/dashboards/flightctl
+%dir /etc/grafana/certs
+%dir /var/lib/prometheus
+%dir /var/lib/grafana
+%dir /etc/flightctl
+%dir /etc/flightctl/scripts
+%dir /etc/flightctl/definitions
+
+
+%pre otel-collector
+# This script runs BEFORE the files are installed onto the system.
+echo "Preparing to install FlightCtl OpenTelemetry Collector..."
+echo "Note: OpenTelemetry collector can be installed independently of other FlightCtl services."
+
+
+%post otel-collector
+# This script runs AFTER the files have been installed onto the system.
+echo "Running post-install actions for FlightCtl OpenTelemetry Collector..."
+
+# Create necessary directories on the host if they don't already exist.
+/usr/bin/mkdir -p /etc/otelcol /var/lib/otelcol
+/usr/bin/mkdir -p /opt/flightctl-observability/templates
+/usr/bin/mkdir -p /etc/flightctl /etc/flightctl/scripts /etc/flightctl/definitions
+
+# Apply persistent SELinux contexts for volumes and configuration files.
+/usr/sbin/semanage fcontext -a -t container_file_t "/etc/otelcol/otelcol-config.yaml" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/var/lib/otelcol(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/usr/local/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/usr/local/bin/" >/dev/null 2>&1 || :
+
+# Restore file contexts based on the new rules (and default rules)
+/usr/sbin/restorecon -RvF /etc/otelcol >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /var/lib/otelcol >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/local/bin/flightctl-render-observability >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/local/bin/ >/dev/null 2>&1 || :
+
+# Enable specific SELinux boolean if needed
+/usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
+
+# Generate OpenTelemetry collector container file from template
+echo "Generating OpenTelemetry collector container configuration..."
+CONFIG_FILE="/etc/flightctl/service-config.yaml"
+TEMPLATES_DIR="/opt/flightctl-observability/templates"
+DEFINITIONS_FILE="/etc/flightctl/definitions/otel-collector.defs"
+
+# Source shared logic and call rendering with otel-collector specific definitions
+if [ -f "/etc/flightctl/scripts/render-templates.sh" ]; then
+    source /etc/flightctl/scripts/render-templates.sh
+    render_templates "$CONFIG_FILE" "$TEMPLATES_DIR" "$DEFINITIONS_FILE" || { echo "ERROR: OpenTelemetry collector config generation failed!"; exit 1; }
+else
+    echo "ERROR: render-templates.sh not found!"
+    exit 1
+fi
+
+# Final service management
+echo "Reloading systemd daemon..."
+/usr/bin/systemctl daemon-reload
+
+echo "FlightCtl OpenTelemetry Collector installed. Service is configured but not started."
+echo "To render config: sudo flightctl-render-observability"
+echo "To start services: sudo systemctl start flightctl-otel-collector.target"
+echo "For automatic startup: sudo systemctl enable flightctl-otel-collector.target"
+
+
+%preun otel-collector
+echo "Running pre-uninstall actions for FlightCtl OpenTelemetry Collector..."
+# Stop and disable the target and services
+/usr/bin/systemctl stop flightctl-otel-collector.target >/dev/null 2>&1 || :
+/usr/bin/systemctl disable flightctl-otel-collector.target >/dev/null 2>&1 || :
+/usr/bin/systemctl stop flightctl-otel-collector.service >/dev/null 2>&1 || :
+/usr/bin/systemctl disable flightctl-otel-collector.service >/dev/null 2>&1 || :
+/usr/bin/systemctl stop flightctl-observability-network.service >/dev/null 2>&1 || :
+
+
+%postun otel-collector
+echo "Running post-uninstall actions for FlightCtl OpenTelemetry Collector..."
+# Clean up Podman container
+/usr/bin/podman rm -f flightctl-otel-collector >/dev/null 2>&1 || :
+
+# Remove SELinux fcontext rules added by this package
+/usr/sbin/semanage fcontext -d -t container_file_t "/etc/otelcol/otelcol-config.yaml" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/otelcol(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/usr/local/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/usr/local/bin/" >/dev/null 2>&1 || :
+
+# Restore default SELinux contexts for affected directories
+/usr/sbin/restorecon -RvF /etc/otelcol >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /var/lib/otelcol >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/local/bin/flightctl-render-observability >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/local/bin/ >/dev/null 2>&1 || :
+
+/usr/bin/systemctl daemon-reload
+echo "FlightCtl OpenTelemetry Collector uninstalled."
+
+
+%pre observability
+# This script runs BEFORE the files are installed onto the system.
+echo "Preparing to install FlightCtl Observability Stack..."
+echo "Note: Observability stack can be installed independently of other FlightCtl services."
+
+
+%post observability
+# This script runs AFTER the files have been installed onto the system.
+echo "Running post-install actions for Flightctl Observability Stack..."
+
+# Create necessary directories on the host if they don't already exist.
+/usr/bin/mkdir -p /etc/prometheus /var/lib/prometheus
+/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /var/lib/grafana 
+/usr/bin/mkdir -p /etc/grafana/provisioning/dashboards /etc/grafana/provisioning/dashboards/flightctl
+/usr/bin/mkdir -p /etc/grafana/certs
+/usr/bin/mkdir -p /etc/flightctl /opt/flightctl-observability/templates
+/usr/bin/mkdir -p /usr/local/bin /usr/lib/systemd/system
+/usr/bin/mkdir -p /etc/flightctl/scripts
+/usr/bin/mkdir -p /etc/flightctl/definitions
+
+chown 65534:65534 /var/lib/prometheus
+chown 472:472 /var/lib/grafana
+
+# Apply persistent SELinux contexts for volumes and configuration files.
+/usr/sbin/semanage fcontext -a -t container_file_t "/etc/prometheus/prometheus.yml" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
+
+/usr/sbin/semanage fcontext -a -t container_file_t "/etc/grafana(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/var/lib/grafana(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/etc/grafana/certs(/.*)?" >/dev/null 2>&1 || :
+
+/usr/sbin/semanage fcontext -a -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/usr/local/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/usr/local/bin/" >/dev/null 2>&1 || :
+
+# Restore file contexts based on the new rules (and default rules)
+/usr/sbin/restorecon -RvF /etc/prometheus >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /etc/grafana >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /etc/grafana/certs >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/local/bin/flightctl-render-observability >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/local/bin/ >/dev/null 2>&1 || :
+
+# Enable specific SELinux boolean if needed
+/usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
+
+
+# --- Process Configuration Templates (Initial Generation) ---
+# Call the basic config reloader script once during installation to generate initial config files.
+# Note: We use the basic reloader here because FlightCtl services aren't running yet during installation.
+echo "Generating initial configuration files..."
+CONFIG_FILE="/etc/flightctl/service-config.yaml"
+TEMPLATES_DIR="/opt/flightctl-observability/templates"
+DEFINITIONS_FILE="/etc/flightctl/definitions/observability.defs"
+
+# Source shared logic and call rendering without restarting services
+if [ -f "/etc/flightctl/scripts/render-templates.sh" ]; then
+    source /etc/flightctl/scripts/render-templates.sh
+    render_templates "$CONFIG_FILE" "$TEMPLATES_DIR" "$DEFINITIONS_FILE" || { echo "ERROR: Initial config generation failed!"; exit 1; }
+else
+    echo "ERROR: render-templates.sh not found!"
+    exit 1
+fi
+
+
+# --- Final service management ---
+echo "Reloading systemd daemon..."
+/usr/bin/systemctl daemon-reload
+
+echo "Flightctl Observability Stack services installed. Services are configured but not started."
+echo "To render config: sudo flightctl-render-observability"
+echo "To start services: sudo systemctl start flightctl-observability.target"
+echo "For automatic startup: sudo systemctl enable flightctl-observability.target"
+
+
+
+
+%preun observability
+echo "Running pre-uninstall actions for Flightctl Observability Stack..."
+# Stop and disable the target and all services
+/usr/bin/systemctl stop flightctl-observability.target >/dev/null 2>&1 || :
+/usr/bin/systemctl disable flightctl-observability.target >/dev/null 2>&1 || :
+/usr/bin/systemctl stop flightctl-grafana.service >/dev/null 2>&1 || :
+/usr/bin/systemctl disable flightctl-grafana.service >/dev/null 2>&1 || :
+/usr/bin/systemctl stop flightctl-userinfo-proxy.service >/dev/null 2>&1 || :
+/usr/bin/systemctl disable flightctl-userinfo-proxy.service >/dev/null 2>&1 || :
+/usr/bin/systemctl stop flightctl-prometheus.service >/dev/null 2>&1 || :
+/usr/bin/systemctl disable flightctl-prometheus.service >/dev/null 2>&1 || :
+
+
+%postun observability
+echo "Running post-uninstall actions for Flightctl Observability Stack..."
+# Clean up Podman containers associated with the services
+/usr/bin/podman rm -f flightctl-grafana >/dev/null 2>&1 || :
+/usr/bin/podman rm -f flightctl-userinfo-proxy >/dev/null 2>&1 || :
+/usr/bin/podman rm -f flightctl-prometheus >/dev/null 2>&1 || :
+
+# Remove SELinux fcontext rules added by this package
+/usr/sbin/semanage fcontext -d -t container_file_t "/etc/grafana(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/grafana(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/etc/grafana/certs(/.*)?" >/dev/null 2>&1 || :
+
+/usr/sbin/semanage fcontext -d -t container_file_t "/etc/prometheus/prometheus.yml" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
+
+/usr/sbin/semanage fcontext -d -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/usr/local/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/usr/local/bin/" >/dev/null 2>&1 || :
+
+
+# Restore default SELinux contexts for affected directories
+/usr/sbin/restorecon -RvF /etc/grafana >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /etc/grafana/certs >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /etc/prometheus >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/local/bin/flightctl-render-observability >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/local/bin/ >/dev/null 2>&1 || :
+
+
+/usr/bin/systemctl daemon-reload
+echo "Flightctl Observability Stack uninstalled."
+
 %prep
 %goprep -A
 %setup -q %{forgesetupargs}
@@ -144,6 +471,55 @@ The flightctl-services package provides installation and setup of files for runn
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
     cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
+
+    # install observability
+     # Create target directories within the build root (where files are staged for RPM)
+     mkdir -p %{buildroot}/etc/flightctl/scripts
+     mkdir -p %{buildroot}/etc/flightctl/definitions
+     mkdir -p %{buildroot}/etc/containers/systemd
+     mkdir -p %{buildroot}/etc/prometheus
+     mkdir -p %{buildroot}/etc/otelcol
+     mkdir -p %{buildroot}/etc/grafana/provisioning/datasources
+     mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl
+     mkdir -p %{buildroot}/etc/grafana/certs
+     mkdir -p %{buildroot}/var/lib/prometheus
+     mkdir -p %{buildroot}/var/lib/grafana # For Grafana's data
+     mkdir -p %{buildroot}/var/lib/otelcol
+     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %post
+     mkdir -p %{buildroot}/usr/local/bin # For the reloader script
+     mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
+     
+     # Copy static configuration files (those not templated)
+     install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/
+     install -m 0644 packaging/observability/otelcol-config.yaml %{buildroot}/etc/otelcol/
+     
+
+     
+     # Copy template source files to a temporary staging area for processing in %post
+     install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/
+     install -m 0644 packaging/observability/flightctl-grafana.container.template %{buildroot}/opt/flightctl-observability/templates/
+     install -m 0644 packaging/observability/flightctl-prometheus.container.template %{buildroot}/opt/flightctl-observability/templates/
+     install -m 0644 packaging/observability/flightctl-otel-collector.container.template %{buildroot}/opt/flightctl-observability/templates/
+     install -m 0644 packaging/observability/flightctl-userinfo-proxy.container.template %{buildroot}/opt/flightctl-observability/templates/
+     
+     # Copy non-templated Grafana datasource provisioning file
+     install -m 0644 packaging/observability/grafana-datasources.yaml %{buildroot}/etc/grafana/provisioning/datasources/prometheus.yaml
+
+     install -m 0644 packaging/observability/grafana-dashboards.yaml %{buildroot}/etc/grafana/provisioning/dashboards/flightctl.yaml
+     
+     # Copy the reloader script and its systemd units
+     install -m 0755 packaging/observability/render-templates.sh %{buildroot}/etc/flightctl/scripts
+     
+     install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/local/bin/
+     install -m 0644 packaging/observability/observability.defs %{buildroot}/etc/flightctl/definitions/
+     install -m 0644 packaging/observability/otel-collector.defs %{buildroot}/etc/flightctl/definitions/
+     
+     # Copy the observability network quadlet
+     install -m 0644 packaging/observability/flightctl-observability.network %{buildroot}/etc/containers/systemd/
+     
+     # Install systemd targets for service grouping
+     install -m 0644 packaging/observability/flightctl-otel-collector.target %{buildroot}/usr/lib/systemd/system/
+     install -m 0644 packaging/observability/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
@@ -246,7 +622,8 @@ rm -rf /usr/share/sosreport
     /usr/lib/systemd/system/flightctl.target
 
 %changelog
-
+* Sun Jul 6 2025 Ori Amizur <oamizur@redhat.com> - 0.9.0-1
+- Add support for Flight Control standalone observability stack
 * Tue Apr 15 2025 Dakota Crowder <dcrowder@redhat.com> - 0.6.0-4
 - Add ability to create an AAP Oauth Application within flightctl-services sub-package
 * Fri Apr 11 2025 Dakota Crowder <dcrowder@redhat.com> - 0.6.0-3
