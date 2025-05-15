@@ -63,9 +63,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		}
 	}
 	if r.Config != nil {
-		for _, config := range *r.Config {
-			allErrs = append(allErrs, config.Validate(fleetTemplate)...)
-		}
+		allErrs = append(allErrs, validateConfigs(*r.Config, fleetTemplate)...)
 	}
 	if r.Applications != nil {
 		allErrs = append(allErrs, validateApplications(*r.Applications, fleetTemplate)...)
@@ -83,50 +81,65 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	return allErrs
 }
 
-func (c ConfigProviderSpec) Validate(fleetTemplate bool) []error {
+func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
+	seenPath := make(map[string]struct{}, len(configs))
+	for i, config := range configs {
+		t, err := config.Type()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			return allErrs
+		}
 
-	// validate the config provider type
-	t, err := c.Type()
-	if err != nil {
-		allErrs = append(allErrs, err)
-		return allErrs
+		switch t {
+		case GitConfigProviderType:
+			provider, err := config.AsGitConfigProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
+		case HttpConfigProviderType:
+			provider, err := config.AsHttpConfigProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+			path := provider.HttpRef.FilePath
+			if _, exists := seenPath[path]; exists {
+				allErrs = append(allErrs, fmt.Errorf("spec.config[%d].httpRef, device path must be unique for all config providers: %s", i, path))
+			} else {
+				seenPath[path] = struct{}{}
+			}
+			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
+		case InlineConfigProviderType:
+			provider, err := config.AsInlineConfigProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+
+			for j, inline := range provider.Inline {
+				path := inline.Path
+				if _, exists := seenPath[path]; exists {
+					allErrs = append(allErrs, fmt.Errorf("spec.config[%d].inline[%d], device path must be unique for all config providers: %s", i, j, path))
+				} else {
+					seenPath[path] = struct{}{}
+				}
+			}
+			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
+		case KubernetesSecretProviderType:
+			provider, err := config.AsKubernetesSecretProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
+		default:
+			// if we hit this case, it means that the type should be added to the switch statement above
+			allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
+		}
 	}
-
-	switch t {
-	case GitConfigProviderType:
-		provider, err := c.AsGitConfigProviderSpec()
-		if err != nil {
-			allErrs = append(allErrs, err)
-			break
-		}
-		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
-	case HttpConfigProviderType:
-		provider, err := c.AsHttpConfigProviderSpec()
-		if err != nil {
-			allErrs = append(allErrs, err)
-			break
-		}
-		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
-	case InlineConfigProviderType:
-		provider, err := c.AsInlineConfigProviderSpec()
-		if err != nil {
-			allErrs = append(allErrs, err)
-			break
-		}
-		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
-	case KubernetesSecretProviderType:
-		provider, err := c.AsKubernetesSecretProviderSpec()
-		if err != nil {
-			allErrs = append(allErrs, err)
-			break
-		}
-		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
-	default:
-		// if we hit this case, it means that the type should be added to the switch statement above
-		allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
-	}
-
 	return allErrs
 }
 
