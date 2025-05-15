@@ -208,8 +208,13 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	m.enrollmentClient = nil
 	m.enrollmentCSR = nil
 
+	// mask flightctl-agent service to prevent restarting
+	if err := m.systemdClient.Mask(ctx, "flightctl-agent.service"); err != nil {
+		errs = append(errs, fmt.Errorf("failed to mask flightctl-agent.service: %w", err))
+	}
+
 	// TODO: incorporate before-reboot hooks
-	if err = m.systemdClient.Reboot(ctx); err != nil {
+	if err := m.systemdClient.Reboot(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("failed to initiate system reboot: %w", err))
 	}
 	if len(errs) > 0 {
