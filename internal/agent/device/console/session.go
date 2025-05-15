@@ -85,7 +85,7 @@ func (s *session) startProcess(metadata *api.DeviceConsoleSessionMetadata, cmd *
 	}
 }
 
-func (s *session) initialize(ctx context.Context, metadata *api.DeviceConsoleSessionMetadata) (*incomingStreams, *outgoingStreams, error) {
+func (s *session) initialize(ctx context.Context, cancel context.CancelFunc, metadata *api.DeviceConsoleSessionMetadata) (*incomingStreams, *outgoingStreams, error) {
 	cmd := s.buildBashCommand(ctx, metadata)
 	stdin, stdout, stderr, resizeFd, err := s.startProcess(metadata, cmd)
 	if err != nil {
@@ -98,7 +98,7 @@ func (s *session) initialize(ctx context.Context, metadata *api.DeviceConsoleSes
 	if stderr != nil {
 		closers[StderrID] = stderr
 	}
-	iStreams := newIncomingStreams(s.streamClient, stdin, resizeFd, closers, s.log)
+	iStreams := newIncomingStreams(s.streamClient, stdin, resizeFd, closers, cancel, s.log)
 	oStreams := newOutgoingStreams(s.streamClient, cmd, stdout, stderr, s.log)
 	return iStreams, oStreams, nil
 }
@@ -111,7 +111,7 @@ func (s *session) run(ctx context.Context, metadata *api.DeviceConsoleSessionMet
 	s.log.Debugf("session %s started", s.id)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	iStreams, oStreams, err := s.initialize(ctx, metadata)
+	iStreams, oStreams, err := s.initialize(ctx, cancel, metadata)
 	if err != nil {
 		s.log.WithError(err).Error("initializing console session")
 		return
