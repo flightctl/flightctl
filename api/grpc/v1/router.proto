@@ -10,6 +10,8 @@ service RouterService {
   // in the call context we expect:
   // - the stream ID
   rpc Stream(stream StreamRequest) returns (stream StreamResponse);
+  // GetSessions returns the list of currently active sessions for the device
+  rpc GetSessions(GetSessionsRequest) returns (GetSessionsResponse);
 }
 
 message StreamRequest {
@@ -20,4 +22,19 @@ message StreamRequest {
 message StreamResponse {
   bytes payload = 1;
   bool closed = 2;
+}
+
+message GetSessionsRequest {}
+
+message GetSessionsResponse {
+  // List of sessions for the device
+  repeated Session sessions = 1;
+}
+
+message Session {
+  // Session ID for the console connection.
+  string id = 1;
+  // Additional session metadata in the form of key=value pairs, can be used to
+  // initialize the type of terminal, console to be used, etc.
+  string metadata = 2;
 }
