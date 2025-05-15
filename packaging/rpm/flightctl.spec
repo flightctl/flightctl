@@ -18,7 +18,7 @@
     restorecon -Rv %{_datadir}/flightctl
 %define services_remove_labels() \
     semanage fcontext -d "%{_datadir}/flightctl(/.*)?" >/dev/null 2>&1 || true; \
-    restorecon -Rvf "%{_datadir}/flightctl(/.*)?" >/dev/null 2>&1 || true
+    restorecon -Rvf %{_datadir}/flightctl >/dev/null 2>&1 || true
 
 Name:           flightctl
 Version:        0.6.0
@@ -75,7 +75,6 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 Summary: Flight Control services
 Requires: bash
 Requires: podman
-Requires: policycoreutils-python-utils
 # For restorecon
 Requires: policycoreutils
 # For semanage

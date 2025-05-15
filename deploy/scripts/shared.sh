@@ -69,6 +69,10 @@ move_shared_files() {
     cp "${source_dir}/podman/service-config.yaml" "${CONFIG_WRITEABLE_DIR}/service-config.yaml"
 
     # Copy read only files
+    #
+    # Due to selinux tag constraints and the fact init_utils is shared between scripts run on
+    # the host and in containers, we need to copy it twice so each can be tagged with
+    # the correct labels on rpm install
     cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils.sh"
     cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils_host.sh"
     cp "${source_dir}/scripts/init_host.sh" "${CONFIG_READONLY_DIR}/init_host.sh"

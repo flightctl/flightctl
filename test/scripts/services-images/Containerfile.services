@@ -1,9 +1,7 @@
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-# Copy locally built services rpm
+# Copy  and install the locally built services rpm
 COPY /bin/rpm/flightctl-services-*.rpm /tmp/
-
-# Install the locally built rpm
 RUN dnf -y localinstall /tmp/flightctl-services-*.rpm && \
     rm -rf /tmp/*
 

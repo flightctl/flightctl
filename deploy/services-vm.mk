@@ -1,7 +1,7 @@
 SERVICES_VM_NAME ?= flightctl-services-default
 SERVICES_VM_RAM ?= 2048
 SERVICES_VM_CPUS ?= 2
-VSERVICES_VM_DISK = /var/lib/libvirt/images/$(SERVICES_VM_NAME).qcow2
+SERVICES_VM_DISK = /var/lib/libvirt/images/$(SERVICES_VM_NAME).qcow2
 SERVICES_VM_WAIT ?= 0
 
 # Can set the image tag to a specific version by using the PACKIT_CURRENT_VERSION variable
@@ -15,7 +15,7 @@ services-container: rpm
 run-services-container: services-container
 	sudo podman run -d --privileged --replace \
 	--name flightctl-services \
-	-p 8080:443 \
+	-p 443:443 \
 	-p 3443:3443 \
 	-p 8090:8090 \
 	localhost/flightctl-services:latest
@@ -35,21 +35,21 @@ bin/services-output/qcow2/disk.qcow2: services-container
 		localhost/flightctl-services:latest
 
 services-vm: bin/services-output/qcow2/disk.qcow2 bin/services-output/init-data.iso
-	@echo "Booting Services VM from $(VSERVICES_VM_DISK)"
-	sudo cp bin/services-output/qcow2/disk.qcow2 $(VSERVICES_VM_DISK)
-	sudo chown libvirt:libvirt $(VSERVICES_VM_DISK) 2>/dev/null || true
+	@echo "Booting Services VM from $(SERVICES_VM_DISK)"
+	sudo cp bin/services-output/qcow2/disk.qcow2 $(SERVICES_VM_DISK)
+	sudo chown libvirt:libvirt $(SERVICES_VM_DISK) 2>/dev/null || true
 	sudo virt-install \
 		--name $(SERVICES_VM_NAME) \
 		--memory $(SERVICES_VM_RAM) \
 		--vcpus $(SERVICES_VM_CPUS) \
 		--import \
-		--disk path=$(VSERVICES_VM_DISK),format=qcow2,bus=virtio \
+		--disk path=$(SERVICES_VM_DISK),format=qcow2,bus=virtio \
 		--disk path=bin/services-output/init-data.iso,device=cdrom \
 		--os-variant centos-stream9 \
 		--graphics none \
 		--console pty,target_type=serial \
 		--wait $(SERVICES_VM_WAIT) \
-		--transient || true
+		--transient
 
 bin/services-output/init-data.iso:
 	@echo "Creating cloud-init ISO for Services VM"
@@ -61,7 +61,7 @@ bin/services-output/init-data.iso:
 
 clean-services-vm:
 	sudo virsh destroy $(SERVICES_VM_NAME) || true
-	sudo rm -f $(VSERVICES_VM_DISK)
+	sudo rm -f $(SERVICES_VM_DISK)
 	rm -f bin/services-output/init-data.iso
 
-.PHONY: services-container run-services-container clean-services-container services-vm clean-services-vm services-vm-console
+.PHONY: services-container run-services-container clean-services-container services-vm clean-services-vm
