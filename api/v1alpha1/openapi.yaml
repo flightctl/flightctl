@@ -3756,8 +3756,36 @@ components:
           description: A list of application content.
           items:
             $ref: "#/components/schemas/ApplicationContent"
+        volumes:
+          type: array
+          description: List of volume providers.
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/ImageVolumeProviderSpec"
       required:
         - inline
+    ImageVolumeProviderSpec:
+      type: object
+      properties:
+        image:
+          $ref: '#/components/schemas/ImageVolumeSource'
+        name:
+          type: string
+          description: The name of the volume which will be populated by the contents of the image.
+      required:
+        - image
+        - name
+    ImageVolumeSource:
+      type: object
+      description: Describes the source of an OCI-compliant image or artifact.
+      properties:
+        reference:
+          type: string
+          description: Reference to an OCI-compliant image or artifact in a registry. This may be a container image or another type of OCI artifact, as long as it conforms to the OCI image specification.
+        pullPolicy:
+          $ref: '#/components/schemas/ImagePullPolicy'
+      required:
+        - reference
     ApplicationContent:
         allOf:
           - $ref: '#/components/schemas/FileContent'
@@ -3996,6 +4024,18 @@ components:
         - Single value (e.g., `8` matches the 8th minute).
 
         Example: `* 0-8,16-23 * * *`.'
+    ImagePullPolicy:
+      type: string
+      description: Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
+      enum:
+        - Always
+        - IfNotPresent
+        - Never
+      x-enum-varnames:
+        - "PullAlways"
+        - "PullIfNotPresent"
+        - "PullNever"
+      default: IfNotPresent
     DeviceList:
       type: object
       properties:
