@@ -111,6 +111,7 @@ api:
     pullPolicy: ""
     tag: ""
   baseUIUrl: "" # ui.flightctl.example.com
+  cloudEventsEnabled: false
 cliArtifacts:
   enabled: true
   image:

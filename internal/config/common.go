@@ -20,6 +20,8 @@ type EnrollmentService struct {
 
 type ManagementService struct {
 	client.Config
+
+	CloudEventsEnabled bool `json:"cloudevents-enabled,omitempty"`
 }
 
 func NewServiceConfig() ServiceConfig {
