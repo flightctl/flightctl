@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -76,7 +77,6 @@ func TestSync(t *testing.T) {
 			) {
 				nonRetryableHookError := errors.New("hook error")
 				gomock.InOrder(
-					mockManagementClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(desired, 200, nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					mockAppManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
 					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, desired.Spec).Return(nil),
@@ -106,7 +106,6 @@ func TestSync(t *testing.T) {
 					//
 					// resync steady state current 0 desired 0
 					//
-					mockManagementClient.EXPECT().GetRenderedDevice(ctx, deviceName, gomock.Any()).Return(desired, 200, nil),
 					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec).Return(nil),
 					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, current.Spec).Return(nil),
 					mockHookManager.EXPECT().Sync(current.Spec, current.Spec).Return(nil),
@@ -162,23 +161,23 @@ func TestSync(t *testing.T) {
 
 			podmanClient := client.NewPodman(log, mockExec, readWriter, backoff)
 			policyManager := policy.NewManager(log)
-			consoleController := console.NewController(mockRouterService, deviceName, mockExec, log)
+			consoleController := console.NewController(mockRouterService, deviceName, mockExec, publisher.NewSubscription(), log)
 			appController := applications.NewController(podmanClient, mockAppManager, readWriter, log)
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
 			configController := config.NewController(readWriter, log)
 			resourceController := resource.NewController(log, mockResourceManager)
+			devicePublisher := publisher.NewSubscription()
+			require.NoError(devicePublisher.Push(tc.desired))
 			specManager := spec.NewManager(
-				deviceName,
 				dataDir,
 				policyManager,
 				readWriter,
 				mockOSClient,
-				backoff,
+				devicePublisher,
 				log,
 			)
 
-			specManager.SetClient(mockManagementClient)
 			err := specManager.Initialize(ctx)
 			require.NoError(err)
 
@@ -290,24 +289,19 @@ func TestRollbackDevice(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 			dataDir := filepath.Join(tmpDir, "data")
 
-			backoff := wait.Backoff{
-				Steps: 1,
-			}
-
 			policyManager := policy.NewManager(log)
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
+			devicePublisher := publisher.NewSubscription()
 			specManager := spec.NewManager(
-				deviceName,
 				dataDir,
 				policyManager,
 				readWriter,
 				mockOSClient,
-				backoff,
+				devicePublisher,
 				log,
 			)
 
-			specManager.SetClient(mockManagementClient)
 			err := specManager.Initialize(ctx)
 			require.NoError(err)
 			currentBytes, err := json.Marshal(tc.current)

@@ -35,7 +35,7 @@ func (m *manager) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error 
 	defer m.log.Debug("Finished syncing policy")
 
 	if desired.UpdatePolicy == nil {
-		m.log.Debugf("no update policy defined")
+		m.log.Debugf("No update policy defined")
 		m.update = nil
 		m.download = nil
 		return nil

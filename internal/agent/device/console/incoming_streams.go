@@ -1,6 +1,7 @@
 package console
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,13 +20,19 @@ type incomingStream interface {
 type incomingStreams struct {
 	streamClient grpc_v1.RouterService_StreamClient
 	streams      map[byte]incomingStream
+	cancel       context.CancelFunc
 	log          *log.PrefixLogger
 }
 
-func newIncomingStreams(streamClient grpc_v1.RouterService_StreamClient, stdin io.WriteCloser, resizeFd uintptr, closers map[byte]io.Closer, log *log.PrefixLogger) *incomingStreams {
+func newIncomingStreams(streamClient grpc_v1.RouterService_StreamClient,
+	stdin io.WriteCloser, resizeFd uintptr,
+	closers map[byte]io.Closer,
+	cancel context.CancelFunc,
+	log *log.PrefixLogger) *incomingStreams {
 	ret := &incomingStreams{
 		streamClient: streamClient,
 		streams:      make(map[byte]incomingStream),
+		cancel:       cancel,
 		log:          log,
 	}
 	ret.streams[StdinID] = newStdinStream(stdin, log)
@@ -38,6 +45,7 @@ func newIncomingStreams(streamClient grpc_v1.RouterService_StreamClient, stdin i
 
 func (i *incomingStreams) run(wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer i.cancel()
 	defer func() {
 		for _, s := range i.streams {
 			s.close()
