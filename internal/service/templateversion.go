@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 )
 
@@ -32,11 +31,13 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, tv api.Templ
 }
 
 func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string, params api.ListTemplateVersionsParams) (*api.TemplateVersionList, api.Status) {
+	var err error
+
 	orgId := store.NullOrgId
 
-	cont, err := store.ParseContinueString(params.Continue)
-	if err != nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
 
 	var fieldSelector *selector.FieldSelector
@@ -53,27 +54,8 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string,
 		fieldSelector.Add(additionalSelector)
 	}
 
-	var labelSelector *selector.LabelSelector
-	if params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*params.LabelSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))
-		}
-	}
-	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(params.Limit)),
-		Continue:      cont,
-		FieldSelector: fieldSelector,
-		LabelSelector: labelSelector,
-	}
-	if listParams.Limit == 0 {
-		listParams.Limit = MaxRecordsPerListRequest
-	} else if listParams.Limit > MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
-	} else if listParams.Limit < 0 {
-		return nil, api.StatusBadRequest("limit cannot be negative")
-	}
-
-	result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
+	listParams.FieldSelector = fieldSelector
+	result, err := h.store.TemplateVersion().List(ctx, orgId, *listParams)
 	if err == nil {
 		return result, api.StatusOK()
 	}
