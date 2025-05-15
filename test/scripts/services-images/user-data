@@ -9,3 +9,21 @@ chpasswd:
   users:
   - {name: services-user, password: password, type: text}
 ssh_pwauth: true
+write_files:
+  - path: /etc/flightctl/service-config.yaml
+    content: |
+      global:
+        baseDomain:
+        auth:
+          type: none # aap or none
+          insecureSkipTlsVerify: false
+          aap:
+            apiUrl:
+            externalApiUrl:
+            oAuthApplicationClientId:
+            oAuthToken:
+    owner: root:root
+    permissions: '0644'
+runcmd:
+  - systemctl enable flightctl.target
+  - systemctl start flightctl.target

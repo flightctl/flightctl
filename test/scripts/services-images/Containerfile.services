@@ -12,6 +12,6 @@ RUN dnf -y install cloud-init && \
     dnf -y clean all
 
 # Enable services to start at boot
-RUN systemctl enable flightctl.target cloud-init
+RUN systemctl enable cloud-init
 
 RUN bootc container lint

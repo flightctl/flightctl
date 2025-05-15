@@ -62,5 +62,6 @@ bin/services-output/init-data.iso:
 clean-services-vm:
 	sudo virsh destroy $(SERVICES_VM_NAME) || true
 	sudo rm -f $(VSERVICES_VM_DISK)
+	rm -f bin/services-output/init-data.iso
 
 .PHONY: services-container run-services-container clean-services-container services-vm clean-services-vm services-vm-console
