@@ -147,6 +147,13 @@ const (
 	FileOperationUpdated FileOperation = "updated"
 )
 
+// Defines values for ImagePullPolicy.
+const (
+	PullAlways       ImagePullPolicy = "Always"
+	PullIfNotPresent ImagePullPolicy = "IfNotPresent"
+	PullNever        ImagePullPolicy = "Never"
+)
+
 // Defines values for MatchExpressionOperator.
 const (
 	DoesNotExist MatchExpressionOperator = "DoesNotExist"
@@ -1144,10 +1151,39 @@ type ImageApplicationProviderSpec struct {
 	Image string `json:"image"`
 }
 
+// ImagePullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
+type ImagePullPolicy string
+
+// ImageVolumeProviderSpec defines model for ImageVolumeProviderSpec.
+type ImageVolumeProviderSpec struct {
+	// Image Describes the source of an OCI-compliant image or artifact.
+	Image ImageVolumeSource `json:"image"`
+
+	// Name The name of the volume which will be populated by the contents of the image.
+	Name string `json:"name"`
+}
+
+// ImageVolumeSource Describes the source of an OCI-compliant image or artifact.
+type ImageVolumeSource struct {
+	// PullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
+	PullPolicy *ImagePullPolicy `json:"pullPolicy,omitempty"`
+
+	// Reference Reference to an OCI-compliant image or artifact in a registry. This may be a container image or another type of OCI artifact, as long as it conforms to the OCI image specification.
+	Reference string `json:"reference"`
+}
+
 // InlineApplicationProviderSpec defines model for InlineApplicationProviderSpec.
 type InlineApplicationProviderSpec struct {
 	// Inline A list of application content.
 	Inline []ApplicationContent `json:"inline"`
+
+	// Volumes List of volume providers.
+	Volumes *[]InlineApplicationProviderSpec_Volumes_Item `json:"volumes,omitempty"`
+}
+
+// InlineApplicationProviderSpec_Volumes_Item defines model for InlineApplicationProviderSpec.volumes.Item.
+type InlineApplicationProviderSpec_Volumes_Item struct {
+	union json.RawMessage
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
@@ -2453,6 +2489,42 @@ func (t HookCondition) MarshalJSON() ([]byte, error) {
 }
 
 func (t *HookCondition) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsImageVolumeProviderSpec returns the union data inside the InlineApplicationProviderSpec_Volumes_Item as a ImageVolumeProviderSpec
+func (t InlineApplicationProviderSpec_Volumes_Item) AsImageVolumeProviderSpec() (ImageVolumeProviderSpec, error) {
+	var body ImageVolumeProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageVolumeProviderSpec overwrites any union data inside the InlineApplicationProviderSpec_Volumes_Item as the provided ImageVolumeProviderSpec
+func (t *InlineApplicationProviderSpec_Volumes_Item) FromImageVolumeProviderSpec(v ImageVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageVolumeProviderSpec performs a merge with any union data inside the InlineApplicationProviderSpec_Volumes_Item, using the provided ImageVolumeProviderSpec
+func (t *InlineApplicationProviderSpec_Volumes_Item) MergeImageVolumeProviderSpec(v ImageVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t InlineApplicationProviderSpec_Volumes_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *InlineApplicationProviderSpec_Volumes_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
