@@ -23,6 +23,7 @@ type Config struct {
 	Auth       *authConfig       `json:"auth,omitempty"`
 	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
 	CA         *ca.Config        `json:"ca,omitempty"`
+	Tracing    *tracingConfig    `json:"tracing,omitempty"`
 }
 
 type dbConfig struct {
@@ -94,6 +95,22 @@ type prometheusConfig struct {
 	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
 }
 
+type tracingConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	Insecure bool   `json:"insecure,omitempty"`
+}
+
+type ConfigOption func(*Config)
+
+func WithTracingEnabled() ConfigOption {
+	return func(c *Config) {
+		c.Tracing = &tracingConfig{
+			Enabled: true,
+		}
+	}
+}
+
 func ConfigDir() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName)
 }
@@ -110,7 +127,7 @@ func CertificateDir() string {
 	return filepath.Join(ConfigDir(), "certs")
 }
 
-func NewDefault() *Config {
+func NewDefault(opts ...ConfigOption) *Config {
 	c := &Config{
 		Database: &dbConfig{
 			Type:     "pgsql",
@@ -152,6 +169,11 @@ func NewDefault() *Config {
 	}
 	c.CA = ca.NewDefault(CertificateDir())
 	// CA certs are stored in the same location as Server Certs by default
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	return c
 }
 

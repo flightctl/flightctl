@@ -17,7 +17,7 @@ import (
 )
 
 type AgentTransportHandler struct {
-	serviceHandler *service.ServiceHandler
+	serviceHandler service.Service
 	ca             *crypto.CAClient
 	log            logrus.FieldLogger
 }
@@ -55,7 +55,7 @@ func ValidateEnrollmentAccessFromContext(ctx context.Context, ca *crypto.CAClien
 	return nil
 }
 
-func NewAgentTransportHandler(serviceHandler *service.ServiceHandler, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
+func NewAgentTransportHandler(serviceHandler service.Service, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
 	return &AgentTransportHandler{serviceHandler: serviceHandler, ca: ca, log: log}
 }
 

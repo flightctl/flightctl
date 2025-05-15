@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,11 +17,13 @@ import (
 
 var _ = Describe("VM Agent behavior", func() {
 	var (
+		ctx     context.Context
 		harness *e2e.Harness
 	)
 
 	BeforeEach(func() {
-		harness = e2e.NewTestHarness()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		harness = e2e.NewTestHarness(ctx)
 		err := harness.VM.RunAndWaitForSSH()
 		Expect(err).ToNot(HaveOccurred())
 	})
