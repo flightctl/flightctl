@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
@@ -31,6 +32,7 @@ func TestInitialization(t *testing.T) {
 		setupMocks func(
 			mockStatusManager *status.MockManager,
 			mockSpecManager *spec.MockManager,
+			mockPublisher *publisher.MockPublisher,
 			mockReadWriter *fileio.MockReadWriter,
 			mockHookManager *hook.MockManager,
 			mockEnrollmentClient *client.MockEnrollment,
@@ -44,6 +46,7 @@ func TestInitialization(t *testing.T) {
 			setupMocks: func(
 				mockStatusManager *status.MockManager,
 				mockSpecManager *spec.MockManager,
+				mockPublisher *publisher.MockPublisher,
 				mockReadWriter *fileio.MockReadWriter,
 				mockHookManager *hook.MockManager,
 				_ *client.MockEnrollment,
@@ -58,7 +61,7 @@ func TestInitialization(t *testing.T) {
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
-					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockPublisher.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
@@ -73,6 +76,7 @@ func TestInitialization(t *testing.T) {
 			setupMocks: func(
 				mockStatusManager *status.MockManager,
 				mockSpecManager *spec.MockManager,
+				mockPublisher *publisher.MockPublisher,
 				mockReadWriter *fileio.MockReadWriter,
 				mockHookManager *hook.MockManager,
 				_ *client.MockEnrollment,
@@ -88,7 +92,7 @@ func TestInitialization(t *testing.T) {
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
-					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockPublisher.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(true),
 					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOSVersion, true, nil),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
@@ -104,6 +108,7 @@ func TestInitialization(t *testing.T) {
 			setupMocks: func(
 				mockStatusManager *status.MockManager,
 				mockSpecManager *spec.MockManager,
+				mockPublisher *publisher.MockPublisher,
 				mockReadWriter *fileio.MockReadWriter,
 				mockHookManager *hook.MockManager,
 				mockEnrollmentClient *client.MockEnrollment,
@@ -119,7 +124,7 @@ func TestInitialization(t *testing.T) {
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
-					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					mockPublisher.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
@@ -137,6 +142,7 @@ func TestInitialization(t *testing.T) {
 
 			mockStatusManager := status.NewMockManager(ctrl)
 			mockSpecManager := spec.NewMockManager(ctrl)
+			mockPublisher := publisher.NewMockPublisher(ctrl)
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockHookManager := hook.NewMockManager(ctrl)
 			mockEnrollmentClient := client.NewMockEnrollment(ctrl)
@@ -146,6 +152,7 @@ func TestInitialization(t *testing.T) {
 			b := &Bootstrap{
 				statusManager:           mockStatusManager,
 				specManager:             mockSpecManager,
+				devicePublisher:         mockPublisher,
 				hookManager:             mockHookManager,
 				lifecycle:               mockLifecycleInitializer,
 				deviceReadWriter:        mockReadWriter,
@@ -159,6 +166,7 @@ func TestInitialization(t *testing.T) {
 			tt.setupMocks(
 				mockStatusManager,
 				mockSpecManager,
+				mockPublisher,
 				mockReadWriter,
 				mockHookManager,
 				mockEnrollmentClient,

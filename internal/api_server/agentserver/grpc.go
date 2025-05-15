@@ -158,25 +158,30 @@ func (s *AgentGrpcServer) forwardConsoleSession(ctx context.Context, stream pb.R
 }
 
 func (s *AgentGrpcServer) forwardChannels(ctx context.Context, a pb.RouterService_StreamServer, b *console.ConsoleSession) error {
-	g, _ := errgroup.WithContext(ctx)
-	g.Go(func() error { return s.pipeStreamToChannel(ctx, a, b.RecvCh) })
-	g.Go(func() error { return s.pipeChannelToStream(ctx, b.SendCh, a) })
-	return g.Wait()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Since the stream.Recv() is a blocking call, in order to close it the gRPC call needs to return
+	// therefore we must not wait for the function pipeStreamToChannel to finish.
+	// On the other hand, the function pipeChannelToStream waits on a channel that is closed when the
+	// goroutine pipeStreamToChannel finishes, so the SendCh channel is closed when pipeStreamToChannel finishes
+	go s.pipeStreamToChannel(ctx, a, b.RecvCh)
+	return s.pipeChannelToStream(ctx, b.SendCh, a)
 }
 
-func (s *AgentGrpcServer) pipeStreamToChannel(ctx context.Context, a pb.RouterService_StreamServer, ch chan []byte) error {
+func (s *AgentGrpcServer) pipeStreamToChannel(ctx context.Context, a pb.RouterService_StreamServer, ch chan []byte) {
 	defer close(ch)
 
 	for {
 		select {
 		case <-ctx.Done():
 			s.log.Debug("context is closed")
-			return io.EOF
+			return
 		default:
 			msg, err := a.Recv()
 			if err != nil {
 				s.log.Debugf("failed to receive a message: %v", err)
-				return err
+				return
 			}
 
 			payload := msg.GetPayload()
@@ -184,7 +189,7 @@ func (s *AgentGrpcServer) pipeStreamToChannel(ctx context.Context, a pb.RouterSe
 			ch <- payload
 			if closed {
 				s.log.Debug("channel is closed")
-				return io.EOF
+				return
 			}
 		}
 	}
