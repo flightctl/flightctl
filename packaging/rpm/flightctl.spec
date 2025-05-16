@@ -7,9 +7,6 @@
 # SELinux specifics
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
-%define agent_relabel_files() \
-    semanage fcontext -a -t flightctl_agent_exec_t "/usr/bin/flightctl-agent" ; \
-    restorecon -v /usr/bin/flightctl-agent
 
 Name:           flightctl
 Version:        0.6.0
@@ -105,7 +102,7 @@ The flightctl-services package provides installation and setup of files for runn
     mkdir -p %{buildroot}/usr/lib/flightctl/hooks.d/{afterupdating,beforeupdating,afterrebooting,beforerebooting}
     mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
     install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
-    cp bin/flightctl-agent %{buildroot}/usr/bin
+    install -pm 0755 bin/flightctl-agent %{buildroot}/usr/bin/flightctl-agent
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
@@ -153,14 +150,12 @@ The flightctl-services package provides installation and setup of files for runn
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
 
-
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
 
 %post selinux
 
 %selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
-%agent_relabel_files
 
 %postun selinux
 
