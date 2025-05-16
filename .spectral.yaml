@@ -502,5 +502,11 @@ overrides:
       - "**#/paths/~1api~1v1~1labels"
       - "**#/paths/~1api~1v1~1events"
       - "**#/paths/~1api~1v1~1enrollmentconfig"
+      - "**#/paths/~1api~1v1~1resourcesyncs"
+      - "**#/paths/~1api~1v1~1repositories"
+      - "**#/paths/~1api~1v1~1devices"
+      - "**#/paths/~1api~1v1~1enrollmentrequests"
+      - "**#/paths/~1api~1v1~1certificatesigningrequests"
+      - "**#/paths/~1api~1v1~1fleets"
     rules:
       collection-verbs-required: off
