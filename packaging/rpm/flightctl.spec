@@ -57,6 +57,10 @@ BuildRequires: selinux-policy >= %{selinux_policyver}
 BuildRequires: selinux-policy-devel >= %{selinux_policyver}
 BuildArch: noarch
 Requires: selinux-policy >= %{selinux_policyver}
+# For restorecon
+Requires: policycoreutils
+# For semanage
+Requires: policycoreutils-python-utils
 
 %description selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
