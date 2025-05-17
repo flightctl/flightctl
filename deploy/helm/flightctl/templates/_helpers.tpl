@@ -78,7 +78,7 @@
     {{- $scheme := (include "flightctl.getHttpScheme" . )}}
     {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" .)}}
     {{- if eq $exposeMethod "nodePort" }}
-      {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.nodePorts.keycloak }}
+      {{- printf "%s://%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.nodePorts.keycloak }}
     {{- else if eq $exposeMethod "gateway" }}
       {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80)) }}
         {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.http }}
