@@ -1,0 +1,2 @@
+/usr/bin/flightctl-agent    --    gen_context(system_u:object_r:flightctl_agent_exec_t,s0)
+/var/lib/flightctl(/.*)?          gen_context(system_u:object_r:flightctl_agent_var_lib_t,s0)
