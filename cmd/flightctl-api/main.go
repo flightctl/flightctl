@@ -22,6 +22,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	log := log.InitLogs()
 	log.Println("Starting API service")
 	defer log.Println("API service stopped")
@@ -109,6 +111,13 @@ func main() {
 		log.Fatalf("writing client config: %v", err)
 	}
 
+	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-api")
+	defer func() {
+		if err := tracerShutdown(ctx); err != nil {
+			log.Fatalf("failed to shut down tracer: %v", err)
+		}
+	}()
+
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
@@ -118,7 +127,7 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
-	if err := store.InitialMigration(); err != nil {
+	if err := store.InitialMigration(ctx); err != nil {
 		log.Fatalf("running initial migration: %v", err)
 	}
 
@@ -127,7 +136,7 @@ func main() {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
 	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {

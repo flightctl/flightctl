@@ -21,21 +21,21 @@ type API interface {
 
 type RepoTester struct {
 	log                    logrus.FieldLogger
-	serviceHandler         *service.ServiceHandler
+	serviceHandler         service.Service
 	TypeSpecificRepoTester TypeSpecificRepoTester
 }
 
-func NewRepoTester(log logrus.FieldLogger, serviceHandler *service.ServiceHandler) *RepoTester {
+func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *RepoTester {
 	return &RepoTester{
 		log:            log,
 		serviceHandler: serviceHandler,
 	}
 }
 
-func (r *RepoTester) TestRepositories() {
+func (r *RepoTester) TestRepositories(ctx context.Context) {
 	reqid.OverridePrefix("repotester")
 	requestID := reqid.NextRequestID()
-	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running RepoTester")

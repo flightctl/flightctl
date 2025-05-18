@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,10 +29,10 @@ var _ = Describe("EventStore Integration Tests", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
 		events = []api.Event{
 			{
@@ -84,7 +85,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("Event Store", func() {

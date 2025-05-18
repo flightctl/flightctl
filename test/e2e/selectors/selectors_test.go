@@ -1,6 +1,7 @@
 package selectors
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -25,10 +26,18 @@ const (
 	RetryInterval   = "1s"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestFieldSelectors(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Field Selectors E2E Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = InitSuiteTracerForGinkgo("Field Selectors E2E Suite")
+})
 
 var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 	var (
@@ -41,9 +50,13 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		DeviceARegion string
 	)
 
+	BeforeEach(func() {
+		_ = StartSpecTracerForGinkgo(suiteCtx)
+	})
+
 	// Setup for the suite
 	BeforeAll(func() {
-		harness = e2e.NewTestHarness()
+		harness = e2e.NewTestHarness(suiteCtx)
 		login.LoginToAPIWithToken(harness)
 		logrus.Infof("Harness Created")
 	})

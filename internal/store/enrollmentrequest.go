@@ -11,7 +11,7 @@ import (
 )
 
 type EnrollmentRequest interface {
-	InitialMigration() error
+	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
 	Update(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, api.ResourceUpdatedDetails, error)
@@ -24,7 +24,7 @@ type EnrollmentRequest interface {
 }
 
 type EnrollmentRequestStore struct {
-	db           *gorm.DB
+	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
 	genericStore *GenericStore[*model.EnrollmentRequest, model.EnrollmentRequest, api.EnrollmentRequest, api.EnrollmentRequestList]
 }
@@ -40,35 +40,41 @@ func NewEnrollmentRequest(db *gorm.DB, log logrus.FieldLogger) EnrollmentRequest
 		(*model.EnrollmentRequest).ToApiResource,
 		model.EnrollmentRequestsToApiResource,
 	)
-	return &EnrollmentRequestStore{db: db, log: log, genericStore: genericStore}
+	return &EnrollmentRequestStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-func (s *EnrollmentRequestStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.EnrollmentRequest{}); err != nil {
+func (s *EnrollmentRequestStore) getDB(ctx context.Context) *gorm.DB {
+	return s.dbHandler.WithContext(ctx)
+}
+
+func (s *EnrollmentRequestStore) InitialMigration(ctx context.Context) error {
+	db := s.getDB(ctx)
+
+	if err := db.AutoMigrate(&model.EnrollmentRequest{}); err != nil {
 		return err
 	}
 
 	// Create GIN index for EnrollmentRequest labels
-	if !s.db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_labels") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_enrollment_requests_labels ON enrollment_requests USING GIN (labels)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_labels") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_enrollment_requests_labels ON enrollment_requests USING GIN (labels)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Labels"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Labels"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for EnrollmentRequest annotations
-	if !s.db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_annotations") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_enrollment_requests_annotations ON enrollment_requests USING GIN (annotations)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_annotations") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_enrollment_requests_annotations ON enrollment_requests USING GIN (annotations)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Annotations"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Annotations"); err != nil {
 				return err
 			}
 		}

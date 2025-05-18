@@ -10,6 +10,9 @@ GO_E2E_DIRS 			= ./test/e2e/...
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
 GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_INTEGRATIONTEST_DIRS) -coverprofile=$(REPORTS)/integration-coverage.out
 
+# Common environment flags for test tracing enforcement
+ENV_TRACE_FLAGS = TRACE_TESTS=false GORM_TRACE_ENFORCE_FATAL=true GORM_TRACE_INCLUDE_QUERY_VARIABLES=true
+
 ifeq ($(VERBOSE), true)
 	GO_TEST_FORMAT=standard-verbose
 	GO_UNITTEST_FLAGS += -v
@@ -37,10 +40,10 @@ _collect_junit: $(REPORTS)
 	done
 
 unit-test:
-	$(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./pkg/... ./internal/... ./cmd/...))"
+	$(ENV_TRACE_FLAGS) $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./pkg/... ./internal/... ./cmd/...))"
 
 run-integration-test:
-	$(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
+	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
 integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
@@ -63,7 +66,7 @@ e2e-test: deploy bin/output/qcow2/disk.qcow2
 	$(MAKE) _e2e_test
 
 run-e2e-test:
-	$(MAKE) _e2e_test
+	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
 
 
 view-coverage: $(REPORTS)/unit-coverage.out $(REPORTS)/unit-coverage.out

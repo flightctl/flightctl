@@ -41,13 +41,13 @@ func New(
 }
 
 // TODO: expose metrics
-func (s *Server) Run() error {
-	ctx, cancel := context.WithCancel(context.Background())
+func (s *Server) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-periodic")
 	defer cancel()
 
-	queuesProvider, err := queues.NewRedisProvider(context.Background(), s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}
@@ -63,46 +63,46 @@ func (s *Server) Run() error {
 		return err
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
-	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "")
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", ""))
 
 	// repository tester
 	repoTester := tasks.NewRepoTester(s.log, serviceHandler)
-	repoTesterThread := thread.New(
+	repoTesterThread := thread.New(ctx,
 		s.log.WithField("pkg", "repository-tester"), "Repository tester", 2*time.Minute, repoTester.TestRepositories)
 	repoTesterThread.Start()
 	defer repoTesterThread.Stop()
 
 	// resource sync
 	resourceSync := tasks.NewResourceSync(callbackManager, serviceHandler, s.log)
-	resourceSyncThread := thread.New(
+	resourceSyncThread := thread.New(ctx,
 		s.log.WithField("pkg", "resourcesync"), "ResourceSync", 2*time.Minute, resourceSync.Poll)
 	resourceSyncThread.Start()
 	defer resourceSyncThread.Stop()
 
 	// device disconnected
 	deviceDisconnected := tasks.NewDeviceDisconnected(s.log, serviceHandler)
-	deviceDisconnectedThread := thread.New(
+	deviceDisconnectedThread := thread.New(ctx,
 		s.log.WithField("pkg", "device-disconnected"), "Device disconnected", tasks.DeviceDisconnectedPollingInterval, deviceDisconnected.Poll)
 	deviceDisconnectedThread.Start()
 	defer deviceDisconnectedThread.Stop()
 
 	// Rollout device selection
 	rolloutDeviceSelection := device_selection.NewReconciler(serviceHandler, callbackManager, s.log)
-	rolloutDeviceSelectionThread := thread.New(
-		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, func() { rolloutDeviceSelection.Reconcile(ctx) })
+	rolloutDeviceSelectionThread := thread.New(ctx,
+		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
 	rolloutDeviceSelectionThread.Start()
 	defer rolloutDeviceSelectionThread.Stop()
 
 	// Rollout disruption budget
 	disruptionBudget := disruption_budget.NewReconciler(serviceHandler, callbackManager, s.log)
-	disruptionBudgetThread := thread.New(
-		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, func() { disruptionBudget.Reconcile(ctx) })
+	disruptionBudgetThread := thread.New(ctx,
+		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, disruptionBudget.Reconcile)
 	disruptionBudgetThread.Start()
 	defer disruptionBudgetThread.Stop()
 
 	// Event cleanup
 	eventCleanup := tasks.NewEventCleanup(s.log, serviceHandler, s.cfg.Service.EventRetentionPeriod)
-	eventCleanupThread := thread.New(
+	eventCleanupThread := thread.New(ctx,
 		s.log.WithField("pkg", "event-cleanup"), "Event cleanup", tasks.EventCleanupPollingInterval, eventCleanup.Poll)
 	eventCleanupThread.Start()
 	defer eventCleanupThread.Stop()

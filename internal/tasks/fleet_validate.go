@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
+func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
 	logic := NewFleetValidateLogic(callbackManager, log, serviceHandler, k8sClient, *resourceRef)
 	switch {
 	case resourceRef.Op == tasks_client.FleetValidateOpUpdate && resourceRef.Kind == api.FleetKind:
@@ -31,13 +31,13 @@ func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceRefere
 type FleetValidateLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	k8sClient       k8sclient.K8SClient
 	resourceRef     tasks_client.ResourceReference
 	templateConfig  *[]api.ConfigProviderSpec
 }
 
-func NewFleetValidateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler *service.ServiceHandler, k8sClient k8sclient.K8SClient, resourceRef tasks_client.ResourceReference) FleetValidateLogic {
+func NewFleetValidateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, resourceRef tasks_client.ResourceReference) FleetValidateLogic {
 	return FleetValidateLogic{callbackManager: callbackManager, log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, resourceRef: resourceRef}
 }
 

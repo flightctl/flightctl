@@ -37,14 +37,14 @@ type InternalSessionRegistration interface {
 }
 
 type ConsoleSessionManager struct {
-	serviceHandler *service.ServiceHandler
+	serviceHandler service.Service
 	log            logrus.FieldLogger
 	// This one is the gRPC Handler of the agent for now, in the next iteration
 	// this should be split so we funnel traffic through a queue in redis/valkey
 	sessionRegistration InternalSessionRegistration
 }
 
-func NewConsoleSessionManager(serviceHandler *service.ServiceHandler, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
+func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
 	return &ConsoleSessionManager{
 		serviceHandler:      serviceHandler,
 		log:                 log,

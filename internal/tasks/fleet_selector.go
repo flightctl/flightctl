@@ -34,7 +34,7 @@ import (
 //
 // In addition, we have the cases where the user deleted all fleets or devices in an org
 
-func fleetSelectorMatching(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
+func fleetSelectorMatching(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	logic := FleetSelectorMatchingLogic{
 		callbackManager: callbackManager,
 		log:             log,
@@ -70,12 +70,12 @@ func fleetSelectorMatching(ctx context.Context, resourceRef *tasks_client.Resour
 type FleetSelectorMatchingLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	resourceRef     tasks_client.ResourceReference
 	itemsPerPage    int
 }
 
-func NewFleetSelectorMatchingLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler *service.ServiceHandler, resourceRef tasks_client.ResourceReference) FleetSelectorMatchingLogic {
+func NewFleetSelectorMatchingLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, resourceRef tasks_client.ResourceReference) FleetSelectorMatchingLogic {
 	return FleetSelectorMatchingLogic{
 		callbackManager: callbackManager,
 		log:             log,

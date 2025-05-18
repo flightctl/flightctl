@@ -26,6 +26,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 )
 
@@ -90,7 +91,8 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 
-	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl)
+	serviceHandler := service.WrapWithTracing(
+		service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 
 	httpAPIHandler, err := s.prepareHTTPHandler(serviceHandler)
 	if err != nil {
@@ -121,7 +123,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	return nil
 }
 
-func (s *AgentServer) prepareHTTPHandler(serviceHandler *service.ServiceHandler) (*chi.Mux, error) {
+func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.Handler, error) {
 	swagger, err := api.GetSwagger()
 	if err != nil {
 		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)
@@ -152,7 +154,8 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler *service.ServiceHandler)
 
 	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
 	server.HandlerFromMux(h, router)
-	return router, nil
+
+	return otelhttp.NewHandler(router, "agent-http-Server"), nil
 }
 
 // grpcMuxHandlerFunc dispatches requests to the gRPC server or the HTTP handler based on the request headers
