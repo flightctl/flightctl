@@ -96,9 +96,6 @@ type ClientInterface interface {
 	// AuthValidate request
 	AuthValidate(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteCertificateSigningRequests request
-	DeleteCertificateSigningRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListCertificateSigningRequests request
 	ListCertificateSigningRequests(ctx context.Context, params *ListCertificateSigningRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -127,9 +124,6 @@ type ClientInterface interface {
 	UpdateCertificateSigningRequestApprovalWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteDevices request
-	DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListDevices request
 	ListDevices(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -179,9 +173,6 @@ type ClientInterface interface {
 	// GetEnrollmentConfig request
 	GetEnrollmentConfig(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteEnrollmentRequests request
-	DeleteEnrollmentRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListEnrollmentRequests request
 	ListEnrollmentRequests(ctx context.Context, params *ListEnrollmentRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -227,9 +218,6 @@ type ClientInterface interface {
 	// ListEvents request
 	ListEvents(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteFleets request
-	DeleteFleets(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListFleets request
 	ListFleets(ctx context.Context, params *ListFleetsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -237,9 +225,6 @@ type ClientInterface interface {
 	CreateFleetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	CreateFleet(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteTemplateVersions request
-	DeleteTemplateVersions(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListTemplateVersions request
 	ListTemplateVersions(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -282,9 +267,6 @@ type ClientInterface interface {
 	// ListLabels request
 	ListLabels(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteRepositories request
-	DeleteRepositories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListRepositories request
 	ListRepositories(ctx context.Context, params *ListRepositoriesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -308,9 +290,6 @@ type ClientInterface interface {
 	ReplaceRepositoryWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceRepository(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteResourceSyncs request
-	DeleteResourceSyncs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListResourceSyncs request
 	ListResourceSyncs(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -354,18 +333,6 @@ func (c *Client) AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) 
 
 func (c *Client) AuthValidate(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAuthValidateRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteCertificateSigningRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteCertificateSigningRequestsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -498,18 +465,6 @@ func (c *Client) UpdateCertificateSigningRequestApprovalWithBody(ctx context.Con
 
 func (c *Client) UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateCertificateSigningRequestApprovalRequest(c.Server, name, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteDevicesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -736,18 +691,6 @@ func (c *Client) GetEnrollmentConfig(ctx context.Context, params *GetEnrollmentC
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteEnrollmentRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteEnrollmentRequestsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListEnrollmentRequests(ctx context.Context, params *ListEnrollmentRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListEnrollmentRequestsRequest(c.Server, params)
 	if err != nil {
@@ -952,18 +895,6 @@ func (c *Client) ListEvents(ctx context.Context, params *ListEventsParams, reqEd
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteFleets(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteFleetsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListFleets(ctx context.Context, params *ListFleetsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListFleetsRequest(c.Server, params)
 	if err != nil {
@@ -990,18 +921,6 @@ func (c *Client) CreateFleetWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) CreateFleet(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateFleetRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteTemplateVersions(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteTemplateVersionsRequest(c.Server, fleet)
 	if err != nil {
 		return nil, err
 	}
@@ -1192,18 +1111,6 @@ func (c *Client) ListLabels(ctx context.Context, params *ListLabelsParams, reqEd
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteRepositories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteRepositoriesRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListRepositories(ctx context.Context, params *ListRepositoriesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListRepositoriesRequest(c.Server, params)
 	if err != nil {
@@ -1302,18 +1209,6 @@ func (c *Client) ReplaceRepositoryWithBody(ctx context.Context, name string, con
 
 func (c *Client) ReplaceRepository(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceRepositoryRequest(c.Server, name, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteResourceSyncs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteResourceSyncsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1508,33 +1403,6 @@ func NewAuthValidateRequest(server string, params *AuthValidateParams) (*http.Re
 			req.Header.Set("Authorization", headerParam0)
 		}
 
-	}
-
-	return req, nil
-}
-
-// NewDeleteCertificateSigningRequestsRequest generates requests for DeleteCertificateSigningRequests
-func NewDeleteCertificateSigningRequestsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
 	}
 
 	return req, nil
@@ -1882,33 +1750,6 @@ func NewUpdateCertificateSigningRequestApprovalRequestWithBody(server string, na
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteDevicesRequest generates requests for DeleteDevices
-func NewDeleteDevicesRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/devices")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -2508,33 +2349,6 @@ func NewGetEnrollmentConfigRequest(server string, params *GetEnrollmentConfigPar
 	return req, nil
 }
 
-// NewDeleteEnrollmentRequestsRequest generates requests for DeleteEnrollmentRequests
-func NewDeleteEnrollmentRequestsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/enrollmentrequests")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewListEnrollmentRequestsRequest generates requests for ListEnrollmentRequests
 func NewListEnrollmentRequestsRequest(server string, params *ListEnrollmentRequestsParams) (*http.Request, error) {
 	var err error
@@ -3090,33 +2904,6 @@ func NewListEventsRequest(server string, params *ListEventsParams) (*http.Reques
 	return req, nil
 }
 
-// NewDeleteFleetsRequest generates requests for DeleteFleets
-func NewDeleteFleetsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/fleets")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewListFleetsRequest generates requests for ListFleets
 func NewListFleetsRequest(server string, params *ListFleetsParams) (*http.Request, error) {
 	var err error
@@ -3266,40 +3053,6 @@ func NewCreateFleetRequestWithBody(server string, contentType string, body io.Re
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteTemplateVersionsRequest generates requests for DeleteTemplateVersions
-func NewDeleteTemplateVersionsRequest(server string, fleet string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "fleet", runtime.ParamLocationPath, fleet)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/fleets/%s/templateversions", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -3895,33 +3648,6 @@ func NewListLabelsRequest(server string, params *ListLabelsParams) (*http.Reques
 	return req, nil
 }
 
-// NewDeleteRepositoriesRequest generates requests for DeleteRepositories
-func NewDeleteRepositoriesRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/repositories")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewListRepositoriesRequest generates requests for ListRepositories
 func NewListRepositoriesRequest(server string, params *ListRepositoriesParams) (*http.Request, error) {
 	var err error
@@ -4217,33 +3943,6 @@ func NewReplaceRepositoryRequestWithBody(server string, name string, contentType
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteResourceSyncsRequest generates requests for DeleteResourceSyncs
-func NewDeleteResourceSyncsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/resourcesyncs")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -4623,9 +4322,6 @@ type ClientWithResponsesInterface interface {
 	// AuthValidateWithResponse request
 	AuthValidateWithResponse(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*AuthValidateResponse, error)
 
-	// DeleteCertificateSigningRequestsWithResponse request
-	DeleteCertificateSigningRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteCertificateSigningRequestsResponse, error)
-
 	// ListCertificateSigningRequestsWithResponse request
 	ListCertificateSigningRequestsWithResponse(ctx context.Context, params *ListCertificateSigningRequestsParams, reqEditors ...RequestEditorFn) (*ListCertificateSigningRequestsResponse, error)
 
@@ -4654,9 +4350,6 @@ type ClientWithResponsesInterface interface {
 	UpdateCertificateSigningRequestApprovalWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error)
 
 	UpdateCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error)
-
-	// DeleteDevicesWithResponse request
-	DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error)
 
 	// ListDevicesWithResponse request
 	ListDevicesWithResponse(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*ListDevicesResponse, error)
@@ -4706,9 +4399,6 @@ type ClientWithResponsesInterface interface {
 	// GetEnrollmentConfigWithResponse request
 	GetEnrollmentConfigWithResponse(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*GetEnrollmentConfigResponse, error)
 
-	// DeleteEnrollmentRequestsWithResponse request
-	DeleteEnrollmentRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestsResponse, error)
-
 	// ListEnrollmentRequestsWithResponse request
 	ListEnrollmentRequestsWithResponse(ctx context.Context, params *ListEnrollmentRequestsParams, reqEditors ...RequestEditorFn) (*ListEnrollmentRequestsResponse, error)
 
@@ -4754,9 +4444,6 @@ type ClientWithResponsesInterface interface {
 	// ListEventsWithResponse request
 	ListEventsWithResponse(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*ListEventsResponse, error)
 
-	// DeleteFleetsWithResponse request
-	DeleteFleetsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteFleetsResponse, error)
-
 	// ListFleetsWithResponse request
 	ListFleetsWithResponse(ctx context.Context, params *ListFleetsParams, reqEditors ...RequestEditorFn) (*ListFleetsResponse, error)
 
@@ -4764,9 +4451,6 @@ type ClientWithResponsesInterface interface {
 	CreateFleetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateFleetResponse, error)
 
 	CreateFleetWithResponse(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateFleetResponse, error)
-
-	// DeleteTemplateVersionsWithResponse request
-	DeleteTemplateVersionsWithResponse(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error)
 
 	// ListTemplateVersionsWithResponse request
 	ListTemplateVersionsWithResponse(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*ListTemplateVersionsResponse, error)
@@ -4809,9 +4493,6 @@ type ClientWithResponsesInterface interface {
 	// ListLabelsWithResponse request
 	ListLabelsWithResponse(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*ListLabelsResponse, error)
 
-	// DeleteRepositoriesWithResponse request
-	DeleteRepositoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteRepositoriesResponse, error)
-
 	// ListRepositoriesWithResponse request
 	ListRepositoriesWithResponse(ctx context.Context, params *ListRepositoriesParams, reqEditors ...RequestEditorFn) (*ListRepositoriesResponse, error)
 
@@ -4835,9 +4516,6 @@ type ClientWithResponsesInterface interface {
 	ReplaceRepositoryWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceRepositoryResponse, error)
 
 	ReplaceRepositoryWithResponse(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceRepositoryResponse, error)
-
-	// DeleteResourceSyncsWithResponse request
-	DeleteResourceSyncsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteResourceSyncsResponse, error)
 
 	// ListResourceSyncsWithResponse request
 	ListResourceSyncsWithResponse(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*ListResourceSyncsResponse, error)
@@ -4910,31 +4588,6 @@ func (r AuthValidateResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r AuthValidateResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteCertificateSigningRequestsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Status
-	JSON403      *Status
-	JSON503      *Status
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteCertificateSigningRequestsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteCertificateSigningRequestsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5125,31 +4778,6 @@ func (r UpdateCertificateSigningRequestApprovalResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r UpdateCertificateSigningRequestApprovalResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteDevicesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Status
-	JSON403      *Status
-	JSON503      *Status
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteDevicesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteDevicesResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5479,31 +5107,6 @@ func (r GetEnrollmentConfigResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteEnrollmentRequestsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Status
-	JSON403      *Status
-	JSON503      *Status
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteEnrollmentRequestsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteEnrollmentRequestsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListEnrollmentRequestsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5799,31 +5402,6 @@ func (r ListEventsResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteFleetsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Status
-	JSON403      *Status
-	JSON503      *Status
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteFleetsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteFleetsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListFleetsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5871,31 +5449,6 @@ func (r CreateFleetResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r CreateFleetResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteTemplateVersionsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Status
-	JSON403      *Status
-	JSON503      *Status
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteTemplateVersionsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteTemplateVersionsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6194,31 +5747,6 @@ func (r ListLabelsResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteRepositoriesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Status
-	JSON403      *Status
-	JSON503      *Status
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteRepositoriesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteRepositoriesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListRepositoriesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -6375,31 +5903,6 @@ func (r ReplaceRepositoryResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceRepositoryResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteResourceSyncsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Status
-	JSON403      *Status
-	JSON503      *Status
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteResourceSyncsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteResourceSyncsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6610,15 +6113,6 @@ func (c *ClientWithResponses) AuthValidateWithResponse(ctx context.Context, para
 	return ParseAuthValidateResponse(rsp)
 }
 
-// DeleteCertificateSigningRequestsWithResponse request returning *DeleteCertificateSigningRequestsResponse
-func (c *ClientWithResponses) DeleteCertificateSigningRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteCertificateSigningRequestsResponse, error) {
-	rsp, err := c.DeleteCertificateSigningRequests(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteCertificateSigningRequestsResponse(rsp)
-}
-
 // ListCertificateSigningRequestsWithResponse request returning *ListCertificateSigningRequestsResponse
 func (c *ClientWithResponses) ListCertificateSigningRequestsWithResponse(ctx context.Context, params *ListCertificateSigningRequestsParams, reqEditors ...RequestEditorFn) (*ListCertificateSigningRequestsResponse, error) {
 	rsp, err := c.ListCertificateSigningRequests(ctx, params, reqEditors...)
@@ -6712,15 +6206,6 @@ func (c *ClientWithResponses) UpdateCertificateSigningRequestApprovalWithRespons
 		return nil, err
 	}
 	return ParseUpdateCertificateSigningRequestApprovalResponse(rsp)
-}
-
-// DeleteDevicesWithResponse request returning *DeleteDevicesResponse
-func (c *ClientWithResponses) DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error) {
-	rsp, err := c.DeleteDevices(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteDevicesResponse(rsp)
 }
 
 // ListDevicesWithResponse request returning *ListDevicesResponse
@@ -6879,15 +6364,6 @@ func (c *ClientWithResponses) GetEnrollmentConfigWithResponse(ctx context.Contex
 	return ParseGetEnrollmentConfigResponse(rsp)
 }
 
-// DeleteEnrollmentRequestsWithResponse request returning *DeleteEnrollmentRequestsResponse
-func (c *ClientWithResponses) DeleteEnrollmentRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestsResponse, error) {
-	rsp, err := c.DeleteEnrollmentRequests(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteEnrollmentRequestsResponse(rsp)
-}
-
 // ListEnrollmentRequestsWithResponse request returning *ListEnrollmentRequestsResponse
 func (c *ClientWithResponses) ListEnrollmentRequestsWithResponse(ctx context.Context, params *ListEnrollmentRequestsParams, reqEditors ...RequestEditorFn) (*ListEnrollmentRequestsResponse, error) {
 	rsp, err := c.ListEnrollmentRequests(ctx, params, reqEditors...)
@@ -7035,15 +6511,6 @@ func (c *ClientWithResponses) ListEventsWithResponse(ctx context.Context, params
 	return ParseListEventsResponse(rsp)
 }
 
-// DeleteFleetsWithResponse request returning *DeleteFleetsResponse
-func (c *ClientWithResponses) DeleteFleetsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteFleetsResponse, error) {
-	rsp, err := c.DeleteFleets(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteFleetsResponse(rsp)
-}
-
 // ListFleetsWithResponse request returning *ListFleetsResponse
 func (c *ClientWithResponses) ListFleetsWithResponse(ctx context.Context, params *ListFleetsParams, reqEditors ...RequestEditorFn) (*ListFleetsResponse, error) {
 	rsp, err := c.ListFleets(ctx, params, reqEditors...)
@@ -7068,15 +6535,6 @@ func (c *ClientWithResponses) CreateFleetWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParseCreateFleetResponse(rsp)
-}
-
-// DeleteTemplateVersionsWithResponse request returning *DeleteTemplateVersionsResponse
-func (c *ClientWithResponses) DeleteTemplateVersionsWithResponse(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error) {
-	rsp, err := c.DeleteTemplateVersions(ctx, fleet, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteTemplateVersionsResponse(rsp)
 }
 
 // ListTemplateVersionsWithResponse request returning *ListTemplateVersionsResponse
@@ -7210,15 +6668,6 @@ func (c *ClientWithResponses) ListLabelsWithResponse(ctx context.Context, params
 	return ParseListLabelsResponse(rsp)
 }
 
-// DeleteRepositoriesWithResponse request returning *DeleteRepositoriesResponse
-func (c *ClientWithResponses) DeleteRepositoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteRepositoriesResponse, error) {
-	rsp, err := c.DeleteRepositories(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteRepositoriesResponse(rsp)
-}
-
 // ListRepositoriesWithResponse request returning *ListRepositoriesResponse
 func (c *ClientWithResponses) ListRepositoriesWithResponse(ctx context.Context, params *ListRepositoriesParams, reqEditors ...RequestEditorFn) (*ListRepositoriesResponse, error) {
 	rsp, err := c.ListRepositories(ctx, params, reqEditors...)
@@ -7295,15 +6744,6 @@ func (c *ClientWithResponses) ReplaceRepositoryWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseReplaceRepositoryResponse(rsp)
-}
-
-// DeleteResourceSyncsWithResponse request returning *DeleteResourceSyncsResponse
-func (c *ClientWithResponses) DeleteResourceSyncsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteResourceSyncsResponse, error) {
-	rsp, err := c.DeleteResourceSyncs(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteResourceSyncsResponse(rsp)
 }
 
 // ListResourceSyncsWithResponse request returning *ListResourceSyncsResponse
@@ -7474,53 +6914,6 @@ func ParseAuthValidateResponse(rsp *http.Response) (*AuthValidateResponse, error
 			return nil, err
 		}
 		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteCertificateSigningRequestsResponse parses an HTTP response from a DeleteCertificateSigningRequestsWithResponse call
-func ParseDeleteCertificateSigningRequestsResponse(rsp *http.Response) (*DeleteCertificateSigningRequestsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteCertificateSigningRequestsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
 
 	}
 
@@ -7948,53 +7341,6 @@ func ParseUpdateCertificateSigningRequestApprovalResponse(rsp *http.Response) (*
 			return nil, err
 		}
 		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteDevicesResponse parses an HTTP response from a DeleteDevicesWithResponse call
-func ParseDeleteDevicesResponse(rsp *http.Response) (*DeleteDevicesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteDevicesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
@@ -8733,53 +8079,6 @@ func ParseGetEnrollmentConfigResponse(rsp *http.Response) (*GetEnrollmentConfigR
 	return response, nil
 }
 
-// ParseDeleteEnrollmentRequestsResponse parses an HTTP response from a DeleteEnrollmentRequestsWithResponse call
-func ParseDeleteEnrollmentRequestsResponse(rsp *http.Response) (*DeleteEnrollmentRequestsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteEnrollmentRequestsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseListEnrollmentRequestsResponse parses an HTTP response from a ListEnrollmentRequestsWithResponse call
 func ParseListEnrollmentRequestsResponse(rsp *http.Response) (*ListEnrollmentRequestsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -9437,53 +8736,6 @@ func ParseListEventsResponse(rsp *http.Response) (*ListEventsResponse, error) {
 	return response, nil
 }
 
-// ParseDeleteFleetsResponse parses an HTTP response from a DeleteFleetsWithResponse call
-func ParseDeleteFleetsResponse(rsp *http.Response) (*DeleteFleetsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteFleetsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseListFleetsResponse parses an HTTP response from a ListFleetsWithResponse call
 func ParseListFleetsResponse(rsp *http.Response) (*ListFleetsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -9586,53 +8838,6 @@ func ParseCreateFleetResponse(rsp *http.Response) (*CreateFleetResponse, error) 
 			return nil, err
 		}
 		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteTemplateVersionsResponse parses an HTTP response from a DeleteTemplateVersionsWithResponse call
-func ParseDeleteTemplateVersionsResponse(rsp *http.Response) (*DeleteTemplateVersionsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteTemplateVersionsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
@@ -10282,53 +9487,6 @@ func ParseListLabelsResponse(rsp *http.Response) (*ListLabelsResponse, error) {
 	return response, nil
 }
 
-// ParseDeleteRepositoriesResponse parses an HTTP response from a DeleteRepositoriesWithResponse call
-func ParseDeleteRepositoriesResponse(rsp *http.Response) (*DeleteRepositoriesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteRepositoriesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseListRepositoriesResponse parses an HTTP response from a ListRepositoriesWithResponse call
 func ParseListRepositoriesResponse(rsp *http.Response) (*ListRepositoriesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -10682,53 +9840,6 @@ func ParseReplaceRepositoryResponse(rsp *http.Response) (*ReplaceRepositoryRespo
 			return nil, err
 		}
 		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteResourceSyncsResponse parses an HTTP response from a DeleteResourceSyncsWithResponse call
-func ParseDeleteResourceSyncsResponse(rsp *http.Response) (*DeleteResourceSyncsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteResourceSyncsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status

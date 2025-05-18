@@ -77,7 +77,7 @@ func (o *DeleteOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *DeleteOptions) Run(ctx context.Context, args []string) error { //nolint:gocyclo
+func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
@@ -93,32 +93,20 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error { //nolint
 	switch {
 	case kind == DeviceKind && len(name) > 0:
 		response, err = c.DeleteDeviceWithResponse(ctx, name)
-	case kind == DeviceKind && len(name) == 0:
-		response, err = c.DeleteDevicesWithResponse(ctx)
 	case kind == EnrollmentRequestKind && len(name) > 0:
 		response, err = c.DeleteEnrollmentRequestWithResponse(ctx, name)
-	case kind == EnrollmentRequestKind && len(name) == 0:
-		response, err = c.DeleteEnrollmentRequestsWithResponse(ctx)
 	case kind == FleetKind && len(name) > 0:
 		response, err = c.DeleteFleetWithResponse(ctx, name)
-	case kind == FleetKind && len(name) == 0:
-		response, err = c.DeleteFleetsWithResponse(ctx)
 	case kind == TemplateVersionKind && len(name) > 0:
 		response, err = c.DeleteTemplateVersionWithResponse(ctx, o.FleetName, name)
-	case kind == TemplateVersionKind && len(name) == 0:
-		response, err = c.DeleteTemplateVersionsWithResponse(ctx, o.FleetName)
 	case kind == RepositoryKind && len(name) > 0:
 		response, err = c.DeleteRepositoryWithResponse(ctx, name)
-	case kind == RepositoryKind && len(name) == 0:
-		response, err = c.DeleteRepositoriesWithResponse(ctx)
 	case kind == ResourceSyncKind && len(name) > 0:
 		response, err = c.DeleteResourceSyncWithResponse(ctx, name)
-	case kind == ResourceSyncKind && len(name) == 0:
-		response, err = c.DeleteResourceSyncsWithResponse(ctx)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
 		response, err = c.DeleteCertificateSigningRequestWithResponse(ctx, name)
-	case kind == CertificateSigningRequestKind && len(name) == 0:
-		response, err = c.DeleteCertificateSigningRequestsWithResponse(ctx)
+	case len(name) == 0:
+		return fmt.Errorf("must specify name")
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
