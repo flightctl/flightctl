@@ -313,7 +313,7 @@ var _ = Describe("cli operation", func() {
 			Expect(devices).To(ContainSubstring(device2Name))
 			
 			By("Deleting multiple devices at once")
-			out , err = harness.CLI("delete", fmt.Sprintf("%s %s %s", util.Device, device1Name, device2Name))
+			out, err = harness.CLI("delete", util.Device, device1Name, device2Name)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring("deleted"))

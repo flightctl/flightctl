@@ -84,7 +84,7 @@ func (o *DeleteOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *DeleteOptions) Run(ctx context.Context, args []string) error { //nolint:gocyclo
+func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
@@ -100,8 +100,11 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error { //nolint
 		if err != nil {
 			return err
 		}
+		if err := processDeletionReponse(response, err, kind, name); err != nil {
+			return err
+		}
 		fmt.Printf("%s/%s deleted\n", kind, name)
-		return processDeletionReponse(response, err, kind, name)
+		return nil
 	}
 
 	names := args[1:]

@@ -574,6 +574,7 @@ func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateS
 	}
 }
 
+//nolint:gocyclo
 func (o *GetOptions) printNames(response interface{}, kind string, name string) error {
 	switch {
 	case kind == DeviceKind && len(name) == 0:
