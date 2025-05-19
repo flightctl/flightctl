@@ -17,6 +17,10 @@ spec:
       labels:
         app: keycloak-db
     spec:
+      {{- if .Values.db.fsGroup }}
+      securityContext:
+        fsGroup: {{ .Values.db.fsGroup }}
+      {{- end }}
       containers:
         - name: keycloak-db
           image: {{ .Values.db.image }}
