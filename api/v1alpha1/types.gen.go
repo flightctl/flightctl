@@ -126,12 +126,14 @@ const (
 
 // Defines values for EventReason.
 const (
-	ResourceCreated        EventReason = "ResourceCreated"
-	ResourceCreationFailed EventReason = "ResourceCreationFailed"
-	ResourceDeleted        EventReason = "ResourceDeleted"
-	ResourceDeletionFailed EventReason = "ResourceDeletionFailed"
-	ResourceUpdateFailed   EventReason = "ResourceUpdateFailed"
-	ResourceUpdated        EventReason = "ResourceUpdated"
+	ResourceCreated            EventReason = "ResourceCreated"
+	ResourceCreationFailed     EventReason = "ResourceCreationFailed"
+	ResourceDecommissionFailed EventReason = "ResourceDecommissionFailed"
+	ResourceDecommissioned     EventReason = "ResourceDecommissioned"
+	ResourceDeleted            EventReason = "ResourceDeleted"
+	ResourceDeletionFailed     EventReason = "ResourceDeletionFailed"
+	ResourceUpdateFailed       EventReason = "ResourceUpdateFailed"
+	ResourceUpdated            EventReason = "ResourceUpdated"
 )
 
 // Defines values for EventType.
