@@ -195,6 +195,12 @@ var _ = Describe("Rollout Policies", func() {
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
+			deviceVersions := make(map[string]int)
+			for _, deviceID := range tc.deviceIDs {
+				deviceVersions[deviceID], err = tc.harness.PrepareNextDeviceVersion(deviceID)
+				Expect(err).ToNot(HaveOccurred())
+			}
+
 			By("Simulating a failure in the first batch")
 			err = tc.harness.SimulateNetworkFailure()
 			Expect(err).ToNot(HaveOccurred())
@@ -234,12 +240,9 @@ var _ = Describe("Rollout Policies", func() {
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
-			newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
-			Expect(err).ToNot(HaveOccurred())
-
 			// Wait for all devices to be updated
 			for _, deviceID := range tc.deviceIDs {
-				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
+				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, deviceVersions[deviceID])
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -441,7 +444,7 @@ func rolloutDeviceSelection(b api.BatchSequence) *api.RolloutDeviceSelection {
 func createFleetSpec(b api.BatchSequence, threshold *api.Percentage, testFleetSpec api.DeviceSpec) api.FleetSpec {
 	return api.FleetSpec{
 		RolloutPolicy: &api.RolloutPolicy{
-			DefaultUpdateTimeout: lo.ToPtr("1m"),
+			DefaultUpdateTimeout: lo.ToPtr("90s"),
 			DeviceSelection:      rolloutDeviceSelection(b),
 			SuccessThreshold:     threshold,
 		},
