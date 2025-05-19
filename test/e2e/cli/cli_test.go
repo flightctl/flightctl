@@ -294,13 +294,13 @@ var _ = Describe("cli operation", func() {
 			By("Creating multiple test devices")
 			err := harness.CleanUpAllResources()
 			Expect(err).ToNot(HaveOccurred())
-			
+
 			out, err := harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("device.yaml"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
 			device1 := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath("device.yaml"))
 			device1Name := *device1.Metadata.Name
-			
+
 			out, err = harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("device-b.yaml"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
@@ -311,18 +311,18 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devices).To(ContainSubstring(device1Name))
 			Expect(devices).To(ContainSubstring(device2Name))
-			
+
 			By("Deleting multiple devices at once")
 			out, err = harness.CLI("delete", util.Device, device1Name, device2Name)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring("deleted"))
-			
+
 			By("Verifying both devices were deleted")
 			dev1, err := harness.Client.GetDeviceWithResponse(harness.Context, device1Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev1.JSON404).ToNot(BeNil(), "first device should not exist after deletion")
-			
+
 			dev2, err := harness.Client.GetDeviceWithResponse(harness.Context, device2Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev2.JSON404).ToNot(BeNil(), "second device should not exist after deletion")
