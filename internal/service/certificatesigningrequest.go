@@ -182,7 +182,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		h.autoApprove(ctx, orgId, result)
 	}
 
-	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if h.ca.IsSync() && api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
@@ -246,7 +246,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 	if result.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
 		h.autoApprove(ctx, orgId, result)
 	}
-	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if h.ca.IsSync() && api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
@@ -283,7 +283,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 	if result.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
 		h.autoApprove(ctx, orgId, result)
 	}
-	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if h.ca.IsSync() && api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
@@ -339,7 +339,7 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 		return nil, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 	}
 
-	if api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
+	if h.ca.IsSync() && api.IsStatusConditionTrue(result.Status.Conditions, api.CertificateSigningRequestApproved) {
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 

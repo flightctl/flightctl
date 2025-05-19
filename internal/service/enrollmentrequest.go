@@ -26,8 +26,8 @@ func approveEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.Enroll
 	}
 
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
-		Conditions:  []api.Condition{},
-		Approval:    approval,
+		Conditions: []api.Condition{},
+		Approval:   approval,
 	}
 
 	// union user-provided labels with agent-provided labels
@@ -287,10 +287,14 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		approvalStatusToReturn = &approvalStatus
 
 		if err := approveEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
+			return nil, api.StatusBadRequest(fmt.Sprintf("Error approving enrollment request: %v", err.Error()))
 		}
-		if err := signEnrollmentRequest(h.ca, enrollmentReq); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
+		if h.ca.IsSync() {
+			if err := signEnrollmentRequest(h.ca, enrollmentReq); err != nil {
+				return nil, api.StatusBadRequest(fmt.Sprintf("Error signing enrollment request: %v", err.Error()))
+			}
+		} else {
+			h.callbackManager.SignCertificates(orgId)
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request

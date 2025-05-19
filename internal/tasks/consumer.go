@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -14,7 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func dispatchTasks(serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
+func dispatchTasks(serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, ca *crypto.CAClient) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {
 		var reference tasks_client.ResourceReference
 		if err := json.Unmarshal(payload, &reference); err != nil {
@@ -34,6 +35,8 @@ func dispatchTasks(serviceHandler *service.ServiceHandler, callbackManager tasks
 			return deviceRender(ctx, &reference, serviceHandler, callbackManager, k8sClient, kvStore, log)
 		case tasks_client.RepositoryUpdatesTask:
 			return repositoryUpdate(ctx, &reference, serviceHandler, callbackManager, log)
+		case tasks_client.SignCertificatesTask:
+			return asyncCASign(ctx, &reference, serviceHandler, ca, log)
 		default:
 			return fmt.Errorf("unexpected task name %s", reference.TaskName)
 		}
@@ -46,6 +49,7 @@ func LaunchConsumers(ctx context.Context,
 	callbackManager tasks_client.CallbackManager,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,
+	ca *crypto.CAClient,
 	numConsumers, threadsPerConsumer int) error {
 	for i := 0; i != numConsumers; i++ {
 		consumer, err := queuesProvider.NewConsumer(consts.TaskQueue)
@@ -53,7 +57,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, callbackManager, k8sClient, kvStore)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, callbackManager, k8sClient, kvStore, ca)); err != nil {
 				return err
 			}
 		}

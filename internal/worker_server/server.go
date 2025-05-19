@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -23,6 +24,7 @@ type Server struct {
 	store          store.Store
 	queuesProvider queues.Provider
 	k8sClient      k8sclient.K8SClient
+	ca             *crypto.CAClient
 }
 
 // New returns a new instance of a flightctl server.
@@ -32,6 +34,7 @@ func New(
 	store store.Store,
 	queuesProvider queues.Provider,
 	k8sClient k8sclient.K8SClient,
+	ca *crypto.CAClient,
 ) *Server {
 	return &Server{
 		cfg:            cfg,
@@ -39,6 +42,7 @@ func New(
 		store:          store,
 		queuesProvider: queuesProvider,
 		k8sClient:      k8sClient,
+		ca:             ca,
 	}
 }
 
@@ -56,7 +60,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 	serviceHandler := service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "")
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, callbackManager, s.k8sClient, kvStore, 1, 1); err != nil {
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, callbackManager, s.k8sClient, kvStore, s.ca, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

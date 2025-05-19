@@ -171,3 +171,14 @@ func (mr *MockCallbackManagerMockRecorder) TemplateVersionCreatedCallback(orgId,
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TemplateVersionCreatedCallback", reflect.TypeOf((*MockCallbackManager)(nil).TemplateVersionCreatedCallback), orgId, before, after)
 }
+// SignCertificates mocks base method.
+func (m *MockCallbackManager) SignCertificates(orgId uuid.UUID) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SignCertificates", orgId)
+}
+
+// SignCertificates indicates an expected call of SignCertificates.
+func (mr *MockCallbackManagerMockRecorder) SignCertificates(orgId uuid.UUID) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignCertificates", reflect.TypeOf((*MockCallbackManager)(nil).SignCertificates), orgId)
+}
