@@ -611,7 +611,8 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 
 func (h *Harness) CleanUpResources(resourceType string) (string, error) {
 	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
-	return h.CLI("delete", resourceType)
+	cmd := fmt.Sprintf("delete %s $(get %s -o name)", resourceType, resourceType)
+	return h.CLI(cmd)
 
 }
 
