@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/flightctl/flightctl/internal/client"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -110,7 +110,7 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	names := args[1:]
 
 	return o.deleteMultiple(ctx, c, kind, names)
-	
+
 }
 
 func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientWithResponses, kind string, names []string) error {
@@ -118,7 +118,7 @@ func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientW
 
 	for _, name := range names {
 		response, deleteErr := o.deleteOne(ctx, c, kind, name)
-		
+
 		processErr := processDeletionReponse(response, deleteErr, kind, name)
 		if processErr != nil {
 			fmt.Printf("Error: %v\n", processErr)
@@ -127,7 +127,7 @@ func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientW
 			fmt.Printf("%s \"%s\" deleted\n", kind, name)
 		}
 	}
-	
+
 	return err
 }
 
