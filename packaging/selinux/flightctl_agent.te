@@ -1,35 +1,224 @@
 policy_module(flightctl_agent, 1.0.0)
 
-type flightctl_agent_t;
-domain_type(flightctl_agent_t);
-
 require {
-    # Existing types from the policy
-    type init_t;
-    type devpts_t;
-    type ptmx_t;
-    type unreserved_port_t;
-    
     attribute file_type;
-    attribute exec_type;
 
+    type init_t;
+    type bin_t;
+    type etc_t;
+    type tmp_t;
+    type unlabeled_t;
+    type install_exec_t;
+    type install_t;
+    type flightctl_agent_exec_t;
+    type flightctl_agent_var_lib_t;
+    type systemd_systemctl_exec_t;
+    type container_runtime_exec_t;
+    type container_var_run_t;
+    type container_file_t;
+    type container_var_lib_t;
+    type container_ro_file_t;
+    type container_t;
+    type container_runtime_t;
+    type cgroup_t;
+    type sssd_var_lib_t;
+    type passwd_file_t;
 
-    # Classes and permissions that will be used.
-    class file { read execute open };
+    class capability sys_admin;
+    class capability2 { mac_override mac_admin };
+    class filesystem { relabelfrom relabelto };
     class process transition;
-    class chr_file { open read write ioctl };
-    class tcp_socket { name_connect };
+    class file {
+        read open execute getattr execute_no_trans map
+        relabelfrom relabelto write unlink create rename setattr ioctl
+    };
+    class dir {
+        read write open search create getattr add_name remove_name
+    };
+    class socket create;
+    class tcp_socket {
+        connectto name_connect node_bind newconn acceptfrom
+        getopt setopt shutdown read write create recvfrom sendto getattr
+    };
+    class udp_socket { name_bind create connect getattr setopt sendto write read recvfrom };
+    class rawip_socket { create getattr };
+    class unix_dgram_socket { connect create getattr write };
+    class unix_stream_socket { connect create getattr read write };
+    class netlink_route_socket { create bind getattr nlmsg_read read write };
+    class netlink_socket { create getattr read write };
+
+    attribute container_domain;
 }
 
-# Define the new file type for the flightctl-agent executable.
-# It must have the file and exec attributes.
-type flightctl_agent_exec_t, file_type, exec_type;
+# ------------------------------------------------------------------------------
+# Domain declaration & transitions
+# ------------------------------------------------------------------------------
 
-# When a process running in init_t executes a file labeled flightctl_agent_exec_t,
-# have it transition into flightctl_agent_t.
+type flightctl_agent_t;
+type flightctl_agent_exec_t;
+type flightctl_agent_var_lib_t;
+
+init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
+files_type(flightctl_agent_var_lib_t)
+
 type_transition init_t flightctl_agent_exec_t:process flightctl_agent_t;
+allow init_t flightctl_agent_exec_t:file { read open execute };
+allow init_t flightctl_agent_t:process transition;
 
-# Allow the flightctl-agent process (running in flightctl_agent_t) to do what it needs.
-allow flightctl_agent_t devpts_t:chr_file open;
-allow flightctl_agent_t ptmx_t:chr_file { open read write ioctl };
-allow flightctl_agent_t unreserved_port_t:tcp_socket name_connect;  
+# ------------------------------------------------------------------------------
+# Filesystem access
+# ------------------------------------------------------------------------------
+
+allow flightctl_agent_t flightctl_agent_var_lib_t:dir { read write open search create getattr add_name remove_name };
+allow flightctl_agent_t flightctl_agent_var_lib_t:file { read write open create getattr rename setattr unlink };
+allow flightctl_agent_t self:capability2 mac_admin;
+
+allow flightctl_agent_t tmp_t:dir { write add_name remove_name relabelfrom };
+allow flightctl_agent_t tmp_t:file { create open write unlink relabelfrom setattr };
+allow flightctl_agent_t install_t:file relabelto;
+allow flightctl_agent_t install_t:dir relabelto;
+
+allow flightctl_agent_t file_type:{ file dir lnk_file chr_file blk_file sock_file fifo_file } *;
+
+allow flightctl_agent_t unlabeled_t:dir { write getattr };
+allow flightctl_agent_t unlabeled_t:file { read getattr open map };
+
+selinux_get_enforce_mode(flightctl_agent_t)
+
+# ------------------------------------------------------------------------------
+# Process & execution control
+# ------------------------------------------------------------------------------
+
+allow flightctl_agent_t bin_t:file { read open execute getattr execute_no_trans };
+allow flightctl_agent_t install_exec_t:file { read open execute getattr execute_no_trans map };
+allow flightctl_agent_t systemd_systemctl_exec_t:file { getattr execute execute_no_trans };
+
+allow flightctl_agent_t self:process { fork execmem sigchld setfscreate getsched setsched };
+allow flightctl_agent_t init_t:process sigchld;
+
+# ------------------------------------------------------------------------------
+# Networking (full access)
+# ------------------------------------------------------------------------------
+
+allow flightctl_agent_t self:socket create;
+allow flightctl_agent_t self:tcp_socket *;
+allow flightctl_agent_t self:udp_socket *;
+allow flightctl_agent_t self:rawip_socket *;
+allow flightctl_agent_t self:unix_stream_socket *;
+allow flightctl_agent_t self:unix_dgram_socket *;
+allow flightctl_agent_t self:netlink_socket *;
+allow flightctl_agent_t self:netlink_route_socket *;
+
+corenet_tcp_connect_unreserved_ports(flightctl_agent_t)
+corenet_tcp_connect_all_ports(flightctl_agent_t)
+corenet_udp_sendrecv_all_ports(flightctl_agent_t)
+corenet_tcp_sendrecv_generic_if(flightctl_agent_t)
+corenet_udp_sendrecv_generic_if(flightctl_agent_t)
+corenet_tcp_sendrecv_all_nodes(flightctl_agent_t)
+corenet_udp_sendrecv_all_nodes(flightctl_agent_t)
+corenet_tcp_bind_all_ports(flightctl_agent_t)
+corenet_udp_bind_all_ports(flightctl_agent_t)
+corenet_all_recvfrom_unlabeled(flightctl_agent_t)
+corenet_all_recvfrom_netlabel(flightctl_agent_t)
+
+# ------------------------------------------------------------------------------
+# Kernel & system internals
+# ------------------------------------------------------------------------------
+
+dev_read_sysfs(flightctl_agent_t)
+kernel_read_proc_files(flightctl_agent_t)
+kernel_read_network_state(flightctl_agent_t)
+kernel_read_network_state_symlinks(flightctl_agent_t)
+kernel_dgram_send(flightctl_agent_t)
+init_read_utmp(flightctl_agent_t)
+init_read_state(flightctl_agent_t)
+
+# ------------------------------------------------------------------------------
+# System utility helpers
+# ------------------------------------------------------------------------------
+
+hostname_exec(flightctl_agent_t)
+corecmd_bin_entry_type(flightctl_agent_t)
+corecmd_mmap_bin_files(flightctl_agent_t)
+sysnet_read_config(flightctl_agent_t)
+
+# ------------------------------------------------------------------------------
+# Authentication (include only if needed)
+# ------------------------------------------------------------------------------
+
+auth_manage_shadow(flightctl_agent_t)
+auth_etc_filetrans_shadow(flightctl_agent_t)
+
+# ------------------------------------------------------------------------------
+# Other access (cgroups, sssd, passwd, tty banner)
+# ------------------------------------------------------------------------------
+
+allow flightctl_agent_t cgroup_t:dir { search open read getattr };
+allow flightctl_agent_t cgroup_t:filesystem getattr;
+allow flightctl_agent_t sssd_var_lib_t:dir search;
+allow flightctl_agent_t passwd_file_t:file { read open };
+
+# ------------------------------------------------------------------------------
+# Podman / container management support
+# ------------------------------------------------------------------------------
+
+# Full access to Podman's internal cache and SQLite
+allow flightctl_agent_t container_var_lib_t:dir {
+    read write open search create getattr add_name remove_name
+};
+allow flightctl_agent_t container_var_lib_t:file {
+    read write open create getattr rename setattr unlink ioctl
+};
+
+# Runtime files
+allow flightctl_agent_t container_var_run_t:dir {
+    read write open search create getattr add_name remove_name
+};
+allow flightctl_agent_t container_var_run_t:file {
+    read write open create getattr rename setattr unlink ioctl
+};
+allow flightctl_agent_t container_var_run_t:sock_file {
+    read write create getattr unlink
+};
+
+# Access to read-only container content
+allow flightctl_agent_t container_ro_file_t:dir {
+    open read search getattr
+};
+allow flightctl_agent_t container_ro_file_t:file {
+    open read getattr execute map
+};
+allow flightctl_agent_t container_ro_file_t:lnk_file {
+    read getattr
+};
+
+# Optional: access to container bind mount and volume files
+allow flightctl_agent_t container_file_t:dir {
+    open read write search getattr create add_name remove_name
+};
+allow flightctl_agent_t container_file_t:file {
+    open read write create getattr unlink rename
+};
+allow flightctl_agent_t container_file_t:lnk_file {
+    read write getattr
+};
+
+# Podman process execution
+allow flightctl_agent_t container_runtime_t:{ file dir filesystem } *;
+allow flightctl_agent_t container_t:process { transition sigchld sigkill signal };
+type_transition flightctl_agent_t container_runtime_exec_t:process container_t;
+allow container_t flightctl_agent_t:fifo_file write;
+
+# ------------------------------------------------------------------------------
+# Relabeling & mount operation
+# ------------------------------------------------------------------------------
+
+allow flightctl_agent_t self:filesystem { relabelfrom relabelto };
+files_mounton_rootfs(flightctl_agent_t)
+
+# ------------------------------------------------------------------------------
+# Capabilities
+# ------------------------------------------------------------------------------
+
+allow flightctl_agent_t self:capability sys_admin;
+fs_all_mount_fs_perms_xattr_fs(flightctl_agent_t)
