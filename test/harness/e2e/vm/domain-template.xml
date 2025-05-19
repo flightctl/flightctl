@@ -1,0 +1,70 @@
+<domain type="kvm" xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0">
+  <name>{{.Name}}</name>
+  <memory unit="MiB">512</memory>
+  <memoryBacking>
+    <source type="memfd"/>
+    <access mode="shared"/>
+  </memoryBacking>
+  <vcpu>2</vcpu>
+  <features>
+    <acpi></acpi>
+    <apic></apic>
+  </features>
+  <cpu mode='custom' check='none'>
+    <!-- this oddly specific CPU model is used because it works well with github CI and locally,
+         it limits the feature set exposure of the CPU, avoiding a kernel crash at boot when
+         secureboot is enabled -->
+    <model>Opteron_G4</model>
+  </cpu>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <os firmware='efi'>
+    <type machine='q35'>hvm</type>
+    <boot dev='hd'/>
+    <firmware>
+      <feature enabled='yes' name='secure-boot'/>
+      <!-- we enable secureboot to make sure that attestation is happening, but don't enroll the keys to avoid
+	   issues booting vms in fedora -->
+      <feature enabled='no' name='enrolled-keys'/>
+   </firmware>
+  </os>
+  <devices>
+    <serial type='pty'>
+      <target type='isa-serial' port='0'>
+        <model name='isa-serial'/>
+      </target>
+      <alias name='serial0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+      <alias name='serial0'/>
+    </console>
+    <disk device="disk" type="file">
+      <driver name="qemu" type="qcow2"></driver>
+      <source file="{{.DiskImagePath}}"></source>
+      <target bus="virtio" dev="vda"></target>
+      <transient/>
+    </disk>
+    {{.CloudInitCDRom}}
+    <rng model='virtio'>
+      <backend model='random'>/dev/urandom</backend>
+      <alias name='rng0'/>
+      <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
+    </rng>
+    <tpm model='tpm-tis'>
+      <backend type='emulator' version='2.0'>
+        <active_pcr_banks>
+            <sha256/>
+        </active_pcr_banks>
+      </backend>
+    </tpm>
+  </devices>
+  <qemu:commandline>
+    <qemu:arg value='-netdev'/>
+    <qemu:arg value='user,id=n0,hostfwd=tcp::{{.Port}}-:22'/>
+    <qemu:arg value='-device' />
+    <qemu:arg value='virtio-net-pci,netdev=n0,bus=pcie.0,addr=0x10' />
+    {{.SMBios}}
+  </qemu:commandline>
+</domain>

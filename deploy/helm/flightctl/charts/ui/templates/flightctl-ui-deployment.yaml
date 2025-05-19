@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flightctl-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: flightctl-ui
+    role: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flightctl-ui
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: flightctl-ui
+        role: frontend
+    spec:
+      containers:
+        - env:
+          - name: API_PORT
+            value: '8080'
+          - name: FLIGHTCTL_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_SERVER
+          {{- if .Values.cliArtifacts.enabled }}
+          - name: FLIGHTCTL_CLI_ARTIFACTS_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_CLI_ARTIFACTS_SERVER
+          {{- end }}
+          - name: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
+          {{- if eq .Values.global.target "acm" }}
+          - name: TLS_KEY
+            value: /app/serving-cert/tls.key
+          - name: TLS_CERT
+            value: /app/serving-cert/tls.crt
+          - name: IS_OCP_PLUGIN
+            value: "true"
+          - name: K8S_RBAC_NS
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: K8S_RBAC_NS
+          {{- else }}
+          - name: INTERNAL_AUTH_URL
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: INTERNAL_AUTH_URL
+          - name: BASE_UI_URL
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: BASE_UI_URL
+          - name: AUTH_INSECURE_SKIP_VERIFY
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: AUTH_INSECURE_SKIP_VERIFY
+          - name: IS_RHEM
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: IS_RHEM
+          - name: AUTH_CLIENT_ID
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: AUTH_CLIENT_ID
+          {{- end }}
+          {{- if .Values.image.image }}
+          image: {{ .Values.image.image }}:{{ default .Chart.AppVersion .Values.image.tag }}
+          {{- else if eq (.Values.global).target "acm" }}
+          image: quay.io/flightctl/flightctl-ocp-ui:{{ default .Chart.AppVersion .Values.image.tag }}
+          {{- else }}
+          image: quay.io/flightctl/flightctl-ui:{{ default .Chart.AppVersion .Values.image.tag }}
+          {{- end  }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.image.pullPolicy }}
+          name: flightctl-ui
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /app/certs
+              name: flightctl-ui-certs
+            {{- if eq .Values.global.target "acm" }}
+            - mountPath: /app/serving-cert
+              name: flightctl-ui-serving-cert
+            {{- end }}
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-ui-certs
+          secret:
+            secretName: flightctl-ui-certs
+            items:
+              - key: ca.crt
+                path: ca.crt
+              {{- if or ((.Values.global).auth).caCert .Values.auth.caCert }}
+              - key: ca_auth.crt
+                path: ca_auth.crt
+              {{ end }}
+        {{- if eq .Values.global.target "acm" }}
+        - name: flightctl-ui-serving-cert
+          secret:
+            secretName: flightctl-ui-serving-cert
+            defaultMode: 420
+        {{- end }}

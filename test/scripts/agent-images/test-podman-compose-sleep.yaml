@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  service1:
+    image:  quay.io/flightctl-tests/alpine:v1
+    command: ["sleep", "infinity"]
+
+  service2:
+    image:  quay.io/flightctl-tests/alpine:v1
+    command: ["sleep", "infinity"]
+
+  service3:
+    image:  quay.io/flightctl-tests/alpine:v1
+    command: ["sleep", "infinity"]

@@ -1,0 +1,54 @@
+{{ if .Values.periodic.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-periodic
+  name: flightctl-periodic
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-periodic
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-periodic
+    spec:
+      containers:
+        - name: periodic
+          image: {{ .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.periodic.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterUser
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-periodic-config
+              subPath: config.yaml
+              readOnly: true
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-periodic-config
+          configMap:
+            name: flightctl-periodic-config
+{{ end }}

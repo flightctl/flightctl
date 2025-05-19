@@ -1,0 +1,132 @@
+
+name: Push to main
+
+on:
+  push:
+    branches:
+      - main
+      - 'release-*'
+    tags:
+      - '*'
+
+env:
+  QUAY_ORG: quay.io/flightctl
+  QUAY_CHARTS: quay.io/flightctl/charts
+
+jobs:
+  generate-tags:
+    runs-on: "ubuntu-24.04"
+    outputs:
+      image_tags: ${{ steps.get-tags.outputs.image_tags }}
+      helm_tag: ${{ steps.get-tags.outputs.helm_tag }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Generate version tag
+        id: get-tags
+        run: |
+          if ${{ github.ref_type == 'tag' }}; then
+            # The images tags will match the Release tag
+            image_tags=( ${{ github.ref_name }} )
+            # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
+            image_tags=$(echo "${image_tags#v}" | sed 's/~/-/g')
+
+            echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
+            echo "helm_tag=${image_tags[@]}" >> $GITHUB_OUTPUT
+            echo "image_tags,helm_tag=${image_tags[@]}"
+
+          else
+            version=$(git describe --long --tags --exclude latest)
+            # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
+            version=$(echo "${version#v}" | sed 's/~/-/g')
+
+            # if the branch is main, we tag the image as latest, otherwise release-0.x
+            if ${{ github.ref_name == 'main' }}; then
+              latest_tag="latest"
+            else
+              latest_tag="${{ github.ref_name }}"
+            fi
+
+            # The images tags are taken from git
+            image_tags=( ${latest_tag}-${GITHUB_SHA} ${latest_tag} ${version} )
+            echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
+            echo "image_tags=${image_tags[@]}"
+
+            helm_tag=${version} # remove the leading v prefix for version
+            echo "helm_tag=${helm_tag}" >> $GITHUB_OUTPUT
+            echo "helm_tag=${helm_tag}"
+          fi
+
+  publish-helm-charts-containers:
+    runs-on: "ubuntu-24.04"
+    needs: [publish-flightctl-containers, generate-tags]
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup all dependencies
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Build helm charts
+        run: |
+          echo packaging "${{ needs.generate-tags.outputs.helm_tag }}"
+          if ${{ github.ref_type == 'tag'  }}; then
+            # Use release tag for UI chart too
+            sed -i 's/^appVersion:.*/appVersion: "${{ needs.generate-tags.outputs.helm_tag }}"/' ./deploy/helm/flightctl/charts/ui/Chart.yaml
+          fi
+          helm dependency build ./deploy/helm/flightctl
+          helm package ./deploy/helm/flightctl \
+              --version "${{ needs.generate-tags.outputs.helm_tag }}" \
+              --app-version "${{ needs.generate-tags.outputs.helm_tag }}"
+
+      - name: Login helm
+        env:
+          PASSWORD: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+          USER: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
+        run:
+          helm registry login quay.io -u ${USER} -p ${PASSWORD}
+
+      - name: Push helm charts
+        run: |
+          helm push "flightctl-${{ needs.generate-tags.outputs.helm_tag }}.tgz" oci://${{ env.QUAY_CHARTS }}/
+
+  publish-flightctl-containers:
+    strategy:
+      matrix:
+        image: ['api', 'periodic', 'worker', 'cli-artifacts']
+    needs: [generate-tags]
+    runs-on: "ubuntu-24.04"
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: flightctl-${{ matrix.image }}
+          tags: ${{ needs.generate-tags.outputs.image_tags }}
+          labels: |
+            org.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
+          extra-args: |
+            --ulimit nofile=10000:10000
+          containerfiles: Containerfile.${{ matrix.image }}
+          context: .
+
+      - name: Push to Quay.io
+        id: push
+        uses: redhat-actions/push-to-registry@v2.7
+        with:
+          image: ${{ steps.build.outputs.image }}
+          tags: ${{ steps.build.outputs.tags }}
+          registry: ${{ env.QUAY_ORG }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}

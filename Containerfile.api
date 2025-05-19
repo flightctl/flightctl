@@ -1,0 +1,31 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.22 as build
+WORKDIR /app
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+COPY ./api api
+COPY ./cmd cmd
+COPY ./deploy deploy
+COPY ./hack hack
+COPY ./internal internal
+COPY ./go.* ./
+COPY ./pkg pkg
+COPY ./test test
+COPY ./Makefile .
+# make sure that version extraction works
+COPY .git .git
+
+USER 0
+RUN git config --global --add safe.directory /app
+RUN make build-api
+
+FROM registry.access.redhat.com/ubi9/ubi as certs
+RUN dnf update --nodocs -y  && dnf install ca-certificates tzdata --nodocs -y
+
+FROM registry.access.redhat.com/ubi9/ubi-micro
+WORKDIR /app
+COPY --from=build /app/bin/flightctl-api .
+COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
+COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
+
+CMD ./flightctl-api

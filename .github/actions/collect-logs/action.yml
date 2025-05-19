@@ -1,0 +1,70 @@
+name: 'Collect Logs and Upload'
+description: 'Collect logs from Kubernetes pods and upload them as artifacts'
+inputs:
+  namespace-external:
+    description: 'The external namespace for logs'
+    required: true
+    default: 'flightctl-external'
+  namespace-internal:
+    description: 'The internal namespace for logs'
+    required: true
+    default: 'flightctl-internal'
+  log-directory:
+    description: 'The directory to store log files'
+    required: false
+    default: 'logs'
+runs:
+  using: 'composite'
+  steps:
+    - name: Collect logs
+      id: collect_logs
+      shell: bash
+      continue-on-error: true
+      if: always()
+      run: |
+        mkdir -p ${{ inputs.log-directory }}
+        # Cleanup logs older than 7 days
+        find ${{ inputs.log-directory }} -type f -name "*.log" -mtime +7 -delete
+
+        timestamp=$(date +%Y%m%d_%H%M%S)
+
+        log_files_collected=false
+
+        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker; do
+          echo "Collecting logs for $deployment..."
+          namespace=""
+          if [[ "$deployment" == "flightctl-api" ]]; then
+            namespace="${{ inputs.namespace-external }}"
+          else
+            namespace="${{ inputs.namespace-internal }}"
+          fi
+          if kubectl logs -n $namespace deployment/$deployment --all-containers=true \
+             > ${{ inputs.log-directory }}/${deployment}_${timestamp}.log; then
+            log_files_collected=true
+          else
+            echo "Error collecting logs for $deployment"
+          fi
+        done
+
+        for statefulset in flightctl-kv; do
+          echo "Collecting logs for $statefulset..."
+          if kubectl logs -n ${{ inputs.namespace-internal }} statefulset/$statefulset --all-containers=true \
+             > ${{ inputs.log-directory }}/${statefulset}_${timestamp}.log; then
+            log_files_collected=true
+          else
+            echo "Error collecting logs for $statefulset"
+          fi
+        done
+
+        if [[ "$log_files_collected" == false ]]; then
+          echo "No log files were collected."
+        fi
+        echo "log_files_collected=$log_files_collected" >> $GITHUB_OUTPUT
+    - name: Upload logs as artifacts
+      if: always() && steps.collect_logs.outputs.log_files_collected == 'true'
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.log-directory }}
+        path: ${{ inputs.log-directory }}
+        retention-days: 7

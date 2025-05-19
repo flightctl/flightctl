@@ -1,0 +1,8 @@
+FROM registry.fedoraproject.org/fedora:41
+
+RUN dnf install -y make packit golang openssl-devel go-rpm-macros selinux-policy selinux-policy-devel && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf && \
+    mkdir /work
+
+WORKDIR /work

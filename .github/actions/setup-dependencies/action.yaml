@@ -1,0 +1,53 @@
+---
+name: 'Setup environment'
+description: 'Setup CI environment for testing'
+inputs:
+  setup_kvm:
+    description: 'Setup kvm in the VM'
+    required: false
+    default: ''
+runs:
+  using: "composite"
+  steps:
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Enable KVM group perms
+        shell: bash
+        if: inputs.setup_kvm != ''
+        run: |
+          echo "::group::Setting up KVM and virtualization tools"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt update -y
+          sudo apt install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
+                              virtinst bridge-utils qemu-system-x86 qemu-kvm \
+                              swtpm apparmor-utils
+          sudo usermod -a -G kvm,libvirt,swtpm $USER
+          echo "::endgroup::"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          echo "::group::Installing general dependencies"
+          sudo apt update -y # fix broken repo cache
+          sudo apt install -y make python3-pip podman podman-compose libvirt-dev
+
+          curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
+          sudo unzip -q protoc.zip bin/protoc -d /usr/local
+          sudo chmod a+x /usr/local/bin/protoc
+          protoc --version
+          rm -rf protoc.zip
+          echo "::endgroup::"
+
+      - name: Fix container storage driver
+        shell: bash
+        run: |
+          # Fix storage driver so it can be used with BIB (see https://github.com/osbuild/bootc-image-builder/issues/446)
+          sudo rm -rf /var/lib/containers/storage
+          sudo mkdir -p /etc/containers
+          echo -e "[storage]\ndriver = \"overlay\"\nrunroot = \"/run/containers/storage\"\ngraphroot = \"/var/lib/containers/storage\"" | sudo tee /etc/containers/storage.conf
+

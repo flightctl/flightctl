@@ -1,0 +1,4 @@
+[Network]
+NetworkName=flightctl
+Driver=bridge
+IPAMDriver=host-local

@@ -1,0 +1,211 @@
+name: "Release CLI Binaries on GH"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+    tags:
+      - '*'
+  pull_request:
+
+jobs:
+  setup:
+    name: Set Up Shared Environment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+  build:
+    name: Build Binaries
+    strategy:
+      matrix:
+        tag: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64", "windows-arm64" ]
+        include:
+          # Linux builds
+          - tag: linux-amd64
+            arch: amd64
+            os: linux
+            zip: .tar.gz
+            ext: ""
+          - tag: linux-arm64
+            arch: arm64
+            os: linux
+            zip: .tar.gz
+            ext: ""
+
+          # macOS builds
+          - tag: darwin-amd64
+            arch: amd64
+            os: darwin
+            zip: .zip
+            ext: ""
+          - tag: darwin-arm64
+            arch: arm64
+            os: darwin
+            zip: .zip
+            ext: ""
+
+          # Windows builds
+          - tag: windows-amd64
+            arch: amd64
+            os: windows
+            zip: .zip
+            ext: .exe
+          - tag: windows-arm64
+            arch: arm64
+            os: windows
+            zip: .zip
+            ext: .exe
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Install dependencies
+      - name: Install Dependencies
+        run: go mod tidy
+
+      - name: Build
+        run: |
+          GOOS="${{ matrix.os }}" GOARCH="${{ matrix.arch }}" make build-cli
+          mv "bin/flightctl${{ matrix.ext }}" "flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}"
+          SHA=$(shasum -a 256 flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }} | cut -d' ' -f1)
+          echo ${SHA} > flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+          if [ "${{ matrix.zip }}" = ".zip" ]; then
+            zip flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }} flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          else
+            tar cvf flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }} flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          fi
+
+      - name: Save zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
+
+      - name: Save binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+
+      - name: Save checksum
+        uses: actions/upload-artifact@v4
+        with:
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+
+  verify-windows:
+    name: Verify Binaries on windows
+    strategy:
+      matrix:
+        # GitHub Actions does not provide a native Windows ARM64 runner
+        arch: [ "amd64" ]
+    runs-on: "windows-latest"
+    needs: build
+    steps:
+      - name: Load binary
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-windows-${{ matrix.arch }}.exe
+      - name: Verify
+        run: .\flightctl-windows-${{ matrix.arch }}.exe version
+
+  verify:
+    name: Verify Binaries on linux/macos
+    strategy:
+      matrix:
+        os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]
+        include:
+          - os_arch: "linux-amd64"
+            runner: "ubuntu-latest"
+          - os_arch: "linux-arm64"
+            runner: "ubuntu-latest"
+          - os_arch: "darwin-amd64"
+            runner: "macos-latest"
+          - os_arch: "darwin-arm64"
+            runner: "macos-latest"
+    runs-on: ${{ matrix.runner }}
+    needs: build
+
+    steps:
+      - name: Load binary
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-${{ matrix.os_arch }}
+
+      - name: Make Executable
+        run: chmod +x flightctl-${{ matrix.os_arch }}
+
+      - name: Setup QEMU
+        run: |
+          if [[ "${{ matrix.os_arch }}" == "linux-arm64" ]]; then
+            docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          fi
+
+      - name: Verify
+        run: |
+          # Verify version output
+          if [[ "${{ matrix.os_arch }}" == "linux-arm64" ]]; then
+            docker run --rm --platform linux/arm64 -v ${{ github.workspace }}:/workspace ubuntu:latest /workspace/flightctl-${{ matrix.os_arch }} version -o yaml
+          else
+            ./flightctl-${{ matrix.os_arch }} version -o yaml
+          fi
+          if [ $? -gt 0 ]; then
+            echo "Error: Version command failed"
+            exit 1
+          fi
+
+  publish:
+    name: Publish Binaries
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    needs: verify
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load binary archives
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: release
+
+      # if this is a push to the main branch, we update the latest release of binaries
+      - name: Publish latest
+        if: ${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OLD_RELEASE=$(gh release list --json 'tagName' --jq 'any(.[]; .tagName == "latest")')
+          if [ $OLD_RELEASE == 'true' ]; then
+            # if there is a release already we only update the binaries
+            # otherwise a new release will trigger an rpm build from packit
+            gh release upload latest --clobber release/*
+          else
+            # if the release did not exist, we should create it at least once
+            gh release create -p -n "Flight Control CLI pre-release" latest release/*
+          fi
+
+      # if this is a tag, we upload the release binaries, the release already exists
+      - name: Publish tag
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} release/*

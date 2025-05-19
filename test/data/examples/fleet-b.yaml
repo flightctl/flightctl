@@ -1,0 +1,35 @@
+apiVersion: flightctl.io/v1alpha1
+kind: Fleet
+metadata:
+  name: fleet-b
+spec:
+  selector:
+    matchLabels:
+      fleet: fleet-b
+  template:
+    metadata:
+      labels:
+        fleet: fleet-b
+    spec:
+      os:
+        image: quay.io/redhat/rhde:9.2
+      config:
+        - name: base
+          gitRef:
+            repository: default-repo
+            targetRevision: main
+            path: /production
+            mountPath: /etc/microshift/manifests
+        - name: acm-secrets
+          secretRef:
+            name: device-name
+            namespace: devices
+            mountPath: /etc/microshift/manifests
+        - name: motd-update
+          inline:
+            - path: "/etc/motd"
+              content: "This system is managed by flightctl."
+              mode: 0644
+      systemd:
+        matchPatterns:
+          - chronyd.service

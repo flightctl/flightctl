@@ -1,0 +1,9 @@
+apiVersion: projectcontour.io/v1alpha1
+kind: ContourDeployment
+metadata:
+  namespace: projectcontour
+  name: contour-params
+spec:
+  envoy:
+    networkPublishing:
+      type: NodePortService

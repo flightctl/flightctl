@@ -1,0 +1,506 @@
+extends:
+  - [spectral:oas, all]
+  # - "https://unpkg.com/@stoplight/spectral-owasp-ruleset/dist/ruleset.mjs"
+
+aliases:
+  PathToResourceCollection:
+    - '$.paths[?(@property.match( "^/api/v1/[a-z]+$" ))]'
+  PathToResource:
+    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}$" ))]'
+  PathToStatusSubresource:
+    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}/status$" ))]'
+  PathToApprovalSubresource:
+    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}/approval$" ))]'
+
+rules:
+  # Allow conditions of different resource kinds to have the same name.
+  duplicated-entry-in-enum: off
+  # Allow consts and components used outside of generated REST API (e.g. hooks, config files).
+  oas3-unused-component: off
+
+  # Paths
+  ## Path formatting
+  paths-are-lowercase:
+    description: Paths must be lower case without hyphens.
+    severity: error
+    given: $.paths.*~
+    then:
+      function: pattern
+      functionOptions:
+        match: '^(/[a-z0-9/]+|/{name}|/{fleet})+$'
+
+  ## Allowed and required verbs
+  collection-verbs-required:
+    description: Resource collections must have POST, GET, DELETE verbs.
+    message: "Verb {{property}} is required."
+    severity: error
+    given: "#PathToResourceCollection"
+    then:
+      - field: post
+        function: truthy
+      - field: get
+        function: truthy
+      - field: delete
+        function: truthy
+
+  resource-verbs-required:
+    description: Resources must have GET, PUT, PATCH, DELETE verbs.
+    message: "Verb {{property}} is required."
+    severity: error
+    given: "#PathToResource"
+    then:
+      - field: get
+        function: truthy
+      - field: put
+        function: truthy
+      - field: patch
+        function: truthy
+      - field: delete
+        function: truthy
+
+  subresource-status-verbs-required:
+    description: '`/status` subresources must have GET, PUT, PATCH verbs.'
+    message: "Verb {{property}} is required."
+    severity: error
+    given: "#PathToStatusSubresource"
+    then:
+      - field: get
+        function: truthy
+      - field: put
+        function: truthy
+      - field: patch
+        function: truthy
+
+  subresource-status-verbs-allowed:
+    description: '`/status` subresources must not have POST verb.'
+    message: "Verb {{property}} is not allowed."
+    severity: error
+    given: "#PathToStatusSubresource"
+    then:
+      field: post
+      function: falsy
+
+  subresource-approval-verbs-required:
+    description: '`/approval` subresources must have PUT verb.'
+    message: "Verb {{property}} is required."
+    severity: error
+    given: "#PathToApprovalSubresource"
+    then:
+      - field: put
+        function: truthy
+
+  subresource-approval-verbs-allowed:
+    description: '`/approval` subresources must not have POST, GET, PATCH verbs.'
+    message: "Verb {{property}} is not allowed."
+    severity: error
+    given: "#PathToApprovalSubresource"
+    then:
+      - field: post
+        function: falsy
+      - field: get
+        function: falsy
+      - field: patch
+        function: falsy
+
+  ## Verb descriptions
+  verb-description-required:
+    description: Description required for verbs.
+    severity: error
+    type: style
+    given: $.path[*]
+    then:
+      field: description
+      function: truthy
+
+  verb-description-starts-capital:
+    description: Description should start with a capital letter.
+    severity: warn
+    type: style
+    given: $.path[*]
+    then:
+      field: description
+      function: pattern
+      functionOptions:
+        match: "^[A-Z]"
+
+  verb-description-ends-period:
+    description: Description should end with a period.
+    severity: warn
+    type: style
+    given: $.path[*]
+    then:
+      field: description
+      function: pattern
+      functionOptions:
+        match: ".+\\.$"
+
+  ## Query parameter formatting
+  query-is-camelcase:
+    description: Query parameters must be camelCase.
+    severity: error
+    given: $.paths..parameters[?(@.in == "query")].name
+    then:
+      function: casing
+      functionOptions:
+        type: camel
+
+  ## Allowed and required query parameters
+
+  ## Parameter formatting and descriptions
+  parameter-description-required:
+    description: Description required for parameters.
+    severity: error
+    type: style
+    given: $..parameters[?(@.in)]
+    then:
+      field: "description"
+      function: truthy
+
+  parameter-description-starts-capital:
+    description: Description should start with a capital letter.
+    severity: warn
+    type: style
+    given: $..parameters[?(@.in)]
+    then:
+      field: "description"
+      function: pattern
+      functionOptions:
+        match: "^[A-Z]"
+
+  parameter-description-ends-period:
+    description: Description should end with a period.
+    severity: warn
+    type: style
+    given: $..parameters[?(@.in)]
+    then:
+      field: "description"
+      function: pattern
+      functionOptions:
+        match: ".+\\.$"
+
+  ## Allowed and required request
+  request-get-delete-no-body:
+    description: GET and DELETE request must not accept a `body` parameter.
+    severity: error
+    given: $path.[?(@property.match( /(get|delete)/ ))].parameters..in
+    then:
+      function: pattern
+      functionOptions:
+        notMatch: "/^body$/"
+
+  ## Allowed and required responses
+  responses-collection-post-required:
+    description: POST on resource collections must have responses 201, 400, 401, 403, 409, 503.
+    message: "Response {{property}} is required."
+    severity: error
+    given: "#PathToResourceCollection.post"
+    then:
+      - field: responses.201
+        function: truthy
+      - field: responses.400
+        function: truthy
+      - field: responses.401
+        function: truthy
+      - field: responses.403
+        function: truthy
+      - field: responses.409
+        function: truthy
+      - field: responses.503
+        function: truthy
+
+  responses-collection-post-allowed:
+    description: POST on resource collections must not have responses other than 201, 400, 401, 403, 409, 503.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToResourceCollection.post.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["201", "400", "401", "403", "409", "503"]
+
+  responses-collection-get-required:
+    description: GET on resource collections must have responses 200, 400, 401, 403, 503.
+    message: "Response {{property}} is required."
+    severity: error
+    given: "#PathToResourceCollection.get"
+    then:
+      - field: responses.200
+        function: truthy
+      - field: responses.400
+        function: truthy
+      - field: responses.401
+        function: truthy
+      - field: responses.403
+        function: truthy
+      - field: responses.503
+        function: truthy
+
+  responses-collection-get-allowed:
+    description: GET on resource collections must not have responses other than 200, 400, 401, 403, 404, 503.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToResourceCollection.get.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["200", "400", "401", "403", "404", "503"]
+
+  responses-collection-delete-required:
+    description: DELETE on resource collections must have responses 200, 401, 403, 503.
+    message: "Response {{property}} is required."
+    severity: error
+    given: "#PathToResourceCollection.delete"
+    then:
+      - field: responses.200
+        function: truthy
+      - field: responses.401
+        function: truthy
+      - field: responses.403
+        function: truthy
+      - field: responses.503
+        function: truthy
+
+  responses-collection-delete-allowed:
+    description: DELETE on resource collections must not have responses other than 200, 401, 403, 404, 503.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToResourceCollection.delete.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["200", "401", "403", "404", "503"]
+
+  responses-resource-get-required:
+    description: GET on a resource must have responses 200, 401, 403, 404, 503.
+    message: "Response {{property}} is required."
+    severity: error
+    given: "#PathToResource.get"
+    then:
+      - field: responses.200
+        function: truthy
+      - field: responses.401
+        function: truthy
+      - field: responses.403
+        function: truthy
+      - field: responses.404
+        function: truthy
+      - field: responses.503
+        function: truthy
+
+  responses-resource-get-allowed:
+    description: GET on a resource must not have responses other than 200, 401, 403, 404, 503.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToResource.get.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["200", "401", "403", "404", "503"]
+
+  responses-resource-put-required:
+    description: PUT on a resource must have responses 200, 201, 400, 401, 403, 404, 409, 503.
+    message: "Response {{property}} is required."
+    severity: error
+    given: "#PathToResource.put"
+    then:
+      - field: responses.200
+        function: truthy
+      - field: responses.201
+        function: truthy
+      - field: responses.400
+        function: truthy
+      - field: responses.401
+        function: truthy
+      - field: responses.403
+        function: truthy
+      - field: responses.404
+        function: truthy
+      - field: responses.409
+        function: truthy
+      - field: responses.503
+        function: truthy
+
+  responses-resource-put-allowed:
+    description: PUT on a resource must not have responses other than 200, 201, 400, 401, 403, 404, 409, 503.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToResource.put.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["200", "201", "400", "401", "403", "404", "409", "503"]
+
+  responses-resource-patch-required:
+    description: PATCH on a resource must have responses 200, 400, 401, 403, 404, 409, 503.
+    message: "Response {{property}} is required."
+    severity: error
+    given: "#PathToResource.patch"
+    then:
+      - field: responses.200
+        function: truthy
+      - field: responses.400
+        function: truthy
+      - field: responses.401
+        function: truthy
+      - field: responses.403
+        function: truthy
+      - field: responses.404
+        function: truthy
+      - field: responses.409
+        function: truthy
+      - field: responses.503
+        function: truthy
+
+  responses-resource-patch-allowed:
+    description: PATCH on a resource must not have responses other than 200, 400, 401, 403, 404, 409, 503.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToResource.patch.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["200", "400", "401", "403", "404", "409", "503"]
+
+  responses-resource-delete-required:
+    description: DELETE on a resource must have responses 200, 401, 403, 503.
+    message: "Response {{property}} is required."
+    severity: error
+    given: "#PathToResource.delete"
+    then:
+      - field: responses.200
+        function: truthy
+      - field: responses.401
+        function: truthy
+      - field: responses.403
+        function: truthy
+      - field: responses.404
+        function: truthy
+      - field: responses.503
+        function: truthy
+
+  responses-resource-delete-allowed:
+    description: DELETE on a resource must not have responses other than 200, 401, 403, 404, 503.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToResource.delete.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["200", "401", "403", "404", "503"]
+
+  ## Allowed and required media types
+  request-media-type-patch:
+    description: PATCH must have supported request media type.
+    severity: error
+    given: $.paths[*].patch.requestBody.content.*~
+    then:
+      function: enumeration
+      functionOptions:
+        values:
+          - application/json-patch+json
+
+  request-media-type-post-put:
+    description: POST and PUT must have supported request media type.
+    severity: error
+    given: $.paths.[?(@property.match( /(post|put)/ ))].requestBody.content.*~
+    then:
+      function: enumeration
+      functionOptions:
+        values:
+          - application/json
+
+  request-media-type-delete:
+    description: GET and DELETE must not have a requestBody.
+    severity: error
+    given: $.paths.[?(@property.match( /(get|delete)/ ))]
+    then:
+      field: requestBody
+      function: falsy
+
+  response-media-type-2xx:
+    description: "2xx responses must have media type JSON."
+    severity: error
+    given: $.paths.[*].responses[?(@property.match(/^(2)/))].content.*~
+    then:
+      function: enumeration
+      functionOptions:
+        values:
+        - application/json
+
+  response-media-type-4xx-5xx:
+    description: "4xx and 5xx responses must have media type JSON."
+    severity: error
+    given: $.paths.[*].responses[?(@property.match(/^(4|5)/))].content.*~
+    then:
+      function: enumeration
+      functionOptions:
+        values:
+        - application/json
+
+  response-schema-4xx-5xx:
+    description: "4xx and 5xx responses must have Status component schema."
+    severity: error
+    given: $.paths.[*].responses[?(@property.match(/^(4|5)/))]..schema.*
+    resolved: false
+    then:
+      function: enumeration
+      functionOptions:
+        values:
+        - '#/components/schemas/Status'
+
+  # Components
+  ## Component formatting and descriptions
+  component-name-is-pascalcase:
+    description: Component names must be PascalCase.
+    severity: error
+    given: $.components.schemas[*]~
+    then:
+      function: casing
+      functionOptions:
+        type: pascal
+
+  properties-description-required:
+    description: Description required for properties.
+    severity: error
+    type: style
+    given: $.components..properties[*]
+    then:
+      field: description
+      function: truthy
+
+  properties-description-starts-capital:
+    description: Description should start with a capital letter.
+    severity: warn
+    type: style
+    given: $.components..properties[*]
+    then:
+      field: description
+      function: pattern
+      functionOptions:
+        match: "^[A-Z]"
+
+  properties-description-ends-period:
+    description: Description should end with a period.
+    severity: warn
+    type: style
+    given: $.components..properties[*]
+    then:
+      field: description
+      function: pattern
+      functionOptions:
+        match: ".+\\.$"
+
+overrides:
+  - files:
+      - "**#/paths/~1api~1v1~1labels"
+      - "**#/paths/~1api~1v1~1events"
+      - "**#/paths/~1api~1v1~1enrollmentconfig"
+    rules:
+      collection-verbs-required: off

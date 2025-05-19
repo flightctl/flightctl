@@ -1,0 +1,16 @@
+{{ if .Values.global.clusterLevelSecretAccess }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    flightctl.service: flightctl-worker
+  name: flightctl-worker
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-worker
+    namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+roleRef:
+  kind: ClusterRole
+  name: flightctl-worker
+  apiGroup: rbac.authorization.k8s.io
+{{ end }}

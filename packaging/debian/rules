@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_test:
+override_dh_auto_build:
+override_dh_auto_clean:
+override_dh_dwz:
+override_dh_strip:
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
+override_dh_auto_install:
+	# This is making a "fakeroot" so that when the deb is installed the binary will be placed in /usr/bin.
+	mkdir -p debian/flightctl-agent/usr/bin
+
+	# This is copying the binary and placing it in the fake root path.
+	# I promise, we tried to build on the ppa, but it didn't work: https://github.com/flightctl/flightctl/pull/85/commits/5b3e9e05685b3abb9aa20cf723822447e3987303
+	# an option could have been vendoring the go modules before creating the sources package, but then compilation didn't work even locally
+	cp bin/$(shell dpkg --print-architecture)/flightctl-agent debian/flightctl-agent/usr/bin/
+	cp bin/$(shell dpkg --print-architecture)/flightctl debian/flightctl-agent/usr/bin/
+
+	mkdir -p debian/flightctl-agent/var/lib/flightctl
+
+	dh_install
+
+	install -D -m 644 debian/flightctl-agent.service debian/flightctl-agent/lib/systemd/system/flightctl-agent.service
+	install -d -m 755 debian/flightctl-agent/etc/issues.d

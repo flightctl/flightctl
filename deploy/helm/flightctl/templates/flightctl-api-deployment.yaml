@@ -1,0 +1,88 @@
+{{ if .Values.api.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-api
+    spec:
+      serviceAccountName: flightctl-api
+      containers:
+        - name: flightctl-api
+          image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.api.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterUser
+            {{- if eq .Values.global.auth.type "none" }}
+            - name: FLIGHTCTL_DISABLE_AUTH
+              value: "true"
+            {{- end }}
+          ports:
+            - containerPort: 3443
+              name: service-api
+              protocol: TCP
+            - containerPort: 7443
+              name: agent-api
+              protocol: TCP
+            - containerPort: 15690
+              name: api-prom-target
+              protocol: TCP
+            - containerPort: 15691
+              name: db-prom-target
+              protocol: TCP
+
+          volumeMounts:
+            - mountPath: /root/.flightctl/
+              name: flightctl-api-certs
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-api-config
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.global.auth.k8s.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-api-k8s-token
+              readOnly: true
+            {{- end}}
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-api-certs
+          persistentVolumeClaim:
+            claimName: flightctl-api-certs
+        - name: flightctl-api-config
+          configMap:
+            name: flightctl-api-config
+        {{- if .Values.global.auth.k8s.externalApiToken}}
+        - name: flightctl-api-k8s-token
+          secret:
+            secretName: flightctl-api-k8s-token
+        {{- end}}
+{{ end }}

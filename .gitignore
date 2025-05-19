@@ -1,0 +1,11 @@
+/bin/
+/rpmbuild/
+/.vscode/
+/.idea/
+/reports/
+/test/scripts/agent-images/Containerfile-e2e-base.local
+/packaging/rpm/flightctl-*.tar.gz
+/packaging/rpm/flightctl-*-build/
+/packaging/rpm/flightctl-*-vendor.tar.bz2
+flightctl-*.rpm
+*.tar

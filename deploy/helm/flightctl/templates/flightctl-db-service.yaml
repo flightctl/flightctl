@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-db
+  name: flightctl-db
+  namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  {{- if and .Values.global.nodePorts.db (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+  type: NodePort
+  {{- end }}
+  ports:
+    - name: "5432"
+      port: 5432
+      targetPort: 5432
+      {{- if and .Values.global.nodePorts.db (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+      nodePort: {{ .Values.global.nodePorts.db }}
+      {{- end }}
+  selector:
+    flightctl.service: flightctl-db

@@ -1,0 +1,23 @@
+[Unit]
+Description=Flight Control UI
+PartOf=flightctl.target
+After=flightctl-ui-init.service
+Wants=flightctl-ui-init.service
+Requires=flightctl-api.service
+
+[Container]
+ContainerName=flightctl-ui
+Image=quay.io/flightctl/flightctl-ui:latest
+Network=flightctl.network
+EnvironmentFile=/etc/flightctl/flightctl-ui/env
+
+PublishPort=443:8080
+
+Volume=flightctl-ui-certs:/app/certs:ro,z
+
+[Service]
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target

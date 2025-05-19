@@ -1,0 +1,16 @@
+apiVersion: flightctl.io/v1alpha1
+kind: EnrollmentRequest
+metadata:
+  name: mul6f5j1qiak0nsm9bl4n3f32bo4eub6oemntql56daoupdli2n0
+spec:
+  csr: |
+    -----BEGIN CERTIFICATE REQUEST-----
+    MIH5MIGhAgEAMD8xPTA7BgNVBAMTNG11bDZmNWoxcWlhazBuc205Ymw0bjNmMzJi
+    bzRldWI2b2VtbnRxbDU2ZGFvdXBkbGkybjAwWTATBgcqhkjOPQIBBggqhkjOPQMB
+    BwNCAAQgz9aKjmLWeUi99Q/24mpCy2IWiuDoO3J/4qQDM+/x0uXIvBgXudqS6/mp
+    5QznHfhp7069zBxTh06N/JDihG8FoAAwCgYIKoZIzj0EAwIDRwAwRAIgD5QFZRga
+    ICfPte70z4+B21S1uBKS+4KEk0Mkm5tfqZkCIBWE313fd0dBFy4Q+HkA8am51Wa9
+    J4rtbos8+pS+HJZ+
+    -----END CERTIFICATE REQUEST-----
+default-labels:
+  example: "test"

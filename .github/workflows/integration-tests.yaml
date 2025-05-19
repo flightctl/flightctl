@@ -1,0 +1,41 @@
+name: "Integration tests"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  integration-tests:
+    runs-on: "ubuntu-24.04"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            notdocs:
+              - '!.spelling'
+              - '!README.md'
+              - '!docs/**'
+
+      - name: Setup all dependencies
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Running Integration tests
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: make integration-test VERBOSE=true
+
+
+
+

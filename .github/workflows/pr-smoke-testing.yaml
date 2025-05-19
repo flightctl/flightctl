@@ -1,0 +1,83 @@
+name: "Smoke tests"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
+  smoke:
+    runs-on: "ubuntu-24.04"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            notdocs:
+              - '!.spelling'
+              - '!README.md'
+              - '!docs/**'
+
+      - name: Setup all dependencies
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Create cluster
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: make cluster
+
+      - name: Deploy
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: make deploy
+
+      - name: Check
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: |
+          kubectl get pods --all-namespaces
+
+      - name: Make the cmdline tool
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: make build
+
+      - name: Apply device
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: bin/flightctl apply -f examples/device.yaml
+
+      - name: Apply fleet
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: bin/flightctl apply -f examples/fleet.yaml
+
+      - name: Apply enrollmentrequest
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: bin/flightctl apply -f examples/enrollmentrequest.yaml
+
+      - name: Apply repository
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: bin/flightctl apply -f examples/repository-flightctl.yaml
+
+      - name: Apply resourcesync
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: bin/flightctl apply -f examples/resourcesync.yaml
+
+      - name: Simulator run
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+
+      - name: Collect and Upload Logs
+        if: always() && steps.filter.outputs.notdocs == 'true'
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'smoke-logs'

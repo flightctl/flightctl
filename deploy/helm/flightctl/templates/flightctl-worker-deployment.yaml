@@ -1,0 +1,54 @@
+{{ if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-worker
+  name: flightctl-worker
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-worker
+    spec:
+      serviceAccountName: flightctl-worker
+      containers:
+        - name: flightctl-worker
+          image: {{ .Values.worker.image.image }}:{{ default .Chart.AppVersion .Values.worker.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.worker.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterUser
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-worker-config
+              subPath: config.yaml
+              readOnly: true
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-worker-config
+          configMap:
+            name: flightctl-worker-config
+{{ end }}

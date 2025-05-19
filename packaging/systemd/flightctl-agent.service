@@ -1,0 +1,33 @@
+
+[Unit]
+Description=Flight Control management agent
+After=network.target
+Before=getty@tty1.service
+
+# avoid systemd from attempting retry when multiple restarts happen
+StartLimitIntervalSec=5
+StartLimitBurst=infinity
+
+
+[Service]
+ExecStart=/usr/bin/flightctl-agent
+Restart=always
+Type=notify
+# Back-off restart behavior ####
+# 1 minute + 1 second to introduce drift over periodic minute
+RestartMaxDelaySec=61
+
+# starts at 5 seconds
+RestartSec=5
+
+# in 20 steps it will increment from 5 seconds to 121 seconds
+RestartSteps=20
+
+# send the kill signal SIGINT only to the main process and let subprocesses be handled independently
+KillMode=process 
+KillSignal=SIGINT
+
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target

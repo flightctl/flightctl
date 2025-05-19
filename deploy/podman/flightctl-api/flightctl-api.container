@@ -1,0 +1,26 @@
+[Unit]
+Description=Flight Control API server
+PartOf=flightctl.target
+After=flightctl-db.service flightctl-kv.service flightctl-api-init.service
+Wants=flightctl-db.service flightctl-kv.service flightctl-api-init.service
+Requires=flightctl-db.service flightctl-kv.service
+
+[Container]
+ContainerName=flightctl-api
+Image=quay.io/flightctl/flightctl-api:latest
+Network=flightctl.network
+EnvironmentFile=/etc/flightctl/flightctl-api/env
+Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+
+PublishPort=3443:3443
+PublishPort=7443:7443
+Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
+Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+
+[Service]
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target

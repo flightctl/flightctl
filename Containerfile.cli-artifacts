@@ -1,0 +1,69 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.22 as builder
+WORKDIR /app
+COPY ./api api
+COPY ./cmd cmd
+COPY ./deploy deploy
+COPY ./hack hack
+COPY ./internal internal
+COPY ./go.* ./
+COPY ./pkg pkg
+COPY ./test test
+COPY ./packaging packaging
+COPY ./Makefile .
+# make sure that version extraction works
+COPY .git .git
+
+USER 0
+RUN dnf install --nodocs -y jq
+RUN make build-multiarch-clis
+
+FROM registry.access.redhat.com/ubi9/ubi as certs
+RUN dnf install --nodocs -y nginx && \
+    rm -f /etc/nginx/nginx.conf /etc/nginx/conf.d/default.conf && \
+    dnf clean all
+
+ENV USER_UID=1001 \
+    USER_NAME=server \
+    HOME=/home/server \
+    NGINX_CONF_PATH=/etc/nginx/nginx.conf \
+    ENTRYPOINT_PATH=/usr/local/bin/entrypoint.sh
+
+COPY --from=builder /app/packaging/containers/cli-artifacts/nginx.conf ${NGINX_CONF_PATH}
+COPY --from=builder /app/packaging/containers/cli-artifacts/entrypoint.sh ${ENTRYPOINT_PATH}
+
+USER root
+
+RUN mkdir -p ${HOME}/src/gh-archives \
+    chown ${USER_UID}:0 ${HOME} && \
+    chmod 755 ${HOME} && \
+    sed '/^\s*listen\s*\[::\]:8090/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv4 && \
+    sed '/^\s*listen\s*8090/d' ${NGINX_CONF_PATH} > ${NGINX_CONF_PATH}.ipv6 && \
+    chmod 755 ${NGINX_CONF_PATH} ${NGINX_CONF_PATH}.ipv* && \
+    chmod -R 775 /var/lib/nginx && \
+    chown -R ${USER_UID}:0 /root && \
+    chown -R ${USER_UID}:0 /var/lib/nginx && \
+    chmod -R 775 /var/log/nginx && \
+    chown -R ${USER_UID}:0 /var/log/nginx && \
+    chmod -R 775 /var/run && \
+    chown -R ${USER_UID}:0 /var/run && \
+    chmod +x ${ENTRYPOINT_PATH}
+
+USER ${USER_UID}
+
+WORKDIR ${HOME}/src
+
+COPY --from=builder /app/bin/clis/gh-archives/ ${HOME}/src/gh-archives/
+
+USER root
+RUN chmod -R 755 ${HOME}/src/gh-archives/ && \
+    chown -R ${USER_UID}:0 ${HOME}/src/gh-archives/ && \
+    chmod 666 ${HOME}/src/gh-archives/index.json
+USER ${USER_UID}
+
+LABEL io.k8s.display-name="Flight Control CLI multiarch artifacts with server" \
+      io.k8s.description="Flight Control is a service for declarative management of fleets of edge devices and their workloads." \
+      io.openshift.tags="flightctl,cli-artifacts"
+
+EXPOSE 8090
+
+ENTRYPOINT ${ENTRYPOINT_PATH}

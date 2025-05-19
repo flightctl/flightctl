@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+set -x
+
+# Check if the script is run as root
+if [ "$EUID" -ne 0 ]; then
+  echo "This script must be run as root. Exiting."
+  exit 1
+fi
+
+echo "Warning: This operation could generate a very large file in the current directory."
+read -p "Do you have enough storage space? (y/n): " -n 1 -r
+echo ""
+
+# Check the user's response
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+  echo "Operation canceled by the user."
+  exit 1
+fi
+
+echo "Collecting system information..."
+
+timestamp=$(date +"%Y%m%d-%H%M%S")
+temp_dir=$(mktemp -d)
+
+echo "### Collecting journal logs..."
+journalctl --since "24 hours ago" > "$temp_dir/journal.log"
+
+echo "### Flightctl Spec Files..."
+cp /var/lib/flightctl/*.json "$temp_dir/"
+
+output_file="$temp_dir/system_info.txt"
+
+echo "### System Information (uname -a) ###" > "$output_file"
+uname -a >> "$output_file"
+echo "" >> "$output_file"
+
+echo "### Disk Usage (du -h /) ###" >> "$output_file"
+du -h / >> "$output_file"
+echo "" >> "$output_file"
+
+echo "### flightctl agent version (flightctl-agent version) ###" >> "$output_file"
+flightctl-agent version >> "$output_file"
+
+echo "### bootc version (bootc --version) ###" >> "$output_file"
+bootc --version >> "$output_file"
+echo "" >> "$output_file"
+
+echo "### bootc status (bootc status) ###" >> "$output_file"
+bootc status >> "$output_file"
+echo "" >> "$output_file"
+
+tar -czf "must-gather-$timestamp.tgz" -C "$temp_dir" .
+
+rm -rf "$temp_dir"
+
+echo "must-gather-$timestamp.tgz created successfully."

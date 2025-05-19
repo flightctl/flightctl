@@ -1,0 +1,35 @@
+apiVersion: flightctl.io/v1alpha1
+kind: Fleet
+metadata:
+  name: default
+spec:
+  selector:
+    matchLabels:
+      fleet: default
+  template:
+    metadata:
+      labels:
+        fleet: default
+    spec:
+      config:
+        - name: rendered-config  # <-- this is the merged config rendered by flightctl
+          configType: InlineConfigProviderSpec
+          inline:
+          - path: "/etc/motd"
+            content: "This system is managed by flightctl."
+            mode: 0600
+          - path: "/etc/testdir/encoded"
+            content: "VGhpcyB0ZXh0IGlzIGVuY29kZWQu"
+            contentEncoding: base64
+            mode: 01775
+        - name: kubernetes-secret
+          configType: KubernetesSecretProviderSpec
+          secretRef:
+            name: secret
+            namespace: secret-namespace
+            mountPath: /etc/secret/secretMountPath
+      systemd:
+        matchPatterns:
+          - chronyd.service
+          - firewalld.service
+          - sshd*.service

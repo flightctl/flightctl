@@ -1,0 +1,67 @@
+packages:
+  flightctl:
+    specfile_path: packaging/rpm/flightctl.spec
+
+    # add or remove files that should be synced
+    files_to_sync:
+      - packaging/rpm/flightctl.spec
+      - .packit.yaml
+
+    upstream_package_name: flightctl
+    downstream_package_name: flightctl
+    upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
+actions:
+  get-current-version:
+    - bash -c 'git describe --tags | sed "s/^v//; s/-/~/g"'
+jobs:
+  - job: copr_build
+    trigger: pull_request
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-eln-aarch64
+      - centos-stream-9-x86_64
+
+  - job: copr_build
+    trigger: commit
+    owner: "@redhat-et"
+    project: flightctl-dev
+    preserve_project: True
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-40-aarch64
+      - fedora-40-x86_64
+      - fedora-41-aarch64
+      - fedora-41-x86_64
+      - fedora-rawhide-aarch64
+      - fedora-rawhide-x86_64
+      - fedora-eln-aarch64
+      - fedora-eln-x86_64
+      - centos-stream-9-x86_64
+      - centos-stream-9-aarch64
+      - rhel-9-aarch64
+      - rhel-9-x86_64
+      - epel-9-aarch64
+      - epel-9-x86_64
+
+
+  - job: copr_build
+    trigger: release
+    owner: "@redhat-et"
+    project: flightctl
+    preserve_project: True
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-40-aarch64
+      - fedora-40-x86_64
+      - fedora-41-aarch64
+      - fedora-41-x86_64
+      - fedora-rawhide-aarch64
+      - fedora-rawhide-x86_64
+      - fedora-eln-aarch64
+      - fedora-eln-x86_64
+      - centos-stream-9-x86_64
+      - centos-stream-9-aarch64
+      - rhel-9-aarch64
+      - rhel-9-x86_64
+      - epel-9-aarch64
+      - epel-9-x86_64

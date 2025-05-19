@@ -1,0 +1,11 @@
+global:
+  nodePorts:
+    registry: 5000
+    gitserver: 3222
+    prometheus: 9090
+registry:
+  image: quay.io/flightctl/e2eregistry:2
+  route: false
+  hostName: ""
+gitserver:
+  image: localhost/git-server:latest

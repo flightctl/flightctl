@@ -1,0 +1,56 @@
+name: "Code Quality"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint:
+    runs-on: "ubuntu-24.04"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checkout
+        run: |
+          commits=${{ github.event.pull_request.commits }}
+          if [[ -n "$commits" ]]; then
+            # Prepare enough depth for diffs with master
+            git fetch --depth="$(( commits + 1 ))"
+          fi
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            notdocs:
+              - '!.spelling'
+              - '!README.md'
+              - '!docs/**'
+
+      - name: Check commit message
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: hack/check-commits.sh
+
+      - name: Setup all dependencies
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Check that generated files have been updated and that go.mod is tidy
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: |
+          make generate
+          make tidy
+          git diff --exit-code
+
+      - name: Running Linter
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: make lint

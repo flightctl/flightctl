@@ -1,0 +1,264 @@
+openapi: 3.0.1
+info:
+  title: Flight Control API
+  version: v1alpha1
+  description: |
+    [Flight Control](https://flightctl.io) is a service for declarative management of fleets of edge devices and their workloads.
+  contact:
+    name: The Flight Control Team
+    url: https://flightctl.io
+    email: team@flightctl.io
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: /
+tags:
+  - name: device
+    description: Operations on Device resources.
+  - name: enrollmentrequest
+    description: Operations on EnrollmentRequest resources.
+paths:
+  /api/v1/devices/{name}/status:
+    put:
+      tags:
+        - device
+      description: Update the status of a Device resource.
+      operationId: replaceDeviceStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to update.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/Device'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+    patch:
+      tags:
+        - device
+      description: Patch the status of a Device resource.
+      operationId: patchDeviceStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/devices/{name}/rendered:
+    #$ref: '../openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
+    # this is buggy and generates invalid references, see:
+    # https://github.com/oapi-codegen/oapi-codegen/issues/1452#issuecomment-2176032513
+    get:
+      tags:
+        - device
+      description: Get the rendered device resource.
+      operationId: getRenderedDevice
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device to get the rendered specification for.
+          required: true
+          schema:
+            type: string
+        - name: knownRenderedVersion
+          in: query
+          description: The last known renderedVersion.
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Device'
+        "204":
+          description: No content
+          content: {}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/enrollmentrequests/{name}:
+    # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
+    get:
+      tags:
+        - enrollmentrequest
+      description: Get an EnrollmentRequest resource.
+      operationId: readEnrollmentRequest
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentRequest resource to get.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/enrollmentrequests:
+    post:
+      tags:
+        - enrollmentrequest
+      description: Create an EnrollmentRequest resource.
+      operationId: createEnrollmentRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'

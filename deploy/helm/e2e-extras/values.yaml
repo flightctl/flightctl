@@ -1,0 +1,13 @@
+global:
+  nodePorts:
+    registry: ""
+    gitserver: ""
+    prometheus: ""
+registry:
+  image: quay.io/flightctl/e2eregistry:2
+  route: true
+  hostName: ""
+gitserver:
+  image: localhost/git-server:latest
+prometheus:
+  image: quay.io/prometheus/prometheus:v2.54.1
