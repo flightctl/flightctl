@@ -14,6 +14,7 @@ const (
 	DeviceRenderOpUpdate              = "update"
 	RepositoryUpdateOpUpdate          = "update"
 	RepositoryUpdateOpDeleteAll       = "delete-all"
+	CASignAll                         = "sign-all"
 )
 
 type ResourceReference struct {

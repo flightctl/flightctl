@@ -67,6 +67,8 @@ const (
 	EventAPIVersion = "v1alpha1"
 	EventKind       = "Event"
 	EventListKind   = "EventList"
+
+	SignCertificatesKind = "SignCerts"
 )
 
 type UpdateState string
