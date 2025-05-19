@@ -72,9 +72,6 @@ func (o *DeleteOptions) Validate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(name) == 0 && len(args) < 2 {
-		return fmt.Errorf("name must be specified when deleting %s", kind)
-	}
 	if len(name) > 0 && len(args) > 1 {
 		return fmt.Errorf("invalid format: cannot mix TYPE/NAME syntax with additional resource names. Use either 'delete TYPE/NAME' or 'delete TYPE NAME [NAME...]'")
 	}
@@ -93,6 +90,10 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
+	}
+
+	if len(name) == 0 && len(args) < 2 {
+		return nil
 	}
 
 	if len(args) == 1 {
