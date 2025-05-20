@@ -24,6 +24,7 @@ type Config struct {
 	ClientBootstrapSignerName       string       `json:"clientBootstrapSignerName,omitempty"`
 	ClientBootstrapCommonNamePrefix string       `json:"clientBootstrapCommonNamePrefix,omitempty"`
 	ClientBootstrapValidityDays     int          `json:"clientBootStrapValidityDays,omitempty"`
+	EnrollmentValidityDays          int          `json:"enrollmentValidityDays,omitempty"`
 	DeviceCommonNamePrefix          string       `json:"deviceCommonNamePrefix,omitempty"`
 	InternalConfig                  *InternalCfg `json:"internalConfig,omitempty"`
 	ServerCertValidityDays          int          `json:"serverCertValidityDays,omitempty"`
@@ -39,6 +40,7 @@ func NewDefault(tempDir string) *Config {
 		ClientBootstrapSignerName:       "enrollment",
 		ClientBootstrapCommonNamePrefix: "client-enrollment-",
 		ClientBootstrapValidityDays:     365,
+		EnrollmentValidityDays:          365,
 		ServerCertValidityDays:          365,
 		DeviceCommonNamePrefix:          "device:",
 		InternalConfig: &InternalCfg{
