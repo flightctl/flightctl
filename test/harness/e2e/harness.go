@@ -1318,20 +1318,3 @@ func (h *Harness) WaitForFleetUpdateToFail(fleetName string) error {
 		fmt.Sprintf("Timed out waiting for fleet %s update to fail", fleetName))
 	return nil
 }
-
-func (h *Harness) WaitForDeviceUpdateToSucceed(deviceId string) (err error) {
-	// Wait for the device to complete updating successfully
-	logrus.Infof("Waiting for the device update to succeed")
-	h.WaitForDeviceContents(deviceId, "Waiting for the device update success",
-		func(device *v1alpha1.Device) bool {
-			for _, condition := range device.Status.Conditions {
-				if condition.Type == v1alpha1.DeviceUpdating &&
-					condition.Status == v1alpha1.ConditionStatusFalse &&
-					condition.Reason == "Updated" {
-					return true
-				}
-			}
-			return false
-		}, LONGTIMEOUT)
-	return nil
-}

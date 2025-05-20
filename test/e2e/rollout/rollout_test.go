@@ -192,14 +192,14 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
-			Expect(err).ToNot(HaveOccurred())
-
 			deviceVersions := make(map[string]int)
 			for _, deviceID := range tc.deviceIDs {
 				deviceVersions[deviceID], err = tc.harness.PrepareNextDeviceVersion(deviceID)
 				Expect(err).ToNot(HaveOccurred())
 			}
+
+			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Simulating a failure in the first batch")
 			err = tc.harness.SimulateNetworkFailure()
@@ -222,13 +222,16 @@ var _ = Describe("Rollout Policies", func() {
 
 			// Wait for rollout to continue
 			By("Verifying that the rollout is resumed")
-			err = tc.harness.WaitForDeviceUpdateToSucceed(tc.deviceIDs[0])
+			err = tc.harness.WaitForDeviceNewRenderedVersion(tc.deviceIDs[0], deviceVersions[tc.deviceIDs[0]])
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify that all devices are eventually updated
 			updatedDevices, err := tc.harness.GetUpdatedDevices(fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(updatedDevices)).To(Equal(1), "Only One device should be updated")
+
+			deviceVersions[tc.deviceIDs[0]], err = tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
+			Expect(err).ToNot(HaveOccurred())
 
 			// update Name of app version in device spec to trigger a new rollout
 			err = tc.updateAppVersion("v2")
