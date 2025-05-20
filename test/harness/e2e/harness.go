@@ -919,7 +919,7 @@ func (h Harness) ManageResource(operation, resource string, args ...string) (str
 	case "apply":
 		return h.CLI("apply", "-f", util.GetTestExamplesYamlPath(resource))
 	case "delete":
-		h.CleanUpResources(resource)
+		return h.CleanUpResources(resource)
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}
