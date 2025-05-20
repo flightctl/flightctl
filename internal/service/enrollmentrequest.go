@@ -17,8 +17,6 @@ import (
 	"github.com/samber/lo"
 )
 
-const ClientCertExpiryDays = 365
-
 func approveEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveEnrollmentRequest: enrollmentRequest is nil")
@@ -81,7 +79,7 @@ func signEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.Enrollmen
 		return fmt.Errorf("failed to verify signature of CSR: %w", err)
 	}
 
-	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
+	expirySeconds := ca.Cfg.EnrollmentValidityDays * 24 * 60 * 60
 	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
 	if err != nil {
 		return err
