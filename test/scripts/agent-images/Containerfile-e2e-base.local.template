@@ -18,8 +18,6 @@ RUN update-ca-trust
 
 COPY bin/rpm/flightctl-*.rpm /tmp/
 
-RUN dnf install -y policycoreutils-python-utils
-
 RUN if [[ -z $RPM_COPR ]]; then \
         dnf install -y /tmp/flightctl-agent-*.rpm /tmp/flightctl-selinux-*.rpm ; \
     else \
