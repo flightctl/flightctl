@@ -8,9 +8,30 @@ const (
 	Repository                = "repository"
 	ResourceSync              = "resourcesync"
 	CertificateSigningRequest = "certificatesigningrequest"
+
+	//resource related
+	ApplyAction    = "apply"
+	DeviceYAMLPath = "device.yaml"
+	DeviceResource = "Device"
+	RepoResource   = "Repository"
+	ErResource     = "EnrollmentRequest"
+	FleetResource  = "Fleet"
+
+	// events
+	ForceFlag    = "-f"
+	EventCreated = "created"
+	EventDeleted = "deleted"
+	EventUpdated = "updated"
 )
 
-var ResourceTypes = [...]string{Device, Fleet, EnrollmentRequest, Repository, ResourceSync, CertificateSigningRequest}
+var ResourceTypes = [...]string{
+	Device,
+	Fleet,
+	EnrollmentRequest,
+	Repository,
+	ResourceSync,
+	CertificateSigningRequest,
+}
 
 const TIMEOUT = "5m"
 const POLLING = "250ms"
