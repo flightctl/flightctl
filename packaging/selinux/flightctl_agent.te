@@ -1,35 +1,33 @@
 policy_module(flightctl_agent, 1.0.0)
 
-type flightctl_agent_t;
-domain_type(flightctl_agent_t);
-
 require {
-    # Existing types from the policy
     type init_t;
-    type devpts_t;
-    type ptmx_t;
-    type unreserved_port_t;
-    
-    attribute file_type;
-    attribute exec_type;
-
-
-    # Classes and permissions that will be used.
-    class file { read execute open };
     class process transition;
-    class chr_file { open read write ioctl };
-    class tcp_socket { name_connect };
+    class file { read open execute };
 }
 
-# Define the new file type for the flightctl-agent executable.
-# It must have the file and exec attributes.
-type flightctl_agent_exec_t, file_type, exec_type;
+# Declare agent types
+type flightctl_agent_t;
+type flightctl_agent_exec_t;
 
-# When a process running in init_t executes a file labeled flightctl_agent_exec_t,
-# have it transition into flightctl_agent_t.
+init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
+type flightctl_agent_var_lib_t;
+files_type(flightctl_agent_var_lib_t)
+
+# Allow systemd to transition into your agent domain
 type_transition init_t flightctl_agent_exec_t:process flightctl_agent_t;
+allow init_t flightctl_agent_exec_t:file { read open execute };
+allow init_t flightctl_agent_t:process transition;
 
-# Allow the flightctl-agent process (running in flightctl_agent_t) to do what it needs.
-allow flightctl_agent_t devpts_t:chr_file open;
-allow flightctl_agent_t ptmx_t:chr_file { open read write ioctl };
-allow flightctl_agent_t unreserved_port_t:tcp_socket name_connect;  
+# Agent access to its data directory
+allow flightctl_agent_t flightctl_agent_var_lib_t:dir { read write open search create getattr add_name};
+allow flightctl_agent_t flightctl_agent_var_lib_t:file { read write open create getattr };
+
+# Allow read access to /sys
+dev_read_sysfs(flightctl_agent_t)
+
+# Allow use of terminals/PTYs
+term_use_all_terms(flightctl_agent_t)
+
+# Allow connecting to unreserved TCP ports (for outgoing network communication)
+corenet_tcp_connect_unreserved_ports(flightctl_agent_t)
