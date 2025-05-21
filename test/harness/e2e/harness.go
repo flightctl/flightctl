@@ -1092,11 +1092,12 @@ func (h Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []strin
 				}
 				groupKey = strings.Join(labelValues, ":")
 			}
-			deviceCopy := device
+			
 			// Add device to the appropriate group
 			if _, exists := result[groupKey]; !exists {
-				result[groupKey] = append(result[groupKey], &deviceCopy)
+				result[groupKey] = []*v1alpha1.Device{}
 			}
+			deviceCopy := device
 			result[groupKey] = append(result[groupKey], &deviceCopy)
 		}
 	}
