@@ -770,8 +770,8 @@ func (h *Harness) GetResourceSyncByYaml(rSyncYaml string) v1alpha1.ResourceSync 
 }
 
 // Wrapper function for EnrollmentRequest
-func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) v1alpha1.EnrollmentRequest {
-	return getYamlResourceByFile[v1alpha1.EnrollmentRequest](erYaml)
+func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) *v1alpha1.EnrollmentRequest {
+	return getYamlResourceByFile[*v1alpha1.EnrollmentRequest](erYaml)
 }
 
 // Wrapper function for CertificateSigningRequest
@@ -1270,6 +1270,13 @@ func (h Harness) CheckEnvInjectedToApplication(envVarName string, image string) 
 // RunGetDevices executes "get devices" CLI command with optional arguments.
 func (h Harness) RunGetDevices(args ...string) (string, error) {
 	allArgs := append([]string{"get", "devices"}, args...)
+	return h.CLI(allArgs...)
+}
+
+// RunGetEvents executes "get events" CLI command with optional arguments.
+func (h Harness) RunGetEvents(args ...string) (string, error) {
+	// Starting with the base command to get events
+	allArgs := append([]string{"get", "events"}, args...)
 	return h.CLI(allArgs...)
 }
 
