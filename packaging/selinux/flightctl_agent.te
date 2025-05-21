@@ -1,35 +1,22 @@
 policy_module(flightctl_agent, 1.0.0)
 
 type flightctl_agent_t;
+type flightctl_agent_exec_t;
 domain_type(flightctl_agent_t);
 
 require {
-    # Existing types from the policy
+    type install_exec_t;
     type init_t;
-    type devpts_t;
-    type ptmx_t;
-    type unreserved_port_t;
-    
-    attribute file_type;
-    attribute exec_type;
-
-
-    # Classes and permissions that will be used.
-    class file { read execute open };
+    class file { execute read open getattr };
     class process transition;
-    class chr_file { open read write ioctl };
-    class tcp_socket { name_connect };
 }
 
-# Define the new file type for the flightctl-agent executable.
-# It must have the file and exec attributes.
-type flightctl_agent_exec_t, file_type, exec_type;
+role system_r types flightctl_agent_t;
 
-# When a process running in init_t executes a file labeled flightctl_agent_exec_t,
-# have it transition into flightctl_agent_t.
+# Launch agent in its own domain from systemd/init
 type_transition init_t flightctl_agent_exec_t:process flightctl_agent_t;
+allow init_t flightctl_agent_exec_t:file { execute getattr read open };
+allow init_t flightctl_agent_t:process transition;
 
-# Allow the flightctl-agent process (running in flightctl_agent_t) to do what it needs.
-allow flightctl_agent_t devpts_t:chr_file open;
-allow flightctl_agent_t ptmx_t:chr_file { open read write ioctl };
-allow flightctl_agent_t unreserved_port_t:tcp_socket name_connect;  
+# Agent can run system binaries labeled install_exec_t (bootc, ostree, rpm-ostree)
+allow flightctl_agent_t install_exec_t:file { execute read open getattr };
