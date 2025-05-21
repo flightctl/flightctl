@@ -20,6 +20,7 @@ jobs:
     targets:
       - fedora-eln-aarch64
       - centos-stream-9-x86_64
+    module_hotfixes: true
 
   - job: copr_build
     trigger: commit
