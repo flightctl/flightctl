@@ -1048,7 +1048,8 @@ func (h Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Devic
 			continue
 		}
 		if _, ok := (*annotations)["fleet-controller/selectedForRollout"]; ok {
-			result = append(result, &device)
+			deviceCopy := device
+			result = append(result, &deviceCopy)
 		}
 	}
 
@@ -1094,7 +1095,8 @@ func (h Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []strin
 
 			// Add device to the appropriate group
 			if _, exists := result[groupKey]; !exists {
-				result[groupKey] = []*v1alpha1.Device{}
+				deviceCopy := device
+				result[groupKey] = append(result[groupKey], &deviceCopy)
 			}
 			result[groupKey] = append(result[groupKey], &device)
 		}
@@ -1123,7 +1125,8 @@ func (h Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error)
 	for _, device := range devices {
 		// Check if device has been updated
 		if device.Status != nil && device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
-			result = append(result, &device)
+			deviceCopy := device
+			result = append(result, &deviceCopy)
 		}
 	}
 
