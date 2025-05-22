@@ -1,37 +1,12 @@
 describe('Device Management', () => {
  
-  it('passes', () => {
-    cy.visit(`${Cypress.env('host')}`)
-    cy.wait(7000)
-    cy.origin(`${Cypress.env('auth')}`, () => {
-
-      cy.contains('kube:admin').click()
-      cy.get('#inputUsername').should('exist')
-      cy.get('#inputUsername').should('be.visible')
-      cy.get('#inputPassword').should('exist')
-      cy.get('#inputPassword').should('be.visible')
-      cy.get('#inputUsername').type(`${Cypress.env('username')}`)
-      cy.get('#inputPassword').type(`${Cypress.env('password')}`)
-      cy.get('#inputUsername').should('have.value', `${Cypress.env('username')}`)
-      cy.get('#inputPassword').should('have.value', `${Cypress.env('password')}`)
-      cy.contains('button', 'Log in').click()
-    })
-    cy.wait(15000)
-    cy.get('.pf-v5-c-modal-box__close > .pf-v5-c-button').should('be.visible')
-    cy.get('.pf-v5-c-modal-box__close > .pf-v5-c-button').click()
-    cy.url().should('include', `${Cypress.env('host')}`)
-    cy.get('#nav-toggle').should('exist')
-    cy.get('#nav-toggle').click()
-    cy.contains('Edge Management').click()
-    cy.contains('Devices').click()
-    cy.get('[data-label="Approve"]').should('exist')
-    cy.get('[data-label="Approve"]').should('be.visible')
-    cy.get('[data-label="Approve"]').click()
-    cy.get('#rich-validation-field-deviceAlias').should('be.visible')
-    cy.get('#rich-validation-field-deviceAlias').type('test-device')
-    cy.get('#rich-validation-field-deviceAlias').should('have.value', 'test-device')
-    cy.get('.pf-v5-c-label-group__list-item > .pf-v5-c-button').click()
-    cy.get('.pf-v5-c-form__actions > .pf-m-primary').should('be.visible')
-    cy.get('.pf-v5-c-form__actions > .pf-m-primary').click()
+  it('Should approve a device enrollment request', () => {
+    cy.login(`${Cypress.env('host')}`, `${Cypress.env('auth')}`, `${Cypress.env('username')}`, `${Cypress.env('password')}`)
+    cy.deviceApproval()
+  })
+  it('Should decommission a device', () => {
+    //login command is in commands.js
+    cy.login(`${Cypress.env('host')}`, `${Cypress.env('auth')}`, `${Cypress.env('username')}`, `${Cypress.env('password')}`)
+    cy.decommissionDevice()
   })
 })
