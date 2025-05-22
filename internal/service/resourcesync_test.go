@@ -16,6 +16,7 @@ type ResourceSyncStore struct {
 	store.Store
 	ResourceSyncVal api.ResourceSync
 	EventVal        api.Event
+	events          []api.Event
 }
 
 func (s *ResourceSyncStore) ResourceSync() store.ResourceSync {
@@ -23,7 +24,10 @@ func (s *ResourceSyncStore) ResourceSync() store.ResourceSync {
 }
 
 func (s *ResourceSyncStore) Event() store.Event {
-	return &DummyEvent{EventVal: s.EventVal}
+	return &DummyEvent{
+		EventVal: s.EventVal,
+		events:   &s.events,
+	}
 }
 
 type DummyResourceSync struct {
@@ -50,7 +54,7 @@ func verifyRSPatchFailed(require *require.Assertions, status api.Status) {
 	require.Equal(int32(400), status.Code)
 }
 
-func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) (*api.ResourceSync, api.ResourceSync, api.Status) {
+func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest, expectEvent bool) (*api.ResourceSync, api.ResourceSync, api.Status) {
 	resourceSync := api.ResourceSync{
 		ApiVersion: "v1",
 		Kind:       "ResourceSync",
@@ -63,11 +67,17 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 			TargetRevision: "main",
 		},
 	}
-	serviceHandler := ServiceHandler{
+	serviceHandler := &ServiceHandler{
 		store: &ResourceSyncStore{ResourceSyncVal: resourceSync},
 	}
 	resp, status := serviceHandler.PatchResourceSync(context.Background(), "foo", patch)
 	require.NotEqual(int32(500), status.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	length := 0
+	if expectEvent {
+		length = 1
+	}
+	require.Len(event.Items, length)
 	return resp, resourceSync, status
 }
 
@@ -104,13 +114,13 @@ func TestResourceSyncPatchName(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
-	_, _, status := testResourceSyncPatch(require, pr)
+	_, _, status := testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
-	_, _, status = testResourceSyncPatch(require, pr)
+	_, _, status = testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 }
 
@@ -120,13 +130,13 @@ func TestResourceSyncPatchKind(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
-	_, _, status := testResourceSyncPatch(require, pr)
+	_, _, status := testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
-	_, _, status = testResourceSyncPatch(require, pr)
+	_, _, status = testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 }
 
@@ -136,13 +146,13 @@ func TestResourceSyncPatchAPIVersion(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
-	_, _, status := testResourceSyncPatch(require, pr)
+	_, _, status := testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
-	_, _, status = testResourceSyncPatch(require, pr)
+	_, _, status = testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 }
 
@@ -151,14 +161,14 @@ func TestResourceSyncPatchSpec(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "remove", Path: "/spec"},
 	}
-	_, _, status := testResourceSyncPatch(require, pr)
+	_, _, status := testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 
 	var value interface{} = "bar"
 	pr = api.PatchRequest{
 		{Op: "replace", Path: "/spec/repository", Value: &value},
 	}
-	resp, orig, status := testResourceSyncPatch(require, pr)
+	resp, orig, status := testResourceSyncPatch(require, pr, true)
 	orig.Spec.Repository = "bar"
 	require.Equal(int32(200), status.Code)
 	require.Equal(orig, *resp)
@@ -170,13 +180,13 @@ func TestResourceSyncPatchStatus(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt", Value: &value},
 	}
-	_, _, status := testResourceSyncPatch(require, pr)
+	_, _, status := testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt"},
 	}
-	_, _, status = testResourceSyncPatch(require, pr)
+	_, _, status = testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 }
 
@@ -186,13 +196,13 @@ func TestResourceSyncPatchNonExistingPath(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/spec/os/doesnotexist", Value: &value},
 	}
-	_, _, status := testResourceSyncPatch(require, pr)
+	_, _, status := testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/spec/os/doesnotexist"},
 	}
-	_, _, status = testResourceSyncPatch(require, pr)
+	_, _, status = testResourceSyncPatch(require, pr, false)
 	verifyRSPatchFailed(require, status)
 }
 
@@ -204,7 +214,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
-	resp, orig, status := testResourceSyncPatch(require, pr)
+	resp, orig, status := testResourceSyncPatch(require, pr, true)
 	orig.Metadata.Labels = &addLabels
 	require.Equal(int32(200), status.Code)
 	require.Equal(orig, *resp)
@@ -213,7 +223,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
-	resp, orig, status = testResourceSyncPatch(require, pr)
+	resp, orig, status = testResourceSyncPatch(require, pr, true)
 	orig.Metadata.Labels = &map[string]string{}
 	require.Equal(int32(200), status.Code)
 	require.Equal(orig, *resp)
@@ -226,11 +236,13 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
-	serviceHandler := ServiceHandler{
+	serviceHandler := &ServiceHandler{
 		store: &ResourceSyncStore{ResourceSyncVal: api.ResourceSync{
 			Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 		}},
 	}
 	_, status := serviceHandler.PatchResourceSync(context.Background(), "bar", pr)
 	require.Equal(int32(404), status.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	require.Len(event.Items, 0)
 }

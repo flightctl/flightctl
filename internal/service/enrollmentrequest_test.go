@@ -16,6 +16,7 @@ type EnrollmentRequestStore struct {
 	store.Store
 	EnrollmentVal v1alpha1.EnrollmentRequest
 	EventVal      v1alpha1.Event
+	events        []v1alpha1.Event
 }
 
 func (s *EnrollmentRequestStore) EnrollmentRequest() store.EnrollmentRequest {
@@ -23,7 +24,10 @@ func (s *EnrollmentRequestStore) EnrollmentRequest() store.EnrollmentRequest {
 }
 
 func (s *EnrollmentRequestStore) Event() store.Event {
-	return &DummyEvent{EventVal: s.EventVal}
+	return &DummyEvent{
+		EventVal: s.EventVal,
+		events:   &s.events,
+	}
 }
 
 type DummyEnrollmentRequest struct {
@@ -68,11 +72,13 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 			Labels:       &map[string]string{"labelKey": "labelValue"}},
 		Status: &status,
 	}
-	serviceHandler := ServiceHandler{
+	serviceHandler := &ServiceHandler{
 		store:           &EnrollmentRequestStore{EnrollmentVal: device},
 		callbackManager: dummyCallbackManager(),
 	}
 	_, stat := serviceHandler.ApproveEnrollmentRequest(context.Background(), "foo", approval)
 	require.Equal(int32(400), stat.Code)
 	require.Equal("Enrollment request is already approved", stat.Message)
+	event, _ := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	require.Len(event.Items, 0)
 }

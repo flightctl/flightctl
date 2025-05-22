@@ -187,3 +187,28 @@ func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind,
 
 	return event
 }
+
+func GetResourceEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string,
+	prefix string, actionSuccess, actionFailure string,
+	reasonSuccess api.EventReason, reasonFailure api.EventReason, status api.Status, updateDesc *api.ResourceUpdatedDetails) *api.Event {
+	event := getBaseEvent(ctx, status, prefix, resourceKind, resourceName, eventOutcome{
+		Reason:  reasonSuccess,
+		Message: fmt.Sprintf("%s %s %s successfully", resourceKind, resourceName, actionSuccess),
+	}, eventOutcome{
+		Reason:  reasonFailure,
+		Message: fmt.Sprintf("%s %s %s failed: %s", resourceKind, resourceName, actionFailure, status.Message),
+	})
+	if event == nil {
+		return nil
+	}
+
+	if updateDesc != nil {
+		details := api.EventDetails{}
+		err := details.FromResourceUpdatedDetails(*updateDesc)
+		if err == nil {
+			event.Details = &details
+		}
+	}
+
+	return event
+}
