@@ -60,7 +60,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 	})
 
 	Context("Basic Functionality Tests", func() {
-		It("We can list devices and create resources", Label("77917"), func() {
+		It("We can list devices and create resources", Label("77917", "sanity"), func() {
 			By("Listing devices")
 			out, err := harness.RunGetDevices()
 			Expect(err).ToNot(HaveOccurred())
@@ -136,7 +136,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 	})
 
 	Context("Advanced Functionality Tests", func() {
-		It("Advanced Functionality Tests", Label("77947"), func() {
+		It("Advanced Functionality Tests", Label("77947", "sanity"), func() {
 			By("filters devices by multiple field selectors")
 			startTimestamp, _ := GetCurrentYearBounds()
 			out, err := harness.RunGetDevices(
@@ -154,7 +154,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 	})
 
 	Context("Label Selectors Tests", func() {
-		It("Label Selectors Tests", Label("78751"), func() {
+		It("Label Selectors Tests", Label("78751", "sanity"), func() {
 			By("filters devices by region in a set")
 			out, err := harness.RunGetDevices(
 				"-l", fmt.Sprintf("region in (test, %s)", DeviceARegion),
@@ -199,7 +199,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 	})
 
 	Context("Negative Tests", func() {
-		It("Negative Tests", Label("77948"), func() {
+		It("Negative Tests", Label("77948", "sanity"), func() {
 			By("returns an error for an invalid field selector")
 			out, err := harness.RunGetDevices("--field-selector", "invalid.field")
 			Expect(err).To(HaveOccurred())

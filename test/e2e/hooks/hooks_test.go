@@ -28,7 +28,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	})
 
 	Context("hooks", func() {
-		It(`Verifies that lifecycles hooks are triggered after the device and agent events`, Label("78753"), func() {
+		It(`Verifies that lifecycles hooks are triggered after the device and agent events`, Label("78753", "sanity"), func() {
 
 			By("Update the device image to one containing an embedded hook")
 			_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)

@@ -60,7 +60,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("apply/fleet", func() {
-		It("Resources creation validations work well", Label("77667"), func() {
+		It("Resources creation validations work well", Label("77667", "sanity"), func() {
 			By("should error when creating incomplete fleet")
 			out, err := harness.CLIWithStdin(incompleteFleetYaml, "apply", "-f", "-")
 			Expect(err).To(HaveOccurred())
@@ -84,7 +84,7 @@ var _ = Describe("cli operation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).To(ContainSubstring("200 OK"))
 		})
-		It("should let you connect to a device", Label("80483"), func() {
+		It("should let you connect to a device", Label("80483", "sanity"), func() {
 			By("Connecting to a device")
 			deviceID := harness.StartVMAndEnroll()
 			logrus.Infof("Attempting console connect command to device %s", deviceID)
@@ -119,7 +119,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("certificate generation per user", func() {
-		It("should have worked, and we can have a certificate", Label("75865"), func() {
+		It("should have worked, and we can have a certificate", Label("75865", "sanity"), func() {
 			By("The certificate is generated for the user")
 
 			// Capture both string and error
@@ -134,7 +134,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Plural names for resources and autocompletion in the cli work well", func() {
-		It("Should let you list resources by plural names", Label("80453"), func() {
+		It("Should let you list resources by plural names", Label("80453", "sanity"), func() {
 			deviceID := harness.StartVMAndEnroll()
 			By("Should let you list devices")
 			out, err := harness.CLI("get", "devices")
@@ -149,7 +149,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Resources lifecycle for", func() {
-		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506"), func() {
+		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506", "sanity"), func() {
 			By("Verify there are no resources created")
 			err := harness.CleanUpAllResources()
 			Expect(err).ToNot(HaveOccurred())
@@ -296,7 +296,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Flightctl Version Checks", func() {
-		It("should show matching client and server versions", Label("79621"), func() {
+		It("should show matching client and server versions", Label("79621", "sanity"), func() {
 			By("Getting the version output")
 			out, err := harness.CLI("version")
 			clientVersionPrefix := "Client Version:"
@@ -326,7 +326,7 @@ var _ = Describe("cli login", func() {
 			harness = e2e.NewTestHarness()
 		})
 
-		It("Validations work when logging into flightctl CLI", Label("78748"), func() {
+		It("Validations work when logging into flightctl CLI", Label("78748", "sanity"), func() {
 			By("Prepare invalid API endpoint")
 			invalidEndpoint := "https://not-existing.lab.redhat.com"
 			loginArgs := []string{"login", invalidEndpoint}
@@ -372,7 +372,7 @@ var _ = Describe("cli login", func() {
 	})
 
 	Context("Events API Tests", func() {
-		It("should list events resource is created/updated/deleted", Label("80452"), func() {
+		It("should list events resource is created/updated/deleted", Label("80452", "sanity"), func() {
 			var deviceName, fleetName, repoName string
 			var er *v1alpha1.EnrollmentRequest
 

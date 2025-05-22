@@ -36,7 +36,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	})
 
 	Context("application", func() {
-		It("should install an application image package and report its status", Label("76800"), func() {
+		It("should install an application image package and report its status", Label("76800", "sanity"), func() {
 			By("Add the application spec to the device")
 
 			// Make sure the device status right after bootstrap is Online
@@ -168,7 +168,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 		})
 
-		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990"), func() {
+		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990", "sanity"), func() {
 			By("Creating the first application")
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
@@ -284,7 +284,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			}, TIMEOUT).Should(Equal(envVarValue))
 		})
 
-		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998"), func() {
+		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998", "sanity"), func() {
 			By("Create initial application")
 			initialRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())

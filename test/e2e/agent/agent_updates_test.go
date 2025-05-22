@@ -24,7 +24,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 	})
 
 	Context("updates", func() {
-		It("should update to the requested image", Label("75523"), func() {
+		It("should update to the requested image", Label("75523", "sanity"), func() {
 			By("Verifying update to agent  with requested image")
 			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
 
@@ -61,7 +61,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			logrus.Info("Device updated to new image 🎉")
 		})
 
-		It("Should update to v4 with embedded application", Label("77671"), func() {
+		It("Should update to v4 with embedded application", Label("77671", "sanity"), func() {
 			By("Verifying update to agent  with embedded application")
 
 			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
