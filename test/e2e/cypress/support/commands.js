@@ -1,25 +1,35 @@
-// ***********************************************
-// This example commands.js shows you how to
-// create various custom commands and overwrite
-// existing commands.
-//
-// For more comprehensive examples of custom
-// commands please read more here:
-// https://on.cypress.io/custom-commands
-// ***********************************************
-//
-//
-// -- This is a parent command --
-// Cypress.Commands.add('login', (email, password) => { ... })
-//
-//
-// -- This is a child command --
-// Cypress.Commands.add('drag', { prevSubject: 'element'}, (subject, options) => { ... })
-//
-//
-// -- This is a dual command --
-// Cypress.Commands.add('dismiss', { prevSubject: 'optional'}, (subject, options) => { ... })
-//
-//
-// -- This will overwrite an existing command --
-// Cypress.Commands.overwrite('visit', (originalFn, url, options) => { ... })
+Cypress.Commands.add('login', (url, auth, user, password) => {
+    cy.visit(url)
+    cy.wait(7000)
+    cy.origin(auth, () => {
+        cy.contains('kube:admin').click()
+        cy.get('#inputUsername').should('exist')
+        cy.get('#inputUsername').should('be.visible')
+        cy.get('#inputPassword').should('exist')
+        cy.get('#inputPassword').should('be.visible')
+        cy.get('#inputUsername').type(user)
+        cy.get('#inputPassword').type(password)
+        cy.get('#inputUsername').should('have.value', user)
+        cy.get('#inputPassword').should('have.value', password)
+        cy.contains('button', 'Log in').click()
+    })
+})
+Cypress.Commands.add('waitForPageLoad', () => {
+    cy.intercept('GET', '/api/v1/namespaces/kube-system/pods').as('getPods')
+    cy.wait('@getPods', { timeout: 30000 })
+})
+Cypress.Commands.add('deviceApprove', () => {
+    cy.get('#nav-toggle').should('exist')
+    cy.get('#nav-toggle').click()
+    cy.contains('Edge Management').click()
+    cy.contains('Devices').click()
+    cy.get('[data-label="Approve"]').should('exist')
+    cy.get('[data-label="Approve"]').should('be.visible')
+    cy.get('[data-label="Approve"]').click()
+    cy.get('#rich-validation-field-deviceAlias').should('be.visible')
+    cy.get('#rich-validation-field-deviceAlias').type('test-device')
+    cy.get('#rich-validation-field-deviceAlias').should('have.value', 'test-device')
+    cy.get('.pf-v5-c-label-group__list-item > .pf-v5-c-button').click()
+    cy.get('.pf-v5-c-form__actions > .pf-m-primary').should('be.visible')
+    cy.get('.pf-v5-c-form__actions > .pf-m-primary').click()
+})

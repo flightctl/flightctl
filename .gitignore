@@ -9,3 +9,6 @@
 /packaging/rpm/flightctl-*-vendor.tar.bz2
 flightctl-*.rpm
 *.tar
+test/e2e/cypress/node_modules
+test/e2e/cypress/package-lock.json
+test/e2e/cypress/package.json

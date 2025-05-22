@@ -1,22 +1,24 @@
-describe('template spec', () => {
+describe('Fleet Management', () => {
     it('passes', () => {
-        cy.visit('https://console-openshift-console.apps.ocp-edge-cluster-0.qe.lab.redhat.com')
-        cy.wait(9000)
-        cy.origin('https://oauth-openshift.apps.ocp-edge-cluster-0.qe.lab.redhat.com', () => {
+        cy.visit(`${Cypress.env('host')}`)
+        cy.waitForPageLoad()
+        cy.origin(`${Cypress.env('auth')}`, () => {
 
             cy.contains('kube:admin').click()
             cy.get('#inputUsername').should('exist')
             cy.get('#inputUsername').should('be.visible')
             cy.get('#inputPassword').should('exist')
             cy.get('#inputPassword').should('be.visible')
-            cy.get('#inputUsername').type('kubeadmin')
-            cy.get('#inputPassword').type('Dtfw2-z9s49-YPfam-etIFK')
+            cy.get('#inputUsername').type(`${Cypress.env('username')}`)
+            cy.get('#inputPassword').type(`${Cypress.env('password')}`)
+            cy.get('#inputUsername').should('have.value', `${Cypress.env('username')}`)
+            cy.get('#inputPassword').should('have.value', `${Cypress.env('password')}`)
             cy.contains('button', 'Log in').click()
         })
-        cy.wait(20000)
+        cy.waitForPageLoad()
         cy.get('.pf-v5-c-modal-box__close > .pf-v5-c-button').should('be.visible')
         cy.get('.pf-v5-c-modal-box__close > .pf-v5-c-button').click()
-        cy.url().should('include', 'https://console-openshift-console.apps.ocp-edge-cluster-0.qe.lab.redhat.com')
+        cy.url().should('include', host)
         cy.get('#nav-toggle').click()
         cy.contains('Edge Management').click()
         cy.contains('Fleets').click()
