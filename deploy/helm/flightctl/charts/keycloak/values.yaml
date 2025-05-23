@@ -24,4 +24,5 @@ db:
   tag: latest
   ## @param imagePullPolicy The container imagePullPolicy to use for the Keycloak database
   imagePullPolicy: ""
+  fsGroup: ""
 directAccessGrantsEnabled: true
