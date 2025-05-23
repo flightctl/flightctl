@@ -17,50 +17,18 @@ import (
 	"github.com/samber/lo"
 )
 
-const ClientCertExpiryDays = 365
-
-func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
+func approveEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
-		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
+		return errors.New("approveEnrollmentRequest: enrollmentRequest is nil")
 	}
 
 	if enrollmentRequest.Metadata.Name == nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: enrollment request is missing metadata.name")
+		return fmt.Errorf("approveEnrollmentRequest: enrollment request is missing metadata.name")
 	}
 
-	csr, err := crypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
-	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
-	}
-
-	supplied, err := ca.CNFromDeviceFingerprint(csr.Subject.CommonName)
-	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: invalid CN supplied in CSR: %w", err)
-	}
-
-	desired, err := ca.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
-	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: error setting CN in CSR: %w", err)
-	}
-
-	if desired != supplied {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: attempt to supply a fake CN, possible identity theft, csr: %s, metadata %s", supplied, desired)
-	}
-	csr.Subject.CommonName = desired
-
-	if err := csr.CheckSignature(); err != nil {
-		return fmt.Errorf("failed to verify signature of CSR: %w", err)
-	}
-
-	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
-	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
-	if err != nil {
-		return err
-	}
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
-		Certificate: lo.ToPtr(string(certData)),
-		Conditions:  []api.Condition{},
-		Approval:    approval,
+		Conditions: []api.Condition{},
+		Approval:   approval,
 	}
 
 	// union user-provided labels with agent-provided labels
@@ -72,7 +40,6 @@ func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api
 			}
 		}
 	}
-
 	condition := api.Condition{
 		Type:    api.EnrollmentRequestApproved,
 		Status:  api.ConditionStatusTrue,
@@ -80,6 +47,45 @@ func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api
 		Message: "Approved by " + approval.ApprovedBy,
 	}
 	api.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
+	return nil
+}
+
+func signEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) error {
+	if enrollmentRequest == nil {
+		return errors.New("signEnrollmentRequest: enrollmentRequest is nil")
+	}
+
+	csr, err := crypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
+	if err != nil {
+		return fmt.Errorf("signEnrollmentRequest: error parsing CSR: %w", err)
+	}
+
+	supplied, err := ca.CNFromDeviceFingerprint(csr.Subject.CommonName)
+	if err != nil {
+		return fmt.Errorf("signEnrollmentRequest: invalid CN supplied in CSR: %w", err)
+	}
+
+	desired, err := ca.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
+	if err != nil {
+		return fmt.Errorf("signEnrollmentRequest: error setting CN in CSR: %w", err)
+	}
+
+	if desired != supplied {
+		return fmt.Errorf("signEnrollmentRequest: attempt to supply a fake CN, possible identity theft, csr: %s, metadata %s", supplied, desired)
+	}
+	csr.Subject.CommonName = desired
+
+	if err := csr.CheckSignature(); err != nil {
+		return fmt.Errorf("failed to verify signature of CSR: %w", err)
+	}
+
+	expirySeconds := ca.Cfg.EnrollmentValidityDays * 24 * 60 * 60
+	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
+	if err != nil {
+		return err
+	}
+
+	enrollmentRequest.Status.Certificate = lo.ToPtr(string(certData))
 	return nil
 }
 
@@ -309,8 +315,15 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 		approvalStatusToReturn = &approvalStatus
 
-		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
+		if err := approveEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("Error approving enrollment request: %v", err.Error()))
+		}
+		if h.ca.IsSync() {
+			if err := signEnrollmentRequest(h.ca, enrollmentReq); err != nil {
+				return nil, api.StatusBadRequest(fmt.Sprintf("Error signing enrollment request: %v", err.Error()))
+			}
+		} else {
+			h.callbackManager.SignCertificates(orgId)
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
