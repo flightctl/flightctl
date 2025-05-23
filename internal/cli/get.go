@@ -25,11 +25,12 @@ import (
 const (
 	jsonFormat = "json"
 	yamlFormat = "yaml"
+	nameFormat = "name"
 	wideFormat = "wide"
 )
 
 var (
-	legalOutputTypes = []string{jsonFormat, yamlFormat, wideFormat}
+	legalOutputTypes = []string{jsonFormat, yamlFormat, nameFormat, wideFormat}
 )
 
 type GetOptions struct {
@@ -146,9 +147,6 @@ func (o *GetOptions) Validate(args []string) error {
 	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
 		return fmt.Errorf("'--rendered' can only be used when getting a single device")
 	}
-	if kind == EventKind && len(name) > 0 {
-		return fmt.Errorf("you cannot get a single event")
-	}
 	if o.Limit < 0 {
 		return fmt.Errorf("limit must be greater than 0")
 	}
@@ -245,13 +243,6 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		response, err = c.ListCertificateSigningRequestsWithResponse(ctx, &params)
-	case kind == EventKind:
-		params := api.ListEventsParams{
-			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.ToPtrWithNilDefault(o.Limit),
-			Continue:      util.ToPtrWithNilDefault(o.Continue),
-		}
-		response, err = c.ListEventsWithResponse(ctx, &params)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -309,6 +300,8 @@ func (o *GetOptions) processResponse(response interface{}, err error, kind strin
 		}
 		fmt.Printf("%s\n", string(marshalled))
 		return nil
+	case nameFormat:
+		return o.printNames(response, kind, name)
 	default:
 		return o.printTable(response, kind, name)
 	}
@@ -361,8 +354,6 @@ func (o *GetOptions) printTable(response interface{}, kind string, name string) 
 		o.printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
 	case kind == CertificateSigningRequestKind && len(name) > 0:
 		o.printCSRTable(w, *(response.(*apiclient.GetCertificateSigningRequestResponse).JSON200))
-	case kind == EventKind:
-		o.printEventsTable(w, response.(*apiclient.ListEventsResponse).JSON200.Items...)
 	default:
 		return fmt.Errorf("unknown resource type %s", kind)
 	}
@@ -583,15 +574,59 @@ func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateS
 	}
 }
 
-func (o *GetOptions) printEventsTable(w *tabwriter.Writer, events ...api.Event) {
-	fmt.Fprintln(w, "AGE\tKIND\tNAME\tTYPE\tMESSAGE")
-	for _, e := range events {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			humanize.Time(*e.Metadata.CreationTimestamp),
-			e.InvolvedObject.Kind,
-			e.InvolvedObject.Name,
-			e.Type,
-			e.Message,
-		)
+//nolint:gocyclo
+func (o *GetOptions) printNames(response interface{}, kind string, name string) error {
+	switch {
+	case kind == DeviceKind && len(name) == 0:
+		for _, item := range response.(*apiclient.ListDevicesResponse).JSON200.Items {
+			fmt.Println(*item.Metadata.Name)
+		}
+	case kind == DeviceKind && len(name) > 0:
+		var device api.Device
+		if o.Rendered {
+			device = *(response.(*apiclient.GetRenderedDeviceResponse).JSON200)
+		} else {
+			device = *(response.(*apiclient.GetDeviceResponse).JSON200)
+		}
+		fmt.Println(*device.Metadata.Name)
+	case kind == EnrollmentRequestKind && len(name) == 0:
+		for _, item := range response.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items {
+			fmt.Println(*item.Metadata.Name)
+		}
+	case kind == EnrollmentRequestKind && len(name) > 0:
+		fmt.Println(*response.(*apiclient.GetEnrollmentRequestResponse).JSON200.Metadata.Name)
+	case kind == FleetKind && len(name) == 0:
+		for _, item := range response.(*apiclient.ListFleetsResponse).JSON200.Items {
+			fmt.Println(*item.Metadata.Name)
+		}
+	case kind == FleetKind && len(name) > 0:
+		fmt.Println(*response.(*apiclient.GetFleetResponse).JSON200.Metadata.Name)
+	case kind == TemplateVersionKind && len(name) == 0:
+		for _, item := range response.(*apiclient.ListTemplateVersionsResponse).JSON200.Items {
+			fmt.Println(*item.Metadata.Name)
+		}
+	case kind == TemplateVersionKind && len(name) > 0:
+		fmt.Println(*response.(*apiclient.GetTemplateVersionResponse).JSON200.Metadata.Name)
+	case kind == RepositoryKind && len(name) == 0:
+		for _, item := range response.(*apiclient.ListRepositoriesResponse).JSON200.Items {
+			fmt.Println(*item.Metadata.Name)
+		}
+	case kind == RepositoryKind && len(name) > 0:
+		fmt.Println(*response.(*apiclient.GetRepositoryResponse).JSON200.Metadata.Name)
+	case kind == ResourceSyncKind && len(name) == 0:
+		for _, item := range response.(*apiclient.ListResourceSyncsResponse).JSON200.Items {
+			fmt.Println(*item.Metadata.Name)
+		}
+	case kind == ResourceSyncKind && len(name) > 0:
+		fmt.Println(*response.(*apiclient.GetResourceSyncResponse).JSON200.Metadata.Name)
+	case kind == CertificateSigningRequestKind && len(name) == 0:
+		for _, item := range response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items {
+			fmt.Println(*item.Metadata.Name)
+		}
+	case kind == CertificateSigningRequestKind && len(name) > 0:
+		fmt.Println(*response.(*apiclient.GetCertificateSigningRequestResponse).JSON200.Metadata.Name)
+	default:
+		return fmt.Errorf("unknown resource type %s", kind)
 	}
+	return nil
 }

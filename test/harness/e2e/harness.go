@@ -612,8 +612,20 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 
 func (h *Harness) CleanUpResources(resourceType string) (string, error) {
 	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
-	return h.CLI("delete", resourceType)
 
+	resources, err := h.CLI("get", resourceType, "-o", "name")
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s resources: %w", resourceType, err)
+	}
+	resources = strings.TrimSpace(resources)
+	if resources == "" {
+		logrus.Infof("No %s resources found to delete", resourceType)
+		return "No resources to delete", nil
+	}
+
+	cmd := fmt.Sprintf("%s delete %s $(%s get %s -o name)",
+		flightctlPath(), resourceType, flightctlPath(), resourceType)
+	return h.SH("sh", "-c", cmd)
 }
 
 func (h *Harness) CleanUpAllResources() error {
@@ -926,7 +938,7 @@ func (h Harness) ManageResource(operation, resource string, args ...string) (str
 	case "apply":
 		return h.CLI("apply", "-f", util.GetTestExamplesYamlPath(resource))
 	case "delete":
-		return h.CLI("delete", resource)
+		return h.CleanUpResources(resource)
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}
