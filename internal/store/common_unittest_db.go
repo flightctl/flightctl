@@ -36,11 +36,6 @@ func PrepareDBForUnitTests(log *logrus.Logger) (Store, *config.Config, string, *
 		log.Fatalf("running initial migration: %v", err)
 	}
 
-	err = store.InitialMigration()
-	if err != nil {
-		log.Fatalf("running initial migration: %v", err)
-	}
-
 	return store, cfg, randomDBName, db
 }
 
