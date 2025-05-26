@@ -24,6 +24,11 @@ var _ = Describe("Label Selectors", func() {
 		expectedDevices []*api.Device
 	)
 
+	const (
+		uniqueLabelKey = "unique"
+		deviceCount    = 10
+	)
+
 	BeforeEach(func() {
 		expectedDevices = nil
 	})
@@ -44,18 +49,18 @@ var _ = Describe("Label Selectors", func() {
 				By(fmt.Sprintf("creating devices with labels '%s', filtering by key '%s' at index %d, expecting %d", e.Labels, e.Key, e.Index, e.Count))
 				Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
 
-				Expect(createDevicesWithAddedUniqueLabelToLabels(harness, 10, "unique", e.Labels, &expectedDevices)).To(Succeed())
+				Expect(createDevicesWithAddedUniqueLabelToLabels(harness, deviceCount, uniqueLabelKey, e.Labels, &expectedDevices)).To(Succeed())
 
-				Expect(resources.DevicesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, deviceCount)).To(Succeed())
 
 				filteringDevicesResponse, err := filteringDevicesWithLabelNameAndIndex(harness, e.Key, e.Index, expectedDevices)
 				Expect(err).ShouldNot(HaveOccurred())
 
 				Expect(responseShouldContainExpectedDevices(filteringDevicesResponse, err, e.Count)).To(Succeed())
 			},
-			Entry("exact match 1", Example{Labels: "region=eu-west-1,zone=AB", Key: "unique", Index: 2, Count: 1}),
-			Entry("exact match 2", Example{Labels: "region=eu-west-2,zone=CD", Key: "unique", Index: 5, Count: 1}),
-			Entry("exact match 3", Example{Labels: "region=eu-west-3,zone=EF", Key: "unique", Index: 8, Count: 1}),
+			Entry("exact match 1", Example{Labels: "region=eu-west-1,zone=AB", Key: uniqueLabelKey, Index: 2, Count: 1}),
+			Entry("exact match 2", Example{Labels: "region=eu-west-2,zone=CD", Key: uniqueLabelKey, Index: 5, Count: 1}),
+			Entry("exact match 3", Example{Labels: "region=eu-west-3,zone=EF", Key: uniqueLabelKey, Index: 8, Count: 1}),
 			Entry("mismatch", Example{Labels: "region=eu-west-4,zone=GH", Key: "unique1", Index: 6, Count: 0}),
 		)
 	})
@@ -73,9 +78,9 @@ var _ = Describe("Label Selectors", func() {
 				By(fmt.Sprintf("creating devices with labels '%s', unique label key '%s', filtering by selector '%s', expecting %d", e.Labels, e.UniqueLabelKey, e.Selector, e.Count))
 				Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
 
-				Expect(createDevicesWithAddedUniqueLabelToLabels(harness, 10, e.UniqueLabelKey, e.Labels, &expectedDevices)).To(Succeed())
+				Expect(createDevicesWithAddedUniqueLabelToLabels(harness, deviceCount, e.UniqueLabelKey, e.Labels, &expectedDevices)).To(Succeed())
 
-				Expect(resources.DevicesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, deviceCount)).To(Succeed())
 
 				filteringDevicesResponse, err := filteringDevicesWithLabelSelector(harness, e.Selector)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -83,21 +88,21 @@ var _ = Describe("Label Selectors", func() {
 				Expect(responseShouldContainExpectedDevices(filteringDevicesResponse, err, e.Count)).To(Succeed())
 			},
 			// label in a set
-			Entry("label in set - match", Example{Labels: "region=eu-west-1", UniqueLabelKey: "unique", Selector: "region in (test, eu-west-1)", Count: 10}),
-			Entry("label in set - no match", Example{Labels: "region=eu-west-1", UniqueLabelKey: "unique", Selector: "region in (test, eu-west-2)", Count: 0}),
+			Entry("label in set - match", Example{Labels: "region=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "region in (test, eu-west-1)", Count: deviceCount}),
+			Entry("label in set - no match", Example{Labels: "region=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "region in (test, eu-west-2)", Count: 0}),
 
 			// label not in a set
-			Entry("label not in set - no match", Example{Labels: "region=eu-west-1", UniqueLabelKey: "unique", Selector: "region notin (test, eu-west-1)", Count: 0}),
-			Entry("label not in set - match", Example{Labels: "region=eu-west-1", UniqueLabelKey: "unique", Selector: "region notin (test, eu-west-2)", Count: 10}),
+			Entry("label not in set - no match", Example{Labels: "region=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "region notin (test, eu-west-1)", Count: 0}),
+			Entry("label not in set - match", Example{Labels: "region=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "region notin (test, eu-west-2)", Count: deviceCount}),
 
 			// label existence
-			Entry("label existence - match region", Example{Labels: "region=eu-west-1", UniqueLabelKey: "unique", Selector: "region", Count: 10}),
-			Entry("label existence - match unique", Example{Labels: "region=eu-west-1", UniqueLabelKey: "unique", Selector: "unique", Count: 10}),
-			Entry("label existence - no match", Example{Labels: "key=eu-west-1", UniqueLabelKey: "unique", Selector: "region", Count: 0}),
+			Entry("label existence - match region", Example{Labels: "region=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "region", Count: deviceCount}),
+			Entry("label existence - match unique", Example{Labels: "region=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "unique", Count: deviceCount}),
+			Entry("label existence - no match", Example{Labels: "key=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "region", Count: 0}),
 
 			// label non-existence
-			Entry("label non-existence - no match region", Example{Labels: "region=eu-west-1", UniqueLabelKey: "unique", Selector: "!region", Count: 0}),
-			Entry("label non-existence - no match unique", Example{Labels: "region=eu-west-1", UniqueLabelKey: "unique", Selector: "!unique", Count: 0}),
+			Entry("label non-existence - no match region", Example{Labels: "region=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "!region", Count: 0}),
+			Entry("label non-existence - no match unique", Example{Labels: "region=eu-west-1", UniqueLabelKey: uniqueLabelKey, Selector: "!unique", Count: 0}),
 		)
 	})
 })
@@ -105,6 +110,9 @@ var _ = Describe("Label Selectors", func() {
 func createDevicesWithAddedUniqueLabelToLabels(harness *e2e.Harness, count int, labelKey string, csvLabels string, expectedDevices *[]*api.Device) error {
 	if count <= 0 {
 		return fmt.Errorf("count should be greater than 0")
+	}
+	if labelKey == "" {
+		return fmt.Errorf("labelKey cannot be empty")
 	}
 	if csvLabels == "" {
 		return fmt.Errorf("labels CSV input cannot be empty")

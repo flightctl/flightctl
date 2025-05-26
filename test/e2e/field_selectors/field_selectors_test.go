@@ -33,7 +33,7 @@ var _ = Describe("Field Selectors", func() {
 
 	Context("Supported fields validation", func() {
 		It("should return a list of supported fields when providing invalid field selectors", func() {
-			Expect(devicesAreListed(harness, 0)).To(Succeed())
+			Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
 
 			_, actualSupportedFields, err := filteringDevicesWithFieldSelectorAndOperator(harness, "invalid-selector", "Equals", "invalid-value")
 			Expect(err).ShouldNot(HaveOccurred())
@@ -60,7 +60,7 @@ var _ = Describe("Field Selectors", func() {
 
 	Context("Invalid field selector syntax validation", func() {
 		It("should return an error message when providing invalid syntax for field selector name", func() {
-			err := devicesAreListed(harness, 0)
+			err := resources.DevicesAreListed(harness, 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			filteringDevicesResponse, _, err := filteringDevicesWithFieldSelectorAndOperator(harness, "@invalid-selector", "Equals", "invalid-value")
@@ -73,11 +73,11 @@ var _ = Describe("Field Selectors", func() {
 	Context("Filter devices by name", func() {
 		DescribeTable("Filter a selected device from a list of devices",
 			func(value string, expectedCount int) {
-				Expect(devicesAreListed(harness, 0)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
 
 				Expect(createDevicesWithNamePrefixAndFleet(harness, 10, "device-", "fleet-1", &expectedDevices)).To(Succeed())
 
-				Expect(devicesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 10)).To(Succeed())
 
 				filteringDevicesResponse, _, err := filteringDevicesWithFieldSelectorAndOperator(harness, "metadata.name", "Equals", value)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -94,20 +94,20 @@ var _ = Describe("Field Selectors", func() {
 	Context("Filter devices by owner (fleet)", func() {
 		DescribeTable("Filter selected devices from a list of devices assigned to a specific owner (fleet)",
 			func(value string, expectedCount int) {
-				Expect(devicesAreListed(harness, 0)).To(Succeed())
-				Expect(fleetsAreListed(harness, 0)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 0)).To(Succeed())
 
 				Expect(createDevicesWithNamePrefixAndFleet(harness, 5, "device-a-", "fleet-1", &expectedDevices)).To(Succeed())
-				Expect(devicesAreListed(harness, 5)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 5)).To(Succeed())
 
 				Expect(createDevicesWithNamePrefixAndFleet(harness, 5, "device-b-", "fleet-2", &expectedDevices)).To(Succeed())
-				Expect(devicesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 10)).To(Succeed())
 
 				Expect(createFleet(harness, "fleet-1", templateImage, &expectedFleets)).To(Succeed())
-				Expect(fleetsAreListed(harness, 1)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 1)).To(Succeed())
 
 				Expect(createFleet(harness, "fleet-2", templateImage, &expectedFleets)).To(Succeed())
-				Expect(fleetsAreListed(harness, 2)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 2)).To(Succeed())
 
 				filteringDevicesResponse, _, err := filteringDevicesWithFieldSelectorAndOperator(harness, "metadata.owner", "Equals", value)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -122,11 +122,11 @@ var _ = Describe("Field Selectors", func() {
 
 	Context("Filter devices by creation timestamp", func() {
 		It("should filter devices from a list of devices created during current year", func() {
-			Expect(devicesAreListed(harness, 0)).To(Succeed())
+			Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
 
 			Expect(createDevicesWithNamePrefixAndFleet(harness, 10, "device-", "fleet-1", &expectedDevices)).To(Succeed())
 
-			Expect(devicesAreListed(harness, 10)).To(Succeed())
+			Expect(resources.DevicesAreListed(harness, 10)).To(Succeed())
 
 			filteringDevicesResponse, err := filterDevicesWithCreationTimeDuringCurrentYear(harness, "metadata.creationTimestamp")
 			Expect(err).ShouldNot(HaveOccurred())
@@ -138,11 +138,11 @@ var _ = Describe("Field Selectors", func() {
 	Context("Filter fleets by name", func() {
 		DescribeTable("Filter a selected fleet from a list of fleets",
 			func(value string, expectedCount int) {
-				Expect(fleetsAreListed(harness, 0)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 0)).To(Succeed())
 
 				Expect(createFleetsWithNamePrefix(harness, 10, "fleet-", templateImage, &expectedFleets)).To(Succeed())
 
-				Expect(fleetsAreListed(harness, 10)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 10)).To(Succeed())
 
 				filteringFleetsResponse, _, err := filteringFleetsWithFieldSelectorAndOperator(harness, "metadata.name", "Equals", value)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -157,11 +157,11 @@ var _ = Describe("Field Selectors", func() {
 
 	Context("Filter fleets by creation timestamp", func() {
 		It("should filter fleets from a list of fleets created during current year", func() {
-			Expect(fleetsAreListed(harness, 0)).To(Succeed())
+			Expect(resources.FleetsAreListed(harness, 0)).To(Succeed())
 
 			Expect(createFleetsWithNamePrefix(harness, 10, "fleet-", templateImage, &expectedFleets)).To(Succeed())
 
-			Expect(fleetsAreListed(harness, 10)).To(Succeed())
+			Expect(resources.FleetsAreListed(harness, 10)).To(Succeed())
 
 			filteringFleetsResponse, err := filterFleetsWithCreationTimeDuringCurrentYear(harness, "metadata.creationTimestamp")
 			Expect(err).ShouldNot(HaveOccurred())
@@ -173,11 +173,11 @@ var _ = Describe("Field Selectors", func() {
 	Context("Filter repositories by name", func() {
 		DescribeTable("Filter a selected repository from a list of repositories",
 			func(value string, expectedCount int) {
-				Expect(repositoriesAreListed(harness, 0)).To(Succeed())
+				Expect(resources.RepositoriesAreListed(harness, 0)).To(Succeed())
 
 				Expect(createRepositoriesWithNamePrefix(harness, 10, "repository-", repositoryUrl, &expectedRepositories)).To(Succeed())
 
-				Expect(repositoriesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.RepositoriesAreListed(harness, 10)).To(Succeed())
 
 				filteringRepositoriesResponse, _, err := filteringRepositoriesWithFieldSelectorAndOperator(harness, "metadata.name", "Equals", value)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -192,11 +192,11 @@ var _ = Describe("Field Selectors", func() {
 
 	Context("Filter repositories by creation timestamp", func() {
 		It("should filter repositories created during current year", func() {
-			Expect(repositoriesAreListed(harness, 0)).To(Succeed())
+			Expect(resources.RepositoriesAreListed(harness, 0)).To(Succeed())
 
 			Expect(createRepositoriesWithNamePrefix(harness, 10, "repository-", repositoryUrl, &expectedRepositories)).To(Succeed())
 
-			Expect(repositoriesAreListed(harness, 10)).To(Succeed())
+			Expect(resources.RepositoriesAreListed(harness, 10)).To(Succeed())
 
 			filteringRepositoriesResponse, err := filterRepositoriesWithCreationTimeDuringCurrentYear(harness, "metadata.creationTimestamp")
 			Expect(err).ShouldNot(HaveOccurred())
