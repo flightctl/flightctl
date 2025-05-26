@@ -2,7 +2,7 @@
 
 # Variables
 VM_NAME="test-vm"
-VM_RAM=8192                # RAM in MB
+VM_RAM=10240                # RAM in MB necessary to run the flightctl e2e
 VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE=30          # Disk size
 NETWORK_NAME="baremetal-0"   # Network name
@@ -54,7 +54,7 @@ echo "Copying ${DISK_PATH_SRC} to ${DISK_PATH}..."
 cp ${DISK_PATH_SRC} ${DISK_PATH}
 
 # Resize the VM image
-qemu-img resize ${DISK_PATH} +15G
+qemu-img resize ${DISK_PATH} +20G  # bumping for the increased number of agent-images to be saved
 
 # Create the VM
 echo "Creating virtual machine ${VM_NAME}..."

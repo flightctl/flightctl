@@ -3,13 +3,11 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/go-openapi/swag"
 )
 
 func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
@@ -32,40 +30,12 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.Resource
 func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListResourceSyncsParams) (*api.ResourceSyncList, api.Status) {
 	orgId := store.NullOrgId
 
-	cont, err := store.ParseContinueString(params.Continue)
-	if err != nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
 
-	var fieldSelector *selector.FieldSelector
-	if params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*params.FieldSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
-		}
-	}
-
-	var labelSelector *selector.LabelSelector
-	if params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*params.LabelSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))
-		}
-	}
-
-	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(params.Limit)),
-		Continue:      cont,
-		FieldSelector: fieldSelector,
-		LabelSelector: labelSelector,
-	}
-	if listParams.Limit == 0 {
-		listParams.Limit = MaxRecordsPerListRequest
-	} else if listParams.Limit > MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
-	} else if listParams.Limit < 0 {
-		return nil, api.StatusBadRequest("limit cannot be negative")
-	}
-
-	result, err := h.store.ResourceSync().List(ctx, orgId, listParams)
+	result, err := h.store.ResourceSync().List(ctx, orgId, *listParams)
 	if err == nil {
 		return result, api.StatusOK()
 	}
