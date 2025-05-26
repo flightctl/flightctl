@@ -1,0 +1,33 @@
+# localhost:5000/flightctl-device:v7
+#     $(IP):5000/flightctl-device:v7
+#
+# Image built on top of our E2E base image which also includes microshift
+
+FROM localhost:5000/flightctl-device:base
+
+ADD test/scripts/agent-images/etc etc
+
+RUN mkdir -p /etc/systemd/system/flightctl-agent.service.d && \
+    printf "[Service]\nSELinuxContext=system_u:system_r:unconfined_t:s0\n" > /etc/systemd/system/flightctl-agent.service.d/override.conf
+
+RUN dnf install -y microshift && \
+   systemctl enable microshift.service
+
+# Create the required directory structure in /var/crio instead of /opt/crio
+RUN mkdir -p /var/crio
+
+RUN rm -rf /opt && ln -s /var /opt
+RUN ln -snf /run /var/run
+
+RUN firewall-offline-cmd --zone=public --add-port=22/tcp && \
+    firewall-offline-cmd --zone=trusted --add-source=10.42.0.0/16 && \
+    firewall-offline-cmd --zone=trusted --add-source=169.254.169.1 && \
+    firewall-offline-cmd --zone=trusted --add-source=fd01::/48
+    # Application-specific firewall configuration
+RUN firewall-offline-cmd --zone=public --add-port=80/tcp && \
+    firewall-offline-cmd --zone=public --add-port=443/tcp && \
+    firewall-offline-cmd --zone=public --add-port=30000-32767/tcp && \
+    firewall-offline-cmd --zone=public --add-port=30000-32767/udp
+
+# This step will be removed after selinux issue resolution (EDM-1579)
+RUN sudo sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config

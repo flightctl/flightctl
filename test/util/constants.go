@@ -1,5 +1,7 @@
 package util
 
+import "time"
+
 // Resource types
 const (
 	Device                    = "device"
@@ -8,13 +10,35 @@ const (
 	Repository                = "repository"
 	ResourceSync              = "resourcesync"
 	CertificateSigningRequest = "certificatesigningrequest"
+
+	//resource related
+	ApplyAction    = "apply"
+	DeviceYAMLPath = "device.yaml"
+	DeviceResource = "Device"
+	RepoResource   = "Repository"
+	ErResource     = "EnrollmentRequest"
+	FleetResource  = "Fleet"
+
+	// events
+	ForceFlag    = "-f"
+	EventCreated = "created"
+	EventDeleted = "deleted"
+	EventUpdated = "updated"
 )
 
-var ResourceTypes = [...]string{Device, Fleet, EnrollmentRequest, Repository, ResourceSync, CertificateSigningRequest}
+var ResourceTypes = [...]string{
+	Device,
+	Fleet,
+	EnrollmentRequest,
+	Repository,
+	ResourceSync,
+	CertificateSigningRequest,
+}
 
 const TIMEOUT = "5m"
 const POLLING = "250ms"
 const LONGTIMEOUT = "10m"
+const DURATION_TIMEOUT = 5 * time.Minute
 
 // Define a type for messages.
 type Message string
