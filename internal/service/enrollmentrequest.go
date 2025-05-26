@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -33,12 +32,12 @@ func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api
 		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
 	}
 
-	supplied, err := crypto.CNFromDeviceFingerprint(csr.Subject.CommonName)
+	supplied, err := ca.CNFromDeviceFingerprint(csr.Subject.CommonName)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: invalid CN supplied in CSR: %w", err)
 	}
 
-	desired, err := crypto.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
+	desired, err := ca.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: error setting CN in CSR: %w", err)
 	}
@@ -132,40 +131,12 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.ListEnrollmentRequestsParams) (*api.EnrollmentRequestList, api.Status) {
 	orgId := store.NullOrgId
 
-	cont, err := store.ParseContinueString(params.Continue)
-	if err != nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
 
-	var fieldSelector *selector.FieldSelector
-	if params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*params.FieldSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
-		}
-	}
-
-	var labelSelector *selector.LabelSelector
-	if params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*params.LabelSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))
-		}
-	}
-
-	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(params.Limit)),
-		Continue:      cont,
-		FieldSelector: fieldSelector,
-		LabelSelector: labelSelector,
-	}
-	if listParams.Limit == 0 {
-		listParams.Limit = MaxRecordsPerListRequest
-	} else if listParams.Limit > MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
-	} else if listParams.Limit < 0 {
-		return nil, api.StatusBadRequest("limit cannot be negative")
-	}
-
-	result, err := h.store.EnrollmentRequest().List(ctx, orgId, listParams)
+	result, err := h.store.EnrollmentRequest().List(ctx, orgId, *listParams)
 	if err == nil {
 		return result, api.StatusOK()
 	}

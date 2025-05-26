@@ -54,7 +54,7 @@ func (o *outgoingStreams) run(wg *sync.WaitGroup) {
 		err := o.streamClient.Send(&grpc_v1.StreamRequest{
 			Payload: msg,
 		})
-		if err != nil {
+		if err != nil && err != io.EOF {
 			o.log.Errorf("failed sending outgoing message: %v", err)
 			return
 		}
@@ -122,7 +122,7 @@ func (o *outgoingStdStream) run(parentWg, childWg *sync.WaitGroup) {
 		}
 		if err != nil {
 			if err != io.EOF {
-				o.log.Errorf("sending data: %v", err)
+				o.log.Warnf("sending data: %v", err)
 			}
 			if n == 0 {
 				return
@@ -162,7 +162,7 @@ func (o *outgoingErrorStream) emit(err error) {
 		exitCode = actual.ExitCode()
 	default:
 		o.log.Errorf("unexpected error type %T: %v", err, err)
-		exitCode = 555
+		exitCode = 255
 	}
 	status := metav1.Status{
 		Status: lo.Ternary[string](exitCode == 0, metav1.StatusSuccess, metav1.StatusFailure),

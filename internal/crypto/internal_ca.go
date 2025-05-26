@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config/ca"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
@@ -18,11 +19,19 @@ type internalCA struct {
 	SerialGenerator oscrypto.SerialGenerator
 }
 
-func ensureInternalCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (CABackend, bool, error) {
-	if ca, err := GetCA(certFile, keyFile, serialFile); err == nil {
+func ensureInternalCA(cfg *ca.Config) (CABackend, bool, error) {
+
+	caCertFile := CertStorePath(cfg.InternalConfig.CertFile, cfg.InternalConfig.CertStore)
+	caKeyFile := CertStorePath(cfg.InternalConfig.KeyFile, cfg.InternalConfig.CertStore)
+	caSerialFile := cfg.InternalConfig.SerialFile
+	if len(cfg.InternalConfig.SerialFile) > 0 {
+		caSerialFile = CertStorePath(cfg.InternalConfig.SerialFile, cfg.InternalConfig.CertStore)
+	}
+	ca, err := GetCA(caCertFile, caKeyFile, caSerialFile)
+	if err == nil {
 		return ca, false, err
 	}
-	ca, err := MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName, expireDays)
+	ca, err = MakeSelfSignedCA(caCertFile, caKeyFile, caSerialFile, cfg.InternalConfig.SignerCertName, cfg.InternalConfig.CertValidityDays)
 	if err != nil {
 		return nil, false, err
 	}

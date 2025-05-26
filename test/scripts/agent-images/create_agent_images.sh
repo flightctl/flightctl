@@ -9,6 +9,12 @@ source "${SCRIPT_DIR}"/../functions
 REGISTRY_ADDRESS=$(registry_address)
 IMAGE_LIST="base v2 v3 v4 v5 v6"
 
+if is_acm_installed; then
+    IMAGE_LIST="${IMAGE_LIST} v7"
+    sed -i 's|<memory unit="MiB">512</memory>|<memory unit="MiB">2048</memory>|' test/harness/e2e/vm/domain-template.xml # increate the memory only for microshift cluster registration test
+    echo "IMAGE_LIST=${IMAGE_LIST}"
+fi
+
 # Create the file and add the registry configuration
 cp "${SCRIPT_DIR}"/Containerfile-e2e-base.local.template "${SCRIPT_DIR}"/Containerfile-e2e-base.local
 sudo tee -a "${SCRIPT_DIR}"/Containerfile-e2e-base.local <<EOF
@@ -82,6 +88,9 @@ build_qcow2_image() {
                     build \
                     --type qcow2 \
                     --local "${REGISTRY_ADDRESS}/flightctl-device:base"
+    if is_acm_installed; then
+        sudo qemu-img resize "$(pwd)"/bin/output/qcow2/disk.qcow2 +5G # increasing disk size for microshift registration to acm test only
+    fi
 }
 
 case "$BUILD_TYPE" in

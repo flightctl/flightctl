@@ -452,14 +452,15 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
 		}
 
-		if file.ContentEncoding == nil {
-			decodedBytes = []byte(file.Content)
-		} else {
+		encoding := lo.FromPtr(file.ContentEncoding)
+		if encoding == api.EncodingBase64 {
 			decodedBytes, err = base64.StdEncoding.DecodeString(file.Content)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
 				continue
 			}
+		} else {
+			decodedBytes = []byte(file.Content)
 		}
 
 		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
@@ -468,7 +469,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 			continue
 		}
 
-		if file.ContentEncoding != nil && (*file.ContentEncoding) == api.EncodingBase64 {
+		if encoding == api.EncodingBase64 {
 			inlineSpec.Inline[fileIndex].Content = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
 		} else {
 			inlineSpec.Inline[fileIndex].Content = contentsReplaced
@@ -506,14 +507,15 @@ func (f FleetRolloutsLogic) replaceInlineApplicationParameters(device *api.Devic
 		}
 
 		content := lo.FromPtr(file.Content)
-		if file.ContentEncoding == nil {
-			decodedBytes = []byte(content)
-		} else {
+		encoding := lo.FromPtr(file.ContentEncoding)
+		if encoding == api.EncodingBase64 {
 			decodedBytes, err = base64.StdEncoding.DecodeString(content)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline app %s: %w", fileIndex, appName, err))
 				continue
 			}
+		} else {
+			decodedBytes = []byte(content)
 		}
 
 		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
@@ -522,7 +524,7 @@ func (f FleetRolloutsLogic) replaceInlineApplicationParameters(device *api.Devic
 			continue
 		}
 
-		if file.ContentEncoding != nil && (*file.ContentEncoding) == api.EncodingBase64 {
+		if encoding == api.EncodingBase64 {
 			contentsReplaced = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
 			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
 		} else {

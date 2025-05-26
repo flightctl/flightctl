@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -69,6 +71,7 @@ func setupVars(t *testing.T) *vars {
 		controller: NewController(mockGrpcClient,
 			"mydevice",
 			executor,
+			publisher.NewSubscription(),
 			logger),
 		recvChan: make(chan lo.Tuple2[*grpc_v1.StreamResponse, error]),
 	}
@@ -164,9 +167,7 @@ func sendInput(v *vars, id byte, b []byte) {
 func TestConsole(t *testing.T) {
 	t.Run("no process created", func(t *testing.T) {
 		v := setupVars(t)
-		if err := v.controller.Sync(v.ctx, desiredSpec()); err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
+		v.controller.sync(v.ctx, desiredSpec())
 	})
 
 	t.Run("create process and close without tty", func(t *testing.T) {
@@ -185,9 +186,7 @@ func TestConsole(t *testing.T) {
 		mockSend(v, 2)
 		mockRecv(v)
 
-		if err := v.controller.Sync(v.ctx, desiredSpec(consoleDef)); err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
+		v.controller.sync(v.ctx, desiredSpec(consoleDef))
 
 		require.Eventually(t, func() bool {
 			return bytes.Contains([]byte(v.stdoutBuffer.String()), []byte("hello world"))
@@ -213,9 +212,7 @@ func TestConsole(t *testing.T) {
 		mockSend(v, 1)
 		mockRecv(v)
 
-		if err := v.controller.Sync(v.ctx, desiredSpec(consoleDef)); err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
+		v.controller.sync(v.ctx, desiredSpec(consoleDef))
 
 		require.Eventually(t, func() bool {
 			return bytes.Contains([]byte(v.errBuffer.String()), []byte(`"code":11`))
@@ -238,9 +235,7 @@ func TestConsole(t *testing.T) {
 		mockSend(v, 2)
 		mockRecv(v)
 
-		if err := v.controller.Sync(v.ctx, desiredSpec(consoleDef)); err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
+		v.controller.sync(v.ctx, desiredSpec(consoleDef))
 
 		sendInput(v, StdinID, []byte("before\n"))
 		sendInput(v, CloseID, []byte{StdinID})
@@ -271,12 +266,7 @@ func TestConsole(t *testing.T) {
 		mockSend(v, 3)
 		mockRecv(v)
 
-		if err := v.controller.Sync(v.ctx, desiredSpec(consoleDef)); err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
-
-		sendInput(v, StdinID, []byte("before\n"))
-		sendInput(v, CloseID, []byte{StdinID})
+		v.controller.sync(v.ctx, desiredSpec(consoleDef))
 
 		require.Eventually(t, func() bool {
 			return bytes.Contains([]byte(v.stdoutBuffer.String()), []byte("stdout"))
@@ -289,25 +279,37 @@ func TestConsole(t *testing.T) {
 		}, 2*time.Second, 50*time.Millisecond, "Expected error to contain 'Success'")
 	})
 
-	t.Run("echo stdin with tty, close stdin", func(t *testing.T) {
+	t.Run("echo stdin with tty", func(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
-		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil, nil, true))
+		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", &v1alpha1.TerminalSize{
+			Width:  256,
+			Height: 50,
+		}, nil, true))
 
 		mockStream(v)
 		mockCloseSend(v)
 		mockRecv(v)
 		mockSend(v, 0)
 
-		if err := v.controller.Sync(v.ctx, desiredSpec(consoleDef)); err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
-
-		sendInput(v, StdinID, []byte("hello world\n"))
-		sendInput(v, CloseID, []byte{StdinID})
+		v.controller.sync(v.ctx, desiredSpec(consoleDef))
 
 		require.Eventually(t, func() bool {
-			return bytes.Contains([]byte(v.stdoutBuffer.String()), []byte("hello world"))
-		}, 2*time.Second, 50*time.Millisecond, "Expected stdout to contain 'hello world'")
+			return v.stdoutBuffer.String() != ""
+		}, 2*time.Second, 50*time.Millisecond, "Expected to get bash prompt")
+
+		sendInput(v, StdinID, []byte("echo hello world"))
+
+		require.Eventually(t, func() bool {
+			return strings.Contains(v.stdoutBuffer.String(), "echo hello world")
+		}, 2*time.Second, 50*time.Millisecond, "Expected stdout to contain 'hello world' got %s", &v.stdoutBuffer)
+
+		require.Equal(t, v.errBuffer.String(), "")
+
+		sendInput(v, StdinID, []byte("\nexit\n"))
+
+		require.Eventually(t, func() bool {
+			return v.errBuffer.String() != ""
+		}, 2*time.Second, 50*time.Millisecond, "Expected the process to exit")
 	})
 }

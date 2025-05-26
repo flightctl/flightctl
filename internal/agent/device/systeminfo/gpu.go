@@ -46,7 +46,7 @@ func collectGPUInfo(log *log.PrefixLogger, reader fileio.Reader, mappingFile str
 		pciMappings, err = loadPCIMappings(reader, mappingFile)
 		if err != nil {
 			// collection is best effort
-			log.Debugf("Could not load PCI mappings: %v", err)
+			log.Tracef("Could not load PCI mappings: %v", err)
 		}
 	}
 
@@ -77,7 +77,7 @@ func collectGPUInfo(log *log.PrefixLogger, reader fileio.Reader, mappingFile str
 
 		class := strings.TrimSpace(string(classBytes))
 		if !isGPU(class) {
-			log.Debugf("Device %s is not a GPU: %s", entry.Name(), class)
+			log.Tracef("Device %s is not a GPU: %s", entry.Name(), class)
 			continue
 		}
 

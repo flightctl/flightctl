@@ -10,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -31,32 +30,12 @@ func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
 func (h *ServiceHandler) ListEvents(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status) {
 	orgId := store.NullOrgId
 
-	cont, err := store.ParseContinueString(params.Continue)
-	if err != nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
+	listParams, status := prepareListParams(params.Continue, nil, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
 
-	var fieldSelector *selector.FieldSelector
-	if params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*params.FieldSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
-		}
-	}
-
-	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(params.Limit)),
-		Continue:      cont,
-		FieldSelector: fieldSelector,
-	}
-	if listParams.Limit == 0 {
-		listParams.Limit = MaxRecordsPerListRequest
-	} else if listParams.Limit > MaxRecordsPerListRequest {
-		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
-	} else if listParams.Limit < 0 {
-		return nil, api.StatusBadRequest("limit cannot be negative")
-	}
-
-	result, err := h.store.Event().List(ctx, orgId, listParams)
+	result, err := h.store.Event().List(ctx, orgId, *listParams)
 	if err == nil {
 		return result, api.StatusOK()
 	}

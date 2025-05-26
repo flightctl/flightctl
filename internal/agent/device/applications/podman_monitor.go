@@ -411,7 +411,11 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	inspectData, err := m.inspectContainer(ctx, event.ID)
 	if err != nil {
-		m.log.Errorf("Failed to inspect container: %v", err)
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
+		} else {
+			m.log.Errorf("Failed to inspect container: %v", err)
+		}
 	}
 
 	restarts, err := m.getContainerRestarts(inspectData)

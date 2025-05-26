@@ -163,6 +163,8 @@ func FromStderr(stderr string, exitCode int) error {
 		"context deadline exceeded": context.DeadlineExceeded,
 		// container image resolution
 		"short-name resolution enforced": ErrImageShortName,
+		// no such object
+		"no such object": ErrNotFound,
 	}
 	for check, err := range errMap {
 		if strings.Contains(stderr, check) {
