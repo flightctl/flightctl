@@ -149,9 +149,9 @@ var _ = Describe("Field Selectors Operators", func() {
 			func(field string, operator string, value string, expectedCount int) {
 				Expect(resources.RepositoriesAreListed(harness, 0)).To(Succeed())
 
-				Expect(createRepositoriesWithNamePrefix(harness, 10, repositoryPrefix, repositoryUrl, &expectedRepositories)).To(Succeed())
+				Expect(createRepositoriesWithNamePrefix(harness, resourceCount, repositoryPrefix, repositoryUrl, &expectedRepositories)).To(Succeed())
 
-				Expect(resources.RepositoriesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.RepositoriesAreListed(harness, resourceCount)).To(Succeed())
 
 				filteringRepositoriesResponse, _, err := filteringRepositoriesWithFieldSelectorAndOperator(harness, field, operator, value)
 
