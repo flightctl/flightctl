@@ -34,14 +34,14 @@ var _ = Describe("Field Selectors Operators", func() {
 	Context("Filter devices by field name, operator and value", func() {
 		DescribeTable("Evaluate filtered devices based on a combination of field name, operator and value",
 			func(field string, operator string, value string, expectedCount int) {
-				Expect(devicesAreListed(harness, 0)).To(Succeed())
-				Expect(fleetsAreListed(harness, 0)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 0)).To(Succeed())
 
 				Expect(createDevicesWithNamePrefixAndFleet(harness, 10, "device-", "fleet-1", &expectedDevices)).To(Succeed())
-				Expect(devicesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 10)).To(Succeed())
 
 				Expect(createFleet(harness, "fleet-1", templateImage, &expectedFleets)).To(Succeed())
-				Expect(fleetsAreListed(harness, 1)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 1)).To(Succeed())
 
 				filteringDevicesResponse, _, err := filteringDevicesWithFieldSelectorAndOperator(harness, field, operator, value)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -113,11 +113,11 @@ var _ = Describe("Field Selectors Operators", func() {
 	Context("Filter fleets by field name, operator and value", func() {
 		DescribeTable("Evaluate filtered fleets based on a combination of field name, operator and value",
 			func(field string, operator string, value string, expectedCount int) {
-				Expect(fleetsAreListed(harness, 0)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 0)).To(Succeed())
 
 				Expect(createFleetsWithNamePrefix(harness, 10, "fleet-", templateImage, &expectedFleets)).To(Succeed())
 
-				Expect(fleetsAreListed(harness, 10)).To(Succeed())
+				Expect(resources.FleetsAreListed(harness, 10)).To(Succeed())
 
 				filteringFleetsResponse, _, err := filteringFleetsWithFieldSelectorAndOperator(harness, field, operator, value)
 
@@ -142,11 +142,11 @@ var _ = Describe("Field Selectors Operators", func() {
 	Context("Filter repositories by field name, operator and value", func() {
 		DescribeTable("Evaluate filtered repositories based on a combination of field name, operator and value",
 			func(field string, operator string, value string, expectedCount int) {
-				Expect(repositoriesAreListed(harness, 0)).To(Succeed())
+				Expect(resources.RepositoriesAreListed(harness, 0)).To(Succeed())
 
 				Expect(createRepositoriesWithNamePrefix(harness, 10, "repository-", repositoryUrl, &expectedRepositories)).To(Succeed())
 
-				Expect(repositoriesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.RepositoriesAreListed(harness, 10)).To(Succeed())
 
 				filteringRepositoriesResponse, _, err := filteringRepositoriesWithFieldSelectorAndOperator(harness, field, operator, value)
 

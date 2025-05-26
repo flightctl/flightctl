@@ -138,21 +138,6 @@ func createRepositoriesWithNamePrefix(harness *e2e.Harness, count int, namePrefi
 	return nil
 }
 
-func devicesAreListed(harness *e2e.Harness, count int) error {
-	listedDevices, err := resources.ListAll(harness, resources.Devices)
-	return resources.SomeRowsAreListedInResponse(listedDevices, err, count)
-}
-
-func fleetsAreListed(harness *e2e.Harness, count int) error {
-	listedFleets, err := resources.ListAll(harness, resources.Fleets)
-	return resources.SomeRowsAreListedInResponse(listedFleets, err, count)
-}
-
-func repositoriesAreListed(harness *e2e.Harness, count int) error {
-	listedRepositories, err := resources.ListAll(harness, resources.Repositories)
-	return resources.SomeRowsAreListedInResponse(listedRepositories, err, count)
-}
-
 func contains(slice []string, item string) bool {
 	i := sort.SearchStrings(slice, item)
 	return i < len(slice) && slice[i] == item

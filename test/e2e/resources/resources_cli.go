@@ -35,6 +35,21 @@ func ExpectNotExistWithName(harness *e2e.Harness, resourceKind string, name stri
 	return err
 }
 
+func DevicesAreListed(harness *e2e.Harness, count int) error {
+	listedDevices, err := ListAll(harness, Devices)
+	return SomeRowsAreListedInResponse(listedDevices, err, count)
+}
+
+func FleetsAreListed(harness *e2e.Harness, count int) error {
+	listedFleets, err := ListAll(harness, Fleets)
+	return SomeRowsAreListedInResponse(listedFleets, err, count)
+}
+
+func RepositoriesAreListed(harness *e2e.Harness, count int) error {
+	listedRepositories, err := ListAll(harness, Repositories)
+	return SomeRowsAreListedInResponse(listedRepositories, err, count)
+}
+
 func GetByName(harness *e2e.Harness, resourceKind string, name string) (string, error) {
 	return harness.CLI(get, fmt.Sprintf("%s/%s", resourceKind, name), "-o", wide)
 }

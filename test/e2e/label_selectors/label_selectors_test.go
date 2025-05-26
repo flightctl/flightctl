@@ -42,11 +42,11 @@ var _ = Describe("Label Selectors", func() {
 		DescribeTable("Filter a selected device from a list of devices using exact label value.",
 			func(e Example) {
 				By(fmt.Sprintf("creating devices with labels '%s', filtering by key '%s' at index %d, expecting %d", e.Labels, e.Key, e.Index, e.Count))
-				Expect(devicesAreListed(harness, 0)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
 
 				Expect(createDevicesWithAddedUniqueLabelToLabels(harness, 10, "unique", e.Labels, &expectedDevices)).To(Succeed())
 
-				Expect(devicesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 10)).To(Succeed())
 
 				filteringDevicesResponse, err := filteringDevicesWithLabelNameAndIndex(harness, e.Key, e.Index, expectedDevices)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -71,11 +71,11 @@ var _ = Describe("Label Selectors", func() {
 		DescribeTable("Filter selected devices from a list of devices using different selectors.",
 			func(e Example) {
 				By(fmt.Sprintf("creating devices with labels '%s', unique label key '%s', filtering by selector '%s', expecting %d", e.Labels, e.UniqueLabelKey, e.Selector, e.Count))
-				Expect(devicesAreListed(harness, 0)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 0)).To(Succeed())
 
 				Expect(createDevicesWithAddedUniqueLabelToLabels(harness, 10, e.UniqueLabelKey, e.Labels, &expectedDevices)).To(Succeed())
 
-				Expect(devicesAreListed(harness, 10)).To(Succeed())
+				Expect(resources.DevicesAreListed(harness, 10)).To(Succeed())
 
 				filteringDevicesResponse, err := filteringDevicesWithLabelSelector(harness, e.Selector)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -101,11 +101,6 @@ var _ = Describe("Label Selectors", func() {
 		)
 	})
 })
-
-func devicesAreListed(harness *e2e.Harness, count int) error {
-	listedDevices, err := resources.ListAll(harness, resources.Devices)
-	return resources.SomeRowsAreListedInResponse(listedDevices, err, count)
-}
 
 func createDevicesWithAddedUniqueLabelToLabels(harness *e2e.Harness, count int, labelKey string, csvLabels string, expectedDevices *[]*api.Device) error {
 	if count <= 0 {
