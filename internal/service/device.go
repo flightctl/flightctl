@@ -16,7 +16,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
-	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 )
 
@@ -45,36 +44,12 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*
 }
 
 func convertDeviceListParams(params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.ListParams, api.Status) {
-	var (
-		err           error
-		fieldSelector *selector.FieldSelector
-		labelSelector *selector.LabelSelector
-	)
-
-	if params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*params.FieldSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
-		}
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
-
-	if params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*params.LabelSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))
-		}
-	}
-
-	cont, err := store.ParseContinueString(params.Continue)
-	if err != nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
-	}
-
-	return &store.ListParams{
-		Limit:              int(swag.Int32Value(params.Limit)),
-		Continue:           cont,
-		FieldSelector:      fieldSelector,
-		LabelSelector:      labelSelector,
-		AnnotationSelector: annotationSelector,
-	}, api.StatusOK()
+	listParams.AnnotationSelector = annotationSelector
+	return listParams, api.StatusOK()
 }
 
 func (h *ServiceHandler) ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
