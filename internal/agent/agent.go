@@ -246,7 +246,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		statusManager,
 		hookManager,
 		lifecycleManager,
-		&a.config.ManagementService.Config,
+		&a.config.ManagementService,
 		systemInfoManager,
 		a.log,
 	)

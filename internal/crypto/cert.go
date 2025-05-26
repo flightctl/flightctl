@@ -81,7 +81,7 @@ func (caClient *CAClient) EnsureServerCertificate(certFile, keyFile string, host
 }
 
 func GetServerCertificate(certFile, keyFile string, hostnames []string) (*TLSCertificateConfig, error) {
-	internalServer, err := oscrypto.GetServerCert(certFile, keyFile, sets.NewString(hostnames...))
+	internalServer, err := oscrypto.GetServerCert(certFile, keyFile, sets.New[string](hostnames...))
 	if err != nil {
 		return nil, err
 	}

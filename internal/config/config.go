@@ -17,12 +17,13 @@ const (
 )
 
 type Config struct {
-	Database   *dbConfig         `json:"database,omitempty"`
-	Service    *svcConfig        `json:"service,omitempty"`
-	KV         *kvConfig         `json:"kv,omitempty"`
-	Auth       *authConfig       `json:"auth,omitempty"`
-	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
-	CA         *ca.Config        `json:"ca,omitempty"`
+	Database           *dbConfig         `json:"database,omitempty"`
+	Service            *svcConfig        `json:"service,omitempty"`
+	KV                 *kvConfig         `json:"kv,omitempty"`
+	Auth               *authConfig       `json:"auth,omitempty"`
+	Prometheus         *prometheusConfig `json:"prometheus,omitempty"`
+	CA                 *ca.Config        `json:"ca,omitempty"`
+	CloudEventsEnabled bool              `json:"cloudevents-enabled,omitempty"`
 }
 
 type dbConfig struct {

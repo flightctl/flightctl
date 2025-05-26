@@ -43,12 +43,13 @@ const maxAttempts = 3
 
 type CertificateOptions struct {
 	GlobalOptions
-	Name       string
-	Expiration string
-	Output     string
-	OutputDir  string
-	EncryptKey bool
-	SignerName string
+	Name               string
+	Expiration         string
+	Output             string
+	OutputDir          string
+	EncryptKey         bool
+	SignerName         string
+	CloudEventsEnabled bool
 }
 
 func DefaultCertificateOptions() *CertificateOptions {
@@ -96,6 +97,7 @@ func (o *CertificateOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.OutputDir, "output-dir", "d", o.OutputDir, "Specify desired output directory for key, cert, and ca files.")
 	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of certificate requested: 'enrollment' or 'ca'.")
 	fs.BoolVarP(&o.EncryptKey, "encrypt", "e", o.EncryptKey, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime.")
+	fs.BoolVarP(&o.CloudEventsEnabled, "cloudevents", "", o.CloudEventsEnabled, "Option to enable the cloudevents.")
 }
 
 func (o *CertificateOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -229,9 +231,9 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 
 	switch o.Output {
 	case "embedded":
-		err = createEmbeddedConfig(currentCsr, priv, response)
+		err = createEmbeddedConfig(currentCsr, priv, response, o.CloudEventsEnabled)
 	case "reference":
-		err = createReferenceConfig(o.Name, response)
+		err = createReferenceConfig(o.Name, response, o.CloudEventsEnabled)
 	default:
 	}
 	if err != nil {
@@ -348,7 +350,7 @@ func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) 
 	return &currentCsr, nil
 }
 
-func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto.PrivateKey, response *apiclient.GetEnrollmentConfigResponse) error {
+func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto.PrivateKey, response *apiclient.GetEnrollmentConfigResponse, cloudEventsEnabled bool) error {
 	pemPriv, err := fccrypto.PEMEncodeKey(priv)
 	if err != nil {
 		return fmt.Errorf("PEM encoding private key: %w", err)
@@ -364,6 +366,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
 	config.EnrollmentService.Service.CertificateAuthorityData = cadata
 	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
+	config.ManagementService.CloudEventsEnabled = cloudEventsEnabled
 	marshalled, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("marshalling agent service config: %w", err)
@@ -373,13 +376,14 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 	return nil
 }
 
-func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigResponse) error {
+func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigResponse, cloudEventsEnabled bool) error {
 	config := lo.ToPtr(config.NewServiceConfig())
 	config.EnrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
 	config.EnrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
 	config.EnrollmentService.Service.CertificateAuthority = filepath.Join(agentPath, "ca.crt")
 	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
+	config.ManagementService.CloudEventsEnabled = cloudEventsEnabled
 	marshalled, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("marshalling agent service config: %w", err)
