@@ -1,5 +1,7 @@
 package util
 
+import "time"
+
 // Resource types
 const (
 	Device                    = "device"
@@ -36,6 +38,7 @@ var ResourceTypes = [...]string{
 const TIMEOUT = "5m"
 const POLLING = "250ms"
 const LONGTIMEOUT = "10m"
+const DURATION_TIMEOUT = 5 * time.Minute
 
 // Define a type for messages.
 type Message string
