@@ -2,21 +2,23 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: flightctl-ui
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Release.Namespace }}
   labels:
-    app: flightctl-ui
-    role: frontend
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: ui
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: flightctl-ui
+      {{- include "common.labels.matchLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: ui
   template:
     metadata:
-      creationTimestamp: null
       labels:
-        app: flightctl-ui
-        role: frontend
+        {{- include "common.labels.standard" $ | nindent 8 }}
+        app.kubernetes.io/component: ui
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/flightctl-ui-cm.yaml") . | sha256sum }}
     spec:
       containers:
         - env:
@@ -27,7 +29,7 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: FLIGHTCTL_SERVER
-          {{- if .Values.cliArtifacts.enabled }}
+          {{- if $.Values.cliArtifacts.enabled }}
           - name: FLIGHTCTL_CLI_ARTIFACTS_SERVER
             valueFrom:
               configMapKeyRef:
@@ -39,7 +41,7 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
-          {{- if eq .Values.global.target "acm" }}
+          {{- if eq $.Values.global.target "acm" }}
           - name: TLS_KEY
             value: /app/serving-cert/tls.key
           - name: TLS_CERT
@@ -78,22 +80,23 @@ spec:
                 name: flightctl-ui
                 key: AUTH_CLIENT_ID
           {{- end }}
-          {{- if .Values.image.image }}
-          image: {{ .Values.image.image }}:{{ default .Chart.AppVersion .Values.image.tag }}
-          {{- else if eq (.Values.global).target "acm" }}
-          image: quay.io/flightctl/flightctl-ocp-ui:{{ default .Chart.AppVersion .Values.image.tag }}
+          {{- if $.Values.image.image }}
+          image: {{ $.Values.image.image }}:{{ $.Values.image.tag | default $.Chart.AppVersion }}
+          {{- else if eq $.Values.global.target "acm" }}
+          image: quay.io/flightctl/flightctl-ocp-ui:{{ $.Values.image.tag | default $.Chart.AppVersion }}
           {{- else }}
-          image: quay.io/flightctl/flightctl-ui:{{ default .Chart.AppVersion .Values.image.tag }}
+          image: quay.io/flightctl/flightctl-ui:{{ $.Values.image.tag | default $.Chart.AppVersion }}
           {{- end  }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.image.pullPolicy }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy | default $.Values.global.imagePullPolicy }}
           name: flightctl-ui
           ports:
-            - containerPort: 8080
+            - name: flightctl-ui
+              containerPort: 8080
               protocol: TCP
           volumeMounts:
             - mountPath: /app/certs
               name: flightctl-ui-certs
-            {{- if eq .Values.global.target "acm" }}
+            {{- if eq $.Values.global.target "acm" }}
             - mountPath: /app/serving-cert
               name: flightctl-ui-serving-cert
             {{- end }}
@@ -105,11 +108,11 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
-              {{- if or ((.Values.global).auth).caCert .Values.auth.caCert }}
+              {{- if or $.Values.global.auth.caCert $.Values.auth.caCert }}
               - key: ca_auth.crt
                 path: ca_auth.crt
               {{ end }}
-        {{- if eq .Values.global.target "acm" }}
+        {{- if eq $.Values.global.target "acm" }}
         - name: flightctl-ui-serving-cert
           secret:
             secretName: flightctl-ui-serving-cert

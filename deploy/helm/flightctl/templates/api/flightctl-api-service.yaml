@@ -1,0 +1,25 @@
+{{- if $.Values.api.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    {{- include "common.labels.standard" $ | nindent 4 }}
+    app.kubernetes.io/component: api
+  name: flightctl-api
+  namespace: {{ $.Release.Namespace }}
+spec:
+  {{- if and $.Values.global.nodePorts.api (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+  type: NodePort
+  {{- end }}
+  ports:
+    - name: api
+      port: 3443
+      targetPort: api
+      {{- if and $.Values.global.nodePorts.api (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+      nodePort: {{ $.Values.global.nodePorts.api }}
+      {{- end }}
+  selector:
+    {{- include "common.labels.matchLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: api
+{{- end }}

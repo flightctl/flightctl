@@ -1,38 +1,34 @@
-{{- if and (not (eq $.Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{ if and ($.Values.cliArtifacts.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 ---
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: flightctl-ui
-  namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "common.labels.standard" $ | nindent 4 }}
-    app.kubernetes.io/component: ui
+    app.kubernetes.io/component: cli-artifacts
     {{- if $.Values.global.appCode }}
-    external-exposed: 'true'
+    external-exposed: "true"
     paas.redhat.com/appcode: {{ $.Values.global.appCode }}
     shard: external
-    {{ end }}
+    {{- end }}
+  name: flightctl-cli-artifacts-route
+  namespace: {{ $.Release.Namespace }}
 spec:
-  {{- if $.Values.baseURL }}
-  host:  {{ $.Values.baseURL }}
-  {{- else }}
-  host:  ui.{{ include "flightctl.getBaseDomain" . }}
-  {{- end }}
-  to:
-    kind: Service
-    name: flightctl-ui
-    weight: 100
+  host: cli-artifacts.{{ include "flightctl.getBaseDomain" . }}
   port:
-    targetPort: flightctl-ui
+    targetPort: flightctl-cli-artifacts
   {{- if eq (include "flightctl.getHttpScheme" .) "https" }}
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
-    {{- if $.Values.global.baseDomainTls.cert }}
+    {{- if and $.Values.global.baseDomainTls.cert $.Values.global.baseDomainTls.key }}
     certificate: {{ $.Values.global.baseDomainTls.cert | quote }}
     key: {{ $.Values.global.baseDomainTls.key | quote }}
     {{- end }}
   {{- end }}
+  to:
+    kind: Service
+    name: flightctl-cli-artifacts
+    weight: 100
   wildcardPolicy: None
-{{- end }}
+{{ end }}
