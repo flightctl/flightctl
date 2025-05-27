@@ -7,9 +7,6 @@
 # SELinux specifics
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
-%define agent_relabel_files() \
-    semanage fcontext -a -t flightctl_agent_exec_t "/usr/bin/flightctl-agent" ; \
-    restorecon -v /usr/bin/flightctl-agent
 
 Name:           flightctl
 Version:        0.6.0
@@ -56,6 +53,11 @@ BuildRequires: selinux-policy >= %{selinux_policyver}
 BuildRequires: selinux-policy-devel >= %{selinux_policyver}
 BuildArch: noarch
 Requires: selinux-policy >= %{selinux_policyver}
+
+# For restorecon
+Requires: policycoreutils
+# For semanage
+Requires: policycoreutils-python-utils
 
 %description selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
@@ -196,7 +198,6 @@ mkdir -p $INSTALL_DIR
 cp /usr/share/sosreport/flightctl.py $INSTALL_DIR
 chmod 0644 $INSTALL_DIR/flightctl.py
 rm -rf /usr/share/sosreport
-
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
