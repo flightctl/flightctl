@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:  
       label_filter:  
-        description: 'Ginkgo label filter expression to fileter e2e tests'  
+        description: 'Ginkgo label filter expression to filter e2e tests'
         required: false  
-        default: 'sanity' 
+        default: 'sanity' #By default, only tests labeled with 'sanity' will run.
         type: string 
   push:
     branches:
