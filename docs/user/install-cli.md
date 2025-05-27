@@ -4,7 +4,7 @@ To install `flightctl` on Linux, Mac OS and Windows operating systems you have t
 
 ## Download archive
 
-1. Click the **❔** (question mark) icon in the upper part of the web console page and select "Command Like Tools" to be taken to the CLI downloads page.
+1. Click the **❔** (question mark) icon in the upper part of the web console page and select "Command Line Tools" to be taken to the CLI downloads page.
 
 2. Choose a downloadable archive using proper architecture and OS. Click the file to download it.
 
@@ -80,4 +80,4 @@ After installation, verify that `flightctl` is working correctly:
   flightctl version
   ```
 
-> Note: If you get a "command not found" error, ensure the binary is in your PATH.
+> Note: If you get a "command not found" error, ensure the binary is in your `PATH`.
