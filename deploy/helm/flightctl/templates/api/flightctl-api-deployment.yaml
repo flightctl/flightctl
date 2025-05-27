@@ -50,10 +50,10 @@ spec:
             {{- end }}
           ports:
             - containerPort: 3443
-              name: flightctl-api
+              name: api
               protocol: TCP
             - containerPort: 7443
-              name: flightctl-api-agent
+              name: api-agent
               protocol: TCP
             - containerPort: 15690
               name: api-prom-target

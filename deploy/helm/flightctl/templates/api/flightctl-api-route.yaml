@@ -16,7 +16,7 @@ metadata:
 spec:
   host: api.{{ include "flightctl.getBaseDomain" . }}
   port:
-    targetPort: flightctl-api
+    targetPort: api
   tls:
     termination: passthrough # the service is responsible for terminating TLS and authenticating devices through TLSs
     insecureEdgeTerminationPolicy: None
