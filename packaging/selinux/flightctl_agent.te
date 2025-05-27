@@ -1,35 +1,126 @@
 policy_module(flightctl_agent, 1.0.0)
 
+
+# Security Enhanced Linux Reference
+# https://pages.cs.wisc.edu/~matyas/selinux-policy/
+# https://access.redhat.com/articles/6999267
+
+# Initialize types
 type flightctl_agent_t;
-domain_type(flightctl_agent_t);
+type flightctl_agent_exec_t;
+type flightctl_agent_var_lib_t;
+type flightctl_agent_tmp_t;
 
-require {
-    # Existing types from the policy
-    type init_t;
-    type devpts_t;
-    type ptmx_t;
-    type unreserved_port_t;
-    
-    attribute file_type;
-    attribute exec_type;
+# Initialize domain
+init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
+files_type(flightctl_agent_var_lib_t)
+files_tmp_file(flightctl_agent_tmp_t)
 
+permissive flightctl_agent_t;
 
-    # Classes and permissions that will be used.
-    class file { read execute open };
-    class process transition;
-    class chr_file { open read write ioctl };
-    class tcp_socket { name_connect };
-}
+gen_require(`
+    type install_t, install_exec_t;
+    type hostname_t, hostname_exec_t;
+    type container_runtime_t, container_runtime_exec_t;
+    type container_var_lib_t;
+    type etc_t, home_root_t, root_t, fs_t;
+    type tmp_t;
+')
 
-# Define the new file type for the flightctl-agent executable.
-# It must have the file and exec attributes.
-type flightctl_agent_exec_t, file_type, exec_type;
+# File Access
+# ------------------------------------------------------------------------------
 
-# When a process running in init_t executes a file labeled flightctl_agent_exec_t,
-# have it transition into flightctl_agent_t.
-type_transition init_t flightctl_agent_exec_t:process flightctl_agent_t;
+# /var/lib/flightctl management
+manage_dirs_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
+manage_files_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
+manage_lnk_files_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
+files_var_lib_filetrans(flightctl_agent_t, flightctl_agent_var_lib_t, dir, "flightctl")
 
-# Allow the flightctl-agent process (running in flightctl_agent_t) to do what it needs.
-allow flightctl_agent_t devpts_t:chr_file open;
-allow flightctl_agent_t ptmx_t:chr_file { open read write ioctl };
-allow flightctl_agent_t unreserved_port_t:tcp_socket name_connect;  
+# Container storage and system files
+admin_pattern(flightctl_agent_t, container_var_lib_t, container_var_lib_t)
+files_read_etc_files(flightctl_agent_t)
+files_read_etc_runtime_files(flightctl_agent_t)
+files_read_var_lib_files(flightctl_agent_t)
+files_read_boot_files(flightctl_agent_t)
+files_read_usr_files(flightctl_agent_t)
+files_read_generic_pids(flightctl_agent_t)
+
+# Full /etc directory management for configuration files
+manage_dirs_pattern(flightctl_agent_t, etc_t, etc_t)
+manage_files_pattern(flightctl_agent_t, etc_t, etc_t)
+manage_lnk_files_pattern(flightctl_agent_t, etc_t, etc_t)
+
+# Hardware/system information
+# ref. https://pages.cs.wisc.edu/~matyas/selinux-policy/kernel_kernel.html
+kernel_read_system_state(flightctl_agent_t)
+kernel_read_network_state(flightctl_agent_t)
+kernel_read_all_proc(flightctl_agent_t)
+kernel_read_all_sysctls(flightctl_agent_t)
+
+# Device access
+# ref. https://pages.cs.wisc.edu/~matyas/selinux-policy/kernel_devices.html
+dev_read_sysfs(flightctl_agent_t)
+dev_read_kmsg(flightctl_agent_t)
+
+# Temporary file access
+# ref. https://pages.cs.wisc.edu/~matyas/selinux-policy/kernel_files.html
+files_tmp_filetrans(flightctl_agent_t, flightctl_agent_tmp_t, { file dir })
+manage_dirs_pattern(flightctl_agent_t, tmp_t, flightctl_agent_tmp_t)
+manage_files_pattern(flightctl_agent_t, tmp_t, flightctl_agent_tmp_t)
+
+# Access /home symlink
+allow flightctl_agent_t home_root_t:lnk_file read;
+
+# Read root filesystem directory for disk usage collection (/sysroot access)
+allow flightctl_agent_t root_t:dir { read search open getattr };
+
+# Get filesystem statistics for disk usage monitoring
+allow flightctl_agent_t root_t:filesystem getattr;
+allow flightctl_agent_t fs_t:filesystem getattr;
+
+# Process Management
+# ------------------------------------------------------------------------------
+
+# Allow flightctl_agent_t to execute bootc, rpm-ostree, and similar tools
+# that are labeled install_exec_t, transitioning them into install_t
+domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
+
+# Allow invocation of /usr/bin/hostname or similar, transitioning to hostname_t
+domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
+
+# Allow execution of container runtimes like podman or runc, labeled container_runtime_exec_t,
+# with processes running under container_runtime_t
+domtrans_pattern(flightctl_agent_t, container_runtime_exec_t, container_runtime_t)
+
+# Allow the agent to use file descriptors shared with its child processes
+allow flightctl_agent_t { install_t hostname_t container_runtime_t }:fd use;
+allow { install_t hostname_t container_runtime_t } flightctl_agent_t:fd use;
+
+# Allow the agent to send basic signals to its child processe
+allow flightctl_agent_t { install_t hostname_t container_runtime_t }:process { sigchld signal sigkill sigstop signull };
+
+# Allow execution of all binaries labeled under core command types like bin_t
+corecmd_exec_all_executables(flightctl_agent_t)
+
+# Network Access
+# ------------------------------------------------------------------------------
+
+# Socket creation
+allow flightctl_agent_t self:{ tcp_socket udp_socket netlink_route_socket } create_stream_socket_perms;
+
+corenet_tcp_connect_all_ports(flightctl_agent_t)
+corenet_sendrecv_all_client_packets(flightctl_agent_t)
+sysnet_dns_name_resolve(flightctl_agent_t)
+
+# System Capabilities and Services
+# ------------------------------------------------------------------------------
+
+# Process capabilities
+allow flightctl_agent_t self:capability { dac_override chown setuid setgid sys_admin };
+allow flightctl_agent_t self:process { fork signal sigchld execmem setfscreate getsched setsched };
+
+# Allow reading /var/run/utmp to gather login/session information
+init_read_utmp(flightctl_agent_t)
+
+# Allow reading system localization files
+miscfiles_read_localization(flightctl_agent_t)
