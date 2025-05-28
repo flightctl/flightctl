@@ -59,6 +59,7 @@ KVM
 lifecycle
 lifecycle-bound
 linux
+macOS
 metadata
 microservices
 MicroShift
@@ -236,4 +237,3 @@ yaml
  - docs/user/rollout-policies.md
 rollouts
 BatchSequence
-macOS
