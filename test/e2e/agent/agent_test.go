@@ -32,7 +32,7 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("vm", func() {
-		It("Verify VM agent", Label("80455"), func() {
+		It("Verify VM agent", Label("80455", "sanity"), func() {
 			By("should print QR output to console")
 			// Wait for the top-most part of the QR output to appear
 			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
@@ -48,7 +48,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 		})
 
-		It("Verifying generation of enrollment request link", Label("75518"), func() {
+		It("Verifying generation of enrollment request link", Label("75518", "sanity"), func() {
 			By("should be reporting device status on enrollment request")
 			// Get the enrollment Request ID from the console output
 			enrollmentID := harness.GetEnrollmentIDFromConsole()
@@ -71,7 +71,7 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("status", func() {
-		It("Device status tests", Label("75991"), func() {
+		It("Device status tests", Label("75991", "sanity"), func() {
 			deviceId, device := harness.EnrollAndWaitForOnlineStatus()
 			// Get the next expected rendered version
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
