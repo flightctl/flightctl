@@ -18,7 +18,7 @@ func TestBasicOperations(t *testing.T) {
 	RunSpecs(t, "Basic Operations E2E Suite")
 }
 
-var _ = Describe("Basic Operations", func() {
+var _ = Describe("Basic Operations", Label("sanity"), func() {
 	const createdResource = "201 Created"
 
 	var (

@@ -8,22 +8,12 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Field Selectors Operators", func() {
+var _ = Describe("Field Selectors Operators", Label("sanity"), func() {
 	var (
 		harness              *e2e.Harness
 		expectedDevices      []*api.Device
 		expectedFleets       []*api.Fleet
 		expectedRepositories []*api.Repository
-	)
-
-	const (
-		templateImage    = "quay.io/redhat/rhde:9.2"
-		repositoryUrl    = "https://github.com/flightctl/flightctl.git"
-		devicePrefix     = "device-"
-		fleetPrefix      = "fleet-"
-		repositoryPrefix = "repository-"
-		fleetName        = "fleet-1"
-		resourceCount    = 10
 	)
 
 	BeforeEach(func() {
