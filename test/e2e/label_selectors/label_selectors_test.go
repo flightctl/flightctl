@@ -18,7 +18,7 @@ func TestLabelSelectors(t *testing.T) {
 	RunSpecs(t, "Label Selectors E2E Suite")
 }
 
-var _ = Describe("Label Selectors", Label("sanity"), func() {
+var _ = Describe("Label Selectors", Label("sanity", "78751"), func() {
 	var (
 		harness         *e2e.Harness
 		expectedDevices []*api.Device
