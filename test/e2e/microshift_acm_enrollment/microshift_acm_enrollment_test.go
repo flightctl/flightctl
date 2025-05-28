@@ -152,13 +152,13 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 
 				By("Make sure the pull-secret was injected")
 				psPath := "/etc/crio/openshift-pull-secret"
+				readyMsg := "The file was found"
 				stdout, err = harness.WaitForFileInDevice(psPath, util.TIMEOUT, util.POLLING)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(stdout.String()).To(ContainSubstring(psPath))
+				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
 				By("Wait for the kubeconfig to be in place")
 				kubeconfigPath := "/var/lib/microshift/resources/kubeadmin/kubeconfig"
-				readyMsg := "The file was found"
 				stdout, err = harness.WaitForFileInDevice(kubeconfigPath, util.TIMEOUT, util.POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
