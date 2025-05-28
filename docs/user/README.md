@@ -45,7 +45,8 @@ Welcome to the Flight Control user documentation.
 
 * Installing and Configuring the Flight Control Service and UI
   * [Configuring Flight Control to use k8s auth](kubernetes-auth.md)
-* Installing and Using the Flight Control CLI
+* [Installing the Flight Control CLI](install-cli.md)
+* Using the Flight Control CLI
 * [Configuring the Flight Control Agent](configuring-agent.md)
 * [Troubleshooting](troubleshooting.md)
 
