@@ -18,9 +18,17 @@ GOBIN=$(go env GOBIN)
 export API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
 export REGISTRY_ENDPOINT=$(registry_address)
 
-if [[ "${GINKGO_FOCUS}" != "" ]]; then
-	# If Ginko_label_filter is set, use it to filter tests
-	"${GOBIN}/ginkgo" run --focus "${GINKGO_FOCUS}" --label-filter "${GINKGO_LABEL_FILTER}" --timeout 60m --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output "${GO_E2E_DIRS}"
-else
-	"${GOBIN}/ginkgo" run --label-filter "${GINKGO_LABEL_FILTER}" --timeout 60m --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output "${GO_E2E_DIRS}"
+CMD=("${GOBIN}/ginkgo" run)
+
+if [[ -n "${GINKGO_FOCUS}" ]]; then
+  CMD+=("--focus" "${GINKGO_FOCUS}")
 fi
+
+if [[ -n "${GINKGO_LABEL_FILTER}" ]]; then
+  CMD+=("--label-filter" "${GINKGO_LABEL_FILTER}")
+fi
+
+CMD+=(--timeout 60m --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output "${GO_E2E_DIRS}")
+
+# Run the command
+"${CMD[@]}"
