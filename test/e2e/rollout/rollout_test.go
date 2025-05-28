@@ -20,7 +20,8 @@ var _ = Describe("Rollout Policies", func() {
 
 	AfterEach(func() {
 		// Cleanup the test context
-		tc.cleanup()
+		err := tc.cleanup()
+		Expect(err).ToNot(HaveOccurred(), "Failed to clean up test context")
 	})
 
 	Context("Multi Device Selection", Label("79648"), func() {
@@ -571,13 +572,18 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 		return err
 	}
 
-	Expect(len(updatedDevices)).To(Equal(expectedCount), "Expected number of devices should be updated")
+	if len(updatedDevices) != expectedCount {
+		return fmt.Errorf("expected %d devices to be updated, but got %d", expectedCount, len(updatedDevices))
+	}
 
 	for _, device := range updatedDevices {
 		if len(device.Status.Applications) > 0 {
-			Expect(device.Status.Applications[0].Status).To(Equal(api.ApplicationStatusRunning))
-			if tc.applicationSpec.Name != nil {
-				Expect(device.Status.Applications[0].Name).To(Equal(*tc.applicationSpec.Name))
+			app := device.Status.Applications[0]
+			if app.Status != api.ApplicationStatusRunning {
+				return fmt.Errorf("application %s is not running", app.Name)
+			}
+			if tc.applicationSpec.Name != nil && app.Name != *tc.applicationSpec.Name {
+				return fmt.Errorf("device %d application name is %q, expected %q", *device.Metadata.Name, app.Name, *tc.applicationSpec.Name)
 			}
 		}
 	}
@@ -585,8 +591,8 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 	return nil
 }
 
-func (tc *TestContext) cleanup() {
+func (tc *TestContext) cleanup() error {
 	tc.harness.Cleanup(true)
 	err := tc.harness.CleanUpAllResources()
-	Expect(err).ToNot(HaveOccurred())
+	return err
 }
