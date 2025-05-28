@@ -1,6 +1,6 @@
 # Installing the Flight Control CLI
 
-To install `flightctl` on Linux, Mac OS and Windows operating systems you have to download and install the `flightctl` binary file.
+To install `flightctl` on Linux, macOS and Windows operating systems you have to download and install the `flightctl` binary file.
 
 ## Download archive
 
@@ -50,7 +50,7 @@ To install `flightctl` on Linux, Mac OS and Windows operating systems you have t
       path
       ```
 
-  * For **Mac OS**
+  * For **macOS**
 
     * Decompress the archive file
 
@@ -68,16 +68,8 @@ To install `flightctl` on Linux, Mac OS and Windows operating systems you have t
 
 After installation, verify that `flightctl` is working correctly:
 
-* **Linux and Mac OS**:
-
-  ```shell
-  flightctl version
-  ```
-
-* **Windows**:
-
-  ```shell
-  flightctl version
-  ```
+```shell
+flightctl version
+```
 
 > Note: If you get a "command not found" error, ensure the binary is in your `PATH`.
