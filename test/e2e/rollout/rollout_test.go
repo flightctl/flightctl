@@ -593,6 +593,5 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 
 func (tc *TestContext) cleanup() error {
 	tc.harness.Cleanup(true)
-	err := tc.harness.CleanUpAllResources()
-	return err
+	return tc.harness.CleanUpAllResources() 
 }
