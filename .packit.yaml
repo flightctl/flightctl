@@ -20,6 +20,7 @@ jobs:
     targets:
       - fedora-eln-aarch64
       - centos-stream-9-x86_64
+      - fedora-42-x86_64
     module_hotfixes: true
 
   - job: copr_build
@@ -33,6 +34,8 @@ jobs:
       - fedora-40-x86_64
       - fedora-41-aarch64
       - fedora-41-x86_64
+      - fedora-42-aarch64
+      - fedora-42-x86_64
       - fedora-rawhide-aarch64
       - fedora-rawhide-x86_64
       - fedora-eln-aarch64
@@ -56,6 +59,8 @@ jobs:
       - fedora-40-x86_64
       - fedora-41-aarch64
       - fedora-41-x86_64
+      - fedora-42-aarch64
+      - fedora-42-x86_64
       - fedora-rawhide-aarch64
       - fedora-rawhide-x86_64
       - fedora-eln-aarch64
