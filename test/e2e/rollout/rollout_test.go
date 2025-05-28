@@ -583,7 +583,7 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 				return fmt.Errorf("application %s is not running", app.Name)
 			}
 			if tc.applicationSpec.Name != nil && app.Name != *tc.applicationSpec.Name {
-				return fmt.Errorf("device %d application name is %q, expected %q", *device.Metadata.Name, app.Name, *tc.applicationSpec.Name)
+				return fmt.Errorf("device %s application name is %q, expected %q", *device.Metadata.Name, app.Name, *tc.applicationSpec.Name)
 			}
 		}
 	}
