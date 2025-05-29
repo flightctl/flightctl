@@ -1,6 +1,6 @@
 module github.com/flightctl/flightctl/tools
 
-go 1.22
+go 1.23
 
 require (
 	github.com/oapi-codegen/oapi-codegen/v2 v2.3.0

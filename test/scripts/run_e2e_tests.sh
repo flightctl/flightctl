@@ -4,7 +4,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
 
 REPORTS=${1}
-GO_E2E_DIRS=${@:2}
+GO_E2E_DIRS=("${@:2}")
 GINKGO_FOCUS=${GINKGO_FOCUS:-""}
 #Filtering e2e tests by labels
 GINKGO_LABEL_FILTER=${GINKGO_LABEL_FILTER:-""}
@@ -28,7 +28,9 @@ if [[ -n "${GINKGO_LABEL_FILTER}" ]]; then
   CMD+=("--label-filter" "${GINKGO_LABEL_FILTER}")
 fi
 
-CMD+=(--timeout 60m --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output "${GO_E2E_DIRS}")
+CMD+=(--timeout 60m --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output)
+
+CMD+=("${GO_E2E_DIRS[@]}")
 
 # Run the command
 "${CMD[@]}"
