@@ -50,6 +50,10 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
+      {{- if .Values.kv.fsGroup }}
+      securityContext:
+        fsGroup: {{ .Values.kv.fsGroup }}
+      {{- end }}
       containers:
         - name: flightctl-kv
           image: {{ .Values.kv.image.image }}:{{ .Values.kv.image.tag }}
