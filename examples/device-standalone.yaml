@@ -13,7 +13,6 @@ spec:
         repository: flightctl-demos
         targetRevision: main
         path: /demos/basic-nginx-demo/configuration/etc/microshift/manifests
-        mountPath: /etc/microshift/manifests
     - name: motd-update
       inline:
         - path: "/etc/motd"
