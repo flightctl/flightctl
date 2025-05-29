@@ -63,7 +63,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 	}
 
 	image := p.spec.ImageProvider.Image
-	if err := ensureImageExists(ctx, p.log, p.podman, image); err != nil {
+	if err := ensureImageExists(ctx, p.log, p.podman, image, v1alpha1.PullIfNotPresent); err != nil {
 		return fmt.Errorf("pulling image: %w", err)
 	}
 
@@ -111,6 +111,9 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
+		if err := ensureVolumes(ctx, p.log, p.podman, p.spec.InlineProvider.Volumes); err != nil {
+			return fmt.Errorf("ensuring volumes: %w", err)
+		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
@@ -129,6 +132,28 @@ func (p *imageProvider) Install(ctx context.Context) error {
 
 	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
 		return fmt.Errorf("writing env file: %w", err)
+	}
+
+	var imageVolumes []v1alpha1.ImageVolumeProviderSpec
+	for _, item := range lo.FromPtr(p.spec.InlineProvider.Volumes) {
+		vType, err := item.Type()
+		if err != nil {
+			return fmt.Errorf("getting volume type: %w", err)
+		}
+		switch vType {
+		case v1alpha1.ImageVolumeProviderType:
+			imageVolume, err := item.AsImageVolumeProviderSpec()
+			if err != nil {
+				return fmt.Errorf("getting image volume spec: %w", err)
+			}
+			imageVolumes = append(imageVolumes, imageVolume)
+		default:
+			return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, vType)
+		}
+	}
+
+	if err := ensureImageVolumes(ctx, p.log, p.readWriter, p.podman, imageVolumes); err != nil {
+		return fmt.Errorf("creating volumes: %w", err)
 	}
 
 	return nil
