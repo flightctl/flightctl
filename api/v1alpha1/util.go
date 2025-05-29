@@ -50,6 +50,12 @@ const (
 	InlineApplicationProviderType ApplicationProviderType = "inline"
 )
 
+type ApplicationVolumeProviderType string
+
+const (
+	ImageApplicationVolumeProviderType ApplicationVolumeProviderType = "image"
+)
+
 // Type returns the type of the action.
 func (t HookAction) Type() (HookActionType, error) {
 	var data map[HookActionType]interface{}
@@ -134,6 +140,19 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 	}
 
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
+}
+
+func (c ApplicationVolume) Type() (ApplicationVolumeProviderType, error) {
+	var data map[ApplicationVolumeProviderType]interface{}
+	if err := json.Unmarshal(c.union, &data); err != nil {
+		return "", err
+	}
+
+	if _, exists := data[ImageApplicationVolumeProviderType]; exists {
+		return ImageApplicationVolumeProviderType, nil
+	}
+
+	return "", fmt.Errorf("unable to determine application volume type: %+v", data)
 }
 
 func PercentageAsInt(p Percentage) (int, error) {
