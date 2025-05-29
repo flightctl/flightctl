@@ -10,7 +10,9 @@ import (
 	"github.com/google/go-tpm-tools/client"
 	pbattest "github.com/google/go-tpm-tools/proto/attest"
 	pbtpm "github.com/google/go-tpm-tools/proto/tpm"
-	"github.com/google/go-tpm/legacy/tpm2"
+	legacy "github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
 )
 
@@ -23,6 +25,8 @@ const (
 type TPM struct {
 	devicePath string
 	channel    io.ReadWriteCloser
+	srk        *tpm2.NamedHandle
+	ldevid     *tpm2.NamedHandle
 }
 
 // Note: this may be a hardware TPM or a software or emulated TPM available to the system
@@ -73,7 +77,7 @@ func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
 	if t.channel == nil {
 		return nil, fmt.Errorf("cannot get TPM vendor info: no channel available in TPM struct")
 	}
-	return tpm2.GetManufacturer(t.channel)
+	return legacy.GetManufacturer(t.channel)
 }
 
 func (t *TPM) GetPCRValues(measurements map[string]string) error {
@@ -82,13 +86,32 @@ func (t *TPM) GetPCRValues(measurements map[string]string) error {
 	}
 	for pcr := 1; pcr <= 16; pcr++ {
 		key := fmt.Sprintf("pcr%02d", pcr)
-		val, err := tpm2.ReadPCR(t.channel, pcr, tpm2.AlgSHA256)
+		val, err := legacy.ReadPCR(t.channel, pcr, legacy.AlgSHA256)
 		if err != nil {
 			return err
 		}
 		measurements[key] = hex.EncodeToString(val)
 	}
 	return nil
+}
+
+// This function (re-)creates an ECC Primary Storage Root Key in the Owner/Storage Hierarchy.
+// This key is deterministically generated from the Storage Primary Seed + input parameters.
+func (t *TPM) GenerateSRKPrimary() (*tpm2.NamedHandle, error) {
+	createPrimaryCmd := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
+	}
+	transportTPM := transport.FromReadWriter(t.channel)
+	createPrimaryRsp, err := createPrimaryCmd.Execute(transportTPM)
+	if err != nil {
+		return nil, fmt.Errorf("creating SRK primary: %v", err)
+	}
+	t.srk = &tpm2.NamedHandle{
+		Handle: createPrimaryRsp.ObjectHandle,
+		Name:   createPrimaryRsp.Name,
+	}
+	return t.srk, nil
 }
 
 // The local attestation key (LAK) is an asymmetric key that persists for the device's lifecycle (but not lifetime) and can be zeroized if needed when the device transfers ownership. (The IAK by contrast persists for the device's lifetime across uses and owners.) This key can only be used to sign TPM-internal data, ex. attestations. This is considered a Restricted signing key by the TPM.
@@ -117,7 +140,36 @@ func (t *TPM) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attestatio
 	return ak.Attest(client.AttestOpts{Nonce: nonce})
 }
 
-func (t *TPM) GetQuote(nonce []byte, ak *client.Key, pcr_selection *tpm2.PCRSelection) (*pbtpm.Quote, error) {
+// This function creates an ECC LDevID key pair under the Storage/Owner hierarchy with the Storage Root Key as parent.
+func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
+	createCmd := tpm2.Create{
+		ParentHandle: srk,
+		InPublic:     tpm2.New2B(LDevIDTemplate),
+	}
+	transportTPM := transport.FromReadWriter(t.channel)
+	createRsp, err := createCmd.Execute(transportTPM)
+	if err != nil {
+		return nil, fmt.Errorf("executing endorsement LDevID create command: %v", err)
+	}
+	loadCmd := tpm2.Load{
+		ParentHandle: srk,
+		InPrivate:    createRsp.OutPrivate,
+		InPublic:     createRsp.OutPublic,
+	}
+
+	loadRsp, err := loadCmd.Execute(transportTPM)
+	if err != nil {
+		return nil, fmt.Errorf("error loading ldevid key: %v", err)
+	}
+
+	t.ldevid = &tpm2.NamedHandle{
+		Handle: loadRsp.ObjectHandle,
+		Name:   loadRsp.Name,
+	}
+	return t.ldevid, nil
+}
+
+func (t *TPM) GetQuote(nonce []byte, ak *client.Key, pcr_selection *legacy.PCRSelection) (*pbtpm.Quote, error) {
 	if len(nonce) < MinNonceLength {
 		return nil, fmt.Errorf("nonce does not meet minimum length of %d bytes", MinNonceLength)
 	}
