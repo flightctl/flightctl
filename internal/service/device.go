@@ -188,7 +188,9 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, &device)
 
-	dev, _, err := h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback)
+	dev, updateDesc, err := h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &updateDesc))
 	return dev, err
 }
 
@@ -238,10 +240,14 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, d
 		device.Status.Lifecycle.Status = oldDevice.Status.Lifecycle.Status
 	}
 	oldDevice.Status = device.Status
-	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, oldDevice)
+	changed := common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, oldDevice)
 
 	result, err := h.store.Device().UpdateStatus(ctx, orgId, oldDevice)
-	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	if changed {
+		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &api.ResourceUpdatedDetails{}))
+	}
+	return result, status
 }
 
 func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status) {
@@ -289,8 +295,10 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 
 	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
 
-	result, _, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
-	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	result, updateDesc, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &updateDesc))
+	return result, status
 }
 
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
@@ -346,11 +354,13 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
 
-	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
+	changed := common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
 
 	result, updateDesc, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
 	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &updateDesc))
+	if changed {
+		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &updateDesc))
+	}
 	return result, status
 }
 
@@ -379,32 +389,44 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, de
 	}
 
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, _, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback)
-	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	result, updateDesc, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceEvent(ctx, api.DeviceKind, name,
+		"resource-decommission", "decommissioned", "decommission",
+		api.ResourceDeleted, api.ResourceDeletionFailed, status, &updateDesc))
+	return result, status
 }
 
 func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
 	orgId := store.NullOrgId
 	err := h.store.Device().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &api.ResourceUpdatedDetails{}))
+	return status
 }
 
 func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status {
 	orgId := store.NullOrgId
 	err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &api.ResourceUpdatedDetails{}))
+	return status
 }
 
 func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, name string, conditions []api.Condition) api.Status {
 	orgId := store.NullOrgId
 	err := h.store.Device().SetServiceConditions(ctx, orgId, name, conditions)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &api.ResourceUpdatedDetails{}))
+	return status
 }
 
 func (h *ServiceHandler) OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status {
 	orgId := store.NullOrgId
 	err := h.store.Device().OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &api.ResourceUpdatedDetails{}))
+	return status
 }
 
 func (h *ServiceHandler) GetDeviceRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status) {
