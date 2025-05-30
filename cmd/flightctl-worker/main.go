@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -58,7 +59,13 @@ func main() {
 		k8sClient = nil
 	}
 
-	server := workerserver.New(cfg, log, store, provider, k8sClient)
+	ca, _, err := crypto.EnsureCA(cfg.CA)
+	if err != nil {
+		// Failure to initialize CA is not critical - we may be operating in sync mode
+		ca = nil
+	}
+
+	server := workerserver.New(cfg, log, store, provider, k8sClient, ca)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

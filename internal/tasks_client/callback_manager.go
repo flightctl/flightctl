@@ -29,6 +29,9 @@ const (
 
 	// Task to re-evaluate fleets and devices if a repository resource changes
 	RepositoryUpdatesTask = "repository-updates"
+
+	// Task to sign certificates
+	SignCertificatesTask = "sign-certificates"
 )
 
 type CallbackManager interface {
@@ -43,6 +46,7 @@ type CallbackManager interface {
 	FleetSourceUpdated(orgId uuid.UUID, name string)
 	DeviceSourceUpdated(orgId uuid.UUID, name string)
 	FleetRolloutSelectionUpdated(orgId uuid.UUID, name string)
+	SignCertificates(orgId uuid.UUID)
 }
 
 type callbackManager struct {
@@ -227,4 +231,12 @@ func (t *callbackManager) FleetRolloutSelectionUpdated(orgId uuid.UUID, name str
 		Name:  name,
 	}
 	t.submitTask(FleetRolloutTask, resourceRef, FleetRolloutOpUpdate)
+}
+
+func (t *callbackManager) SignCertificates(orgId uuid.UUID) {
+	resourceRef := ResourceReference{
+		OrgID: orgId,
+		Kind:  api.SignCertificatesKind,
+	}
+	t.submitTask(SignCertificatesTask, resourceRef, CASignAll)
 }

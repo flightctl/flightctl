@@ -16,6 +16,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+// To add an external CA:
+// If the CA plugin has its own approval pipeline and may take its time to sign a certificate it should be
+// operated as async. If it is just a simple automatic signer - add it to the caClient.IsSync() so it is operated out of
+// the API server.
+// Create a new instance compliant to the CABackend interface with two methods - IssueRequestedCertificateAsX509 and GetCABundleX509
+// Add relevant config support to config/ca
+// Add support for initializing the CABackend for the CA Plugin to EnsureCA
 type CABackend interface {
 	IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error)
 	GetCABundleX509() []*x509.Certificate
@@ -44,6 +51,10 @@ func EnsureCA(cfg *ca.Config) (*CAClient, bool, error) {
 
 func CertStorePath(fileName string, store string) string {
 	return filepath.Join(store, fileName)
+}
+
+func (caClient *CAClient) IsSync() bool {
+	return caClient.Cfg.CAType == ca.InternalCA
 }
 
 func (caClient *CAClient) BootstrapCNFromName(name string) string {
