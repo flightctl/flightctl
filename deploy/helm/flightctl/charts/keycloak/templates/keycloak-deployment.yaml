@@ -26,6 +26,7 @@ spec:
         - --http-port=8081
         - --proxy=edge
         - --import-realm
+        - --features=persistent-user-sessions
         env:
           - name: KEYCLOAK_ADMIN
             valueFrom:
