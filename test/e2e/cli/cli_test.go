@@ -39,6 +39,7 @@ var _ = BeforeSuite(func() {
 
 	fmt.Println("Before all tests!")
 	h = e2e.NewTestHarness(suiteCtx)
+	login.LoginToAPIWithToken(h)
 	err := h.CleanUpAllResources()
 	Expect(err).ToNot(HaveOccurred())
 })
@@ -367,64 +368,6 @@ var _ = Describe("cli operation", func() {
 		})
 	})
 
-})
-var _ = Describe("cli login", func() {
-	var (
-		ctx     context.Context
-		harness *e2e.Harness
-	)
-
-	Context("login validation", func() {
-		BeforeEach(func() {
-			ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-			harness = e2e.NewTestHarness(ctx)
-		})
-
-		It("Validations work when logging into flightctl CLI", Label("78748", "sanity"), func() {
-			By("Prepare invalid API endpoint")
-			invalidEndpoint := "https://not-existing.lab.redhat.com"
-			loginArgs := []string{"login", invalidEndpoint}
-
-			By("Try login using a wrong API endpoint without --insecure-skip-tls-verify flag")
-			logrus.Infof("Executing CLI with args: %v", loginArgs)
-			out, err := harness.CLI(loginArgs...)
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("failed to get auth info"))
-
-			By("Retry login using invalid API endpoint with  --insecure-skip-tls-verify flag")
-			loginArgs = append(loginArgs, "--insecure-skip-tls-verify")
-			logrus.Infof("Executing CLI with args: %v", loginArgs)
-			out, err = harness.CLI(loginArgs...)
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("failed to get auth info"))
-
-			By("Retry login using an invalid token")
-			loginArgs = []string{"login", os.Getenv("API_ENDPOINT"), "--insecure-skip-tls-verify"}
-			invalidToken := "fake-token"
-			loginArgsToken := append(loginArgs, "--token", invalidToken)
-
-			logrus.Infof("Executing CLI with args: %v", loginArgsToken)
-			out, _ = harness.CLI(loginArgsToken...)
-			if !strings.Contains(out, "Auth is disabled") {
-				Expect(out).To(Or(
-					ContainSubstring("the token provided is invalid or expired"),
-					ContainSubstring("failed to validate token"),
-					ContainSubstring("invalid JWT")))
-
-				By("Retry login with the invalid password")
-				invalidPassword := "passW0RD"
-				loginArgsPassword := append(loginArgs, "-k", "-u", "demouser", "-p", invalidPassword)
-
-				logrus.Infof("Executing CLI with args: %v", loginArgsPassword)
-				out, _ = harness.CLI(loginArgsPassword...)
-				// We don't check for error here as we're only interested in the output message
-				Expect(out).To(Or(
-					ContainSubstring("Invalid user credentials"),
-					ContainSubstring("unexpected http code: 401")))
-			}
-		})
-	})
-
 	Context("Events API Tests", func() {
 		It("should list events resource is created/updated/deleted", Label("80452", "sanity"), func() {
 			var deviceName, fleetName, repoName string
@@ -602,6 +545,134 @@ var _ = Describe("cli login", func() {
 			out, err = harness.RunGetEvents(limit, "1", "2")
 			Expect(err).To(HaveOccurred())
 			Expect(out).To(ContainSubstring("accepts 1 arg(s), received 2"))
+		})
+	})
+})
+
+var _ = Describe("cli login", func() {
+	var (
+		ctx            context.Context
+		harness        *e2e.Harness
+		clusterManager *util.ClusterDeploymentManager
+	)
+
+	Context("login validation", func() {
+		BeforeEach(func() {
+			ctx = util.StartSpecTracerForGinkgo(suiteCtx)
+			harness = e2e.NewTestHarness(ctx)
+			clusterManager = util.NewClusterDeploymentManager(harness.Context, harness.Cluster, "")
+		})
+		AfterEach(func() {
+			harness.Cleanup(false) // do not print console on error
+		})
+
+		It("Validations work when logging into flightctl CLI", Label("78748", "sanity"), func() {
+			By("Prepare invalid API endpoint")
+			invalidEndpoint := "https://not-existing.lab.redhat.com"
+			loginArgs := []string{"login", invalidEndpoint}
+
+			By("Try login using a wrong API endpoint without --insecure-skip-tls-verify flag")
+			logrus.Infof("Executing CLI with args: %v", loginArgs)
+			out, err := harness.CLI(loginArgs...)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("failed to get auth info"))
+
+			By("Retry login using invalid API endpoint with  --insecure-skip-tls-verify flag")
+			loginArgs = append(loginArgs, "--insecure-skip-tls-verify")
+			logrus.Infof("Executing CLI with args: %v", loginArgs)
+			out, err = harness.CLI(loginArgs...)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("failed to get auth info"))
+
+			By("Retry login using an invalid token")
+			loginArgs = []string{"login", os.Getenv("API_ENDPOINT"), "--insecure-skip-tls-verify"}
+			invalidToken := "fake-token"
+			loginArgsToken := append(loginArgs, "--token", invalidToken)
+
+			logrus.Infof("Executing CLI with args: %v", loginArgsToken)
+			out, _ = harness.CLI(loginArgsToken...)
+			if !strings.Contains(out, "Auth is disabled") {
+				Expect(out).To(Or(
+					ContainSubstring("the token provided is invalid or expired"),
+					ContainSubstring("failed to validate token"),
+					ContainSubstring("invalid JWT")))
+
+				By("Retry login with the invalid password")
+				invalidPassword := "passW0RD"
+				loginArgsPassword := append(loginArgs, "-k", "-u", "demouser", "-p", invalidPassword)
+
+				logrus.Infof("Executing CLI with args: %v", loginArgsPassword)
+				out, _ = harness.CLI(loginArgsPassword...)
+				// We don't check for error here as we're only interested in the output message
+				Expect(out).To(Or(
+					ContainSubstring("Invalid user credentials"),
+					ContainSubstring("unexpected http code: 401")))
+			}
+		})
+
+		It("Should refresh token when expiration is reached", Label("GET A LABEL"), func() {
+			const (
+				authDeployment = "keycloak"
+				configPath     = "" // default to nothing to let the default path be used
+			)
+			By("Login to the service")
+			// We want to log in directly with user/pass on this flow so that we can force the auth mechanism
+			// to occur with our keycloak deployment
+			if login.WithPassword(harness) == login.AuthDisabled {
+				Skip("This test requires authentication to be enabled")
+			}
+			By("Ensure actions can be taken")
+			_, err := harness.RunGetDevices()
+			Expect(err).ToNot(HaveOccurred(), "Failed to get device info")
+
+			By("Read the current access token")
+			cfg, err := harness.ReadClientConfig(configPath)
+			Expect(err).ToNot(HaveOccurred(), "Failed to read client config")
+			initialToken := cfg.AuthInfo.Token
+
+			By("Expire the current access token and run an action")
+			err = harness.MarkClientAccessTokenExpired(configPath)
+			Expect(err).ToNot(HaveOccurred(), "Failed to read client config")
+			// again all we care is that this doesn't error out
+			_, err = harness.RunGetDevices()
+			Expect(err).ToNot(HaveOccurred(), "Failed to get device info after expiring the token")
+
+			By("Ensure a new token was generated")
+			// Note: The old token is still valid at this point as it hasn't actually expired
+			cfg, err = harness.ReadClientConfig(configPath)
+			Expect(err).ToNot(HaveOccurred(), "Failed to read client config after expiring token")
+			secondToken := cfg.AuthInfo.Token
+			Expect(secondToken).ToNot(Equal(initialToken), "Token should have been refreshed")
+
+			By("Bring down the auth service")
+			initialReplicaCount := clusterManager.BringDeploymentDown(authDeployment)
+			// reset when everything is done if we fail
+			defer clusterManager.UpdateDeploymentReplicaCount(authDeployment, initialReplicaCount)
+
+			By("Expire the access token again and run an action")
+			err = harness.MarkClientAccessTokenExpired(configPath)
+			Expect(err).NotTo(HaveOccurred())
+			out, err := harness.RunGetDevices()
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("failed to validate token"))
+
+			By("Token should not have been refreshed")
+			cfg, err = harness.ReadClientConfig(configPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(cfg.AuthInfo.Token).To(Equal(secondToken), "Token should not have been refreshed")
+
+			By("Bring the auth service back up")
+			clusterManager.UpdateDeploymentReplicaCountWithAlive(authDeployment, initialReplicaCount, func() bool {
+				// just run until this is successful
+				_, err = harness.RunGetDevices()
+				return err == nil
+			})
+
+			// the previous action of getting devices should have generated a new token
+			By("Another token should be been generated")
+			cfg, err = harness.ReadClientConfig(configPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(cfg.AuthInfo.Token).ToNot(Equal(secondToken), "Token should have been refreshed")
 		})
 	})
 })
