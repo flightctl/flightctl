@@ -1,6 +1,8 @@
 package util
 
-import "time"
+import (
+	"time"
+)
 
 // Resource types
 const (
@@ -50,4 +52,16 @@ func (m Message) String() string {
 const (
 	UpdateRenderedVersionSuccess  Message = "Updated to desired renderedVersion:"
 	UpdateRenderedVersionProgress Message = "the device is upgrading to renderedVersion:"
+)
+
+// URLsconst
+const (
+	FlightctlAnsibleRepoURL string = "https://github.com/flightctl/flightctl-ansible"
+	DefaultMainBranch       string = "main"
+)
+const (
+	AnsibleCollectionFLightCTLPath string = ".ansible/collections/ansible_collections/flightctl/core"
+	AnsiblePlaybookFolderPath      string = "test/e2e/ansible/playbooks"
+	AnsibleConfigFilePath          string = "test/e2e/ansible/playbooks/integration_config.yml"
+	ClientConfigPath               string = ".config/flightctl/client.yaml"
 )
