@@ -37,14 +37,32 @@ func (s *session) close() error {
 }
 
 func (s *session) buildBashCommand(ctx context.Context, metadata *api.DeviceConsoleSessionMetadata) *exec.Cmd {
-	var args []string
+	args := []string{
+		"--unshare-all",             // Fully isolate mount, PID, UTS, IPC, and network namespaces
+		"--ro-bind", "/usr", "/usr", // Bind /usr read-only (contains binaries and libraries)
+		"--ro-bind", "/bin", "/bin", // Required for /bin/bash or POSIX tools
+		"--ro-bind", "/lib", "/lib", // Required for dynamic linker and libc
+		"--ro-bind", "/lib64", "/lib64", // Required for 64-bit libraries
+		"--bind", "/etc", "/etc", // Provide read/write access to system config files
+		"--bind", "/var", "/var", // Provide read/write access to system state, logs, DBs
+		"--bind", "/sys", "/sys", // Required for block/network interface introspection
+		"--bind", "/run", "/run", // Needed for runtime sockets (D-Bus, systemd)
+		"--bind", "/var/tmp", "/var/tmp", // For sos report and other tools using /var/tmp
+		"--bind", "/root", "/root", // Access to root user's home
+		"--dev-bind", "/dev", "/dev", // Full device node access (tty, null, zero)
+		"--proc", "/proc", // Mount /proc for ps, top, etc.
+		"--tmpfs", "/tmp", // Provide isolated writable /tmp
+		"/bin/bash", // Start interactive bash shell
+	}
 	if metadata.TTY {
 		args = append(args, "-i", "-l")
 	}
 	if metadata.Command != nil && metadata.Command.Command != "" {
-		args = append(args, "-c", strings.Join(append([]string{metadata.Command.Command}, metadata.Command.Args...), " "))
+		args = append(args, "-c", strings.Join(
+			append([]string{metadata.Command.Command}, metadata.Command.Args...), " "))
 	}
-	ret := s.executor.CommandContext(ctx, "bash", args...)
+
+	ret := s.executor.CommandContext(ctx, "bwrap", args...)
 	if metadata.Term != nil {
 		ret.Env = append(ret.Env, "TERM="+*metadata.Term)
 	}
