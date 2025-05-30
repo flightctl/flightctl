@@ -16,15 +16,15 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	client "github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
-	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 )
 
@@ -37,6 +37,7 @@ type Harness struct {
 	VMs       []vm.TestVMInterface
 	Client    *apiclient.ClientWithResponses
 	Context   context.Context
+	Cluster kubernetes.Interface
 	ctxCancel context.CancelFunc
 	startTime time.Time
 
@@ -59,6 +60,29 @@ func findTopLevelDir() string {
 	// this return is not reachable, but we need to satisfy the compiler
 	return ""
 }
+func kubernetesClient() (kubernetes.Interface, error) {
+	var kubeconfig string
+	if kc, ok := os.LookupEnv("KUBECONFIG"); ok && kc != "" {
+		kubeconfig = kc
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory: %w", err)
+		}
+		kubeconfig = filepath.Join(home, ".kube", "config")
+	}
+
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("error building kubeconfig: %w", err)
+	}
+
+	iface, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("error creating kubernetes api: %w", err)
+	}
+	return iface, nil
+}
 
 func NewTestHarness(ctx context.Context) *Harness {
 
@@ -79,10 +103,14 @@ func NewTestHarness(ctx context.Context) *Harness {
 
 	ctx, cancel := context.WithCancel(ctx)
 
+	k8sCluster, err := kubernetesClient()
+	Expect(err).ToNot(HaveOccurred(), "failed to get kubernetes cluster")
+
 	return &Harness{
 		VMs:       []vm.TestVMInterface{testVM},
 		Client:    c,
 		Context:   ctx,
+		Cluster: k8sCluster,
 		ctxCancel: cancel,
 		startTime: startTime,
 		VM:        testVM,
@@ -108,6 +136,30 @@ func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface
 		createdVMs = append(createdVMs, vm)
 	}
 	return createdVMs, nil
+}
+
+// ReadClientConfig returns the client config for at the specified location. The default config path is used if no path is
+// specified
+func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
+	if filePath == "" {
+		filePath = client.DefaultFlightctlClientConfigPath()
+	}
+	return client.ParseConfigFile(filePath)
+}
+
+// MarkClientAccessTokenExpired updates the client configuration at the specified path by marking the token as expired
+// If no path is supplied, the default config path will be used
+func (h *Harness) MarkClientAccessTokenExpired(filePath string) error {
+	if filePath == "" {
+		filePath = client.DefaultFlightctlClientConfigPath()
+	}
+	cfg, err := client.ParseConfigFile(filePath)
+	if err != nil {
+		return err
+	}
+	// expire the token by making setting the time to one minute ago
+	cfg.AuthInfo.AuthProvider.Config[client.AuthAccessTokenExpiryKey] = time.Now().Add(-1 * time.Minute).Format(time.RFC3339Nano)
+	return cfg.Persist(filePath)
 }
 
 // Harness cleanup, this will delete the VM and cancel the context

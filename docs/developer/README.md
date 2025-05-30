@@ -57,9 +57,17 @@ bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 ```
 
+Note: If deployed without auth enabled then there is no need to login.
+
 Use an agent VM to test a device interaction, an image is automatically created from
 hack/Containerfile.local and a qcow2 image is derived in output/qcow2/disk.qcow2, currently
 this only works on a Linux host.
+
+Note: An update to firewalld may need to be made if the agent is unable to connect to the api instance:
+```bash
+sudo firewall-cmd --zone=libvirt --add-rich-rule='rule family="ipv4" source address="<virbr0s subnet here>" accept' --permanent
+sudo firewall-cmd --reload
+```
 
 You can deploy a DB container of different sizes using a DB_VERSION variable for make command:
 * e2e (default) - minimal footprint for e2e testing

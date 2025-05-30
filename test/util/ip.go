@@ -44,3 +44,8 @@ func GetExtIP() string {
 	Expect(err).ToNot(HaveOccurred())
 	return strings.TrimSpace(string(output))
 }
+
+func BinaryExistsOnPath(binaryName string) bool {
+	_, err := exec.LookPath(binaryName)
+	return err == nil
+}
