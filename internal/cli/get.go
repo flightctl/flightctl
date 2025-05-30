@@ -25,11 +25,12 @@ import (
 const (
 	jsonFormat = "json"
 	yamlFormat = "yaml"
+	nameFormat = "name"
 	wideFormat = "wide"
 )
 
 var (
-	legalOutputTypes = []string{jsonFormat, yamlFormat, wideFormat}
+	legalOutputTypes = []string{jsonFormat, yamlFormat, nameFormat, wideFormat}
 )
 
 type GetOptions struct {
@@ -44,6 +45,14 @@ type GetOptions struct {
 	Rendered      bool
 	Summary       bool
 	SummaryOnly   bool
+}
+
+type metadata struct {
+	Name string `json:"name"`
+}
+
+type resource struct {
+	Metadata metadata `json:"metadata"`
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -309,6 +318,8 @@ func (o *GetOptions) processResponse(response interface{}, err error, kind strin
 		}
 		fmt.Printf("%s\n", string(marshalled))
 		return nil
+	case nameFormat:
+		return o.printNames(json200, name)
 	default:
 		return o.printTable(response, kind, name)
 	}
@@ -594,4 +605,36 @@ func (o *GetOptions) printEventsTable(w *tabwriter.Writer, events ...api.Event) 
 			e.Message,
 		)
 	}
+}
+
+func (o *GetOptions) printNames(responseJSON interface{}, name string) error {
+	jsonBytes, err := json.Marshal(responseJSON)
+	if err != nil {
+		return fmt.Errorf("marshalling JSON200: %w", err)
+	}
+
+	// For single resources
+	if len(name) > 0 {
+		var singleResource resource
+		if err := json.Unmarshal(jsonBytes, &singleResource); err != nil {
+			return fmt.Errorf("unmarshalling resource: %w", err)
+		}
+		fmt.Println(singleResource.Metadata.Name)
+		return nil
+	}
+
+	// For list resources
+	var listResponse struct {
+		Items []resource `json:"items"`
+	}
+	if err := json.Unmarshal(jsonBytes, &listResponse); err != nil {
+		return fmt.Errorf("unmarshalling list response: %w", err)
+	}
+
+	// Print names from all items
+	for _, item := range listResponse.Items {
+		fmt.Println(item.Metadata.Name)
+	}
+
+	return nil
 }

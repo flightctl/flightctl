@@ -86,7 +86,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 			Expect(deviceBName).ToNot(BeEmpty())
 
 			// deleting previous devices
-			_, _ = harness.CLI("delete", "device")
+			_, _ = harness.ManageResource("delete", "device")
 			// Creating new devices
 			out, err = harness.ManageResource("apply", deviceAYAMLPath)
 			Expect(err).ToNot(HaveOccurred())
