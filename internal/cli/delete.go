@@ -125,7 +125,7 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 }
 
 func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientWithResponses, kind string, names []string) error {
-	var hasErrors bool
+	var errorCount int
 
 	for _, name := range names {
 		response, deleteErr := o.deleteOne(ctx, c, kind, name)
@@ -133,14 +133,14 @@ func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientW
 		processErr := processDeletionReponse(response, deleteErr, kind, name)
 		if processErr != nil {
 			fmt.Printf("Error: %v\n", processErr)
-			hasErrors = true
+			errorCount++
 		} else {
 			fmt.Printf("%s \"%s\" deleted\n", kind, name)
 		}
 	}
 
-	if hasErrors {
-		return fmt.Errorf("one or more deletions failed")
+	if errorCount > 0 {
+		return fmt.Errorf("failed to delete %d %s(s)", errorCount, kind)
 	}
 
 	return nil

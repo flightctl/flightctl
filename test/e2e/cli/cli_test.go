@@ -301,7 +301,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("CLI Multi-Device Delete", func() {
-		It("should delete multiple devices", Label("multiple-device-delete", "sanity"), func() {
+		It("should delete multiple devices", Label("75506", "sanity"), func() {
 			By("Creating multiple test devices")
 			err := harness.CleanUpAllResources()
 			Expect(err).ToNot(HaveOccurred())
