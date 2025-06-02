@@ -2,6 +2,8 @@ package login
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -84,15 +86,28 @@ func getActiveNamespaces(harness *e2e.Harness) []string {
 	return namespaces
 }
 
-func loginWithPassword(harness *e2e.Harness) (AuthMethod, error) {
+func resolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
 	namespaces := getActiveNamespaces(harness)
-	namespace := ""
-	// is this a legacy thing?
-	if slices.Contains(namespaces, "flightctl") {
-		namespace = "flightctl"
-	} else if slices.Contains(namespaces, "flightctl-external") {
-		namespace = "flightctl-external"
+	flightCtlNs := os.Getenv("FLIGHTCTL_NS")
+	// prefer the environment variable
+	if flightCtlNs != "" {
+		if !slices.Contains(namespaces, flightCtlNs) {
+			return "", fmt.Errorf("unable to resolve flightctl namespace. %s is defined as the namespace but does not exist in the collection %v", flightCtlNs, namespaces)
+		}
+		return flightCtlNs, nil
 	}
+	wellKnownNs := []string{"flightctl", "flightctl-external"}
+	for _, ns := range wellKnownNs {
+		if slices.Contains(namespaces, ns) {
+			return ns, nil
+		}
+	}
+	return "", fmt.Errorf("unable to resolve flightctl namespace using well known namespaces %v", wellKnownNs)
+}
+
+func loginWithPassword(harness *e2e.Harness) (AuthMethod, error) {
+	namespace, err := resolveFlightctlNamespace(harness)
+	Expect(err).ToNot(HaveOccurred(), "error resolving flightctl namespace")
 	Expect(namespace).NotTo(BeEmpty(), "Unable to determine the namespace associated with the demo user")
 
 	secret, err := harness.Cluster.CoreV1().Secrets(namespace).Get(harness.Context, "keycloak-demouser-secret", metav1.GetOptions{})
