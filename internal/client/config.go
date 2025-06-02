@@ -428,7 +428,7 @@ func (c *Config) Persist(filename string) error {
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
-	directory := filename[:strings.LastIndex(filename, "/")]
+	directory := filepath.Dir(filename)
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return fmt.Errorf("writing config: %w", err)
 	}

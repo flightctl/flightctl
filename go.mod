@@ -1,6 +1,6 @@
 module github.com/flightctl/flightctl
 
-go 1.22
+go 1.23
 
 require (
 	github.com/ccoveille/go-safecast v1.1.0
@@ -15,7 +15,6 @@ require (
 	github.com/go-chi/chi/v5 v5.0.12
 	github.com/go-git/go-billy/v5 v5.6.0
 	github.com/go-git/go-git/v5 v5.13.0
-	github.com/go-openapi/swag v0.23.0
 	github.com/google/go-cmp v0.6.0
 	github.com/google/go-tpm v0.9.0
 	github.com/google/go-tpm-tools v0.4.4
@@ -91,6 +90,7 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
+	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/go-test/deep v1.1.0 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect

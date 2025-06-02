@@ -10,7 +10,6 @@ spec:
     - namespaceSelector:
         matchLabels:
           policy-group.network.openshift.io/ingress: ""
-      podSelector: {}
   podSelector:
     matchLabels:
       role: frontend
