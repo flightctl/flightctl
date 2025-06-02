@@ -60,16 +60,43 @@ func findTopLevelDir() string {
 	// this return is not reachable, but we need to satisfy the compiler
 	return ""
 }
+
+// try to resolve the kube config at a few well known locations
+func resolveKubeConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	// default location
+	kubeconfig := filepath.Join(home, ".kube", "config")
+	_, err = os.Stat(kubeconfig)
+	if err == nil {
+		return kubeconfig, nil
+	}
+	// location on QA CI agents
+	kubeconfig = filepath.Join("home", "kni", "clusterconfigs", "kubeconfig")
+	_, err = os.Stat(kubeconfig)
+	if err == nil {
+		return kubeconfig, nil
+	}
+	// another potential spot
+	kubeconfig = filepath.Join("home", "kni", "auth", "clusterconfigs", "kubeconfig")
+	_, err = os.Stat(kubeconfig)
+	return kubeconfig, err
+}
+
+// build a k8s interface so that tests can interact with it directly from Go rather than
+// shelling out to `oc` or `kubectl`
 func kubernetesClient() (kubernetes.Interface, error) {
 	var kubeconfig string
 	if kc, ok := os.LookupEnv("KUBECONFIG"); ok && kc != "" {
 		kubeconfig = kc
 	} else {
-		home, err := os.UserHomeDir()
+		var err error
+		kubeconfig, err = resolveKubeConfigPath()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
+			return nil, fmt.Errorf("unable to resolve kubeconfig")
 		}
-		kubeconfig = filepath.Join(home, ".kube", "config")
 	}
 
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
@@ -1232,6 +1259,21 @@ func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error)
 	return v1alpha1.Condition{}, fmt.Errorf("fleet rollout condition not found")
 }
 
+func tcpNetworkRuleArgs(ip, port string, remove bool) []string {
+	flag := "-A"
+	if remove {
+		flag = "-D"
+	}
+
+	return []string{"iptables", flag, "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "DROP"}
+}
+
+func buildIPTablesCmd(ip, port string, remove bool) []string {
+	command := []string{"sudo"}
+	args := tcpNetworkRuleArgs(ip, port, remove)
+	return append(command, args...)
+}
+
 func (h *Harness) SimulateNetworkFailure() error {
 	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
 	if err != nil {
@@ -1239,7 +1281,7 @@ func (h *Harness) SimulateNetworkFailure() error {
 	}
 
 	blockCommands := [][]string{
-		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", registryPort, "-j", "DROP"},
+		buildIPTablesCmd(registryIP, registryPort, false),
 	}
 
 	for _, cmd := range blockCommands {
@@ -1259,6 +1301,16 @@ func (h *Harness) SimulateNetworkFailure() error {
 	return nil
 }
 
+func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) error {
+	args := tcpNetworkRuleArgs(ip, port, false)
+	_, err := h.SH("sudo", args...)
+	if err != nil {
+		return fmt.Errorf("failed to add iptables rule %v: %w", args, err)
+	}
+
+	return nil
+}
+
 func (h *Harness) FixNetworkFailure() error {
 	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
 	if err != nil {
@@ -1266,7 +1318,7 @@ func (h *Harness) FixNetworkFailure() error {
 	}
 
 	unblockCommands := [][]string{
-		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", registryPort, "-j", "DROP"},
+		buildIPTablesCmd(registryIP, registryPort, true),
 	}
 
 	for _, cmd := range unblockCommands {
@@ -1285,6 +1337,17 @@ func (h *Harness) FixNetworkFailure() error {
 	} else {
 		logrus.Debugf("Current iptables rules after recovery:\n%s", stdout.String())
 	}
+
+	return nil
+}
+
+func (h *Harness) FixNetworkFailureForCLI(ip, port string) error {
+	args := tcpNetworkRuleArgs(ip, port, true)
+	_, err := h.SH("sudo", args...)
+	if err != nil {
+		return fmt.Errorf("failed to add iptables rule %v: %w", args, err)
+	}
+	_, _ = h.SH("sudo", "systemd-resolve", "--flush-caches")
 
 	return nil
 }

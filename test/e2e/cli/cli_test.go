@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -553,14 +554,12 @@ var _ = Describe("cli login", func() {
 	var (
 		ctx            context.Context
 		harness        *e2e.Harness
-		clusterManager *util.ClusterDeploymentManager
 	)
 
 	Context("login validation", func() {
 		BeforeEach(func() {
 			ctx = util.StartSpecTracerForGinkgo(suiteCtx)
 			harness = e2e.NewTestHarness(ctx)
-			clusterManager = util.NewClusterDeploymentManager(harness.Context, harness.Cluster, "")
 		})
 		AfterEach(func() {
 			harness.Cleanup(false) // do not print console on error
@@ -610,15 +609,12 @@ var _ = Describe("cli login", func() {
 			}
 		})
 
-		It("Should refresh token when expiration is reached", Label("GET A LABEL"), func() {
-			const (
-				authDeployment = "keycloak"
-				configPath     = "" // default to nothing to let the default path be used
-			)
+		It("Should refresh token when expiration is reached", Label("81481"), func() {
+			const configPath = "" // default to nothing to let the default path be used
 			By("Login to the service")
-			// We want to log in directly with user/pass on this flow so that we can force the auth mechanism
-			// to occur with our keycloak deployment
-			if login.WithPassword(harness) == login.AuthDisabled {
+			// We need to ensure that the login mechanism was user/pass otherwise the refresh flow isn't
+			// active.
+			if login.LoginToAPIWithToken(harness) != login.AuthUsernamePassword {
 				Skip("This test requires authentication to be enabled")
 			}
 			By("Ensure actions can be taken")
@@ -644,17 +640,24 @@ var _ = Describe("cli login", func() {
 			secondToken := cfg.AuthInfo.Token
 			Expect(secondToken).ToNot(Equal(initialToken), "Token should have been refreshed")
 
-			By("Bring down the auth service")
-			initialReplicaCount := clusterManager.BringDeploymentDown(authDeployment)
-			// reset when everything is done if we fail
-			defer clusterManager.UpdateDeploymentReplicaCount(authDeployment, initialReplicaCount)
+			By("Remove connectivity to the auth service")
+			providerUrl := cfg.AuthInfo.AuthProvider.Config[client.AuthUrlKey]
+			Expect(providerUrl).ToNot(BeEmpty(), "Auth provider URL should not be empty")
+			authIp, authPort, err := util.ParseURIForIPAndPort(providerUrl)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authIp).ToNot(BeEmpty(), "The IP address of the auth provider should not be empty")
+			Expect(authPort).ToNot(BeZero(), "The port of the auth provider should not be empty")
+
+			err = harness.SimulateNetworkFailureForCLI(authIp, authPort)
+			Expect(err).ToNot(HaveOccurred())
+			// ensure we restore traffic in the event an assertion below fails
+			defer func() { _ = harness.FixNetworkFailureForCLI(authIp, authPort) }()
 
 			By("Expire the access token again and run an action")
 			err = harness.MarkClientAccessTokenExpired(configPath)
 			Expect(err).NotTo(HaveOccurred())
-			out, err := harness.RunGetDevices()
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("failed to validate token"))
+			// we don't care about the result, only that an action that could regenerate the token should have been taken
+			_, _ = harness.RunGetDevices()
 
 			By("Token should not have been refreshed")
 			cfg, err = harness.ReadClientConfig(configPath)
@@ -662,14 +665,12 @@ var _ = Describe("cli login", func() {
 			Expect(cfg.AuthInfo.Token).To(Equal(secondToken), "Token should not have been refreshed")
 
 			By("Bring the auth service back up")
-			clusterManager.UpdateDeploymentReplicaCountWithAlive(authDeployment, initialReplicaCount, func() bool {
-				// just run until this is successful
-				_, err = harness.RunGetDevices()
-				return err == nil
-			})
+			err = harness.FixNetworkFailureForCLI(authIp, authPort)
+			Expect(err).ToNot(HaveOccurred())
 
-			// the previous action of getting devices should have generated a new token
 			By("Another token should be been generated")
+			// we don't care about the result, only that an action that could regenerate the token should have been taken
+			_, _ = harness.RunGetDevices()
 			cfg, err = harness.ReadClientConfig(configPath)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(cfg.AuthInfo.Token).ToNot(Equal(secondToken), "Token should have been refreshed")
