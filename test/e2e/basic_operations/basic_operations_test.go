@@ -24,53 +24,31 @@ var _ = Describe("Basic Operations", Label("sanity", "82220"), func() {
 	var (
 		harness *e2e.Harness
 	)
-	AfterEach(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
-	})
-	It("Create a resource from example file", func() {
-		type FilterTestParams struct {
-			ResourceType        string
-			FileName            string
-			ExtractResourceName func(*e2e.Harness, string) (string, error)
-		}
 
-		var testCases = []util.TestCase[FilterTestParams]{
-			{
-				Description: "Create a device from example file",
-				Params:      FilterTestParams{util.Device, "device.yaml", extractDeviceNameFromExampleFile},
-			},
-			{
-				Description: "Create a fleet from example file",
-				Params:      FilterTestParams{util.Fleet, "fleet.yaml", extractFleetNameFromExampleFile},
-			},
-			{
-				Description: "Create a repository from example file",
-				Params:      FilterTestParams{util.Repository, "repository-flightctl.yaml", extractRepositoryNameFromExampleFile},
-			},
-		}
-
-		util.RunTable(testCases, func(tc FilterTestParams) {
-			name, err := tc.ExtractResourceName(harness, tc.FileName)
+	DescribeTable("Create a resource from example file",
+		func(resourceType string, fileName string, extractResourceNameFromExampleFile func(*e2e.Harness, string) (string, error)) {
+			name, err := extractResourceNameFromExampleFile(harness, fileName)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(name).ShouldNot(BeEmpty(), fmt.Sprintf("Resource name should not be empty for %s", tc.FileName))
+			Expect(name).ShouldNot(BeEmpty(), fmt.Sprintf("Resource name should not be empty for %s", fileName))
 
-			Expect(resources.ExpectNotExistWithName(harness, tc.ResourceType, name)).To(Succeed())
+			Expect(resources.ExpectNotExistWithName(harness, resourceType, name)).To(Succeed())
 
-			output, err := resources.ApplyFromExampleFile(harness, tc.FileName)
+			output, err := resources.ApplyFromExampleFile(harness, fileName)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			matched, err := regexp.MatchString(createdResource, output)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(matched).To(BeTrue(), fmt.Sprintf("Expected output to match pattern '%s'", createdResource))
 
-			response, err := resources.Delete(harness, tc.ResourceType, name)
+			response, err := resources.Delete(harness, resourceType, name)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(response).Should(MatchRegexp(fmt.Sprintf("%s \"%s\" deleted\n", tc.ResourceType, name)),
-				fmt.Sprintf("Resource deletion response should match '%s/<name> deleted' pattern for %s", tc.ResourceType, tc.FileName))
-			Expect(response).Should(BeEmpty(), fmt.Sprintf("Resource deletion response should be empty for %s", tc.FileName))
-		})
-	})
+			Expect(response).Should(MatchRegexp(fmt.Sprintf("%s \"%s\" deleted\n", resourceType, name)),
+				fmt.Sprintf("Resource deletion response should match '%s/<name> deleted' pattern for %s", resourceType, fileName))
+		},
+		Entry("Create a device from example file", util.Device, "device.yaml", extractDeviceNameFromExampleFile),
+		Entry("Create a fleet from example file", util.Fleet, "fleet.yaml", extractFleetNameFromExampleFile),
+		Entry("Create a repository from example file", util.Repository, "repository-flightctl.yaml", extractRepositoryNameFromExampleFile),
+	)
 })
 
 func extractDeviceNameFromExampleFile(harness *e2e.Harness, deviceFileName string) (string, error) {
