@@ -715,8 +715,22 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 
 func (h *Harness) CleanUpResources(resourceType string) (string, error) {
 	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
-	return h.CLI("delete", resourceType)
 
+	resources, err := h.CLI("get", resourceType, "-o", "name")
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s resources: %w", resourceType, err)
+	}
+	resources = strings.TrimSpace(resources)
+	if resources == "" {
+		logrus.Infof("No %s resources found to delete", resourceType)
+		return "No resources to delete", nil
+	}
+
+	deleteArgs := []string{"delete", resourceType}
+	resourceNames := strings.Fields(resources)
+	deleteArgs = append(deleteArgs, resourceNames...)
+
+	return h.CLI(deleteArgs...)
 }
 
 func (h *Harness) CleanUpAllResources() error {
@@ -748,6 +762,19 @@ func getYamlResourceByFile[T any](yamlFile string) T {
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to unmarshal yaml file %s: %v", yamlFile, err)
 
 	return resource
+}
+
+// Wrapper function for Shell command to get resources by name
+func (h *Harness) GetResourcesByName(resourceType string, resourceName ...string) (string, error) {
+	var args []string
+
+	if len(resourceName) > 0 && resourceName[0] != "" {
+		args = []string{"get", fmt.Sprintf("%s/%s", resourceType, resourceName[0]), "-o", "name"}
+	} else {
+		args = []string{"get", resourceType, "-o", "name"}
+	}
+
+	return h.CLI(args...)
 }
 
 // Wrapper function for Device
@@ -1290,7 +1317,11 @@ func (h Harness) ManageResource(operation, resource string, args ...string) (str
 	case "apply":
 		return h.CLI("apply", "-f", util.GetTestExamplesYamlPath(resource))
 	case "delete":
-		return h.CLI("delete", resource)
+		if len(args) > 0 {
+			deleteArgs := append([]string{"delete", resource}, args...)
+			return h.CLI(deleteArgs...)
+		}
+		return h.CleanUpResources(resource)
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}

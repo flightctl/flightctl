@@ -42,7 +42,8 @@ var _ = Describe("Basic Operations", Label("sanity", "82220"), func() {
 
 			response, err := resources.Delete(harness, resourceType, name)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(response).Should(BeEmpty(), fmt.Sprintf("Resource deletion response should be empty for %s", fileName))
+			Expect(response).Should(MatchRegexp(fmt.Sprintf("%s \"%s\" deleted\n", resourceType, name)),
+				fmt.Sprintf("Resource deletion response should match '%s/<name> deleted' pattern for %s", resourceType, fileName))
 		},
 		Entry("Create a device from example file", util.Device, "device.yaml", extractDeviceNameFromExampleFile),
 		Entry("Create a fleet from example file", util.Fleet, "fleet.yaml", extractFleetNameFromExampleFile),
