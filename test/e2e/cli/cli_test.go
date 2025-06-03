@@ -615,7 +615,7 @@ var _ = Describe("cli login", func() {
 			// We need to ensure that the login mechanism was user/pass otherwise the refresh flow isn't
 			// active.
 			if login.LoginToAPIWithToken(harness) != login.AuthUsernamePassword {
-				Skip("This test requires authentication to be enabled")
+				Skip("This test requires authentication with username/password to be enabled")
 			}
 			By("Ensure actions can be taken")
 			_, err := harness.RunGetDevices()

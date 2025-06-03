@@ -42,11 +42,8 @@ func LoginToAPIWithToken(harness *e2e.Harness) AuthMethod {
 	}
 	ocExists := util.BinaryExistsOnPath(openshift)
 	if ocExists {
-		authMethod, err := loginWithOpenshift(harness)
-		// try password login if openshift login fails
-		if err != nil {
-			return WithPassword(harness)
-		} else {
+		// If openshift token login fails then fallback to username/password
+		if authMethod, err := loginWithOpenshift(harness); err == nil {
 			return authMethod
 		}
 	}
@@ -89,10 +86,11 @@ func getActiveNamespaces(harness *e2e.Harness) []string {
 func resolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
 	namespaces := getActiveNamespaces(harness)
 	flightCtlNs := os.Getenv("FLIGHTCTL_NS")
-	// prefer the environment variable
+	// if the NS env variable is set we only check that one
 	if flightCtlNs != "" {
+		const fmtString = "unable to resolve flightctl namespace. %s is defined as the namespace but does not exist in the collection %v"
 		if !slices.Contains(namespaces, flightCtlNs) {
-			return "", fmt.Errorf("unable to resolve flightctl namespace. %s is defined as the namespace but does not exist in the collection %v", flightCtlNs, namespaces)
+			return "", fmt.Errorf(fmtString, flightCtlNs, namespaces)
 		}
 		return flightCtlNs, nil
 	}
@@ -118,7 +116,9 @@ func loginWithPassword(harness *e2e.Harness) (AuthMethod, error) {
 	// Retry login with the retrieved password
 	loginArgs := append(baseLoginArgs(), "-u", "demouser", "-p", string(password))
 	out, err := harness.CLI(loginArgs...)
-	Expect(err).ToNot(HaveOccurred(), "Failed to login with password")
+	if err != nil {
+		return AuthDisabled, fmt.Errorf("error executing login: %w", err)
+	}
 	if isLoginSuccessful(out) {
 		return AuthUsernamePassword, nil
 	}
@@ -137,7 +137,9 @@ func loginWithOpenshift(harness *e2e.Harness) (AuthMethod, error) {
 	Expect(token).ToNot(BeEmpty(), "Token from 'oc whoami' should not be empty")
 	loginArgsOcp := append(baseLoginArgs(), "--token", token)
 	out, err := harness.CLI(loginArgsOcp...)
-	Expect(err).ToNot(HaveOccurred())
+	if err != nil {
+		return AuthDisabled, fmt.Errorf("failed to sign in with OpenShift token: %w", err)
+	}
 	if isLoginSuccessful(out) {
 		return AuthToken, nil
 	}
