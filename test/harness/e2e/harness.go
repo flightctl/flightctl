@@ -63,42 +63,37 @@ func findTopLevelDir() string {
 
 // try to resolve the kube config at a few well known locations
 func resolveKubeConfigPath() (string, error) {
+	if kc, ok := os.LookupEnv("KUBECONFIG"); ok && kc != "" {
+		return kc, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	// default location
-	kubeconfig := filepath.Join(home, ".kube", "config")
-	_, err = os.Stat(kubeconfig)
-	if err == nil {
-		return kubeconfig, nil
+
+	paths := []string{
+		filepath.Join(home, ".kube", "config"),                                                           // default
+		filepath.Join(string(filepath.Separator), "home", "kni", "clusterconfigs", "kubeconfig"),         // qa path
+		filepath.Join(string(filepath.Separator), "home", "kni", "auth", "clusterconfigs", "kubeconfig"), // qa path
 	}
-	// location on QA CI agents
-	kubeconfig = filepath.Join("home", "kni", "clusterconfigs", "kubeconfig")
-	_, err = os.Stat(kubeconfig)
-	if err == nil {
-		return kubeconfig, nil
+	for _, path := range paths {
+		if _, err = os.Stat(path); err == nil {
+			return path, nil
+		}
 	}
-	// another potential spot
-	kubeconfig = filepath.Join("home", "kni", "auth", "clusterconfigs", "kubeconfig")
-	_, err = os.Stat(kubeconfig)
-	return kubeconfig, err
+
+	return "", fmt.Errorf("failed to find kubeconfig file in the paths: %v", paths)
 }
 
 // build a k8s interface so that tests can interact with it directly from Go rather than
 // shelling out to `oc` or `kubectl`
 func kubernetesClient() (kubernetes.Interface, error) {
-	var kubeconfig string
-	if kc, ok := os.LookupEnv("KUBECONFIG"); ok && kc != "" {
-		kubeconfig = kc
-	} else {
-		var err error
-		kubeconfig, err = resolveKubeConfigPath()
-		if err != nil {
-			return nil, fmt.Errorf("unable to resolve kubeconfig")
-		}
+	kubeconfig, err := resolveKubeConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("unable to resolve kubeconfig location: %w", err)
 	}
 
+	logrus.Debugf("Using kubeconfig: %s", kubeconfig)
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("error building kubeconfig: %w", err)

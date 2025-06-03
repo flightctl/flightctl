@@ -53,7 +53,9 @@ func BinaryExistsOnPath(binaryName string) bool {
 	return err == nil
 }
 
-func resolveHostNameIP4Address(hostname string) (string, error) {
+// resolveIPAddressForHostname resolves the ip address associated with the hostname. Prefers ip4 addresses
+// but will return ip6 address if there are no ip4 addresses.
+func resolveIPAddressForHostname(hostname string) (string, error) {
 	if ip := net.ParseIP(hostname); ip != nil {
 		return ip.String(), nil
 	}
@@ -67,10 +69,10 @@ func resolveHostNameIP4Address(hostname string) (string, error) {
 	}
 	for _, ip := range ips {
 		if ip.To4() != nil {
-			return ip.To4().String(), nil
+			return ip.String(), nil
 		}
 	}
-	return "", fmt.Errorf("hostname '%s' resolved to no IPv4 addresses", hostname)
+	return ips[0].String(), nil
 }
 
 // ParseURIForIPAndPort parses a string URI and attempts to extract the IP address and port.
@@ -93,7 +95,7 @@ func ParseURIForIPAndPort(rawURI string) (string, string, error) {
 		return "", "", fmt.Errorf("no hostname found in URI '%s'", rawURI)
 	}
 
-	ip, err := resolveHostNameIP4Address(hostname)
+	ip, err := resolveIPAddressForHostname(hostname)
 	if err != nil {
 		return "", "", err
 	}
