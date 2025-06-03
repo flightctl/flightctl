@@ -296,6 +296,10 @@ type TestCase[T any] struct {
 	Params      T
 }
 
+func Cases[T any](items ...TestCase[T]) []TestCase[T] {
+	return items
+}
+
 // RunTable executes the provided run function for each test case in the cases slice.
 func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
 	for _, tc := range cases {
