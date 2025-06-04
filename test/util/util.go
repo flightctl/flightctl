@@ -26,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	. "github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -286,4 +287,23 @@ func GetCurrentYearBounds() (string, string) {
 	endOfYear := time.Date(now.Year()+1, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	return startOfYear.Format(time.RFC3339), endOfYear.Format(time.RFC3339)
+}
+
+// RunTable runs a table of test cases with the given run function.
+// Each test case has a description and parameters of type T.
+type TestCase[T any] struct {
+	Description string
+	Params      T
+}
+
+func Cases[T any](items ...TestCase[T]) []TestCase[T] {
+	return items
+}
+
+// RunTable executes the provided run function for each test case in the cases slice.
+func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
+	for _, tc := range cases {
+		By("Case: " + tc.Description)
+		runFunc(tc.Params)
+	}
 }
