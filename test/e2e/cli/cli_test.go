@@ -648,10 +648,10 @@ var _ = Describe("cli login", func() {
 			Expect(authIp).ToNot(BeEmpty(), "The IP address of the auth provider should not be empty")
 			Expect(authPort).ToNot(BeZero(), "The port of the auth provider should not be empty")
 
-			err = harness.SimulateNetworkFailureForCLI(authIp, authPort)
+			restoreAuth, err := harness.SimulateNetworkFailureForCLI(authIp, authPort)
 			Expect(err).ToNot(HaveOccurred())
 			// ensure we restore traffic in the event an assertion below fails
-			defer func() { _ = harness.FixNetworkFailureForCLI(authIp, authPort) }()
+			defer func() { _ = restoreAuth() }()
 
 			By("Expire the access token again and run an action")
 			err = harness.MarkClientAccessTokenExpired(configPath)
@@ -665,7 +665,7 @@ var _ = Describe("cli login", func() {
 			Expect(cfg.AuthInfo.Token).To(Equal(secondToken), "Token should not have been refreshed")
 
 			By("Bring the auth service back up")
-			err = harness.FixNetworkFailureForCLI(authIp, authPort)
+			err = restoreAuth()
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Another token should be been generated")

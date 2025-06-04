@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -1254,19 +1255,17 @@ func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error)
 	return v1alpha1.Condition{}, fmt.Errorf("fleet rollout condition not found")
 }
 
-func tcpNetworkRuleArgs(ip, port string, remove bool) []string {
-	flag := "-A"
+func tcpNetworkTableRule(ip, port string, remove bool) []string {
+	flag := "-A" // add
 	if remove {
-		flag = "-D"
+		flag = "-D" // delete
 	}
 
 	return []string{"iptables", flag, "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "DROP"}
 }
 
 func buildIPTablesCmd(ip, port string, remove bool) []string {
-	command := []string{"sudo"}
-	args := tcpNetworkRuleArgs(ip, port, remove)
-	return append(command, args...)
+	return append([]string{"sudo"}, tcpNetworkTableRule(ip, port, remove)...)
 }
 
 func (h *Harness) SimulateNetworkFailure() error {
@@ -1296,14 +1295,22 @@ func (h *Harness) SimulateNetworkFailure() error {
 	return nil
 }
 
-func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) error {
-	args := tcpNetworkRuleArgs(ip, port, false)
+// SimulateNetworkFailureForCLI adds an entry to iptables to drop tcp traffic to the specified port:ip
+// It returns a function that will only execute once to undo the iptables modification
+func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, error) {
+	args := tcpNetworkTableRule(ip, port, false)
 	_, err := h.SH("sudo", args...)
+	noop := func() error { return nil }
 	if err != nil {
-		return fmt.Errorf("failed to add iptables rule %v: %w", args, err)
+		return noop, fmt.Errorf("failed to add iptables rule %v: %w", args, err)
 	}
 
-	return nil
+	var once sync.Once
+	var respErr error = nil
+	return func() error {
+		once.Do(func() { respErr = h.FixNetworkFailureForCLI(ip, port) })
+		return respErr
+	}, nil
 }
 
 func (h *Harness) FixNetworkFailure() error {
@@ -1336,8 +1343,10 @@ func (h *Harness) FixNetworkFailure() error {
 	return nil
 }
 
+// FixNetworkFailureForCLI removes an entry from iptables if it exists. returns an error
+// if no entry for the ip:port combo exists
 func (h *Harness) FixNetworkFailureForCLI(ip, port string) error {
-	args := tcpNetworkRuleArgs(ip, port, true)
+	args := tcpNetworkTableRule(ip, port, true)
 	_, err := h.SH("sudo", args...)
 	if err != nil {
 		return fmt.Errorf("failed to add iptables rule %v: %w", args, err)
