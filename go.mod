@@ -194,6 +194,7 @@ require (
 replace (
 	dario.cat/mergo => github.com/imdario/mergo v1.0.0
 	github.com/google/gnostic => github.com/google/gnostic v0.5.7-v3refs
+	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 	golang.org/x/crypto => github.com/openshift/golang-crypto v0.33.1-0.20250310193910-9003f682e581
 	golang.org/x/oauth2 => github.com/openshift/golang-oauth2 v0.26.1-0.20250310184649-06a918c6239d
 	k8s.io/api => k8s.io/api v0.29.15
