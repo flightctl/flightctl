@@ -1,35 +1,16 @@
 policy_module(flightctl_agent, 1.0.0)
 
+# Type declarations
 type flightctl_agent_t;
-domain_type(flightctl_agent_t);
+type flightctl_agent_exec_t;
+type flightctl_agent_var_lib_t;
 
-require {
-    # Existing types from the policy
-    type init_t;
-    type devpts_t;
-    type ptmx_t;
-    type unreserved_port_t;
-    
-    attribute file_type;
-    attribute exec_type;
+# Temporarily mark the flightctl_agent_t domain as permissive.  This allows the
+# agent to operate without SELinux denials while logging all access attempts.
+permissive flightctl_agent_t;
 
+# Init domain setup
+init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
 
-    # Classes and permissions that will be used.
-    class file { read execute open };
-    class process transition;
-    class chr_file { open read write ioctl };
-    class tcp_socket { name_connect };
-}
-
-# Define the new file type for the flightctl-agent executable.
-# It must have the file and exec attributes.
-type flightctl_agent_exec_t, file_type, exec_type;
-
-# When a process running in init_t executes a file labeled flightctl_agent_exec_t,
-# have it transition into flightctl_agent_t.
-type_transition init_t flightctl_agent_exec_t:process flightctl_agent_t;
-
-# Allow the flightctl-agent process (running in flightctl_agent_t) to do what it needs.
-allow flightctl_agent_t devpts_t:chr_file open;
-allow flightctl_agent_t ptmx_t:chr_file { open read write ioctl };
-allow flightctl_agent_t unreserved_port_t:tcp_socket name_connect;  
+# File type for data directory
+files_type(flightctl_agent_var_lib_t)
