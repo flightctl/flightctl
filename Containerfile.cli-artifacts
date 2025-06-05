@@ -62,12 +62,12 @@ USER ${USER_UID}
 
 LABEL \
   com.redhat.component="flightctl-cli-artifacts-container" \
-  description="Container image exposing multi-arch Flightctl CLI binaries over HTTP" \
-  io.k8s.description="Container image exposing multi-arch Flightctl CLI binaries over HTTP" \
+  description="Container image exposing multi-arch Flight Control CLI binaries over HTTP" \
+  io.k8s.description="Container image exposing multi-arch Flight Control CLI binaries over HTTP" \
   io.k8s.display-name="Flight Control CLI multiarch artifacts with server" \
   io.openshift.tags="flightctl,cli-artifacts" \
   name="flightctl-cli-artifacts" \
-  summary="Container image exposing multi-arch Flightctl CLI binaries over HTTP"
+  summary="Container image exposing multi-arch Flight Control CLI binaries over HTTP"
 EXPOSE 8090
 
 ENTRYPOINT ${ENTRYPOINT_PATH}
