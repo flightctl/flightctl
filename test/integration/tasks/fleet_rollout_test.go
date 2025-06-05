@@ -28,10 +28,18 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Tasks Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Tasks Suite")
+})
 
 var _ = Describe("FleetRollout", func() {
 	var (
@@ -42,7 +50,7 @@ var _ = Describe("FleetRollout", func() {
 		fleetStore      store.Fleet
 		tvStore         store.TemplateVersion
 		storeInst       store.Store
-		serviceHandler  *service.ServiceHandler
+		serviceHandler  service.Service
 		cfg             *config.Config
 		db              *gorm.DB
 		dbName          string
@@ -54,11 +62,12 @@ var _ = Describe("FleetRollout", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
@@ -66,14 +75,14 @@ var _ = Describe("FleetRollout", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any()).AnyTimes()
+		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 		ctrl.Finish()
 	})
 
@@ -316,7 +325,7 @@ var _ = Describe("FleetRollout", func() {
 				device, err := model.NewDeviceFromApiResource(&otherupdate)
 				Expect(err).ToNot(HaveOccurred())
 				device.OrgID = orgId
-				result := db.Updates(device)
+				result := db.WithContext(ctx).Updates(device)
 				Expect(result.Error).ToNot(HaveOccurred())
 			}
 			deviceStore.SetIntegrationTestCreateOrUpdateCallback(race)
@@ -358,7 +367,7 @@ var _ = Describe("FleetRollout", func() {
 				device, err := model.NewDeviceFromApiResource(&otherupdate)
 				Expect(err).ToNot(HaveOccurred())
 				device.OrgID = orgId
-				result := db.Updates(device)
+				result := db.WithContext(ctx).Updates(device)
 				Expect(result.Error).ToNot(HaveOccurred())
 			}
 			deviceStore.SetIntegrationTestCreateOrUpdateCallback(race)

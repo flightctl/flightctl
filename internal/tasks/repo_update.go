@@ -12,7 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func repositoryUpdate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
+func repositoryUpdate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	logic := NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, *resourceRef)
 
 	switch {
@@ -35,11 +35,11 @@ func repositoryUpdate(ctx context.Context, resourceRef *tasks_client.ResourceRef
 type RepositoryUpdateLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	resourceRef     tasks_client.ResourceReference
 }
 
-func NewRepositoryUpdateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler *service.ServiceHandler, resourceRef tasks_client.ResourceReference) RepositoryUpdateLogic {
+func NewRepositoryUpdateLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, resourceRef tasks_client.ResourceReference) RepositoryUpdateLogic {
 	return RepositoryUpdateLogic{callbackManager: callbackManager, log: log, serviceHandler: serviceHandler, resourceRef: resourceRef}
 }
 
@@ -50,7 +50,7 @@ func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) erro
 	}
 
 	for _, fleet := range fleets.Items {
-		t.callbackManager.FleetSourceUpdated(t.resourceRef.OrgID, *fleet.Metadata.Name)
+		t.callbackManager.FleetSourceUpdated(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name)
 	}
 
 	devices, status := t.serviceHandler.GetRepositoryDeviceReferences(ctx, t.resourceRef.Name)
@@ -59,7 +59,7 @@ func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) erro
 	}
 
 	for _, device := range devices.Items {
-		t.callbackManager.DeviceSourceUpdated(t.resourceRef.OrgID, *device.Metadata.Name)
+		t.callbackManager.DeviceSourceUpdated(ctx, t.resourceRef.OrgID, *device.Metadata.Name)
 	}
 
 	return nil
@@ -81,7 +81,7 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 			}
 
 			if hasReference {
-				t.callbackManager.FleetSourceUpdated(t.resourceRef.OrgID, *fleet.Metadata.Name)
+				t.callbackManager.FleetSourceUpdated(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name)
 			}
 		}
 
@@ -106,7 +106,7 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 			}
 
 			if hasReference {
-				t.callbackManager.DeviceSourceUpdated(t.resourceRef.OrgID, *device.Metadata.Name)
+				t.callbackManager.DeviceSourceUpdated(ctx, t.resourceRef.OrgID, *device.Metadata.Name)
 			}
 		}
 

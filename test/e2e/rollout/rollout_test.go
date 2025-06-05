@@ -1,21 +1,27 @@
 package rollout_test
 
 import (
+	"context"
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 )
 
 var _ = Describe("Rollout Policies", func() {
-	var tc *TestContext
+	var (
+		ctx context.Context
+		tc  *TestContext
+	)
 
 	BeforeEach(func() {
 		// Initialize the test context
-		tc = setupTestContext()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		tc = setupTestContext(ctx)
 	})
 
 	AfterEach(func() {
@@ -494,8 +500,8 @@ type TestContext struct {
 	sleepAppImage     string
 }
 
-func setupTestContext() *TestContext {
-	harness := e2e.NewTestHarness()
+func setupTestContext(ctx context.Context) *TestContext {
+	harness := e2e.NewTestHarness(ctx)
 	extIP := harness.RegistryEndpoint()
 	sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
 

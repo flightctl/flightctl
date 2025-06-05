@@ -60,7 +60,7 @@ func findTopLevelDir() string {
 	return ""
 }
 
-func NewTestHarness() *Harness {
+func NewTestHarness(ctx context.Context) *Harness {
 
 	startTime := time.Now()
 
@@ -77,7 +77,7 @@ func NewTestHarness() *Harness {
 	c, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
 	Expect(err).ToNot(HaveOccurred())
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 
 	return &Harness{
 		VMs:       []vm.TestVMInterface{testVM},
