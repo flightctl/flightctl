@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.22 as builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.23.6-1747333074 as builder
 WORKDIR /app
 COPY ./api api
 COPY ./cmd cmd
@@ -60,10 +60,14 @@ RUN chmod -R 755 ${HOME}/src/gh-archives/ && \
     chmod 666 ${HOME}/src/gh-archives/index.json
 USER ${USER_UID}
 
-LABEL io.k8s.display-name="Flight Control CLI multiarch artifacts with server" \
-      io.k8s.description="Flight Control is a service for declarative management of fleets of edge devices and their workloads." \
-      io.openshift.tags="flightctl,cli-artifacts"
-
+LABEL \
+  com.redhat.component="flightctl-cli-artifacts-container" \
+  description="Container image exposing multi-arch Flight Control CLI binaries over HTTP" \
+  io.k8s.description="Container image exposing multi-arch Flight Control CLI binaries over HTTP" \
+  io.k8s.display-name="Flight Control CLI multiarch artifacts with server" \
+  io.openshift.tags="flightctl,cli-artifacts" \
+  name="flightctl-cli-artifacts" \
+  summary="Container image exposing multi-arch Flight Control CLI binaries over HTTP"
 EXPOSE 8090
 
 ENTRYPOINT ${ENTRYPOINT_PATH}

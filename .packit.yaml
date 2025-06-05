@@ -19,7 +19,9 @@ jobs:
     enable_net: True # this is necessary for go modules to download the sources
     targets:
       - fedora-eln-aarch64
+      - fedora-42-x86_64
       - centos-stream-9-x86_64
+    module_hotfixes: true
 
   - job: copr_build
     trigger: commit
