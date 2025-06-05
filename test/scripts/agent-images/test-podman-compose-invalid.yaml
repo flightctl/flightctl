@@ -1,0 +1,7 @@
+version: '3'
+
+# Intentionally designed to be unsuccessful
+services:
+  service1:
+    image:  fake-image
+    command: ["fake-command"]
