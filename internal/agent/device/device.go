@@ -513,15 +513,17 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, s
 	}
 
 	if !errors.IsRetryable(syncErr) {
+		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr.Error())
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
-		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, log.Truncate(syncErr.Error(), status.MaxMessageLength))
+		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
-		a.log.Error(conditionUpdate.Message)
+		a.log.Error(msg)
 	} else {
+		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr.Error())
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateApplyingUpdate)
-		conditionUpdate.Message = fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, log.Truncate(syncErr.Error(), status.MaxMessageLength))
+		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
-		a.log.Warn(conditionUpdate.Message)
+		a.log.Warn(msg)
 	}
 
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
