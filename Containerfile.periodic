@@ -22,11 +22,11 @@ FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-periodic-container" \
-  description="Flightctl Edge management service, periodic job worker" \
-  io.k8s.description="Flightctl Edge management service, periodic job worker" \
-  io.k8s.display-name="Flightctl Periodic Job Manager" \
+  description="Flight Control Edge management service, periodic job worker" \
+  io.k8s.description="Flight Control Edge management service, periodic job worker" \
+  io.k8s.display-name="Flight Control Periodic Job Manager" \
   name="flightctl-periodic" \
-  summary="Flightctl Edge management service, periodic job worker"
+  summary="Flight Control Edge management service, periodic job worker"
 COPY --from=build /app/bin/flightctl-periodic .
 COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
 CMD ./flightctl-periodic

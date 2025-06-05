@@ -26,11 +26,11 @@ FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-api-container" \
-  description="Flightctl Edge management API server" \
-  io.k8s.description="Flightctl Edge management API server" \
-  io.k8s.display-name="Flightctl API Server" \
+  description="Flight Control Edge management API server" \
+  io.k8s.description="Flight Control Edge management API server" \
+  io.k8s.display-name="Flight Control API Server" \
   name="flightctl-api" \
-  summary="Flightctl Edge management API server"
+  summary="Flight Control Edge management API server"
 COPY --from=build /app/bin/flightctl-api .
 COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
 COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
