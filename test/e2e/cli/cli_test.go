@@ -552,8 +552,8 @@ var _ = Describe("cli operation", func() {
 
 var _ = Describe("cli login", func() {
 	var (
-		ctx            context.Context
-		harness        *e2e.Harness
+		ctx     context.Context
+		harness *e2e.Harness
 	)
 
 	Context("login validation", func() {
