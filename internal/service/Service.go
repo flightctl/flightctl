@@ -10,7 +10,6 @@ import (
 
 type Service interface {
 	// CertificateSigningRequest
-	DeleteCertificateSigningRequests(ctx context.Context) api.Status
 	ListCertificateSigningRequests(ctx context.Context, params api.ListCertificateSigningRequestsParams) (*api.CertificateSigningRequestList, api.Status)
 	CreateCertificateSigningRequest(ctx context.Context, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status)
 	DeleteCertificateSigningRequest(ctx context.Context, name string) api.Status
@@ -23,7 +22,6 @@ type Service interface {
 	CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status)
 	ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status)
 	UpdateDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, error)
-	DeleteDevices(ctx context.Context) api.Status
 	GetDevice(ctx context.Context, name string) (*api.Device, api.Status)
 	ReplaceDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status)
 	DeleteDevice(ctx context.Context, name string) api.Status
@@ -53,7 +51,6 @@ type Service interface {
 	//EnrollmentRequest
 	CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status)
 	ListEnrollmentRequests(ctx context.Context, params api.ListEnrollmentRequestsParams) (*api.EnrollmentRequestList, api.Status)
-	DeleteEnrollmentRequests(ctx context.Context) api.Status
 	GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status)
 	ReplaceEnrollmentRequest(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status)
 	PatchEnrollmentRequest(ctx context.Context, name string, patch api.PatchRequest) (*api.EnrollmentRequest, api.Status)
@@ -65,7 +62,6 @@ type Service interface {
 	// Fleet
 	CreateFleet(ctx context.Context, fleet api.Fleet) (*api.Fleet, api.Status)
 	ListFleets(ctx context.Context, params api.ListFleetsParams) (*api.FleetList, api.Status)
-	DeleteFleets(ctx context.Context) api.Status
 	GetFleet(ctx context.Context, name string, params api.GetFleetParams) (*api.Fleet, api.Status)
 	ReplaceFleet(ctx context.Context, name string, fleet api.Fleet) (*api.Fleet, api.Status)
 	DeleteFleet(ctx context.Context, name string) api.Status
@@ -85,7 +81,6 @@ type Service interface {
 	// Repository
 	CreateRepository(ctx context.Context, repo api.Repository) (*api.Repository, api.Status)
 	ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status)
-	DeleteRepositories(ctx context.Context) api.Status
 	GetRepository(ctx context.Context, name string) (*api.Repository, api.Status)
 	ReplaceRepository(ctx context.Context, name string, repo api.Repository) (*api.Repository, api.Status)
 	DeleteRepository(ctx context.Context, name string) api.Status
@@ -97,7 +92,6 @@ type Service interface {
 	// ResourceSync
 	CreateResourceSync(ctx context.Context, rs api.ResourceSync) (*api.ResourceSync, api.Status)
 	ListResourceSyncs(ctx context.Context, params api.ListResourceSyncsParams) (*api.ResourceSyncList, api.Status)
-	DeleteResourceSyncs(ctx context.Context) api.Status
 	GetResourceSync(ctx context.Context, name string) (*api.ResourceSync, api.Status)
 	ReplaceResourceSync(ctx context.Context, name string, rs api.ResourceSync) (*api.ResourceSync, api.Status)
 	DeleteResourceSync(ctx context.Context, name string) api.Status
@@ -107,7 +101,6 @@ type Service interface {
 	// TemplateVersion
 	CreateTemplateVersion(ctx context.Context, tv api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status)
 	ListTemplateVersions(ctx context.Context, fleet string, params api.ListTemplateVersionsParams) (*api.TemplateVersionList, api.Status)
-	DeleteTemplateVersions(ctx context.Context, fleet string) api.Status
 	GetTemplateVersion(ctx context.Context, fleet string, name string) (*api.TemplateVersion, api.Status)
 	DeleteTemplateVersion(ctx context.Context, fleet string, name string) api.Status
 	GetLatestTemplateVersion(ctx context.Context, fleet string) (*api.TemplateVersion, api.Status)
