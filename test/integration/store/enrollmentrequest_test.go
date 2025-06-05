@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -58,17 +59,17 @@ var _ = Describe("enrollmentRequestStore create", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numEnrollmentRequests = 3
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
 		createEnrollmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("EnrollmentRequest store", func() {

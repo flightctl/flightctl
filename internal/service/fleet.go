@@ -158,7 +158,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Fleet, *api.Fleet)
+	var updateCallback func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.FleetUpdatedCallback

@@ -116,7 +116,7 @@ func (h *ServiceHandler) GetDevice(ctx context.Context, name string) (*api.Devic
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func DeviceVerificationCallback(before, after *api.Device) error {
+func DeviceVerificationCallback(ctx context.Context, before, after *api.Device) error {
 	// Ensure the device wasn't decommissioned
 	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
 		return flterrors.ErrDecommission
@@ -281,7 +281,7 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
@@ -340,7 +340,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
@@ -372,7 +372,7 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, de
 	deviceObj.Metadata.Owner = nil
 	deviceObj.Metadata.Labels = nil
 
-	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback

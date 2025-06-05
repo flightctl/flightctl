@@ -1,6 +1,7 @@
 package selectors
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -23,6 +24,10 @@ const (
 	failedToParse   = "failed to parse"
 	DefaultTimeout  = "120s"
 	RetryInterval   = "1s"
+)
+
+var (
+	suiteCtx context.Context
 )
 
 // FieldSelectorTestParams defines the parameters for field selector tests, including arguments, expected match status, and expected output.
@@ -49,6 +54,10 @@ func TestFieldSelectors(t *testing.T) {
 	RunSpecs(t, "Field Selectors E2E Suite")
 }
 
+var _ = BeforeSuite(func() {
+	suiteCtx = InitSuiteTracerForGinkgo("Field Selectors E2E Suite")
+})
+
 var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 	var (
 		harness       *e2e.Harness
@@ -59,8 +68,13 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		DeviceARegion string
 	)
 
+	BeforeEach(func() {
+		_ = StartSpecTracerForGinkgo(suiteCtx)
+	})
+
+	// Setup for the suite
 	BeforeAll(func() {
-		harness = e2e.NewTestHarness()
+		harness = e2e.NewTestHarness(suiteCtx)
 		login.LoginToAPIWithToken(harness)
 		logrus.Infof("Harness Created")
 	})

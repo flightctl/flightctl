@@ -76,7 +76,7 @@ func (t *testProvider) Wait() {
 	t.wg.Wait()
 }
 
-func (t *testProvider) Publish(b []byte) error {
+func (t *testProvider) Publish(_ context.Context, b []byte) error {
 	t.queue <- b
 	return nil
 }
@@ -145,7 +145,7 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
-func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
+func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
 	// cfg.Database.Name = ""
 	dbTemp, err := store.InitDB(&cfg, log)
 	if err != nil {
@@ -155,7 +155,7 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)
-	dbTemp = dbTemp.Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
+	dbTemp = dbTemp.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
 	if dbTemp.Error != nil {
 		return nil, "", fmt.Errorf("NewTestStore: creating test db %s: %w", randomDBName, dbTemp.Error)
 	}
@@ -167,7 +167,7 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 	}
 
 	dbStore := store.NewStore(db, log.WithField("pkg", "store"))
-	err = dbStore.InitialMigration()
+	err = dbStore.InitialMigration(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: performing initial migration: %w", err)
 	}

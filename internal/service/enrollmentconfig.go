@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -36,12 +35,12 @@ func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, params api.Get
 	}
 
 	return &api.EnrollmentConfig{
-		EnrollmentService: v1alpha1.EnrollmentService{
-			Authentication: v1alpha1.EnrollmentServiceAuth{
+		EnrollmentService: api.EnrollmentService{
+			Authentication: api.EnrollmentServiceAuth{
 				ClientCertificateData: base64.StdEncoding.EncodeToString(clientCert),
 				ClientKeyData:         "",
 			},
-			Service: v1alpha1.EnrollmentServiceService{
+			Service: api.EnrollmentServiceService{
 				CertificateAuthorityData: base64.StdEncoding.EncodeToString(caCert),
 				Server:                   h.agentEndpoint,
 			},

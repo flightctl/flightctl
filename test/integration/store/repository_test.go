@@ -34,24 +34,24 @@ var _ = Describe("RepositoryStore create", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numRepositories = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		callbackCalled = false
-		callback = store.RepositoryStoreCallback(func(uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
+		callback = store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
 
 		err := testutil.CreateRepositories(ctx, 3, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
-		result := db.Create(&nilrepo)
+		result := db.WithContext(ctx).Create(&nilrepo)
 		Expect(result.Error).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("Repository store", func() {
@@ -100,7 +100,7 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("Delete all repositories in org", func() {
 			otherOrgId, _ := uuid.NewUUID()
-			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(uuid.UUID) { callbackCalled = true })
+			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(context.Context, uuid.UUID) { callbackCalled = true })
 			err := storeInst.Repository().DeleteAll(ctx, otherOrgId, deleteAllCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
@@ -123,7 +123,7 @@ var _ = Describe("RepositoryStore create", func() {
 		It("List with paging", func() {
 			// Delete the repo with nilspec so it doesn't interfere with the counts
 			nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
-			result := db.Delete(&nilrepo)
+			result := db.WithContext(ctx).Delete(&nilrepo)
 			Expect(result.Error).ToNot(HaveOccurred())
 
 			listParams := store.ListParams{Limit: 1000}
@@ -306,7 +306,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(uuid.UUID) { callbackCalled = true })
+			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(context.Context, uuid.UUID) { callbackCalled = true })
 			err = storeInst.Repository().DeleteAll(ctx, orgId, deleteAllCallback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())

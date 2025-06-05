@@ -19,7 +19,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func resourceSyncParams(t *testing.T) (tasks_client.CallbackManager, *service.ServiceHandler, logrus.FieldLogger) {
+func resourceSyncParams(t *testing.T) (tasks_client.CallbackManager, service.Service, logrus.FieldLogger) {
 	ctrl := gomock.NewController(t)
 	l := flightlog.InitLogs()
 	return tasks_client.NewCallbackManager(queues.NewMockPublisher(ctrl), l), nil, l

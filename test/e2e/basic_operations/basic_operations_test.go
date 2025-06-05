@@ -1,6 +1,7 @@
 package basic_operations
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,8 +10,13 @@ import (
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+)
+
+var (
+	suiteCtx context.Context
 )
 
 func TestBasicOperations(t *testing.T) {
@@ -18,12 +24,20 @@ func TestBasicOperations(t *testing.T) {
 	RunSpecs(t, "Basic Operations E2E Suite")
 }
 
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Basic Operations E2E Suite")
+})
+
 var _ = Describe("Basic Operations", Label("sanity", "82220"), func() {
 	const createdResource = "201 Created"
 
 	var (
 		harness *e2e.Harness
 	)
+
+	BeforeEach(func() {
+		_ = testutil.StartSpecTracerForGinkgo(suiteCtx)
+	})
 
 	DescribeTable("Create a resource from example file",
 		func(resourceType string, fileName string, extractResourceNameFromExampleFile func(*e2e.Harness, string) (string, error)) {
