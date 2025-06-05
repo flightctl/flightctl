@@ -22,7 +22,9 @@ import (
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
+	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -38,7 +40,7 @@ type Harness struct {
 	VMs       []vm.TestVMInterface
 	Client    *apiclient.ClientWithResponses
 	Context   context.Context
-	Cluster kubernetes.Interface
+	Cluster   kubernetes.Interface
 	ctxCancel context.CancelFunc
 	startTime time.Time
 
@@ -133,7 +135,7 @@ func NewTestHarness(ctx context.Context) *Harness {
 		VMs:       []vm.TestVMInterface{testVM},
 		Client:    c,
 		Context:   ctx,
-		Cluster: k8sCluster,
+		Cluster:   k8sCluster,
 		ctxCancel: cancel,
 		startTime: startTime,
 		VM:        testVM,
