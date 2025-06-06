@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -89,10 +88,6 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, rep
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	if status := h.validateRepositoryDeletion(ctx, name); status.Code != api.StatusOK().Code {
-		return status
-	}
-
 	err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.RepositoryKind, name, status))
@@ -167,25 +162,4 @@ func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, name
 
 	result, err := h.store.Repository().GetDeviceRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
-}
-
-func (h *ServiceHandler) validateRepositoryDeletion(ctx context.Context, name string) api.Status {
-	fleetRefs, fleetStatus := h.GetRepositoryFleetReferences(ctx, name)
-	if fleetStatus != api.StatusOK() {
-		return fleetStatus
-	}
-
-	// Check device dependencies
-	deviceRefs, deviceStatus := h.GetRepositoryDeviceReferences(ctx, name)
-	if deviceStatus != api.StatusOK() {
-		return deviceStatus
-	}
-
-	// Simple dependency check - no details exposed
-	if len(fleetRefs.Items) > 0 || len(deviceRefs.Items) > 0 {
-		return api.StatusConflict(fmt.Sprintf("cannot delete %s/%s: resource has dependencies",
-			api.RepositoryKind, name))
-	}
-
-	return api.StatusOK()
 }
