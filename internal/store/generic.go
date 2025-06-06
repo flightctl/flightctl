@@ -256,7 +256,7 @@ func (s *GenericStore[P, M, A, AL]) Get(ctx context.Context, orgId uuid.UUID, na
 	return apiResource, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, callback func(ctx context.Context, orgId uuid.UUID, before, after *A), associatedResources ...Resource) error {
+func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, callback func(ctx context.Context, orgId uuid.UUID, before, after *A), associatedResources ...Resource) (bool, error) {
 	var deleted bool
 	var err error
 	if len(associatedResources) == 0 {
@@ -265,17 +265,17 @@ func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, call
 		deleted, err = s.deleteWithAssociated(ctx, resource, associatedResources...)
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if deleted && callback != nil {
 		apiResource, err := s.modelPtrToAPI(&resource)
 		if err != nil {
-			return err
+			return false, err
 		}
 		callback(ctx, P(&resource).GetOrgID(), apiResource, nil)
 	}
-	return nil
+	return deleted, nil
 }
 
 func (s *GenericStore[P, M, A, AL]) delete(ctx context.Context, resource M) (bool, error) {

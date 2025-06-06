@@ -18,7 +18,7 @@ type EnrollmentRequest interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
 }
@@ -103,7 +103,7 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 	return s.genericStore.List(ctx, orgId, listParams, nil)
 }
 
-func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	return s.genericStore.Delete(ctx, model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}, nil)
 }
 

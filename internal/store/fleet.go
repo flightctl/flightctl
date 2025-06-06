@@ -26,7 +26,7 @@ type Fleet interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) (bool, error)
 	DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 
@@ -347,7 +347,7 @@ func (s *FleetStore) ListIgnoreOrg(ctx context.Context) ([]model.Fleet, error) {
 	return fleets, nil
 }
 
-func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) error {
+func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) (bool, error) {
 	return s.genericStore.Delete(
 		ctx,
 		model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}},

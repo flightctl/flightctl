@@ -195,9 +195,11 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback)
+	deleted, err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback)
 	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
-	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.DeviceKind, name, status))
+	if deleted || err != nil {
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.DeviceKind, name, status))
+	}
 	return status
 }
 
