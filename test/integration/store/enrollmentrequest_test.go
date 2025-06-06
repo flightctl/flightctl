@@ -93,13 +93,15 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		})
 
 		It("Delete enrollmentrequest success", func() {
-			err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "myenrollmentrequest-1")
+			deleted, err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 		})
 
 		It("Delete enrollmentrequest success when not found", func() {
-			err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "nonexistent")
+			deleted, err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeFalse())
 		})
 
 		It("Delete all enrollmentrequests in org", func() {

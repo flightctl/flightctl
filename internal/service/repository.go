@@ -88,9 +88,11 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, rep
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback)
+	deleted, err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
-	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.RepositoryKind, name, status))
+	if deleted || err != nil {
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.RepositoryKind, name, status))
+	}
 	return status
 }
 

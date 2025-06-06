@@ -174,14 +174,16 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("Delete device success", func() {
-			err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 			Expect(called).To(BeTrue())
 		})
 
 		It("Delete device success when not found", func() {
-			err := devStore.Delete(ctx, orgId, "nonexistent", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "nonexistent", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeFalse())
 			Expect(called).To(BeFalse())
 		})
 
@@ -615,8 +617,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = devStore.Delete(ctx, orgId, "mydevice-1", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 			Expect(called).To(BeTrue())
 		})
 

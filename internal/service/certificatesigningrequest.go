@@ -193,9 +193,11 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	err := h.store.CertificateSigningRequest().Delete(ctx, orgId, name)
+	deleted, err := h.store.CertificateSigningRequest().Delete(ctx, orgId, name)
 	status := StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
-	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.CertificateSigningRequestKind, name, status))
+	if deleted || err != nil {
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.CertificateSigningRequestKind, name, status))
+	}
 	return status
 }
 

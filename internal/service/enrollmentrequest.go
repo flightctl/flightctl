@@ -230,9 +230,11 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	err := h.store.EnrollmentRequest().Delete(ctx, orgId, name)
+	deleted, err := h.store.EnrollmentRequest().Delete(ctx, orgId, name)
 	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
-	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.EnrollmentRequestKind, name, status))
+	if deleted || err != nil {
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.EnrollmentRequestKind, name, status))
+	}
 	return status
 }
 
