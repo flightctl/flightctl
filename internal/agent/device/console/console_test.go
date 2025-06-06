@@ -52,6 +52,9 @@ type vars struct {
 	stderrBuffer     lockBuffer
 	errBuffer        lockBuffer
 	once             sync.Once
+
+	sendMu sync.Mutex
+	closed bool
 }
 
 func setupVars(t *testing.T) *vars {
@@ -112,8 +115,8 @@ func mockStream(v *vars) {
 	v.mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(v.mockStreamClient, nil)
 }
 
-func mockSend(v *vars, times int) {
-	m := v.mockStreamClient.EXPECT().Send(gomock.Any()).DoAndReturn(
+func mockSend(v *vars) {
+	v.mockStreamClient.EXPECT().Send(gomock.Any()).DoAndReturn(
 		func(req *grpc_v1.StreamRequest) error {
 			if req == nil || len(req.Payload) == 0 {
 				return errors.New("unexpected nil request")
@@ -129,12 +132,7 @@ func mockSend(v *vars, times int) {
 				return errors.New("unexpected payload prefix")
 			}
 			return nil
-		})
-	if times > 0 {
-		m.Times(times)
-	} else {
-		m.AnyTimes()
-	}
+		}).AnyTimes()
 }
 
 func mockRecv(v *vars) {
@@ -150,17 +148,26 @@ func mockRecv(v *vars) {
 func mockCloseSend(v *vars) {
 	v.mockStreamClient.EXPECT().CloseSend().DoAndReturn(func() error {
 		v.once.Do(func() {
-			close(v.recvChan)
+			v.sendMu.Lock()
+			defer v.sendMu.Unlock()
+			if !v.closed {
+				close(v.recvChan)
+				v.closed = true
+			}
 		})
 		return nil
 	}).AnyTimes()
 }
 
 func sendInput(v *vars, id byte, b []byte) {
-	v.recvChan <- lo.Tuple2[*grpc_v1.StreamResponse, error]{
-		A: &grpc_v1.StreamResponse{
-			Payload: append([]byte{id}, b...),
-		},
+	v.sendMu.Lock()
+	defer v.sendMu.Unlock()
+	if !v.closed {
+		v.recvChan <- lo.Tuple2[*grpc_v1.StreamResponse, error]{
+			A: &grpc_v1.StreamResponse{
+				Payload: append([]byte{id}, b...),
+			},
+		}
 	}
 }
 
@@ -183,7 +190,7 @@ func TestConsole(t *testing.T) {
 
 		mockStream(v)
 		mockCloseSend(v)
-		mockSend(v, 2)
+		mockSend(v)
 		mockRecv(v)
 
 		v.controller.sync(v.ctx, desiredSpec(consoleDef))
@@ -209,7 +216,7 @@ func TestConsole(t *testing.T) {
 
 		mockStream(v)
 		mockCloseSend(v)
-		mockSend(v, 1)
+		mockSend(v)
 		mockRecv(v)
 
 		v.controller.sync(v.ctx, desiredSpec(consoleDef))
@@ -232,7 +239,7 @@ func TestConsole(t *testing.T) {
 
 		mockStream(v)
 		mockCloseSend(v)
-		mockSend(v, 2)
+		mockSend(v)
 		mockRecv(v)
 
 		v.controller.sync(v.ctx, desiredSpec(consoleDef))
@@ -263,7 +270,7 @@ func TestConsole(t *testing.T) {
 
 		mockStream(v)
 		mockCloseSend(v)
-		mockSend(v, 3)
+		mockSend(v)
 		mockRecv(v)
 
 		v.controller.sync(v.ctx, desiredSpec(consoleDef))
@@ -290,7 +297,7 @@ func TestConsole(t *testing.T) {
 		mockStream(v)
 		mockCloseSend(v)
 		mockRecv(v)
-		mockSend(v, 0)
+		mockSend(v)
 
 		v.controller.sync(v.ctx, desiredSpec(consoleDef))
 
