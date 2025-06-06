@@ -1,14 +1,20 @@
 package configuration_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+)
+
+var (
+	suiteCtx context.Context
 )
 
 func TestConfigurations(t *testing.T) {
@@ -16,14 +22,20 @@ func TestConfigurations(t *testing.T) {
 	RunSpecs(t, "Inline configuration E2E Suite")
 }
 
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Inline configuration E2E Suite")
+})
+
 var _ = Describe("Inline configuration tests", func() {
 	var (
+		ctx      context.Context
 		harness  *e2e.Harness
 		deviceId string
 	)
 	// Setup for the suite
 	BeforeEach(func() {
-		harness = e2e.NewTestHarness()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		harness = e2e.NewTestHarness(ctx)
 		deviceId = harness.StartVMAndEnroll()
 	})
 
@@ -35,7 +47,7 @@ var _ = Describe("Inline configuration tests", func() {
 
 	Context("Inline config tests", func() {
 
-		It("flighctl support inlineconfig with path, owner, permission and content", Label("78316"), func() {
+		It("flighctl support inlineconfig with path, owner, permission and content", Label("78316", "sanity"), func() {
 
 			By("Update device with inline config, set path of the config (the fields that have defaults - don't set (mode,user, group)")
 			validConfigs, err := getConfigurationFromInlineConfig(validInlineConfig)
@@ -44,9 +56,7 @@ var _ = Describe("Inline configuration tests", func() {
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			UpdateDeviceConfigWithRetries(harness, deviceId, validConfigs)
-
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigs, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the online config, the content is empty.")
@@ -71,9 +81,7 @@ var _ = Describe("Inline configuration tests", func() {
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			UpdateDeviceConfigWithRetries(harness, deviceId, validConfigsWithMode)
-
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithMode, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the correct permissions.")
@@ -88,9 +96,7 @@ var _ = Describe("Inline configuration tests", func() {
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			UpdateDeviceConfigWithRetries(harness, deviceId, validConfigsWithUser)
-
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithUser, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated owner permissions.")
@@ -105,9 +111,7 @@ var _ = Describe("Inline configuration tests", func() {
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			UpdateDeviceConfigWithRetries(harness, deviceId, validConfigsWithContent)
-
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithContent, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated content")
@@ -122,9 +126,7 @@ var _ = Describe("Inline configuration tests", func() {
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			UpdateDeviceConfigWithRetries(harness, deviceId, validConfigsWithPath2)
-
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithPath2, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated content.")
@@ -138,10 +140,7 @@ var _ = Describe("Inline configuration tests", func() {
 
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-
-			UpdateDeviceConfigWithRetries(harness, deviceId, validConfigsWithName2)
-
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithName2, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Update device with inline config, add another file to inline config")
@@ -150,10 +149,7 @@ var _ = Describe("Inline configuration tests", func() {
 
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-
-			UpdateDeviceConfigWithRetries(harness, deviceId, validConfigsWith2Files)
-
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWith2Files, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated content.")
@@ -167,9 +163,7 @@ var _ = Describe("Inline configuration tests", func() {
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			UpdateDeviceConfigWithRetries(harness, deviceId, *combinedConfigs)
-
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, *combinedConfigs, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("The configuration file should have the updated content.")
@@ -177,7 +171,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 		})
-		It("Validations for flighctl inlineconfigs", Label("78364"), func() {
+		It("Validations for flighctl inlineconfigs", Label("78364", "sanity"), func() {
 			currentVersion1, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -281,16 +275,6 @@ var (
 	invalidInlineConfigRelativePath    = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidinlineConfigRelativePath})
 	invalidInlineConfigWithInvalidMode = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidInlineConfigInvalidMode})
 )
-
-func UpdateDeviceConfigWithRetries(harness *e2e.Harness, deviceId string, configs []v1alpha1.ConfigProviderSpec) {
-	harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-		device.Spec.Config = &configs
-		logrus.WithFields(logrus.Fields{
-			"deviceId": deviceId,
-			"config":   fmt.Sprintf("%+v", &device.Spec.Config),
-		}).Info("Updating device with new config")
-	})
-}
 
 func UpdateDeviceConfig(harness *e2e.Harness, deviceId string, configs []v1alpha1.ConfigProviderSpec) error {
 	err := harness.UpdateDevice(deviceId, func(device *v1alpha1.Device) {

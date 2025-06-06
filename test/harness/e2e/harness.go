@@ -1,10 +1,12 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,15 +29,18 @@ import (
 )
 
 const POLLING = "250ms"
+const POLLINGLONG = "1s"
 const TIMEOUT = "60s"
-const LONGTIMEOUT = "5m"
+const LONGTIMEOUT = "10m"
 
 type Harness struct {
-	VM        vm.TestVMInterface
+	VMs       []vm.TestVMInterface
 	Client    *apiclient.ClientWithResponses
 	Context   context.Context
 	ctxCancel context.CancelFunc
 	startTime time.Time
+
+	VM vm.TestVMInterface
 }
 
 func findTopLevelDir() string {
@@ -55,7 +60,7 @@ func findTopLevelDir() string {
 	return ""
 }
 
-func NewTestHarness() *Harness {
+func NewTestHarness(ctx context.Context) *Harness {
 
 	startTime := time.Now()
 
@@ -72,15 +77,37 @@ func NewTestHarness() *Harness {
 	c, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
 	Expect(err).ToNot(HaveOccurred())
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 
 	return &Harness{
-		VM:        testVM,
+		VMs:       []vm.TestVMInterface{testVM},
 		Client:    c,
 		Context:   ctx,
 		ctxCancel: cancel,
 		startTime: startTime,
+		VM:        testVM,
 	}
+}
+
+func (h *Harness) AddVM(vmParams vm.TestVM) (vm.TestVMInterface, error) {
+	testVM, err := vm.NewVM(vmParams)
+	if err != nil {
+		return nil, err
+	}
+	h.VMs = append(h.VMs, testVM)
+	return testVM, nil
+}
+
+func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface, error) {
+	var createdVMs []vm.TestVMInterface
+	for _, params := range vmParamsList {
+		vm, err := h.AddVM(params)
+		if err != nil {
+			return nil, err
+		}
+		createdVMs = append(createdVMs, vm)
+	}
+	return createdVMs, nil
 }
 
 // Harness cleanup, this will delete the VM and cancel the context
@@ -94,36 +121,47 @@ func (h *Harness) Cleanup(printConsole bool) {
 		fmt.Printf("oops... %s failed\n", CurrentSpecReport().FullText())
 	}
 
-	if running, _ := h.VM.IsRunning(); running && testFailed {
-		fmt.Println("VM is running, attempting to get logs and details")
-		stdout, _ := h.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
-		fmt.Print("\n\n\n")
-		fmt.Println("============ systemctl status flightctl-agent ============")
-		fmt.Println(stdout.String())
-		fmt.Println("=============== logs for flightctl-agent =================")
-		stdout, _ = h.VM.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
-		fmt.Println(stdout.String())
-		if printConsole {
-			fmt.Println("======================= VM Console =======================")
-			fmt.Println(h.VM.GetConsoleOutput())
+	for _, vm := range h.VMs {
+		if running, _ := vm.IsRunning(); running && testFailed {
+			fmt.Println("VM is running, attempting to get logs and details")
+			stdout, _ := vm.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+			fmt.Print("\n\n\n")
+			fmt.Println("============ systemctl status flightctl-agent ============")
+			fmt.Println(stdout.String())
+			fmt.Println("=============== logs for flightctl-agent =================")
+			stdout, _ = vm.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
+			fmt.Println(stdout.String())
+			if printConsole {
+				fmt.Println("======================= VM Console =======================")
+				fmt.Println(vm.GetConsoleOutput())
+			}
+			fmt.Println("==========================================================")
+			fmt.Print("\n\n\n")
 		}
-		fmt.Println("==========================================================")
-		fmt.Print("\n\n\n")
+		err := vm.ForceDelete()
+		Expect(err).ToNot(HaveOccurred())
 	}
-	err := h.VM.ForceDelete()
 
 	diffTime := time.Since(h.startTime)
 	fmt.Printf("Test took %s\n", diffTime)
-	Expect(err).ToNot(HaveOccurred())
-	// This will stop any blocking function that is waiting for the context to be canceled
+
+	// Cancel the context to stop any blocking operations
 	h.ctxCancel()
 }
 
-func (h *Harness) GetEnrollmentIDFromConsole() string {
-	// wait for the enrollment ID on the console
+func (h *Harness) GetEnrollmentIDFromConsole(vms ...vm.TestVMInterface) string {
+	// Use the first VM if no specific VM is passed
+	var selectedVM vm.TestVMInterface
+	if len(vms) > 0 && vms[0] != nil {
+		selectedVM = vms[0]
+	} else {
+		selectedVM = h.VM
+	}
+
+	// Wait for the enrollment ID on the console
 	enrollmentId := ""
 	Eventually(func() string {
-		consoleOutput := h.VM.GetConsoleOutput()
+		consoleOutput := selectedVM.GetConsoleOutput()
 		enrollmentId = util.GetEnrollmentIdFromText(consoleOutput)
 		return enrollmentId
 	}, TIMEOUT, POLLING).ShouldNot(BeEmpty(), "Enrollment ID not found in VM console output")
@@ -169,6 +207,73 @@ func (h *Harness) StartVMAndEnroll() string {
 		enrollmentID).ShouldNot(BeNil())
 
 	return enrollmentID
+}
+
+func (h *Harness) StartMultipleVMAndEnroll(count int) ([]string, error) {
+	if count <= 0 {
+		return nil, fmt.Errorf("count must be positive, got %d", count)
+	}
+
+	// add count-1 vms to the harness using AddMultipleVMs method
+	vmParamsList := make([]vm.TestVM, count-1)
+	baseDir := GinkgoT().TempDir()
+	topDir := findTopLevelDir()
+	baseDiskPath := filepath.Join(topDir, "bin/output/qcow2/disk.qcow2")
+
+	for i := 0; i < count-1; i++ {
+		vmName := "flightctl-e2e-vm-" + uuid.New().String()
+		overlayDiskPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", vmName))
+
+		// Create a qcow2 overlay that uses the base image as backing file
+		cmd := exec.Command(
+			"qemu-img", "create",
+			"-f", "qcow2",
+			"-b", baseDiskPath,
+			"-F", "qcow2",
+			overlayDiskPath)
+
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to create overlay disk for VM %s: %w", vmName, err)
+		}
+
+		vmParamsList[i] = vm.TestVM{
+			TestDir:       GinkgoT().TempDir(),
+			VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
+			DiskImagePath: overlayDiskPath,
+			VMUser:        "user",
+			SSHPassword:   "user",
+			SSHPort:       2233 + i + 1,
+		}
+	}
+
+	_, err := h.AddMultipleVMs(vmParamsList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add multiple VMs: %w", err)
+	}
+
+	var enrollmentIDs []string
+
+	for _, vm := range h.VMs {
+		err := vm.RunAndWaitForSSH()
+		if err != nil {
+			return nil, fmt.Errorf("failed to run VM and wait for SSH: %w", err)
+		}
+
+		enrollmentID := h.GetEnrollmentIDFromConsole(vm)
+		logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
+
+		_ = h.WaitForEnrollmentRequest(enrollmentID)
+		h.ApproveEnrollment(enrollmentID, util.TestEnrollmentApproval())
+		logrus.Infof("Waiting for device %s to report status", enrollmentID)
+
+		// Wait for the device to pick up enrollment and report measurements on device status
+		Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
+			enrollmentID).ShouldNot(BeNil())
+
+		enrollmentIDs = append(enrollmentIDs, enrollmentID)
+	}
+
+	return enrollmentIDs, nil
 }
 
 func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) *apiclient.GetDeviceResponse {
@@ -534,7 +639,6 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (deviceRender
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
 					deviceRenderedVersion = device.Status.Config.RenderedVersion
-
 					return true
 				}
 			}
@@ -564,7 +668,7 @@ func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
 
 func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int) (err error) {
 	// Check that the device was already approved
-	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
+	Eventually(h.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 		deviceId).ShouldNot(BeEmpty())
 	logrus.Infof("The device %s was approved", deviceId)
 
@@ -611,8 +715,22 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 
 func (h *Harness) CleanUpResources(resourceType string) (string, error) {
 	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
-	return h.CLI("delete", resourceType)
 
+	resources, err := h.CLI("get", resourceType, "-o", "name")
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s resources: %w", resourceType, err)
+	}
+	resources = strings.TrimSpace(resources)
+	if resources == "" {
+		logrus.Infof("No %s resources found to delete", resourceType)
+		return "No resources to delete", nil
+	}
+
+	deleteArgs := []string{"delete", resourceType}
+	resourceNames := strings.Fields(resources)
+	deleteArgs = append(deleteArgs, resourceNames...)
+
+	return h.CLI(deleteArgs...)
 }
 
 func (h *Harness) CleanUpAllResources() error {
@@ -646,6 +764,19 @@ func getYamlResourceByFile[T any](yamlFile string) T {
 	return resource
 }
 
+// Wrapper function for Shell command to get resources by name
+func (h *Harness) GetResourcesByName(resourceType string, resourceName ...string) (string, error) {
+	var args []string
+
+	if len(resourceName) > 0 && resourceName[0] != "" {
+		args = []string{"get", fmt.Sprintf("%s/%s", resourceType, resourceName[0]), "-o", "name"}
+	} else {
+		args = []string{"get", resourceType, "-o", "name"}
+	}
+
+	return h.CLI(args...)
+}
+
 // Wrapper function for Device
 func (h *Harness) GetDeviceByYaml(deviceYaml string) v1alpha1.Device {
 	return getYamlResourceByFile[v1alpha1.Device](deviceYaml)
@@ -667,8 +798,8 @@ func (h *Harness) GetResourceSyncByYaml(rSyncYaml string) v1alpha1.ResourceSync 
 }
 
 // Wrapper function for EnrollmentRequest
-func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) v1alpha1.EnrollmentRequest {
-	return getYamlResourceByFile[v1alpha1.EnrollmentRequest](erYaml)
+func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) *v1alpha1.EnrollmentRequest {
+	return getYamlResourceByFile[*v1alpha1.EnrollmentRequest](erYaml)
 }
 
 // Wrapper function for CertificateSigningRequest
@@ -769,24 +900,40 @@ func (h *Harness) GetDeviceOsImage(device *v1alpha1.Device) (image string, err e
 }
 
 // Create a test fleet resource
-func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, testFleetSelector v1alpha1.LabelSelector, testFleetSpec v1alpha1.DeviceSpec) error {
-	var testFleet = v1alpha1.Fleet{
+func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelector interface{}, deviceSpec ...v1alpha1.DeviceSpec) error {
+	testFleet := v1alpha1.Fleet{
 		ApiVersion: v1alpha1.FleetAPIVersion,
 		Kind:       v1alpha1.FleetKind,
 		Metadata: v1alpha1.ObjectMeta{
 			Name:   &testFleetName,
 			Labels: &map[string]string{},
 		},
-		Spec: v1alpha1.FleetSpec{
-			Selector: &testFleetSelector,
+	}
+
+	switch spec := fleetSpecOrSelector.(type) {
+	case v1alpha1.FleetSpec:
+		testFleet.Spec = spec
+
+	case v1alpha1.LabelSelector:
+
+		if len(deviceSpec) == 0 {
+			return fmt.Errorf("DeviceSpec is required when using LabelSelector")
+		}
+
+		testFleet.Spec = v1alpha1.FleetSpec{
+			Selector: &spec,
 			Template: struct {
 				Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
 				Spec     v1alpha1.DeviceSpec  "json:\"spec\""
 			}{
-				Spec: testFleetSpec,
+				Spec: deviceSpec[0],
 			},
-		},
+		}
+
+	default:
+		return fmt.Errorf("first parameter must be either FleetSpec or LabelSelector")
 	}
+
 	_, err := h.Client.ReplaceFleetWithResponse(h.Context, testFleetName, testFleet)
 	return err
 }
@@ -843,6 +990,251 @@ func (h Harness) GetDevice(deviceId string) (*v1alpha1.Device, error) {
 	}
 	device := response.JSON200
 	return device, nil
+}
+
+func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []map[string]string, fleetName string) error {
+	if len(deviceIDs) != len(labelsList) {
+		return fmt.Errorf("mismatched lengths: deviceIDs (%d) and labelsList (%d)", len(deviceIDs), len(labelsList))
+	}
+
+	for i, deviceID := range deviceIDs {
+		labels := labelsList[i]
+		h.UpdateDeviceWithRetries(deviceID, func(device *v1alpha1.Device) {
+			if device.Metadata.Labels == nil {
+				device.Metadata.Labels = &map[string]string{}
+			}
+			for key, value := range labels {
+				(*device.Metadata.Labels)[key] = value
+			}
+			(*device.Metadata.Labels)["fleet"] = fleetName
+		})
+
+	}
+	return nil
+}
+
+func (h Harness) WaitForBatchStart(fleetName string, batchNumber int) {
+	Eventually(func() int {
+		response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
+		if err != nil {
+			logrus.Debugf("failed to get fleet with response: %s", err)
+			return -2
+		}
+		if response == nil {
+			logrus.Debugf("fleet response is nil")
+			return -2
+		}
+		fleet := response.JSON200
+		if fleet == nil {
+			logrus.Debugf("fleet is nil")
+			return -2
+		}
+
+		annotations := fleet.Metadata.Annotations
+		if annotations == nil {
+			logrus.Debugf("annotations are nil")
+			return -2
+		}
+
+		batchNumberStr, ok := (*annotations)[v1alpha1.FleetAnnotationBatchNumber]
+		if !ok {
+			logrus.Debugf("batch number not found in annotations - available annotations: %v", *annotations)
+			return -2
+		}
+
+		batchNumberInt, err := strconv.Atoi(batchNumberStr)
+		if err != nil {
+			logrus.Debugf("failed to convert batch number to int: %s", err)
+			return -2
+		}
+
+		logrus.Debugf("Current batch number: %d, waiting for  %d", batchNumberInt, batchNumber)
+
+		return batchNumberInt
+	}, LONGTIMEOUT, POLLINGLONG).Should(Equal(batchNumber))
+}
+
+func (h Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Device, error) {
+	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
+	listDeviceParams := &v1alpha1.ListDevicesParams{
+		LabelSelector: &labelSelector,
+	}
+	response, err := h.Client.ListDevicesWithResponse(h.Context, listDeviceParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list devices: %s", err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("device response is nil")
+	}
+	devices := response.JSON200.Items
+
+	var result []*v1alpha1.Device
+
+	for _, device := range devices {
+		annotations := device.Metadata.Annotations
+		if annotations == nil {
+			continue
+		}
+		if _, ok := (*annotations)["fleet-controller/selectedForRollout"]; ok {
+			deviceCopy := device
+			result = append(result, &deviceCopy)
+		}
+	}
+
+	return result, nil
+}
+
+func (h Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []string) (map[string][]*v1alpha1.Device, error) {
+	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
+	listDeviceParams := &v1alpha1.ListDevicesParams{
+		LabelSelector: &labelSelector,
+	}
+
+	response, err := h.Client.ListDevicesWithResponse(h.Context, listDeviceParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list devices: %s", err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("device response is nil")
+	}
+
+	devices := response.JSON200.Items
+	result := make(map[string][]*v1alpha1.Device)
+
+	for _, device := range devices {
+		// Check if device is unavailable
+		if device.Status != nil && (device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpdating ||
+			device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUnknown) {
+			// Generate group key based on labels
+			groupKey := ""
+
+			if device.Metadata.Labels != nil {
+				labelValues := []string{}
+				for _, key := range groupBy {
+					value, exists := (*device.Metadata.Labels)[key]
+					if exists {
+						labelValues = append(labelValues, value)
+					} else {
+						labelValues = append(labelValues, "")
+					}
+				}
+				groupKey = strings.Join(labelValues, ":")
+			}
+
+			// Add device to the appropriate group
+			if _, exists := result[groupKey]; !exists {
+				result[groupKey] = []*v1alpha1.Device{}
+			}
+			deviceCopy := device
+			result[groupKey] = append(result[groupKey], &deviceCopy)
+		}
+	}
+
+	return result, nil
+}
+
+func (h Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error) {
+	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
+	listDeviceParams := &v1alpha1.ListDevicesParams{
+		LabelSelector: &labelSelector,
+	}
+
+	response, err := h.Client.ListDevicesWithResponse(h.Context, listDeviceParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list devices: %s", err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("device response is nil")
+	}
+
+	devices := response.JSON200.Items
+	var result []*v1alpha1.Device
+
+	for _, device := range devices {
+		// Check if device has been updated
+		if device.Status != nil && device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
+			deviceCopy := device
+			result = append(result, &deviceCopy)
+		}
+	}
+
+	return result, nil
+}
+
+func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error) {
+	response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
+	if err != nil {
+		return v1alpha1.Condition{}, fmt.Errorf("failed to get fleet with response: %s", err)
+	}
+	fleet := response.JSON200
+
+	if fleet.Status == nil || fleet.Status.Conditions == nil {
+		return v1alpha1.Condition{}, fmt.Errorf("fleet status or conditions is nil")
+	}
+
+	for _, condition := range fleet.Status.Conditions {
+		if condition.Type == v1alpha1.FleetRolloutInProgress {
+			return condition, nil
+		}
+	}
+	return v1alpha1.Condition{}, fmt.Errorf("fleet rollout condition not found")
+}
+
+func (h *Harness) SimulateNetworkFailure() error {
+	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
+	if err != nil {
+		return fmt.Errorf("invalid registry endpoint: %v", err)
+	}
+
+	blockCommands := [][]string{
+		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", registryPort, "-j", "DROP"},
+	}
+
+	for _, cmd := range blockCommands {
+		stdout, err := h.VMs[0].RunSSH(cmd, nil)
+		if err != nil {
+			return fmt.Errorf("failed to add iptables rule %v: %v, stdout: %s", cmd, err, stdout)
+		}
+	}
+
+	stdout, err := h.VMs[0].RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to list iptables rules: %v", err)
+	} else {
+		logrus.Debugf("Current iptables rules:\n%s", stdout.String())
+	}
+
+	return nil
+}
+
+func (h *Harness) FixNetworkFailure() error {
+	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
+	if err != nil {
+		return fmt.Errorf("invalid registry endpoint: %v", err)
+	}
+
+	unblockCommands := [][]string{
+		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", registryPort, "-j", "DROP"},
+	}
+
+	for _, cmd := range unblockCommands {
+		stdout, err := h.VMs[0].RunSSH(cmd, nil)
+		if err != nil {
+			return fmt.Errorf("failed to remove iptables rule %v: %v, stdout: %s", cmd, err, stdout)
+		}
+	}
+
+	// Clear any remaining DNS cache
+	_, _ = h.VMs[0].RunSSH([]string{"sudo", "systemd-resolve", "--flush-caches"}, nil)
+
+	stdout, err := h.VMs[0].RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to list iptables rules: %v", err)
+	} else {
+		logrus.Debugf("Current iptables rules after recovery:\n%s", stdout.String())
+	}
+
+	return nil
 }
 
 // CheckRunningContainers verifies the expected number of running containers on the VM.
@@ -912,13 +1304,24 @@ func (h Harness) RunGetDevices(args ...string) (string, error) {
 	return h.CLI(allArgs...)
 }
 
+// RunGetEvents executes "get events" CLI command with optional arguments.
+func (h Harness) RunGetEvents(args ...string) (string, error) {
+	// Starting with the base command to get events
+	allArgs := append([]string{"get", "events"}, args...)
+	return h.CLI(allArgs...)
+}
+
 // ManageResource performs an operation ("apply" or "delete") on a specified resource.
 func (h Harness) ManageResource(operation, resource string, args ...string) (string, error) {
 	switch operation {
 	case "apply":
 		return h.CLI("apply", "-f", util.GetTestExamplesYamlPath(resource))
 	case "delete":
-		return h.CLI("delete", resource)
+		if len(args) > 0 {
+			deleteArgs := append([]string{"delete", resource}, args...)
+			return h.CLI(deleteArgs...)
+		}
+		return h.CleanUpResources(resource)
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}
@@ -934,4 +1337,130 @@ func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditi
 		}
 	}
 	return false
+}
+
+func (h *Harness) WaitForFleetUpdateToFail(fleetName string) error {
+	logrus.Infof("Waiting for fleet update to fail for fleet %s", fleetName)
+	Eventually(func() (bool, error) {
+		rolloutStatus, err := h.GetRolloutStatus(fleetName)
+		if err != nil {
+			return false, err
+		}
+
+		if rolloutStatus.Type == v1alpha1.FleetRolloutInProgress &&
+			rolloutStatus.Status == v1alpha1.ConditionStatusFalse &&
+			rolloutStatus.Reason == v1alpha1.RolloutSuspendedReason {
+			logrus.Infof("Fleet update failed for fleet %s: status=%s, reason=%s",
+				fleetName, rolloutStatus.Status, rolloutStatus.Reason)
+			return true, nil
+		}
+
+		return false, nil
+	}, LONGTIMEOUT, POLLING).Should(BeTrue(),
+		fmt.Sprintf("Timed out waiting for fleet %s update to fail", fleetName))
+	return nil
+}
+
+// UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
+// It applies the provided configuration and waits for the device to reach the specified rendered version.
+func (h Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
+	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+		device.Spec.Config = &configs
+		logrus.WithFields(logrus.Fields{
+			"deviceId": deviceId,
+			"config":   device.Spec.Config,
+		}).Info("Updating device with new config")
+	})
+	err := h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+	return err
+}
+
+// It executes a command without starting a console session
+func (h Harness) ExecuteCommandWithConsole(deviceId string, cmd string) (output string, err error) {
+	out, err := h.CLI("console", fmt.Sprintf("dev/%s", deviceId), " -- ", cmd)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+func (h Harness) WaitForClusterRegistered(deviceId string, timeout time.Duration) error {
+	start := time.Now()
+
+	// Retry loop
+	for {
+		// Fetch managed cluster information
+		out, err := exec.Command("bash", "-c", "oc get managedcluster").CombinedOutput()
+		if err != nil {
+			// Ignore error and retry after sleep
+			if time.Since(start) > timeout {
+				return fmt.Errorf("timed out waiting for managedcluster to be registered")
+			}
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// Check device status
+		response := h.GetDeviceWithStatusSystem(deviceId)
+		if response == nil {
+			// If response is nil, retry
+			if time.Since(start) > timeout {
+				return fmt.Errorf("timed out waiting for managedcluster to be registered")
+			}
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		device := response.JSON200
+		// Check if device metadata is valid and matches the managed cluster name
+		if (device != nil && device.Metadata != v1alpha1.ObjectMeta{} && device.Metadata.Name != nil) {
+			if strings.Contains(string(out), *device.Metadata.Name) {
+				return nil // Success: managed cluster is registered
+			}
+		}
+
+		// If we haven't found a match, retry after sleeping
+		if time.Since(start) > timeout {
+			return fmt.Errorf("timed out waiting for managedcluster to be registered")
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (h Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs ...v1alpha1.ConfigProviderSpec) (v1alpha1.DeviceSpec, error) {
+
+	var deviceSpec v1alpha1.DeviceSpec
+
+	// Set Os.Image only if deviceImageTag is provided
+	if deviceImageTag != "" {
+		deviceSpec.Os = &v1alpha1.DeviceOsSpec{
+			Image: fmt.Sprintf("%s/flightctl-device:%s", h.RegistryEndpoint(), deviceImageTag),
+		}
+	}
+
+	// Set Config only if config specs are provided
+	if len(additionalConfigs) > 0 {
+		deviceSpec.Config = &additionalConfigs
+	}
+
+	return deviceSpec, nil
+}
+
+func (h Harness) WaitForFileInDevice(filePath string, timeout string, polling string) (*bytes.Buffer, error) {
+	readyMsg := "The file was found"
+	script := fmt.Sprintf(`
+				timeout=%s
+				elapsed=0
+				while ! sudo test -f %s; do
+				if [ "$elapsed" -ge "$timeout" ]; then
+					echo "Timeout waiting for %s"
+					exit 1
+				fi
+				echo "Waiting for %s..."
+				sleep 5
+				elapsed=$((elapsed + %s))
+				done
+				echo %s
+				`, timeout, filePath, filePath, filePath, polling, readyMsg)
+	return h.VM.RunSSH([]string{"sudo", "bash", "-c", script}, nil)
 }

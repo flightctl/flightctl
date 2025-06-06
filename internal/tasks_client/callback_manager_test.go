@@ -1,6 +1,7 @@
 package tasks_client
 
 import (
+	"context"
 	"encoding/json"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -14,7 +15,7 @@ type MockPublisher struct {
 	publishedResources []ResourceReference
 }
 
-func (m *MockPublisher) Publish(payload []byte) error {
+func (m *MockPublisher) Publish(ctx context.Context, payload []byte) error {
 	var resource ResourceReference
 	err := json.Unmarshal(payload, &resource)
 	if err != nil {
@@ -35,6 +36,8 @@ var (
 )
 
 var _ = Describe("FleetUpdatedCallback", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -43,7 +46,7 @@ var _ = Describe("FleetUpdatedCallback", func() {
 
 	When("both before and after are nil", func() {
 		It("does nothing", func() {
-			callbacksManager.FleetUpdatedCallback(orgId, nil, nil)
+			callbacksManager.FleetUpdatedCallback(ctx, orgId, nil, nil)
 			Expect(mockPublisher.publishedResources).To(BeEmpty())
 		})
 	})
@@ -51,7 +54,7 @@ var _ = Describe("FleetUpdatedCallback", func() {
 	When("before is nil and after is not nil", func() {
 		It("submits FleetValidateTask and FleetSelectorMatchTask", func() {
 			after := CreateTestingFleet("after", "image1", &map[string]string{"labelKey": "selector"})
-			callbacksManager.FleetUpdatedCallback(orgId, nil, after)
+			callbacksManager.FleetUpdatedCallback(ctx, orgId, nil, after)
 
 			Expect(mockPublisher.publishedResources).To(HaveLen(2))
 
@@ -72,7 +75,7 @@ var _ = Describe("FleetUpdatedCallback", func() {
 	When("before is not nil and after is nil", func() {
 		It("submits FleetSelectorMatchTask", func() {
 			before := CreateTestingFleet("before", "image1", &map[string]string{"labelKey": "selector"})
-			callbacksManager.FleetUpdatedCallback(orgId, before, nil)
+			callbacksManager.FleetUpdatedCallback(ctx, orgId, before, nil)
 
 			Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -88,7 +91,7 @@ var _ = Describe("FleetUpdatedCallback", func() {
 		It("submits FleetValidateTask and FleetSelectorMatchTask", func() {
 			before := CreateTestingFleet("before", "image1", &map[string]string{"labelKey": "selector1"})
 			after := CreateTestingFleet("after", "image2", &map[string]string{"labelKey": "selector2"})
-			callbacksManager.FleetUpdatedCallback(orgId, before, after)
+			callbacksManager.FleetUpdatedCallback(ctx, orgId, before, after)
 
 			Expect(mockPublisher.publishedResources).To(HaveLen(2))
 
@@ -110,7 +113,7 @@ var _ = Describe("FleetUpdatedCallback", func() {
 		It("submits FleetSelectorMatchTask", func() {
 			before := CreateTestingFleet("before", "image1", &map[string]string{"labelKey": "selector1"})
 			after := CreateTestingFleet("after", "image1", &map[string]string{"labelKey": "selector2"})
-			callbacksManager.FleetUpdatedCallback(orgId, before, after)
+			callbacksManager.FleetUpdatedCallback(ctx, orgId, before, after)
 
 			Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -124,6 +127,8 @@ var _ = Describe("FleetUpdatedCallback", func() {
 })
 
 var _ = Describe("DeviceUpdatedCallback", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -132,7 +137,7 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 
 	When("both before and after are nil", func() {
 		It("does nothing", func() {
-			callbacksManager.DeviceUpdatedCallback(orgId, nil, nil)
+			callbacksManager.DeviceUpdatedCallback(ctx, orgId, nil, nil)
 			Expect(mockPublisher.publishedResources).To(BeEmpty())
 		})
 	})
@@ -140,7 +145,7 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 	When("before is nil and after is not nil", func() {
 		It("submits FleetRolloutTask, FleetSelectorMatchTask and DeviceRenderTask", func() {
 			after := CreateTestingDevice("after", &map[string]string{"labelKey": "label1"}, "os1")
-			callbacksManager.DeviceUpdatedCallback(orgId, nil, after)
+			callbacksManager.DeviceUpdatedCallback(ctx, orgId, nil, after)
 
 			Expect(mockPublisher.publishedResources).To(HaveLen(3))
 
@@ -167,7 +172,7 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 	When("before is not nil and after is nil", func() {
 		It("submits FleetRolloutTask and FleetSelectorMatchTask", func() {
 			before := CreateTestingDevice("before", &map[string]string{"labelKey": "label1"}, "os1")
-			callbacksManager.DeviceUpdatedCallback(orgId, before, nil)
+			callbacksManager.DeviceUpdatedCallback(ctx, orgId, before, nil)
 
 			Expect(mockPublisher.publishedResources).To(HaveLen(2))
 
@@ -189,7 +194,7 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 		It("submits FleetRolloutTask, FleetSelectorMatchTask and DeviceRenderTask", func() {
 			before := CreateTestingDevice("before", &map[string]string{"labelKey": "label1"}, "os1")
 			after := CreateTestingDevice("after", &map[string]string{"labelKey": "label2"}, "os2")
-			callbacksManager.DeviceUpdatedCallback(orgId, before, after)
+			callbacksManager.DeviceUpdatedCallback(ctx, orgId, before, after)
 
 			Expect(mockPublisher.publishedResources).To(HaveLen(3))
 
@@ -217,7 +222,7 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 		It("submits FleetRolloutTask, FleetSelectorMatchTask and DeviceRenderTask", func() {
 			before := CreateTestingDevice("before", &map[string]string{"labelKey": "label1"}, "os1")
 			after := CreateTestingDevice("after", &map[string]string{"labelKey": "label2"}, "os2")
-			callbacksManager.DeviceUpdatedCallback(orgId, before, after)
+			callbacksManager.DeviceUpdatedCallback(ctx, orgId, before, after)
 
 			Expect(mockPublisher.publishedResources).To(HaveLen(3))
 
@@ -243,6 +248,8 @@ var _ = Describe("DeviceUpdatedCallback", func() {
 })
 
 var _ = Describe("FleetSourceUpdated", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -250,7 +257,7 @@ var _ = Describe("FleetSourceUpdated", func() {
 	})
 
 	It("submits FleetValidateTask", func() {
-		callbacksManager.FleetSourceUpdated(orgId, "name")
+		callbacksManager.FleetSourceUpdated(ctx, orgId, "name")
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -263,6 +270,8 @@ var _ = Describe("FleetSourceUpdated", func() {
 })
 
 var _ = Describe("DeviceSourceUpdated", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -270,7 +279,7 @@ var _ = Describe("DeviceSourceUpdated", func() {
 	})
 
 	It("submits DeviceRenderTask", func() {
-		callbacksManager.DeviceSourceUpdated(orgId, "name")
+		callbacksManager.DeviceSourceUpdated(ctx, orgId, "name")
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -283,6 +292,8 @@ var _ = Describe("DeviceSourceUpdated", func() {
 })
 
 var _ = Describe("RepositoryUpdatedCallback", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -291,7 +302,7 @@ var _ = Describe("RepositoryUpdatedCallback", func() {
 
 	It("submits RepositoryUpdatesTask", func() {
 		repository := CreateTestingRepository("name", "url")
-		callbacksManager.RepositoryUpdatedCallback(orgId, nil, repository)
+		callbacksManager.RepositoryUpdatedCallback(ctx, orgId, nil, repository)
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -304,6 +315,8 @@ var _ = Describe("RepositoryUpdatedCallback", func() {
 })
 
 var _ = Describe("AllRepositoriesDeletedCallback", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -311,7 +324,7 @@ var _ = Describe("AllRepositoriesDeletedCallback", func() {
 	})
 
 	It("submits RepositoryUpdatesTask", func() {
-		callbacksManager.AllRepositoriesDeletedCallback(orgId)
+		callbacksManager.AllRepositoriesDeletedCallback(ctx, orgId)
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -324,6 +337,8 @@ var _ = Describe("AllRepositoriesDeletedCallback", func() {
 })
 
 var _ = Describe("AllFleetsDeletedCallback", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -331,7 +346,7 @@ var _ = Describe("AllFleetsDeletedCallback", func() {
 	})
 
 	It("submits FleetSelectorMatchTask", func() {
-		callbacksManager.AllFleetsDeletedCallback(orgId)
+		callbacksManager.AllFleetsDeletedCallback(ctx, orgId)
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -344,6 +359,8 @@ var _ = Describe("AllFleetsDeletedCallback", func() {
 })
 
 var _ = Describe("AllDevicesDeletedCallback", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -351,7 +368,7 @@ var _ = Describe("AllDevicesDeletedCallback", func() {
 	})
 
 	It("submits FleetSelectorMatchTask", func() {
-		callbacksManager.AllDevicesDeletedCallback(orgId)
+		callbacksManager.AllDevicesDeletedCallback(ctx, orgId)
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 
@@ -364,6 +381,8 @@ var _ = Describe("AllDevicesDeletedCallback", func() {
 })
 
 var _ = Describe("TemplateVersionCreatedCallback", func() {
+	ctx := context.Background()
+
 	BeforeEach(func() {
 		mockPublisher = &MockPublisher{}
 		callbacksManager = NewCallbackManager(mockPublisher, flightlog.InitLogs())
@@ -372,7 +391,7 @@ var _ = Describe("TemplateVersionCreatedCallback", func() {
 
 	It("submits FleetRolloutTask", func() {
 		templateVersion := CreateTestingTemplateVersion("name", "template")
-		callbacksManager.TemplateVersionCreatedCallback(orgId, nil, templateVersion)
+		callbacksManager.TemplateVersionCreatedCallback(ctx, orgId, nil, templateVersion)
 
 		Expect(mockPublisher.publishedResources).To(HaveLen(1))
 

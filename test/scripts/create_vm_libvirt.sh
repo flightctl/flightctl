@@ -1,11 +1,15 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}"/functions
+
 # Variables
 VM_NAME="test-vm"
-VM_RAM=8192                # RAM in MB
+VM_RAM=10240                # RAM in MB necessary to run the flightctl e2e
 VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE=30          # Disk size
-NETWORK_NAME="baremetal-0"   # Network name
+NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
+NETWORK_NAME=${NETWORK_NAME:-baremetal-0}
 ISO_URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-x86_64-9-latest.x86_64.qcow2"
 DISK_PATH="/var/lib/libvirt/images/${VM_NAME}.qcow2"
 DISK_PATH_SRC="/var/lib/libvirt/images/${VM_NAME}_src.qcow2"
@@ -54,7 +58,7 @@ echo "Copying ${DISK_PATH_SRC} to ${DISK_PATH}..."
 cp ${DISK_PATH_SRC} ${DISK_PATH}
 
 # Resize the VM image
-qemu-img resize ${DISK_PATH} +15G
+qemu-img resize ${DISK_PATH} +20G  # bumping for the increased number of agent-images to be saved
 
 # Create the VM
 echo "Creating virtual machine ${VM_NAME}..."

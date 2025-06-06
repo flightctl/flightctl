@@ -1,3 +1,4 @@
+# TODO https://issues.redhat.com/browse/EDM-1668: Revert fedora-eln-* ASAP
 packages:
   flightctl:
     specfile_path: packaging/rpm/flightctl.spec
@@ -10,16 +11,20 @@ packages:
     upstream_package_name: flightctl
     downstream_package_name: flightctl
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
+
 actions:
   get-current-version:
     - bash -c 'git describe --tags | sed "s/^v//; s/-/~/g"'
+
 jobs:
   - job: copr_build
     trigger: pull_request
     enable_net: True # this is necessary for go modules to download the sources
     targets:
-      - fedora-eln-aarch64
+      # - fedora-eln-aarch64
+      - fedora-42-x86_64
       - centos-stream-9-x86_64
+    module_hotfixes: true
 
   - job: copr_build
     trigger: commit
@@ -32,10 +37,12 @@ jobs:
       - fedora-40-x86_64
       - fedora-41-aarch64
       - fedora-41-x86_64
+      - fedora-42-aarch64
+      - fedora-42-x86_64
       - fedora-rawhide-aarch64
       - fedora-rawhide-x86_64
-      - fedora-eln-aarch64
-      - fedora-eln-x86_64
+      # - fedora-eln-aarch64
+      # - fedora-eln-x86_64
       - centos-stream-9-x86_64
       - centos-stream-9-aarch64
       - rhel-9-aarch64
@@ -55,10 +62,12 @@ jobs:
       - fedora-40-x86_64
       - fedora-41-aarch64
       - fedora-41-x86_64
+      - fedora-42-aarch64
+      - fedora-42-x86_64
       - fedora-rawhide-aarch64
       - fedora-rawhide-x86_64
-      - fedora-eln-aarch64
-      - fedora-eln-x86_64
+      # - fedora-eln-aarch64
+      # - fedora-eln-x86_64
       - centos-stream-9-x86_64
       - centos-stream-9-aarch64
       - rhel-9-aarch64

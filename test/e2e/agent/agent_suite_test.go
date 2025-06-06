@@ -1,14 +1,16 @@
 package agent_test
 
 import (
+	"context"
 	"testing"
 
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 const TIMEOUT = "5m"
-const POLLING = "250ms"
+const POLLING = "125ms"
 const LONGTIMEOUT = "10m"
 
 // Define a type for messages.
@@ -27,7 +29,15 @@ func (m Message) String() string {
 	return string(m)
 }
 
+var (
+	suiteCtx context.Context
+)
+
 func TestAgent(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Agent E2E Suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Agent E2E Suite")
+})

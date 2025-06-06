@@ -16,7 +16,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
-	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 )
 
@@ -45,36 +44,12 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*
 }
 
 func convertDeviceListParams(params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.ListParams, api.Status) {
-	var (
-		err           error
-		fieldSelector *selector.FieldSelector
-		labelSelector *selector.LabelSelector
-	)
-
-	if params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*params.FieldSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
-		}
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
-
-	if params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*params.LabelSelector); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse label selector: %v", err))
-		}
-	}
-
-	cont, err := store.ParseContinueString(params.Continue)
-	if err != nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse continue parameter: %v", err))
-	}
-
-	return &store.ListParams{
-		Limit:              int(swag.Int32Value(params.Limit)),
-		Continue:           cont,
-		FieldSelector:      fieldSelector,
-		LabelSelector:      labelSelector,
-		AnnotationSelector: annotationSelector,
-	}, api.StatusOK()
+	listParams.AnnotationSelector = annotationSelector
+	return listParams, api.StatusOK()
 }
 
 func (h *ServiceHandler) ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
@@ -141,7 +116,7 @@ func (h *ServiceHandler) GetDevice(ctx context.Context, name string) (*api.Devic
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func DeviceVerificationCallback(before, after *api.Device) error {
+func DeviceVerificationCallback(ctx context.Context, before, after *api.Device) error {
 	// Ensure the device wasn't decommissioned
 	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
 		return flterrors.ErrDecommission
@@ -306,7 +281,7 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
@@ -365,7 +340,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
@@ -397,7 +372,7 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, de
 	deviceObj.Metadata.Owner = nil
 	deviceObj.Metadata.Labels = nil
 
-	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback

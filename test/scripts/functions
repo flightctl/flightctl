@@ -148,8 +148,12 @@ function try_login() {
   if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify; then
     echo "Trying token login"
     TOKEN=$(get_token)
-    bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN} 2>/dev/null"
-    return 0
+    if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN}"; then
+      echo "Trying standalone login"
+      PASS=$(kubectl get secret keycloak-demouser-secret -n "${FLIGHTCTL_NS}" -o json | jq -r '.data.password' | base64 -d)
+      bin/flightctl login -k "${FLIGHTCTL_API_ENDPOINT}" -u demouser -p ${PASS} 2>/dev/null
+      return 0
+    fi
   fi
 }
 
@@ -185,5 +189,31 @@ function package_agent() {
 function package_cli() {
     local VERSION=$(echo "${FLIGHTCTL_RPM}" | cut -d'/' -f2)
     append_rpm_version "flightctl"
+}
+
+# Function to check if acm is installed in the env
+function is_acm_installed() {
+  local output
+  output=$(oc get multiclusterhub -A 2>/dev/null) || return 1
+  echo "output=${output}"
+
+  if echo "$output" | grep -qE 'Paused|Running'; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Function to get the ocp nodes network name
+function get_ocp_nodes_network() {
+  local vm_name
+  vm_name=$(sudo virsh list --name | grep 'master-0')
+  [ -z "$vm_name" ] && return 1
+
+  local network_name
+  network_name=$(sudo virsh domiflist "$vm_name" | awk 'NR > 2 && $3 != "" {print $3; exit}')
+  [ -z "$network_name" ] && return 1
+
+  echo "$network_name"
 }
 
