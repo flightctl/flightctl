@@ -91,7 +91,6 @@ var _ = Describe("RepoUpdate", func() {
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-1"
 		gitConfig1.GitRef.TargetRevision = "rev"
-		gitConfig1.GitRef.MountPath = lo.ToPtr("/")
 		gitItem1 := api.ConfigProviderSpec{}
 		err = gitItem1.FromGitConfigProviderSpec(*gitConfig1)
 		Expect(err).ToNot(HaveOccurred())
@@ -102,7 +101,6 @@ var _ = Describe("RepoUpdate", func() {
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-2"
 		gitConfig1.GitRef.TargetRevision = "rev"
-		gitConfig1.GitRef.MountPath = lo.ToPtr("/")
 		gitItem2 := api.ConfigProviderSpec{}
 		err = gitItem2.FromGitConfigProviderSpec(*gitConfig2)
 		Expect(err).ToNot(HaveOccurred())

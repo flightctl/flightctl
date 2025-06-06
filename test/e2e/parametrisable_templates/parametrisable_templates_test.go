@@ -228,7 +228,6 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				gitConfigResponse, err := harness.GetDeviceGitConfig(device, gitConfigName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(gitConfigResponse.GitRef.Path).To(ContainSubstring(configLabelValue))
-				Expect(*gitConfigResponse.GitRef.MountPath).To(ContainSubstring(teamLabelValue))
 				Expect(gitConfigResponse.GitRef.TargetRevision).To(ContainSubstring(revisionLabelValue))
 
 				httpConfigResponse, err := harness.GetDeviceHttpConfig(device, httpConfigName)
@@ -327,10 +326,9 @@ var (
 	repoTestName          = "git-repo"
 	repoTestUrl           = "https://github.com/flightctl/flightctl-demos"
 	deviceAlias           = "base"
-	mountPath             = "/var/home/user/{{ .metadata.labels.team }}/file.txt"
 	branchTargetRevision  = "demo"
 	httpRepoName          = "http-repo"
-	gitRepoConfigPath     = "/{{ .metadata.labels.config }}/bootc/Containerfile.arm64"
+	gitRepoConfigPath     = "/fedora-bootc/bootc/Containerfile.arm64"
 	httpConfigPath        = "/var/home/user/{{ .metadata.labels.config }}"
 	configLabelKey        = "config"
 	configLabelValue      = "fedora-bootc"
@@ -403,12 +401,10 @@ var httpRepoMetadata = v1alpha1.ObjectMeta{
 
 var gitConfigvalid = v1alpha1.GitConfigProviderSpec{
 	GitRef: struct {
-		MountPath      *string `json:"mountPath,omitempty"`
-		Path           string  `json:"path"`
-		Repository     string  `json:"repository"`
-		TargetRevision string  `json:"targetRevision"`
+		Path           string `json:"path"`
+		Repository     string `json:"repository"`
+		TargetRevision string `json:"targetRevision"`
 	}{
-		MountPath:      &mountPath,
 		Path:           gitRepoConfigPath,
 		Repository:     repoTestName,
 		TargetRevision: revision,
