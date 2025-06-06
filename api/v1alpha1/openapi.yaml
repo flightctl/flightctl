@@ -5218,6 +5218,8 @@ components:
             - ResourceUpdateFailed
             - ResourceDeleted
             - ResourceDeletionFailed
+            - ResourceDecommissioned
+            - ResourceDecommissionFailed
         message:
           type: string
           description: A human-readable description of the status of this operation.

@@ -22,24 +22,43 @@ type DeviceStore struct {
 	store.Store
 	DeviceVal api.Device
 	EventVal  api.Event
+	events    []api.Event
+}
+
+type DummyEvent struct {
+	store.Event
+	EventVal api.Event
+	events   *[]api.Event
 }
 
 func (s *DeviceStore) Device() store.Device {
 	return &DummyDevice{DeviceVal: s.DeviceVal}
 }
 
+func (s *DeviceStore) Event() store.Event {
+	return &DummyEvent{
+		EventVal: s.EventVal,
+		events:   &s.events,
+	}
+}
+
+func (s *DummyEvent) Create(ctx context.Context, orgId uuid.UUID, event *api.Event) error {
+	*s.events = append(*s.events, *event)
+	return nil
+}
+
+func (s *DummyEvent) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.EventList, error) {
+	return &api.EventList{
+		ApiVersion: "",
+		Kind:       "",
+		Metadata:   api.ListMeta{},
+		Items:      *s.events,
+	}, nil
+}
+
 type DummyDevice struct {
 	store.Device
 	DeviceVal api.Device
-}
-
-func (s *DeviceStore) Event() store.Event {
-	return &DummyEvent{EventVal: s.EventVal}
-}
-
-type DummyEvent struct {
-	store.Event
-	EventVal api.Event
 }
 
 type dummyPublisher struct{}
@@ -71,10 +90,6 @@ func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, devic
 	return device, false, api.ResourceUpdatedDetails{}, nil
 }
 
-func (s *DummyEvent) Create(ctx context.Context, orgId uuid.UUID, event *api.Event) error {
-	return nil
-}
-
 func verifyDevicePatchSucceeded(require *require.Assertions, expectedDevice api.Device, resp *api.Device, status api.Status) {
 	require.Equal(int32(200), status.Code)
 	require.True(api.DeviceSpecsAreEqual(*expectedDevice.Spec, *resp.Spec))
@@ -85,7 +100,7 @@ func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
 	require.Equal(int32(400), status.Code)
 }
 
-func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.Device, api.Device, api.Status) {
+func testDevicePatch(require *require.Assertions, patch api.PatchRequest, expectEvent bool) (*api.Device, api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
 	_ = auth.InitAuth(nil, log.InitLogs())
 	status := api.NewDeviceStatus()
@@ -101,24 +116,36 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 		},
 		Status: &status,
 	}
-	serviceHandler := ServiceHandler{
+	serviceHandler := &ServiceHandler{
 		store:           &DeviceStore{DeviceVal: device},
 		callbackManager: dummyCallbackManager(),
 	}
 	resp, retStatus := serviceHandler.PatchDevice(context.Background(), "foo", patch)
 	require.NotEqual(int32(500), retStatus.Code)
+	length := 0
+	if expectEvent {
+		length = 1
+	}
+	event, _ := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	require.Len(event.Items, length)
 	return resp, device, retStatus
 }
 
-func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
+func testDeviceStatusPatch(t *testing.T, require *require.Assertions, orig api.Device, patch api.PatchRequest, expectEvent bool) (*api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
 	_ = auth.InitAuth(nil, log.InitLogs())
-	serviceHandler := ServiceHandler{
+	serviceHandler := &ServiceHandler{
 		store:           &DeviceStore{DeviceVal: orig},
 		callbackManager: dummyCallbackManager(),
 	}
 	resp, retStatus := serviceHandler.PatchDeviceStatus(context.Background(), "foo", patch)
 	require.NotEqual(int32(500), retStatus.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	length := 0
+	if expectEvent {
+		length = 1
+	}
+	require.Len(event.Items, length)
 	return resp, retStatus
 }
 
@@ -128,13 +155,13 @@ func TestDevicePatchName(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr)
+	_, _, status := testDevicePatch(require, pr, false)
 	require.Equal(api.StatusBadRequest("metadata.name is immutable"), status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
-	_, _, status = testDevicePatch(require, pr)
+	_, _, status = testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 }
 
@@ -256,7 +283,7 @@ func TestDeviceStatusPatch(t *testing.T) {
 				}
 			}
 
-			resp, status := testDeviceStatusPatch(require, device, patchRequest)
+			resp, status := testDeviceStatusPatch(t, require, device, patchRequest, !tc.expectError)
 			require.Equal(tc.expectedCode, status.Code)
 
 			if tc.expectError {
@@ -274,13 +301,13 @@ func TestDevicePatchKind(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr)
+	_, _, status := testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
-	_, _, status = testDevicePatch(require, pr)
+	_, _, status = testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 }
 
@@ -290,13 +317,13 @@ func TestDevicePatchAPIVersion(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr)
+	_, _, status := testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
-	_, _, status = testDevicePatch(require, pr)
+	_, _, status = testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 
 }
@@ -307,14 +334,14 @@ func TestDevicePatchSpec(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/spec/os/image", Value: &value},
 	}
-	resp, orig, status := testDevicePatch(require, pr)
+	resp, orig, status := testDevicePatch(require, pr, true)
 	orig.Spec.Os.Image = "newimg"
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/spec/os"},
 	}
-	resp, orig, status = testDevicePatch(require, pr)
+	resp, orig, status = testDevicePatch(require, pr, true)
 	orig.Spec.Os = nil
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
@@ -322,7 +349,7 @@ func TestDevicePatchSpec(t *testing.T) {
 	pr = api.PatchRequest{
 		{Op: "replace", Path: "/spec/os", Value: &value},
 	}
-	_, _, status = testDevicePatch(require, pr)
+	_, _, status = testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 }
 
@@ -332,13 +359,13 @@ func TestDevicePatchStatus(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr)
+	_, _, status := testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/status/updatedAt"},
 	}
-	_, _, status = testDevicePatch(require, pr)
+	_, _, status = testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 
 }
@@ -349,13 +376,13 @@ func TestDevicePatchNonExistingPath(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/spec/os/doesnotexist", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr)
+	_, _, status := testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/spec/os/doesnotexist"},
 	}
-	_, _, status = testDevicePatch(require, pr)
+	_, _, status = testDevicePatch(require, pr, false)
 	verifyDevicePatchFailed(require, status)
 }
 
@@ -367,7 +394,7 @@ func TestDevicePatchLabels(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
-	resp, orig, status := testDevicePatch(require, pr)
+	resp, orig, status := testDevicePatch(require, pr, true)
 	orig.Metadata.Labels = &addLabels
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
@@ -375,7 +402,7 @@ func TestDevicePatchLabels(t *testing.T) {
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
-	resp, orig, status = testDevicePatch(require, pr)
+	resp, orig, status = testDevicePatch(require, pr, true)
 	orig.Metadata.Labels = &map[string]string{}
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 }
