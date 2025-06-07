@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"sync/atomic"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -222,27 +223,42 @@ const (
 	disconnected
 )
 
-type closeOnTildeDotReader struct {
-	r      io.Reader
-	state  disconnectionState
-	cancel context.CancelFunc
+type rawReader struct {
+	state     disconnectionState
+	cancel    context.CancelFunc
+	termState **term.State
+	onetime   atomic.Bool
 }
 
-func newCloseOnTildeDotReader(inner io.Reader, cancel context.CancelFunc) *closeOnTildeDotReader {
-	return &closeOnTildeDotReader{
-		r:      inner,
-		cancel: cancel,
-		state:  normal,
+func newRawReader(cancel context.CancelFunc, termState **term.State) *rawReader {
+	return &rawReader{
+		cancel:    cancel,
+		state:     normal,
+		termState: termState,
 	}
 }
 
-func (e *closeOnTildeDotReader) Read(p []byte) (int, error) {
+func (e *rawReader) Read(p []byte) (int, error) {
+	// Ensure the terminal is set to raw mode only when Read function is called for the first time.
+	// This is to allow the user to use ctrl+C to stop the console before the terminal is connected
+	// to the remote.
+	if e.onetime.CompareAndSwap(false, true) {
+		if e.termState != nil {
+			oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error making terminal raw: %s\n", err)
+				e.cancel()
+				return 0, err
+			}
+			*e.termState = oldState
+		}
+	}
 	if e.state == disconnected {
 		e.cancel()
 		return 0, io.EOF
 	}
 
-	n, err := e.r.Read(p)
+	n, err := os.Stdin.Read(p)
 	for i := 0; i < n; i++ {
 		switch p[i] {
 		case '\n', '\r':
@@ -278,8 +294,9 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 		Stdout: os.Stdout,
 		Tty:    o.remoteTTY,
 	}
+	var oldState *term.State
 	if t.Raw {
-		options.Stdin = newCloseOnTildeDotReader(os.Stdin, cancel)
+		options.Stdin = newRawReader(cancel, &oldState)
 	} else if !t.IsTerminalIn() {
 		options.Stdin = os.Stdin
 	}
@@ -293,17 +310,13 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 	}
 
 	if t.Raw {
-
-		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error making terminal raw: %s\n", err)
-			return err
-		}
 		defer func() {
-			err := term.Restore(int(os.Stdin.Fd()), oldState)
-			// reset terminal and clear screen
-			if err != nil {
-				fmt.Printf("error restoring terminal: %v", err)
+			if oldState != nil {
+				err := term.Restore(int(os.Stdin.Fd()), oldState)
+				// reset terminal and clear screen
+				if err != nil {
+					fmt.Printf("error restoring terminal: %v", err)
+				}
 			}
 		}()
 	}
