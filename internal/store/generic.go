@@ -132,10 +132,11 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 		}
 	}
 
-	if exists && mode == ModeCreateOnly {
+	if !creating && mode == ModeCreateOnly {
 		return nil, creating, false, updateDesc, flterrors.ErrDuplicateName
 	}
-	if !exists && mode == ModeUpdateOnly {
+
+	if creating && mode == ModeUpdateOnly {
 		return nil, creating, false, updateDesc, flterrors.ErrResourceNotFound
 	}
 
