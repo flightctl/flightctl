@@ -81,20 +81,23 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("Delete repository success", func() {
-			err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
+			deleted, err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 			Expect(callbackCalled).To(BeTrue())
 		})
 
 		It("Delete repository success when not found", func() {
-			err := storeInst.Repository().Delete(ctx, orgId, "nonexistent", callback)
+			deleted, err := storeInst.Repository().Delete(ctx, orgId, "nonexistent", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeFalse())
 			Expect(callbackCalled).To(BeFalse())
 		})
 
 		It("Delete repository success when nil spec", func() {
-			err := storeInst.Repository().Delete(ctx, orgId, "nilspec", callback)
+			deleted, err := storeInst.Repository().Delete(ctx, orgId, "nilspec", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeFalse())
 			Expect(callbackCalled).To(BeFalse())
 		})
 
@@ -268,8 +271,9 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
+			deleted, err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 			Expect(callbackCalled).To(BeTrue())
 		})
 
@@ -283,8 +287,9 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
+			deleted, err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 			Expect(callbackCalled).To(BeTrue())
 		})
 

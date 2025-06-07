@@ -147,8 +147,9 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
+			deleted, err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 			Expect(called).To(BeTrue())
 		})
 
@@ -157,8 +158,9 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			err := storeInst.Fleet().Delete(ctx, orgId, "nonexistent", callback)
+			deleted, err := storeInst.Fleet().Delete(ctx, orgId, "nonexistent", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeFalse())
 			Expect(called).To(BeFalse())
 		})
 
@@ -603,8 +605,9 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			err = storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
+			deleted, err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 			Expect(called).To(BeTrue())
 		})
 

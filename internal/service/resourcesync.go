@@ -8,6 +8,8 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
@@ -85,9 +87,18 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, name string, r
 
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
-	err := h.store.ResourceSync().Delete(ctx, orgId, name, h.store.Fleet().UnsetOwner)
+
+	var deleted bool
+	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+		deleted = true
+		return h.store.Fleet().UnsetOwner(ctx, tx, orgId, owner)
+	}
+
+	err := h.store.ResourceSync().Delete(ctx, orgId, name, callback)
 	status := StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
-	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.ResourceSyncKind, name, status))
+	if deleted || err != nil {
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.ResourceSyncKind, name, status))
+	}
 	return status
 }
 
