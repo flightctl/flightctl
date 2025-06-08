@@ -10,6 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -120,6 +121,12 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
+
+	err := h.allowCreationOrUpdate(ctx, orgId, *er.Metadata.Name)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+
 	AddStatusIfNeeded(&er)
 
 	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er)
@@ -174,6 +181,10 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	err := h.allowCreationOrUpdate(ctx, orgId, name)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
 	}
 	if name != *er.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
@@ -300,4 +311,20 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+}
+
+func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
+	device, err := h.store.Device().Get(ctx, orgId, name)
+	if err != nil {
+		// Device not found, allow creation or update
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil
+		}
+		return fmt.Errorf("failed to get device: %w", err)
+	}
+	// Device found successfully - check if it has been seen
+	if device.Status != nil && !device.Status.LastSeen.IsZero() {
+		return flterrors.ErrDuplicateName // Device exists and has been seen
+	}
+	return nil
 }
