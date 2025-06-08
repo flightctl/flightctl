@@ -162,32 +162,6 @@ var _ = Describe("FleetStore create", func() {
 			Expect(called).To(BeFalse())
 		})
 
-		It("Delete all fleets in org", func() {
-			called := false
-			callback := store.FleetStoreAllDeletedCallback(func(ctx context.Context, orgId uuid.UUID) {
-				called = true
-			})
-
-			otherOrgId, _ := uuid.NewUUID()
-			err := storeInst.Fleet().DeleteAll(ctx, otherOrgId, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
-
-			listParams := store.ListParams{Limit: 1000}
-			fleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(fleets.Items)).To(Equal(numFleets))
-
-			called = false
-			err = storeInst.Fleet().DeleteAll(ctx, orgId, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
-
-			fleets, err = storeInst.Fleet().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(fleets.Items)).To(Equal(0))
-		})
-
 		It("List with paging", func() {
 			listParams := store.ListParams{Limit: 1000}
 			allFleets, err := storeInst.Fleet().List(ctx, orgId, listParams)
@@ -505,9 +479,15 @@ var _ = Describe("FleetStore create", func() {
 					map[string]string{"metadata.owner": owner}, selector.WithPrivateSelectors()),
 			}
 
-			callback := store.FleetStoreAllDeletedCallback(func(ctx context.Context, orgId uuid.UUID) {})
-			err := storeInst.Fleet().DeleteAll(ctx, orgId, callback)
-			Expect(err).ToNot(HaveOccurred())
+			for i := 1; i <= numFleets; i++ {
+				called := false
+				callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
+					called = true
+				})
+				err := storeInst.Fleet().Delete(ctx, orgId, fmt.Sprintf("myfleet-%d", i), callback)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(called).To(BeTrue())
+			}
 			testutil.CreateTestFleets(ctx, numFleets, storeInst.Fleet(), orgId, "myfleet", true, lo.ToPtr(owner))
 
 			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
@@ -608,24 +588,5 @@ var _ = Describe("FleetStore create", func() {
 			Expect(called).To(BeTrue())
 		})
 
-		It("Delete all fleets with repo association", func() {
-			err := testutil.CreateRepositories(ctx, 1, storeInst, orgId)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
-			Expect(err).ToNot(HaveOccurred())
-			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(1))
-			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
-
-			called := false
-			callback := store.FleetStoreAllDeletedCallback(func(ctx context.Context, orgId uuid.UUID) {
-				called = true
-			})
-			err = storeInst.Fleet().DeleteAll(ctx, orgId, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
-		})
 	})
 })
