@@ -104,13 +104,6 @@ func signApprovedCertificateSigningRequest(ca *crypto.CAClient, request api.Cert
 	return certData, nil
 }
 
-func (h *ServiceHandler) DeleteCertificateSigningRequests(ctx context.Context) api.Status {
-	orgId := store.NullOrgId
-
-	err := h.store.CertificateSigningRequest().DeleteAll(ctx, orgId)
-	return StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, nil)
-}
-
 func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, params api.ListCertificateSigningRequestsParams) (*api.CertificateSigningRequestList, api.Status) {
 	orgId := store.NullOrgId
 

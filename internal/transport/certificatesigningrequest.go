@@ -7,12 +7,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
-// (DELETE /api/v1/certificatesigningrequests)
-func (h *TransportHandler) DeleteCertificateSigningRequests(w http.ResponseWriter, r *http.Request) {
-	status := h.serviceHandler.DeleteCertificateSigningRequests(r.Context())
-	SetResponse(w, nil, status)
-}
-
 // (GET /api/v1/certificatesigningrequests)
 func (h *TransportHandler) ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params api.ListCertificateSigningRequestsParams) {
 	body, status := h.serviceHandler.ListCertificateSigningRequests(r.Context(), params)
