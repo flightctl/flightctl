@@ -10,6 +10,10 @@ GOARCH := $(shell go env GOARCH)
 
 VERBOSE ?= false
 
+ifeq ($(shell git tag -l | grep -c .),0)
+$(error No Git tags found – are you working on a shallow clone/fork?)
+endif
+
 SOURCE_GIT_TAG ?=$(shell git describe --tags --exclude latest)
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
 SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null)
