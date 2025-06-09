@@ -54,17 +54,17 @@ var _ = Describe("ResourceSyncStore create", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numResourceSyncs = 3
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
 		createResourceSyncs(ctx, 3, storeInst, orgId)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("ResourceSync store", func() {
@@ -80,13 +80,13 @@ var _ = Describe("ResourceSyncStore create", func() {
 					Path:       "my/path",
 				},
 			}
-			resp, err := storeInst.ResourceSync().Create(context.Background(), orgId, &rs)
+			resp, err := storeInst.ResourceSync().Create(ctx, orgId, &rs)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp.Metadata.Generation).ToNot(BeNil())
 			Expect(*resp.Metadata.Generation).To(Equal(gen))
 
 			// name already exisis
-			_, err = storeInst.ResourceSync().Create(context.Background(), orgId, &rs)
+			_, err = storeInst.ResourceSync().Create(ctx, orgId, &rs)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
 		})
@@ -144,53 +144,6 @@ var _ = Describe("ResourceSyncStore create", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeFalse())
-		})
-
-		It("Delete all resourcesyncs in org", func() {
-			owner := util.SetResourceOwner(api.ResourceSyncKind, "myresourcesync-1")
-			otherOrgId, _ := uuid.NewUUID()
-			testutil.CreateTestFleets(ctx, 2, storeInst.Fleet(), orgId, "myfleet", true, owner)
-			testutil.CreateTestFleets(ctx, 2, storeInst.Fleet(), otherOrgId, "myfleet", true, owner)
-			callbackCalled := false
-			err := storeInst.ResourceSync().DeleteAll(ctx, otherOrgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
-				callbackCalled = true
-				Expect(kind).To(Equal(api.ResourceSyncKind))
-				return nil
-			})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeTrue())
-
-			listParams := store.ListParams{Limit: 1000}
-			resourcesyncs, err := storeInst.ResourceSync().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(resourcesyncs.Items)).To(Equal(numResourceSyncs))
-
-			callbackCalled = false
-			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fleet.Metadata.Owner).ToNot(BeNil())
-			Expect(*fleet.Metadata.Owner).To(Equal(*owner))
-
-			err = storeInst.ResourceSync().DeleteAll(ctx, orgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
-				callbackCalled = true
-				Expect(kind).To(Equal(api.ResourceSyncKind))
-				return storeInst.Fleet().UnsetOwnerByKind(ctx, tx, orgId, kind)
-			})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeTrue())
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fleet.Metadata.Owner).To(BeNil())
-
-			resourcesyncs, err = storeInst.ResourceSync().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(resourcesyncs.Items)).To(Equal(0))
-
-			fleet, err = storeInst.Fleet().Get(ctx, otherOrgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fleet.Metadata.Owner).ToNot(BeNil())
-			Expect(*fleet.Metadata.Owner).To(Equal(*owner))
 		})
 
 		It("List with paging", func() {

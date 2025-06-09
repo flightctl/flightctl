@@ -11,7 +11,7 @@ import (
 )
 
 type EnrollmentRequest interface {
-	InitialMigration() error
+	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
 	Update(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, api.ResourceUpdatedDetails, error)
@@ -19,12 +19,11 @@ type EnrollmentRequest interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
 }
 
 type EnrollmentRequestStore struct {
-	db           *gorm.DB
+	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
 	genericStore *GenericStore[*model.EnrollmentRequest, model.EnrollmentRequest, api.EnrollmentRequest, api.EnrollmentRequestList]
 }
@@ -40,35 +39,41 @@ func NewEnrollmentRequest(db *gorm.DB, log logrus.FieldLogger) EnrollmentRequest
 		(*model.EnrollmentRequest).ToApiResource,
 		model.EnrollmentRequestsToApiResource,
 	)
-	return &EnrollmentRequestStore{db: db, log: log, genericStore: genericStore}
+	return &EnrollmentRequestStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-func (s *EnrollmentRequestStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.EnrollmentRequest{}); err != nil {
+func (s *EnrollmentRequestStore) getDB(ctx context.Context) *gorm.DB {
+	return s.dbHandler.WithContext(ctx)
+}
+
+func (s *EnrollmentRequestStore) InitialMigration(ctx context.Context) error {
+	db := s.getDB(ctx)
+
+	if err := db.AutoMigrate(&model.EnrollmentRequest{}); err != nil {
 		return err
 	}
 
 	// Create GIN index for EnrollmentRequest labels
-	if !s.db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_labels") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_enrollment_requests_labels ON enrollment_requests USING GIN (labels)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_labels") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_enrollment_requests_labels ON enrollment_requests USING GIN (labels)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Labels"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Labels"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for EnrollmentRequest annotations
-	if !s.db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_annotations") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_enrollment_requests_annotations ON enrollment_requests USING GIN (annotations)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.EnrollmentRequest{}, "idx_enrollment_requests_annotations") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_enrollment_requests_annotations ON enrollment_requests USING GIN (annotations)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Annotations"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.EnrollmentRequest{}, "Annotations"); err != nil {
 				return err
 			}
 		}
@@ -99,10 +104,6 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 
 func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
 	return s.genericStore.Delete(ctx, model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}, nil)
-}
-
-func (s *EnrollmentRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
-	return s.genericStore.DeleteAll(ctx, orgId, nil)
 }
 
 func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {

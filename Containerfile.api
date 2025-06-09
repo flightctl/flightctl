@@ -24,6 +24,13 @@ RUN dnf update --nodocs -y  && dnf install ca-certificates tzdata --nodocs -y
 
 FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
+LABEL \
+  com.redhat.component="flightctl-api-container" \
+  description="Flight Control Edge management API server" \
+  io.k8s.description="Flight Control Edge management API server" \
+  io.k8s.display-name="Flight Control API Server" \
+  name="flightctl-api" \
+  summary="Flight Control Edge management API server"
 COPY --from=build /app/bin/flightctl-api .
 COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
 COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo

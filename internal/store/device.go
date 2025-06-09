@@ -18,7 +18,7 @@ import (
 )
 
 type Device interface {
-	InitialMigration() error
+	InitialMigration(ctx context.Context) error
 
 	// Exposed to users
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
@@ -28,7 +28,6 @@ type Device interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 
@@ -55,14 +54,14 @@ type Device interface {
 }
 
 type DeviceStore struct {
-	db           *gorm.DB
+	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
 	genericStore *GenericStore[*model.Device, model.Device, api.Device, api.DeviceList]
 }
 
-type DeviceStoreCallback func(orgId uuid.UUID, before *api.Device, after *api.Device)
-type DeviceStoreValidationCallback func(before *api.Device, after *api.Device) error
-type DeviceStoreAllDeletedCallback func(orgId uuid.UUID)
+type DeviceStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device)
+type DeviceStoreValidationCallback func(ctx context.Context, before *api.Device, after *api.Device) error
+type DeviceStoreAllDeletedCallback func(ctx context.Context, orgId uuid.UUID)
 
 // Make sure we conform to Device interface
 var _ Device = (*DeviceStore)(nil)
@@ -75,108 +74,114 @@ func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
 		(*model.Device).ToApiResource,
 		model.DevicesToApiResource,
 	)
-	return &DeviceStore{db: db, log: log, genericStore: genericStore}
+	return &DeviceStore{dbHandler: db, log: log, genericStore: genericStore}
+}
+
+func (s *DeviceStore) getDB(ctx context.Context) *gorm.DB {
+	return s.dbHandler.WithContext(ctx)
 }
 
 func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c IntegrationTestCallback) {
 	s.genericStore.IntegrationTestCreateOrUpdateCallback = c
 }
 
-func (s *DeviceStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.Device{}, &model.DeviceLabel{}); err != nil {
+func (s *DeviceStore) InitialMigration(ctx context.Context) error {
+	db := s.getDB(ctx)
+
+	if err := db.AutoMigrate(&model.Device{}, &model.DeviceLabel{}); err != nil {
 		return err
 	}
 
 	// Create index for device primary key 'name'
-	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_primary_key_name") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_device_primary_key_name ON devices USING BTREE (name)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_primary_key_name") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_device_primary_key_name ON devices USING BTREE (name)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.Device{}, "PrimaryKeyColumnName"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.Device{}, "PrimaryKeyColumnName"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create indexes for device 'Alias' column
-	if !s.db.Migrator().HasIndex(&model.Device{}, "device_alias") {
-		if s.db.Dialector.Name() == "postgres" {
+	if !db.Migrator().HasIndex(&model.Device{}, "device_alias") {
+		if db.Dialector.Name() == "postgres" {
 			// Enable pg_trgm extension if not already enabled
-			if err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
+			if err := db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
 				return err
 			}
 			// Create a B-Tree index for exact matches on the 'Alias' field
-			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS device_alias_btree ON devices USING BTREE (alias)").Error; err != nil {
+			if err := db.Exec("CREATE INDEX IF NOT EXISTS device_alias_btree ON devices USING BTREE (alias)").Error; err != nil {
 				return err
 			}
 			// Create a GIN index for substring matches on the 'Alias' field
-			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS device_alias_gin ON devices USING GIN (alias gin_trgm_ops)").Error; err != nil {
+			if err := db.Exec("CREATE INDEX IF NOT EXISTS device_alias_gin ON devices USING GIN (alias gin_trgm_ops)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.Device{}, "device_alias"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.Device{}, "device_alias"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for device labels
-	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_labels") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_device_labels ON devices USING GIN (labels)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_labels") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_device_labels ON devices USING GIN (labels)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Labels"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.Device{}, "Labels"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for device annotations
-	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_annotations") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_device_annotations ON devices USING GIN (annotations)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_annotations") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_device_annotations ON devices USING GIN (annotations)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Annotations"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.Device{}, "Annotations"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for device status
-	if !s.db.Migrator().HasIndex(&model.Device{}, "idx_device_status") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_device_status ON devices USING GIN (status)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_status") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_device_status ON devices USING GIN (status)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.Device{}, "Status"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.Device{}, "Status"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create indexes for device_labels (Partial Matching Support)
-	if !s.db.Migrator().HasIndex(&model.DeviceLabel{}, "idx_device_labels_partial") {
-		if s.db.Dialector.Name() == "postgres" {
+	if !db.Migrator().HasIndex(&model.DeviceLabel{}, "idx_device_labels_partial") {
+		if db.Dialector.Name() == "postgres" {
 			// Enable pg_trgm extension for partial matching
-			if err := s.db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
+			if err := db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error; err != nil {
 				return err
 			}
 			// Create GIN index for partial match searches
-			if err := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error; err != nil {
+			if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error; err != nil {
 				return err
 			}
 		}
 	}
 
 	// Ensure trigger is created for INSERT & UPDATE (labels JSONB changes)
-	if s.db.Dialector.Name() == "postgres" {
+	if db.Dialector.Name() == "postgres" {
 		triggerSQL := `
 		DROP TRIGGER IF EXISTS device_labels_insert ON devices;
 		DROP TRIGGER IF EXISTS device_labels_update ON devices;
@@ -215,7 +220,7 @@ func (s *DeviceStore) InitialMigration() error {
 		WHEN (OLD.labels IS DISTINCT FROM NEW.labels)
 		EXECUTE FUNCTION sync_device_labels();
 		`
-		if err := s.db.Exec(triggerSQL).Error; err != nil {
+		if err := db.Exec(triggerSQL).Error; err != nil {
 			return err
 		}
 	}
@@ -250,7 +255,7 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams Li
 		return nil, fmt.Errorf("failed to create selector resolver: %w", err)
 	}
 
-	query, err := ListQuery(model.Device{}, WithSelectorResolver(resolver)).BuildNoOrder(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(model.Device{}, WithSelectorResolver(resolver)).BuildNoOrder(ctx, s.getDB(ctx), orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -282,12 +287,8 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 		Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
 }
 
-func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
-	return s.genericStore.DeleteAll(ctx, orgId, callback)
-}
-
 func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {
-	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.getDB(ctx), orgId, listParams)
 	if err != nil {
 		return 0, err
 	}
@@ -316,7 +317,7 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 	} else {
 		updateTimeoutValue = gorm.Expr("false")
 	}
-	err := s.db.Raw(fmt.Sprintf(`select count(*) as count, 
+	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count, 
                                  status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version, 
                                  elem ->> 'reason' as updating_reason,
                                  annotations->>'%s' = ? as same_template_version, 
@@ -343,7 +344,7 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 }
 
 func (s *DeviceStore) unmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) (bool, error) {
-	err := s.db.Model(&model.Device{}).Where("org_id = ? and owner = ? and annotations ? ?",
+	err := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and owner = ? and annotations ? ?",
 		orgId, util.ResourceOwner(api.FleetKind, fleetName), gorm.Expr("?"), api.DeviceAnnotationSelectedForRollout).Updates(map[string]any{
 		"annotations":      gorm.Expr("annotations - ?", api.DeviceAnnotationSelectedForRollout),
 		"resource_version": gorm.Expr("resource_version + 1"),
@@ -363,13 +364,13 @@ func (s *DeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUI
 }
 
 func (s *DeviceStore) markRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) (bool, error) {
-	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.getDB(ctx), orgId, listParams)
 	if err != nil {
 		return false, err
 	}
 	if limit != nil {
 		query = query.Limit(*limit)
-		query = s.db.Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId,
+		query = s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId,
 			query.Select("name"))
 	}
 	err = query.Updates(map[string]any{
@@ -411,7 +412,7 @@ func labelKeyToSymbol(labelKey string) string {
 
 // CountByLabels is used for rollout policy disruption budget to provide device count values grouped by the label values.
 func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error) {
-	query, err := ListQuery(&model.Device{}).BuildNoOrder(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Device{}).BuildNoOrder(ctx, s.getDB(ctx), orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +449,7 @@ func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listPa
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {
-	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.getDB(ctx), orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -504,16 +505,16 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 		args[i] = name
 	}
 
-	return s.db.WithContext(ctx).Exec(query, args...).Error
+	return s.getDB(ctx).Exec(query, args...).Error
 }
 
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
-func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
+func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.db.First(&existingRecord)
+	result := s.getDB(ctx).First(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -537,7 +538,7 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 		existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	}
 
-	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"annotations":      model.MakeJSONMap(existingAnnotations),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
@@ -554,13 +555,13 @@ func (s *DeviceStore) updateAnnotations(orgId uuid.UUID, name string, annotation
 
 func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	return retryUpdate(func() (bool, error) {
-		return s.updateAnnotations(orgId, name, annotations, deleteKeys)
+		return s.updateAnnotations(ctx, orgId, name, annotations, deleteKeys)
 	})
 }
 
-func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.db.First(&existingRecord)
+	result := s.getDB(ctx).First(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -581,7 +582,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 		renderedApplicationsJSON = "[]"
 	}
 
-	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"annotations":           model.MakeJSONMap(existingAnnotations),
 		"rendered_config":       &renderedConfig,
 		"rendered_applications": &renderedApplicationsJSON,
@@ -601,7 +602,7 @@ func (s *DeviceStore) updateRendered(orgId uuid.UUID, name, renderedConfig, rend
 
 func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {
 	return retryUpdate(func() (bool, error) {
-		return s.updateRendered(orgId, name, renderedConfig, renderedApplications)
+		return s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
 	})
 }
 
@@ -609,7 +610,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	deviceModel := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.db.First(&deviceModel)
+	result := s.getDB(ctx).First(&deviceModel)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
@@ -617,9 +618,9 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
 }
 
-func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditions []api.Condition) (retry bool, err error) {
+func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.db.First(&existingRecord)
+	result := s.getDB(ctx).First(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -635,7 +636,7 @@ func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditi
 		api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
 	}
 
-	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"service_conditions": existingRecord.ServiceConditions,
 		"resource_version":   gorm.Expr("resource_version + 1"),
 	})
@@ -651,7 +652,7 @@ func (s *DeviceStore) setServiceConditions(orgId uuid.UUID, name string, conditi
 
 func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
 	return retryUpdate(func() (bool, error) {
-		return s.setServiceConditions(orgId, name, conditions)
+		return s.setServiceConditions(ctx, orgId, name, conditions)
 	})
 }
 
@@ -660,7 +661,7 @@ func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UU
 	for _, repoName := range repositoryNames {
 		repos = append(repos, model.Repository{Resource: model.Resource{OrgID: orgId, Name: repoName}})
 	}
-	return s.db.Transaction(func(innerTx *gorm.DB) error {
+	return s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
 		device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 		if err := innerTx.Model(&device).Association("Repositories").Replace(repos); err != nil {
 			return ErrorFromGormError(err)
@@ -672,7 +673,7 @@ func (s *DeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UU
 func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error) {
 	device := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	var repos []model.Repository
-	err := s.db.Model(&device).Association("Repositories").Find(&repos)
+	err := s.getDB(ctx).Model(&device).Association("Repositories").Find(&repos)
 	if err != nil {
 		return nil, ErrorFromGormError(err)
 	}

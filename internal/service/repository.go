@@ -51,13 +51,6 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRe
 	}
 }
 
-func (h *ServiceHandler) DeleteRepositories(ctx context.Context) api.Status {
-	orgId := store.NullOrgId
-
-	err := h.store.Repository().DeleteAll(ctx, orgId, h.callbackManager.AllRepositoriesDeletedCallback)
-	return StoreErrorToApiStatus(err, false, api.RepositoryKind, nil)
-}
-
 func (h *ServiceHandler) GetRepository(ctx context.Context, name string) (*api.Repository, api.Status) {
 	orgId := store.NullOrgId
 
@@ -128,7 +121,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Repository, *api.Repository)
+	var updateCallback func(context.Context, uuid.UUID, *api.Repository, *api.Repository)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.RepositoryUpdatedCallback

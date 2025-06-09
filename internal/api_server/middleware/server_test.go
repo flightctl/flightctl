@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"context"
 	"crypto/x509"
 	"errors"
 	"io"
@@ -16,6 +17,11 @@ import (
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+)
+
+var (
+	suiteCtx context.Context
 )
 
 func TestServer(t *testing.T) {
@@ -23,8 +29,13 @@ func TestServer(t *testing.T) {
 	RunSpecs(t, "Server Suite")
 }
 
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Server Suite")
+})
+
 var _ = Describe("Low level server behavior", func() {
 	var (
+		ctx            context.Context
 		ca             *crypto.CAClient
 		enrollmentCert *crypto.TLSCertificateConfig
 		noSubjectCert  *crypto.TLSCertificateConfig
@@ -32,6 +43,8 @@ var _ = Describe("Low level server behavior", func() {
 	)
 
 	BeforeEach(func() {
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+
 		var err error
 		tempDir := GinkgoT().TempDir()
 		serverLog := log.InitLogs()
@@ -54,7 +67,19 @@ var _ = Describe("Low level server behavior", func() {
 		listener, err = middleware.NewTLSListener("", tlsConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		srv := middleware.NewHTTPServerWithTLSContext(testTLSCNServer{}, serverLog, listener.Addr().String(), config)
+		srv := middleware.NewHTTPServerWithTLSContext(
+			otelhttp.NewHandler(testTLSCNServer{}, "test-tlscn-server"),
+			serverLog,
+			listener.Addr().String(),
+			config,
+		)
+
+		// capture the spec‑scoped context to avoid races when the outer
+		// `ctx` variable is mutated by the next `BeforeEach`
+		localCtx := ctx
+		srv.BaseContext = func(_ net.Listener) context.Context {
+			return localCtx
+		}
 
 		go func() {
 			defer GinkgoRecover()

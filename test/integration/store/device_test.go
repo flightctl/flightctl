@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -24,43 +23,49 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestStore(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Store Suite")
 }
 
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Store Suite")
+})
+
 var _ = Describe("DeviceStore create", func() {
 	var (
-		log                *logrus.Logger
-		ctx                context.Context
-		orgId              uuid.UUID
-		storeInst          store.Store
-		devStore           store.Device
-		cfg                *config.Config
-		db                 *gorm.DB
-		dbName             string
-		numDevices         int
-		called             bool
-		callback           store.DeviceStoreCallback
-		allDeletedCallback store.DeviceStoreAllDeletedCallback
+		log        *logrus.Logger
+		ctx        context.Context
+		orgId      uuid.UUID
+		storeInst  store.Store
+		devStore   store.Device
+		cfg        *config.Config
+		db         *gorm.DB
+		dbName     string
+		numDevices int
+		called     bool
+		callback   store.DeviceStoreCallback
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		devStore = storeInst.Device()
 		called = false
-		callback = store.DeviceStoreCallback(func(uuid.UUID, *api.Device, *api.Device) { called = true })
-		allDeletedCallback = store.DeviceStoreAllDeletedCallback(func(orgId uuid.UUID) { called = true })
+		callback = store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) { called = true })
 
 		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil, false)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	It("CreateOrUpdateDevice create mode race", func() {
@@ -81,7 +86,7 @@ var _ = Describe("DeviceStore create", func() {
 				return
 			}
 			raceCalled = true
-			result := db.Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}, Spec: model.MakeJSONField(api.DeviceSpec{})})
+			result := db.WithContext(ctx).Create(&model.Device{Resource: model.Resource{OrgID: orgId, Name: "newresourcename", ResourceVersion: lo.ToPtr(int64(1))}, Spec: model.MakeJSONField(api.DeviceSpec{})})
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
@@ -115,7 +120,7 @@ var _ = Describe("DeviceStore create", func() {
 			device.OrgID = orgId
 			device.ResourceVersion = lo.ToPtr(int64(5))
 			Expect(err).ToNot(HaveOccurred())
-			result := db.Updates(device)
+			result := db.WithContext(ctx).Updates(device)
 			Expect(result.Error).ToNot(HaveOccurred())
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
@@ -176,27 +181,6 @@ var _ = Describe("DeviceStore create", func() {
 			err := devStore.Delete(ctx, orgId, "nonexistent", callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeFalse())
-		})
-
-		It("Delete all devices in org", func() {
-			otherOrgId, _ := uuid.NewUUID()
-			err := devStore.DeleteAll(ctx, otherOrgId, allDeletedCallback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
-
-			listParams := store.ListParams{Limit: 1000}
-			devices, err := devStore.List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(devices.Items).To(HaveLen(numDevices))
-
-			called = false
-			err = devStore.DeleteAll(ctx, orgId, allDeletedCallback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
-
-			devices, err = devStore.List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(devices.Items).To(HaveLen(0))
 		})
 
 		It("List with summary", func() {
@@ -612,28 +596,12 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 		})
-
-		It("Delete all devices with repo association", func() {
-			err := testutil.CreateRepositories(ctx, 1, storeInst, orgId)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
-			Expect(err).ToNot(HaveOccurred())
-			repos, err := storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(1))
-			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
-
-			err = devStore.DeleteAll(ctx, orgId, allDeletedCallback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
-		})
 	})
 })
 
 func createTestConfigProvider(contents string) (string, error) {
 	provider := api.ConfigProviderSpec{}
-	files := []v1alpha1.FileSpec{
+	files := []api.FileSpec{
 		{
 			Content: contents,
 		},

@@ -14,7 +14,7 @@ import (
 )
 
 type ResourceSync interface {
-	InitialMigration() error
+	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, error)
 	Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, api.ResourceUpdatedDetails, error)
@@ -22,12 +22,11 @@ type ResourceSync interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error)
 }
 
 type ResourceSyncStore struct {
-	db           *gorm.DB
+	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
 	genericStore *GenericStore[*model.ResourceSync, model.ResourceSync, api.ResourceSync, api.ResourceSyncList]
 }
@@ -36,7 +35,6 @@ type ResourceSyncStore struct {
 var _ ResourceSync = (*ResourceSyncStore)(nil)
 
 type removeOwnerCallback func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
-type removeAllResourceSyncOwnerCallback func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error
 
 func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 	genericStore := NewGenericStore[*model.ResourceSync, model.ResourceSync, api.ResourceSync, api.ResourceSyncList](
@@ -46,35 +44,41 @@ func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 		(*model.ResourceSync).ToApiResource,
 		model.ResourceSyncsToApiResource,
 	)
-	return &ResourceSyncStore{db: db, log: log, genericStore: genericStore}
+	return &ResourceSyncStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-func (s *ResourceSyncStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.ResourceSync{}); err != nil {
+func (s *ResourceSyncStore) getDB(ctx context.Context) *gorm.DB {
+	return s.dbHandler.WithContext(ctx)
+}
+
+func (s *ResourceSyncStore) InitialMigration(ctx context.Context) error {
+	db := s.getDB(ctx)
+
+	if err := db.AutoMigrate(&model.ResourceSync{}); err != nil {
 		return err
 	}
 
 	// Create GIN index for ResourceSync labels
-	if !s.db.Migrator().HasIndex(&model.ResourceSync{}, "idx_resource_syncs_labels") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_resource_syncs_labels ON resource_syncs USING GIN (labels)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.ResourceSync{}, "idx_resource_syncs_labels") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_resource_syncs_labels ON resource_syncs USING GIN (labels)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.ResourceSync{}, "Labels"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.ResourceSync{}, "Labels"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for ResourceSync annotations
-	if !s.db.Migrator().HasIndex(&model.ResourceSync{}, "idx_resource_syncs_annotations") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_resource_syncs_annotations ON resource_syncs USING GIN (annotations)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.ResourceSync{}, "idx_resource_syncs_annotations") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_resource_syncs_annotations ON resource_syncs USING GIN (annotations)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.ResourceSync{}, "Annotations"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.ResourceSync{}, "Annotations"); err != nil {
 				return err
 			}
 		}
@@ -105,7 +109,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 
 func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error {
 	existingRecord := model.ResourceSync{Resource: model.Resource{OrgID: orgId, Name: name}}
-	err := s.db.Transaction(func(innerTx *gorm.DB) (err error) {
+	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		result := innerTx.First(&existingRecord)
 		if result.Error != nil {
 			return ErrorFromGormError(result.Error)
@@ -127,15 +131,6 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 	}
 
 	return nil
-}
-
-func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Unscoped().Where("org_id = ?", orgId).Delete(&model.ResourceSync{}).Error; err != nil {
-			return ErrorFromGormError(err)
-		}
-		return callback(ctx, tx, orgId, api.ResourceSyncKind)
-	})
 }
 
 func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {

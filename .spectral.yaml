@@ -31,7 +31,7 @@ rules:
 
   ## Allowed and required verbs
   collection-verbs-required:
-    description: Resource collections must have POST, GET, DELETE verbs.
+    description: Resource collections must have POST and GET verbs. 
     message: "Verb {{property}} is required."
     severity: error
     given: "#PathToResourceCollection"
@@ -39,8 +39,6 @@ rules:
       - field: post
         function: truthy
       - field: get
-        function: truthy
-      - field: delete
         function: truthy
 
   resource-verbs-required:

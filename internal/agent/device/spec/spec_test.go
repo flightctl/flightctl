@@ -3,7 +3,9 @@ package spec
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -16,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestBootstrapCheckRollback(t *testing.T) {
@@ -679,43 +682,173 @@ func TestCreateRollback(t *testing.T) {
 
 func TestRollback(t *testing.T) {
 	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockPriorityQueue := NewMockPriorityQueue(ctrl)
-	log := log.NewPrefixLogger("test")
-
-	currentPath := "test/current.json"
-	desiredPath := "test/desired.json"
-	s := &manager{
-		log:              log,
-		deviceReadWriter: mockReadWriter,
-		queue:            mockPriorityQueue,
-		currentPath:      currentPath,
-		desiredPath:      desiredPath,
-		cache:            newCache(log),
+	testCases := []struct {
+		name               string
+		setupMocks         func(mockPolicyManager *policy.MockManager)
+		wantSetFailed      bool
+		currentVersion     string
+		desiredVersion     string
+		wantCurrentVersion string
+		wantDesiredVersion string
+		wantNextVersion    string
+		expectedError      error
+	}{
+		{
+			name:               "rollback to previous",
+			currentVersion:     "1",
+			desiredVersion:     "2",
+			wantCurrentVersion: "1",
+			wantDesiredVersion: "1",
+			wantNextVersion:    "1",
+			wantSetFailed:      false,
+			setupMocks: func(mockPolicyManager *policy.MockManager) {
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+			},
+		},
+		{
+			name:               "rollback to previous set failed",
+			currentVersion:     "1",
+			desiredVersion:     "2",
+			wantCurrentVersion: "1",
+			wantDesiredVersion: "1",
+			wantNextVersion:    "1",
+			wantSetFailed:      true,
+			setupMocks: func(mockPolicyManager *policy.MockManager) {
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+			},
+		},
+		{
+			name:               "rollback to previous desired failed",
+			currentVersion:     "1",
+			desiredVersion:     "2",
+			wantCurrentVersion: "1",
+			wantDesiredVersion: "1",
+			wantNextVersion:    "1",
+			wantSetFailed:      true,
+			setupMocks: func(mockPolicyManager *policy.MockManager) {
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+			},
+		},
+		{
+			name:               "rollback to previous multiple versions",
+			currentVersion:     "1",
+			desiredVersion:     "9",
+			wantCurrentVersion: "1",
+			wantDesiredVersion: "1",
+			wantNextVersion:    "1",
+			wantSetFailed:      false,
+			setupMocks: func(mockPolicyManager *policy.MockManager) {
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+			},
+		},
+		{
+			name:               "rollback to steady state is idempotent",
+			currentVersion:     "1",
+			desiredVersion:     "1",
+			wantCurrentVersion: "1",
+			wantDesiredVersion: "1",
+			wantNextVersion:    "1",
+			wantSetFailed:      false,
+			setupMocks: func(mockPolicyManager *policy.MockManager) {
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+			},
+		},
 	}
 
-	t.Run("error when copy fails", func(t *testing.T) {
-		copyErr := errors.New("failure to copy file")
-		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(copyErr)
-		mockPriorityQueue.EXPECT().SetFailed(gomock.Any())
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-		err := s.Rollback(context.Background(), WithSetFailed())
-		require.ErrorIs(err, errors.ErrCopySpec)
-	})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	t.Run("copies the current spec to the desired spec", func(t *testing.T) {
-		currentBytes, err := createTestDeviceBytes("flightctl-device:v1")
-		require.NoError(err)
-		mockReadWriter.EXPECT().CopyFile(currentPath, desiredPath).Return(nil)
-		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(currentBytes, nil)
-		mockPriorityQueue.EXPECT().SetFailed(gomock.Any())
-		mockPriorityQueue.EXPECT().Add(gomock.Any(), gomock.Any())
-		err = s.Rollback(context.Background(), WithSetFailed())
-		require.NoError(err)
-	})
+			tmpDir := t.TempDir()
+			readWriter := fileio.NewReadWriter()
+			readWriter.SetRootdir(tmpDir)
+			log := log.NewPrefixLogger("test")
+			mockPolicyManager := policy.NewMockManager(ctrl)
+			pub := publisher.New("testDevice", 10*time.Millisecond, wait.Backoff{}, log)
+			queue := newPriorityQueue(
+				defaultSpecQueueMaxSize,
+				defaultSpecRequeueMaxRetries,
+				defaultSpecRequeueThreshold,
+				defaultSpecRequeueDelay,
+				mockPolicyManager,
+				log,
+			)
+			dataDir := tmpDir
+
+			s := &manager{
+				log:              log,
+				deviceReadWriter: readWriter,
+				queue:            queue,
+				currentPath:      filepath.Join(dataDir, string(Current)+".json"),
+				desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
+				rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
+				devicePublisher:  pub.Subscribe(),
+				cache:            newCache(log),
+			}
+
+			tc.setupMocks(mockPolicyManager)
+
+			err := s.write(Current, newVersionedDevice(tc.currentVersion))
+			require.NoError(err)
+			err = s.write(Desired, newVersionedDevice(tc.desiredVersion))
+			require.NoError(err)
+
+			opts := []RollbackOption{}
+			if tc.wantSetFailed {
+				opts = append(opts, WithSetFailed())
+			}
+
+			// ensure memory
+			assertRenderedVersions(t, s, tc.currentVersion, tc.desiredVersion)
+			// ensure disk state
+			assertDiskVersions(t, s, tc.currentVersion, tc.desiredVersion)
+
+			err = s.Rollback(ctx, opts...)
+			require.NoError(err)
+
+			// ensure memory
+			assertRenderedVersions(t, s, tc.wantCurrentVersion, tc.wantDesiredVersion)
+			// ensure disk state
+			assertDiskVersions(t, s, tc.wantCurrentVersion, tc.wantDesiredVersion)
+
+			// ensure the current spec was returned to the priority queue and available
+			next, requeue, err := s.GetDesired(ctx)
+			require.NoError(err)
+			require.False(requeue)
+			require.Equal(tc.wantNextVersion, next.Version())
+
+			// ensure desired vesion is tracked as failed
+			if tc.wantSetFailed {
+				version, err := stringToInt64(tc.desiredVersion)
+				require.NoError(err)
+				require.True(s.queue.IsFailed(version))
+			}
+		})
+	}
+}
+
+func assertRenderedVersions(t *testing.T, s *manager, wantCurrent, wantDesired string) {
+	require.Equal(t, wantCurrent, s.cache.getRenderedVersion(Current))
+	require.Equal(t, wantDesired, s.cache.getRenderedVersion(Desired))
+}
+
+func assertDiskVersions(t *testing.T, s *manager, wantCurrent, wantDesired string) {
+	current, err := s.Read(Current)
+	require.NoError(t, err)
+	require.Equal(t, wantCurrent, current.Version())
+
+	desired, err := s.Read(Desired)
+	require.NoError(t, err)
+	require.Equal(t, wantDesired, desired.Version())
 }
 
 func TestIsUpgrading(t *testing.T) {

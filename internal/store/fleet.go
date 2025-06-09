@@ -19,7 +19,7 @@ import (
 )
 
 type Fleet interface {
-	InitialMigration() error
+	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
 	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, api.ResourceUpdatedDetails, error)
@@ -27,7 +27,6 @@ type Fleet interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 
 	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
@@ -41,13 +40,13 @@ type Fleet interface {
 }
 
 type FleetStore struct {
-	db           *gorm.DB
+	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
 	genericStore *GenericStore[*model.Fleet, model.Fleet, api.Fleet, api.FleetList]
 }
 
-type FleetStoreCallback func(orgId uuid.UUID, before *api.Fleet, after *api.Fleet)
-type FleetStoreAllDeletedCallback func(orgId uuid.UUID)
+type FleetStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Fleet, after *api.Fleet)
+type FleetStoreAllDeletedCallback func(ctx context.Context, orgId uuid.UUID)
 
 // Make sure we conform to Fleet interface
 var _ Fleet = (*FleetStore)(nil)
@@ -60,35 +59,41 @@ func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
 		(*model.Fleet).ToApiResource,
 		model.FleetsToApiResource,
 	)
-	return &FleetStore{db: db, log: log, genericStore: genericStore}
+	return &FleetStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-func (s *FleetStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.Fleet{}); err != nil {
+func (s *FleetStore) getDB(ctx context.Context) *gorm.DB {
+	return s.dbHandler.WithContext(ctx)
+}
+
+func (s *FleetStore) InitialMigration(ctx context.Context) error {
+	db := s.getDB(ctx)
+
+	if err := db.AutoMigrate(&model.Fleet{}); err != nil {
 		return err
 	}
 
 	// Create GIN index for Fleet labels
-	if !s.db.Migrator().HasIndex(&model.Fleet{}, "idx_fleet_labels") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_fleet_labels ON fleets USING GIN (labels)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.Fleet{}, "idx_fleet_labels") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_fleet_labels ON fleets USING GIN (labels)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.Fleet{}, "Labels"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.Fleet{}, "Labels"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for Fleet annotations
-	if !s.db.Migrator().HasIndex(&model.Fleet{}, "idx_fleet_annotations") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_fleet_annotations ON fleets USING GIN (annotations)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.Fleet{}, "idx_fleet_annotations") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_fleet_annotations ON fleets USING GIN (annotations)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.Fleet{}, "Annotations"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.Fleet{}, "Annotations"); err != nil {
 				return err
 			}
 		}
@@ -129,7 +134,7 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 
 	var fleet fleetWithCount
 
-	result := s.db.Table("fleets").Where("org_id = ? and name = ?", orgId, name).
+	result := s.getDB(ctx).Table("fleets").Where("org_id = ? and name = ?", orgId, name).
 		Select(fleetSelectStr(options.withDeviceSummary)).
 		Scan(&fleet)
 	if result.Error != nil {
@@ -159,7 +164,7 @@ func (s *FleetStore) addStatusSummary(ctx context.Context, orgId uuid.UUID, flee
 	if err != nil {
 		return err
 	}
-	deviceQuery, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, ListParams{FieldSelector: fs})
+	deviceQuery, err := ListQuery(&model.Device{}).Build(ctx, s.getDB(ctx), orgId, ListParams{FieldSelector: fs})
 	if err != nil {
 		return err
 	}
@@ -214,7 +219,7 @@ func fleetSelectStr(withDeviceSummary bool) string {
 // - the field 'status.config.renderedVersion' is not the same as the annotation 'device-controller/renderedVersion'
 func (s *FleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error) {
 	var fleets []model.Fleet
-	err := s.db.Raw(fmt.Sprintf(`select * from (select *, annotations ->> '%s' as tv from fleets) as main_query
+	err := s.getDB(ctx).Raw(fmt.Sprintf(`select * from (select *, annotations ->> '%s' as tv from fleets) as main_query
          where
              org_id = ? and
              deleted_at is null and
@@ -243,7 +248,7 @@ func (s *FleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.
 // which is set after rollout.
 func (s *FleetStore) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error) {
 	var fleets []model.Fleet
-	err := s.db.Raw(fmt.Sprintf(`select * from (select *, annotations ->> '%s' as tv from fleets) as main_query
+	err := s.getDB(ctx).Raw(fmt.Sprintf(`select * from (select *, annotations ->> '%s' as tv from fleets) as main_query
          where
              org_id = ? and
              deleted_at is null and
@@ -270,7 +275,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	var options listOptions
 
 	lo.ForEach(opts, func(opt ListOption, _ int) { opt(&options) })
-	query, err := ListQuery(&model.Fleet{}).Build(ctx, s.db, orgId, listParams)
+	query, err := ListQuery(&model.Fleet{}).Build(ctx, s.getDB(ctx), orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +302,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 				numRemainingVal = 1
 			}
 		} else {
-			countQuery, err := ListQuery(&model.Fleet{}).Build(ctx, s.db, orgId, listParams)
+			countQuery, err := ListQuery(&model.Fleet{}).Build(ctx, s.getDB(ctx), orgId, listParams)
 			if err != nil {
 				return nil, err
 			}
@@ -331,10 +336,10 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 
 // A method to get all Fleets regardless of ownership. Used internally by the DeviceUpdater.
 // TODO: Add pagination, perhaps via gorm scopes.
-func (s *FleetStore) ListIgnoreOrg() ([]model.Fleet, error) {
+func (s *FleetStore) ListIgnoreOrg(ctx context.Context) ([]model.Fleet, error) {
 	var fleets []model.Fleet
 
-	result := s.db.Model(&fleets).Find(&fleets)
+	result := s.getDB(ctx).Model(&fleets).Find(&fleets)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
@@ -348,16 +353,12 @@ func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 		callback)
 }
 
-func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error {
-	return s.genericStore.DeleteAll(ctx, orgId, callback)
-}
-
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
 func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
-	db := s.db
+	db := s.getDB(ctx)
 	if tx != nil {
 		db = tx
 	}
@@ -372,7 +373,7 @@ func (s *FleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUI
 }
 
 func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error {
-	db := s.db
+	db := s.getDB(ctx)
 	if tx != nil {
 		db = tx
 	}
@@ -386,9 +387,9 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 	return ErrorFromGormError(result.Error)
 }
 
-func (s *FleetStore) updateConditions(orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
+func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
 	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.db.First(&existingRecord)
+	result := s.getDB(ctx).First(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -407,7 +408,7 @@ func (s *FleetStore) updateConditions(orgId uuid.UUID, name string, conditions [
 		return false, nil
 	}
 
-	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"status":           existingRecord.Status,
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
@@ -423,13 +424,13 @@ func (s *FleetStore) updateConditions(orgId uuid.UUID, name string, conditions [
 
 func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
 	return retryUpdate(func() (bool, error) {
-		return s.updateConditions(orgId, name, conditions)
+		return s.updateConditions(ctx, orgId, name, conditions)
 	})
 }
 
-func (s *FleetStore) updateAnnotations(orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
+func (s *FleetStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
 	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.db.First(&existingRecord)
+	result := s.getDB(ctx).First(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -440,7 +441,7 @@ func (s *FleetStore) updateAnnotations(orgId uuid.UUID, name string, annotations
 		delete(existingAnnotations, deleteKey)
 	}
 
-	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"annotations":      model.MakeJSONMap(existingAnnotations),
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
@@ -456,7 +457,7 @@ func (s *FleetStore) updateAnnotations(orgId uuid.UUID, name string, annotations
 
 func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	return retryUpdate(func() (bool, error) {
-		return s.updateAnnotations(orgId, name, annotations, deleteKeys)
+		return s.updateAnnotations(ctx, orgId, name, annotations, deleteKeys)
 	})
 }
 
@@ -465,7 +466,7 @@ func (s *FleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUI
 	for _, repoName := range repositoryNames {
 		repos = append(repos, model.Repository{Resource: model.Resource{OrgID: orgId, Name: repoName}})
 	}
-	return s.db.Transaction(func(innerTx *gorm.DB) error {
+	return s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
 		fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
 		if err := innerTx.Model(&fleet).Association("Repositories").Replace(repos); err != nil {
 			return ErrorFromGormError(err)
@@ -477,7 +478,7 @@ func (s *FleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUI
 func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error) {
 	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
 	var repos []model.Repository
-	err := s.db.Model(&fleet).Association("Repositories").Find(&repos)
+	err := s.getDB(ctx).Model(&fleet).Association("Repositories").Find(&repos)
 	if err != nil {
 		return nil, ErrorFromGormError(err)
 	}

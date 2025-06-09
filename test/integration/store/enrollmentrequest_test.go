@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -58,17 +59,17 @@ var _ = Describe("enrollmentRequestStore create", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numEnrollmentRequests = 3
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
 		createEnrollmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("EnrollmentRequest store", func() {
@@ -99,24 +100,6 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		It("Delete enrollmentrequest success when not found", func() {
 			err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("Delete all enrollmentrequests in org", func() {
-			otherOrgId, _ := uuid.NewUUID()
-			err := storeInst.EnrollmentRequest().DeleteAll(ctx, otherOrgId)
-			Expect(err).ToNot(HaveOccurred())
-
-			listParams := store.ListParams{Limit: 1000}
-			enrollmentrequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(enrollmentrequests.Items)).To(Equal(numEnrollmentRequests))
-
-			err = storeInst.EnrollmentRequest().DeleteAll(ctx, orgId)
-			Expect(err).ToNot(HaveOccurred())
-
-			enrollmentrequests, err = storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(enrollmentrequests.Items)).To(Equal(0))
 		})
 
 		It("List with paging", func() {

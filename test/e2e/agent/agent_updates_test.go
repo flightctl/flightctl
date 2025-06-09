@@ -1,8 +1,11 @@
 package agent_test
 
 import (
+	"context"
+
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -10,12 +13,14 @@ import (
 
 var _ = Describe("VM Agent behavior during updates", func() {
 	var (
+		ctx      context.Context
 		harness  *e2e.Harness
 		deviceId string
 	)
 
 	BeforeEach(func() {
-		harness = e2e.NewTestHarness()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		harness = e2e.NewTestHarness(ctx)
 		deviceId = harness.StartVMAndEnroll()
 	})
 
