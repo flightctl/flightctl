@@ -130,6 +130,12 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	}
 
 	if exists {
+		if !requeue.downloadPolicySatisfied && !requeue.updatePolicySatisfied {
+			m.queue.Add(item)
+			m.log.Debugf("Template version %d policies are not satisfied skipping...", item.Version)
+			return nil, false
+		}
+
 		requeue.nextAvailable = time.Time{}
 		m.log.Debugf("Template version is now available for retrieval: %d", item.Version)
 		requeue.tries++
@@ -222,6 +228,9 @@ func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64)
 	return false
 }
 
+// updatePolicy calls into the policyManager to check if the policys have been
+// satisfied since the last call an updates accordingly returns true if the
+// polciy has changed.
 func (m *queueManager) updatePolicy(ctx context.Context, requeue *requeueState) bool {
 	changed := false
 	if !requeue.downloadPolicySatisfied {
