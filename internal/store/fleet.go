@@ -27,7 +27,6 @@ type Fleet interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 
 	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
@@ -352,10 +351,6 @@ func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 		ctx,
 		model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}},
 		callback)
-}
-
-func (s *FleetStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback FleetStoreAllDeletedCallback) error {
-	return s.genericStore.DeleteAll(ctx, orgId, callback)
 }
 
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {

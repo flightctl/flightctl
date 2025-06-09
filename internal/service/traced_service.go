@@ -43,12 +43,6 @@ func endSpan(span trace.Span, st api.Status) {
 }
 
 // --- CertificateSigningRequest ---
-func (t *TracedService) DeleteCertificateSigningRequests(ctx context.Context) api.Status {
-	ctx, span := startSpan(ctx, "DeleteCertificateSigningRequests")
-	st := t.inner.DeleteCertificateSigningRequests(ctx)
-	endSpan(span, st)
-	return st
-}
 func (t *TracedService) ListCertificateSigningRequests(ctx context.Context, p api.ListCertificateSigningRequestsParams) (*api.CertificateSigningRequestList, api.Status) {
 	ctx, span := startSpan(ctx, "ListCertificateSigningRequests")
 	resp, st := t.inner.ListCertificateSigningRequests(ctx, p)
@@ -110,12 +104,6 @@ func (t *TracedService) UpdateDevice(ctx context.Context, name string, device ap
 	resp, err := t.inner.UpdateDevice(ctx, name, device, fieldsToUnset)
 	endSpan(span, StoreErrorToApiStatus(err, false, api.DeviceKind, device.Metadata.Name))
 	return resp, err
-}
-func (t *TracedService) DeleteDevices(ctx context.Context) api.Status {
-	ctx, span := startSpan(ctx, "DeleteDevices")
-	st := t.inner.DeleteDevices(ctx)
-	endSpan(span, st)
-	return st
 }
 func (t *TracedService) GetDevice(ctx context.Context, name string) (*api.Device, api.Status) {
 	ctx, span := startSpan(ctx, "GetDevice")
@@ -271,12 +259,6 @@ func (t *TracedService) ListEnrollmentRequests(ctx context.Context, params api.L
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) DeleteEnrollmentRequests(ctx context.Context) api.Status {
-	ctx, span := startSpan(ctx, "DeleteEnrollmentRequests")
-	st := t.inner.DeleteEnrollmentRequests(ctx)
-	endSpan(span, st)
-	return st
-}
 func (t *TracedService) GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
 	ctx, span := startSpan(ctx, "GetEnrollmentRequest")
 	resp, st := t.inner.GetEnrollmentRequest(ctx, name)
@@ -332,12 +314,6 @@ func (t *TracedService) ListFleets(ctx context.Context, params api.ListFleetsPar
 	resp, st := t.inner.ListFleets(ctx, params)
 	endSpan(span, st)
 	return resp, st
-}
-func (t *TracedService) DeleteFleets(ctx context.Context) api.Status {
-	ctx, span := startSpan(ctx, "DeleteFleets")
-	st := t.inner.DeleteFleets(ctx)
-	endSpan(span, st)
-	return st
 }
 func (t *TracedService) GetFleet(ctx context.Context, name string, params api.GetFleetParams) (*api.Fleet, api.Status) {
 	ctx, span := startSpan(ctx, "GetFleet")
@@ -435,12 +411,6 @@ func (t *TracedService) ListRepositories(ctx context.Context, params api.ListRep
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) DeleteRepositories(ctx context.Context) api.Status {
-	ctx, span := startSpan(ctx, "DeleteRepositories")
-	st := t.inner.DeleteRepositories(ctx)
-	endSpan(span, st)
-	return st
-}
 func (t *TracedService) GetRepository(ctx context.Context, name string) (*api.Repository, api.Status) {
 	ctx, span := startSpan(ctx, "GetRepository")
 	resp, st := t.inner.GetRepository(ctx, name)
@@ -497,12 +467,6 @@ func (t *TracedService) ListResourceSyncs(ctx context.Context, params api.ListRe
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) DeleteResourceSyncs(ctx context.Context) api.Status {
-	ctx, span := startSpan(ctx, "DeleteResourceSyncs")
-	st := t.inner.DeleteResourceSyncs(ctx)
-	endSpan(span, st)
-	return st
-}
 func (t *TracedService) GetResourceSync(ctx context.Context, name string) (*api.ResourceSync, api.Status) {
 	ctx, span := startSpan(ctx, "GetResourceSync")
 	resp, st := t.inner.GetResourceSync(ctx, name)
@@ -546,12 +510,6 @@ func (t *TracedService) ListTemplateVersions(ctx context.Context, fleet string, 
 	resp, st := t.inner.ListTemplateVersions(ctx, fleet, params)
 	endSpan(span, st)
 	return resp, st
-}
-func (t *TracedService) DeleteTemplateVersions(ctx context.Context, fleet string) api.Status {
-	ctx, span := startSpan(ctx, "DeleteTemplateVersions")
-	st := t.inner.DeleteTemplateVersions(ctx, fleet)
-	endSpan(span, st)
-	return st
 }
 func (t *TracedService) GetTemplateVersion(ctx context.Context, fleet string, name string) (*api.TemplateVersion, api.Status) {
 	ctx, span := startSpan(ctx, "GetTemplateVersion")

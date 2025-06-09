@@ -316,20 +316,6 @@ func (s *GenericStore[P, M, A, AL]) deleteWithAssociated(ctx context.Context, re
 	return deleted, err
 }
 
-func (s *GenericStore[P, M, A, AL]) DeleteAll(ctx context.Context, orgId uuid.UUID, callback func(ctx context.Context, orgId uuid.UUID)) error {
-	var resource M
-	result := s.getDB(ctx).Unscoped().Where("org_id = ? AND spec IS NOT NULL", orgId).Delete(&resource)
-
-	if result.Error != nil {
-		return ErrorFromGormError(result.Error)
-	}
-	if callback != nil {
-		callback(ctx, orgId)
-	}
-
-	return nil
-}
-
 func (s *GenericStore[P, M, A, AL]) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *A) (*A, error) {
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil

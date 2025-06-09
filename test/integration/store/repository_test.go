@@ -98,28 +98,6 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(callbackCalled).To(BeFalse())
 		})
 
-		It("Delete all repositories in org", func() {
-			otherOrgId, _ := uuid.NewUUID()
-			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(context.Context, uuid.UUID) { callbackCalled = true })
-			err := storeInst.Repository().DeleteAll(ctx, otherOrgId, deleteAllCallback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeTrue())
-
-			listParams := store.ListParams{Limit: 1000}
-			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(repositories.Items)).To(Equal(numRepositories))
-
-			callbackCalled = false
-			err = storeInst.Repository().DeleteAll(ctx, orgId, deleteAllCallback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeTrue())
-
-			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(repositories.Items)).To(Equal(0))
-		})
-
 		It("List with paging", func() {
 			// Delete the repo with nilspec so it doesn't interfere with the counts
 			nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
@@ -288,28 +266,5 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(callbackCalled).To(BeTrue())
 		})
 
-		It("Delete all repos with associations", func() {
-			testutil.CreateTestFleets(ctx, 1, storeInst.Fleet(), orgId, "myfleet", false, nil)
-			testutil.CreateTestDevices(ctx, 1, storeInst.Device(), orgId, nil, false)
-
-			err := storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "myfleet-1", "myrepository-1")
-			Expect(err).ToNot(HaveOccurred())
-			repos, err := storeInst.Fleet().GetRepositoryRefs(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(1))
-			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
-
-			err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "mydevice-1", "myrepository-1")
-			Expect(err).ToNot(HaveOccurred())
-			repos, err = storeInst.Device().GetRepositoryRefs(ctx, orgId, "mydevice-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repos.Items).To(HaveLen(1))
-			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
-
-			deleteAllCallback := store.RepositoryStoreAllDeletedCallback(func(context.Context, uuid.UUID) { callbackCalled = true })
-			err = storeInst.Repository().DeleteAll(ctx, orgId, deleteAllCallback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeTrue())
-		})
 	})
 })

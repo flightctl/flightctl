@@ -260,26 +260,24 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 			return err
 		}
 		// set the desired spec as failed
-
 		s.queue.SetFailed(version)
 	}
 
-	// copy the current rendered spec to the desired rendered spec
-	// this will reconcile the device with the desired "rollback" state
+	// rollback on disk state current == desired
 	if err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath); err != nil {
 		return fmt.Errorf("%w: copy %q to %q: %w", errors.ErrCopySpec, s.currentPath, s.desiredPath, err)
 	}
 
-	// update cache
-	desired, err := s.Read(Desired)
+	current, err := s.Read(Current)
 	if err != nil {
 		return err
 	}
 
-	// add the desired spec back to the queue to ensure reconciliation
-	s.queue.Add(ctx, desired)
+	// add the current spec back to the priority queue to ensure future resync
+	s.queue.Add(ctx, current)
 
-	s.cache.update(Desired, desired)
+	// rollback in-memory cache current == desired
+	s.cache.update(Desired, current)
 	return nil
 }
 

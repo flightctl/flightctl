@@ -231,36 +231,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-    delete:
-      tags:
-        - resourcesync
-      description: Delete ResourceSync resources.
-      operationId: deleteResourceSyncs
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
   /api/v1/resourcesyncs/{name}:
     get:
       tags:
@@ -575,36 +545,6 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-    delete:
-      tags:
-        - repository
-      description: Delete Repository resources.
-      operationId: deleteRepositories
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
           content:
             application/json:
               schema:
@@ -935,36 +875,6 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-    delete:
-      tags:
-        - device
-      description: Delete Device resources.
-      operationId: deleteDevices
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
           content:
             application/json:
               schema:
@@ -1618,36 +1528,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-    delete:
-      tags:
-        - enrollmentrequest
-      description: Delete EnrollmentRequest resources.
-      operationId: deleteEnrollmentRequests
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     get:
       tags:
@@ -2182,36 +2062,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-    delete:
-      tags:
-        - certificatesigningrequest
-      description: Delete CertificateSigningRequest resources.
-      operationId: deleteCertificateSigningRequests
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
   /api/v1/certificatesigningrequests/{name}:
     patch:
       tags:
@@ -2595,36 +2445,6 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: StatusConflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-    delete:
-      tags:
-        - fleet
-      description: Delete Fleet resources.
-      operationId: deleteFleets
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
           content:
             application/json:
               schema:
@@ -3049,43 +2869,6 @@ paths:
                 $ref: '#/components/schemas/TemplateVersionList'
         "400":
           description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-        "503":
-          description: ServiceUnavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Status'
-    delete:
-      tags:
-        - fleet
-      description: delete a collection of template versions
-      operationId: deleteTemplateVersions
-      parameters:
-        - name: fleet
-          in: path
-          description: The owner of the template versions.
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
           content:
             application/json:
               schema:
@@ -5218,6 +5001,25 @@ components:
             - ResourceUpdateFailed
             - ResourceDeleted
             - ResourceDeletionFailed
+            - DeviceDecommissioned
+            - DeviceDecommissionFailed
+            - DeviceCPUCritical
+            - DeviceCPUWarning
+            - DeviceCPUNormal
+            - DeviceMemoryCritical
+            - DeviceMemoryWarning
+            - DeviceMemoryNormal
+            - DeviceDiskCritical
+            - DeviceDiskWarning
+            - DeviceDiskNormal
+            - DeviceApplicationError
+            - DeviceApplicationDegraded
+            - DeviceApplicationHealthy
+            - DeviceDisconnected
+            - DeviceConnected
+            - DeviceContentUpToDate
+            - DeviceContentOutOfDate
+            - DeviceContentUpdating
         message:
           type: string
           description: A human-readable description of the status of this operation.

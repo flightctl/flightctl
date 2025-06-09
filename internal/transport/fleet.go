@@ -25,12 +25,6 @@ func (h *TransportHandler) ListFleets(w http.ResponseWriter, r *http.Request, pa
 	SetResponse(w, body, status)
 }
 
-// (DELETE /api/v1/fleets)
-func (h *TransportHandler) DeleteFleets(w http.ResponseWriter, r *http.Request) {
-	status := h.serviceHandler.DeleteFleets(r.Context())
-	SetResponse(w, nil, status)
-}
-
 // (GET /api/v1/fleets/{name})
 func (h *TransportHandler) GetFleet(w http.ResponseWriter, r *http.Request, name string, params api.GetFleetParams) {
 	body, status := h.serviceHandler.GetFleet(r.Context(), name, params)

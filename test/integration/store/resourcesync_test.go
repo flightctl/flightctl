@@ -146,53 +146,6 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(callbackCalled).To(BeFalse())
 		})
 
-		It("Delete all resourcesyncs in org", func() {
-			owner := util.SetResourceOwner(api.ResourceSyncKind, "myresourcesync-1")
-			otherOrgId, _ := uuid.NewUUID()
-			testutil.CreateTestFleets(ctx, 2, storeInst.Fleet(), orgId, "myfleet", true, owner)
-			testutil.CreateTestFleets(ctx, 2, storeInst.Fleet(), otherOrgId, "myfleet", true, owner)
-			callbackCalled := false
-			err := storeInst.ResourceSync().DeleteAll(ctx, otherOrgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
-				callbackCalled = true
-				Expect(kind).To(Equal(api.ResourceSyncKind))
-				return nil
-			})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeTrue())
-
-			listParams := store.ListParams{Limit: 1000}
-			resourcesyncs, err := storeInst.ResourceSync().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(resourcesyncs.Items)).To(Equal(numResourceSyncs))
-
-			callbackCalled = false
-			fleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fleet.Metadata.Owner).ToNot(BeNil())
-			Expect(*fleet.Metadata.Owner).To(Equal(*owner))
-
-			err = storeInst.ResourceSync().DeleteAll(ctx, orgId, func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error {
-				callbackCalled = true
-				Expect(kind).To(Equal(api.ResourceSyncKind))
-				return storeInst.Fleet().UnsetOwnerByKind(ctx, tx, orgId, kind)
-			})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(callbackCalled).To(BeTrue())
-
-			fleet, err = storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fleet.Metadata.Owner).To(BeNil())
-
-			resourcesyncs, err = storeInst.ResourceSync().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(resourcesyncs.Items)).To(Equal(0))
-
-			fleet, err = storeInst.Fleet().Get(ctx, otherOrgId, "myfleet-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fleet.Metadata.Owner).ToNot(BeNil())
-			Expect(*fleet.Metadata.Owner).To(Equal(*owner))
-		})
-
 		It("List with paging", func() {
 			listParams := store.ListParams{Limit: 1000}
 			allResourceSyncs, err := storeInst.ResourceSync().List(ctx, orgId, listParams)
