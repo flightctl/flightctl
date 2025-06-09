@@ -2,8 +2,6 @@ package store_test
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -13,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -20,32 +19,6 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
-
-func createEnrollmentRequests(numEnrollmentRequests int, ctx context.Context, store store.Store, orgId uuid.UUID) {
-	for i := 1; i <= numEnrollmentRequests; i++ {
-		resource := api.EnrollmentRequest{
-			Metadata: api.ObjectMeta{
-				Name:   lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
-			},
-			Spec: api.EnrollmentRequestSpec{
-				Csr: "csr string",
-			},
-			Status: &api.EnrollmentRequestStatus{
-				Certificate: lo.ToPtr("cert"),
-			},
-		}
-
-		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("creating enrollmentrequest: %v", err)
-		}
-		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("updating enrollmentrequest status: %v", err)
-		}
-	}
-}
 
 var _ = Describe("enrollmentRequestStore create", func() {
 	var (
@@ -65,7 +38,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		numEnrollmentRequests = 3
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
-		createEnrollmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
+		util.CreateTestEnrolmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
 	})
 
 	AfterEach(func() {

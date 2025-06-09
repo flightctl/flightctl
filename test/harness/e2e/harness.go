@@ -1442,6 +1442,9 @@ func (h Harness) ManageResource(operation, resource string, args ...string) (str
 			deleteArgs := append([]string{"delete", resource}, args...)
 			return h.CLI(deleteArgs...)
 		}
+		if len(args) == 0 {
+			return h.CLI("delete", resource)
+		}
 		return h.CleanUpResources(resource)
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
