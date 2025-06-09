@@ -126,12 +126,31 @@ const (
 
 // Defines values for EventReason.
 const (
-	ResourceCreated        EventReason = "ResourceCreated"
-	ResourceCreationFailed EventReason = "ResourceCreationFailed"
-	ResourceDeleted        EventReason = "ResourceDeleted"
-	ResourceDeletionFailed EventReason = "ResourceDeletionFailed"
-	ResourceUpdateFailed   EventReason = "ResourceUpdateFailed"
-	ResourceUpdated        EventReason = "ResourceUpdated"
+	DeviceApplicationDegraded EventReason = "DeviceApplicationDegraded"
+	DeviceApplicationError    EventReason = "DeviceApplicationError"
+	DeviceApplicationHealthy  EventReason = "DeviceApplicationHealthy"
+	DeviceCPUCritical         EventReason = "DeviceCPUCritical"
+	DeviceCPUNormal           EventReason = "DeviceCPUNormal"
+	DeviceCPUWarning          EventReason = "DeviceCPUWarning"
+	DeviceConnected           EventReason = "DeviceConnected"
+	DeviceContentOutOfDate    EventReason = "DeviceContentOutOfDate"
+	DeviceContentUpToDate     EventReason = "DeviceContentUpToDate"
+	DeviceContentUpdating     EventReason = "DeviceContentUpdating"
+	DeviceDecommissionFailed  EventReason = "DeviceDecommissionFailed"
+	DeviceDecommissioned      EventReason = "DeviceDecommissioned"
+	DeviceDisconnected        EventReason = "DeviceDisconnected"
+	DeviceDiskCritical        EventReason = "DeviceDiskCritical"
+	DeviceDiskNormal          EventReason = "DeviceDiskNormal"
+	DeviceDiskWarning         EventReason = "DeviceDiskWarning"
+	DeviceMemoryCritical      EventReason = "DeviceMemoryCritical"
+	DeviceMemoryNormal        EventReason = "DeviceMemoryNormal"
+	DeviceMemoryWarning       EventReason = "DeviceMemoryWarning"
+	ResourceCreated           EventReason = "ResourceCreated"
+	ResourceCreationFailed    EventReason = "ResourceCreationFailed"
+	ResourceDeleted           EventReason = "ResourceDeleted"
+	ResourceDeletionFailed    EventReason = "ResourceDeletionFailed"
+	ResourceUpdateFailed      EventReason = "ResourceUpdateFailed"
+	ResourceUpdated           EventReason = "ResourceUpdated"
 )
 
 // Defines values for EventType.
