@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
@@ -18,6 +19,10 @@ type JWTAuth struct {
 	externalOIDCAuthority string
 	jwksUri               string
 	clientTlsConfig       *tls.Config
+	clientId              string
+	scope                 string
+	inferAlgKey           bool
+	forcePKCE             bool
 }
 
 type OIDCServerResponse struct {
@@ -25,11 +30,15 @@ type OIDCServerResponse struct {
 	JwksUri       string `json:"jwks_uri"`
 }
 
-func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, clientTlsConfig *tls.Config) (JWTAuth, error) {
+func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, clientTlsConfig *tls.Config, clientId string, scope string, inferAlgKey, forcePKCE bool) (JWTAuth, error) {
 	jwtAuth := JWTAuth{
 		oidcAuthority:         oidcAuthority,
 		externalOIDCAuthority: externalOIDCAuthority,
 		clientTlsConfig:       clientTlsConfig,
+		clientId:              clientId,
+		scope:                 scope,
+		inferAlgKey:           inferAlgKey,
+		forcePKCE:             forcePKCE,
 	}
 
 	client := &http.Client{
@@ -63,7 +72,7 @@ func (j JWTAuth) ValidateToken(ctx context.Context, token string) error {
 	if err != nil {
 		return err
 	}
-	_, err = jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
+	_, err = jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet, jws.WithInferAlgorithmFromKey(j.inferAlgKey)), jwt.WithValidate(true))
 	return err
 }
 
@@ -74,8 +83,11 @@ func (j JWTAuth) GetIdentity(ctx context.Context, token string) (*common.Identit
 
 func (j JWTAuth) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
-		Type: common.AuthTypeOIDC,
-		Url:  j.externalOIDCAuthority,
+		Type:      common.AuthTypeOIDC,
+		Url:       j.externalOIDCAuthority,
+		Scope:     j.scope,
+		ClientId:  j.clientId,
+		ForcePKCE: j.forcePKCE,
 	}
 }
 

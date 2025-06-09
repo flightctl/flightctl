@@ -31,6 +31,7 @@ type LoginOptions struct {
 	authConfig         *v1alpha1.AuthConfig
 	authProvider       login.AuthProvider
 	clientConfig       *client.Config
+	Scope              string
 }
 
 func DefaultLoginOptions() *LoginOptions {
@@ -44,6 +45,7 @@ func DefaultLoginOptions() *LoginOptions {
 		AuthCAFile:         "",
 		Username:           "",
 		Password:           "",
+		Scope:              "",
 	}
 }
 
@@ -113,17 +115,31 @@ func (o *LoginOptions) Init(args []string) error {
 	}
 
 	if o.ClientId == "" {
-		switch o.authConfig.AuthType {
-		case common.AuthTypeK8s:
-			if o.Username != "" {
-				o.ClientId = "openshift-challenging-client"
-			} else {
-				o.ClientId = "openshift-cli-client"
+		if o.authConfig.ClientId != nil {
+			o.ClientId = *o.authConfig.ClientId
+		} else {
+			switch o.authConfig.AuthType {
+			case common.AuthTypeK8s:
+				if o.Username != "" {
+					o.ClientId = "openshift-challenging-client"
+				} else {
+					o.ClientId = "openshift-cli-client"
+				}
+			case common.AuthTypeOIDC:
+				o.ClientId = "flightctl"
 			}
-		case common.AuthTypeOIDC:
-			o.ClientId = "flightctl"
 		}
 	}
+
+	if o.Scope == "" && o.authConfig.Scope != nil {
+		o.Scope = *o.authConfig.Scope
+	}
+
+	forcePKCE := "false"
+	if o.authConfig.ForcePKCE != nil && *o.authConfig.ForcePKCE {
+		forcePKCE = "true"
+	}
+
 	o.authProvider, err = client.CreateAuthProvider(client.AuthInfo{
 		AuthProvider: &client.AuthProviderConfig{
 			Name: o.authConfig.AuthType,
@@ -131,6 +147,8 @@ func (o *LoginOptions) Init(args []string) error {
 				client.AuthUrlKey:      o.authConfig.AuthURL,
 				client.AuthCAFileKey:   o.AuthCAFile,
 				client.AuthClientIdKey: o.ClientId,
+				client.AuthScopeKey:    o.Scope,
+				client.AuthForcePKCE:   forcePKCE,
 			},
 		},
 	}, o.InsecureSkipVerify)
@@ -225,6 +243,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if token == "" {
 		return fmt.Errorf("failed to retrieve auth token")
 	}
+
 	o.clientConfig.AuthInfo.Token = token
 
 	if o.AuthCAFile != "" {

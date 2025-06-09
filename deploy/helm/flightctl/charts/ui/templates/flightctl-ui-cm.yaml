@@ -11,7 +11,9 @@ data:
   FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.api.insecureSkipTlsVerify | quote }}
   IS_RHEM: {{ .Values.isRHEM | quote }}
   AUTH_INSECURE_SKIP_VERIFY: {{ default ((.Values.global).auth).insecureSkipTlsVerify .Values.auth.insecureSkipTlsVerify | quote }}
-  AUTH_CLIENT_ID: {{ .Values.auth.clientId }}
+  AUTH_CLIENT_ID: {{ default ((.Values.global).auth).oidc.clientId .Values.auth.clientId | quote }}
+  AUTH_SCOPE: {{ default ((.Values.global).auth).oidc.scope .Values.auth.scope | quote }}
+  AUTH_FORCE_PKCE: {{ default ((.Values.global).auth).oidc.forcePKCE .Values.auth.forcePKCE  | quote }}
   {{- if eq (.Values.global).target "acm" }}
   K8S_RBAC_NS: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs | quote }}
   {{- else }}

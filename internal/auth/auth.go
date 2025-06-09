@@ -102,7 +102,7 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
 	authZ = NilAuth{}
 	var err error
-	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg))
+	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), cfg.Auth.OIDC.ClientId, cfg.Auth.OIDC.Scope, cfg.Auth.OIDC.InferAlgKey, cfg.Auth.OIDC.ForcePKCE)
 	if err != nil {
 		return fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}

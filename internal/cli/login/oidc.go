@@ -7,14 +7,17 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 
 	"github.com/openshift/osincli"
+	"github.com/samber/lo"
+	"golang.org/x/oauth2"
 )
 
 type OIDCDirectResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    *int64 `json:"expires_in"` // ExpiresIn in seconds
+	AccessToken  string      `json:"access_token"`
+	RefreshToken string      `json:"refresh_token"`
+	ExpiresIn    interface{} `json:"expires_in"` // ExpiresIn in seconds
 }
 
 type OIDC struct {
@@ -22,14 +25,18 @@ type OIDC struct {
 	CAFile             string
 	InsecureSkipVerify bool
 	ConfigUrl          string
+	Scope              string
+	ForcePKCE          bool
 }
 
-func NewOIDCConfig(caFile, clientId, authUrl string, insecure bool) OIDC {
+func NewOIDCConfig(caFile, clientId, authUrl string, insecure bool, scope string, forcePKCE bool) OIDC {
 	return OIDC{
 		CAFile:             caFile,
 		InsecureSkipVerify: insecure,
 		ClientId:           clientId,
 		ConfigUrl:          fmt.Sprintf("%s/.well-known/openid-configuration", authUrl),
+		Scope:              scope,
+		ForcePKCE:          forcePKCE,
 	}
 }
 
@@ -39,13 +46,25 @@ func (o OIDC) getOIDCClient(callback string) (*osincli.Client, error) {
 		return nil, err
 	}
 
+	var verifier *string = nil
+	if o.ForcePKCE || slices.Contains(oauthServerResponse.CodeChallengeMethod, "S256") {
+		verifier = lo.ToPtr(oauth2.GenerateVerifier())
+	}
+
 	config := &osincli.ClientConfig{
-		ClientId:           o.ClientId,
-		AuthorizeUrl:       oauthServerResponse.AuthEndpoint,
-		TokenUrl:           oauthServerResponse.TokenEndpoint,
-		ErrorsInStatusCode: true,
-		RedirectUrl:        callback,
-		Scope:              "openid",
+		ClientId:                 o.ClientId,
+		AuthorizeUrl:             oauthServerResponse.AuthEndpoint,
+		TokenUrl:                 oauthServerResponse.TokenEndpoint,
+		ErrorsInStatusCode:       true,
+		RedirectUrl:              callback,
+		Scope:                    o.Scope,
+		SendClientSecretInParams: true,
+	}
+
+	if verifier != nil {
+		config.CodeChallengeMethod = "S256"
+		config.CodeChallenge = oauth2.S256ChallengeFromVerifier(*verifier)
+		config.CodeVerifier = *verifier
 	}
 
 	client, err := osincli.NewClient(config)
@@ -73,6 +92,8 @@ func (o OIDC) authHeadless(username, password string) (AuthInfo, error) {
 	param.Add("username", username)
 	param.Add("password", password)
 	param.Add("grant_type", "password")
+	param.Add("scope", o.Scope)
+	param.Add("resource", o.ClientId)
 	payload := bytes.NewBufferString(param.Encode())
 
 	req, err := http.NewRequest(http.MethodPost, oauthResponse.TokenEndpoint, payload)
@@ -117,7 +138,18 @@ func (o OIDC) authHeadless(username, password string) (AuthInfo, error) {
 		return AuthInfo{}, fmt.Errorf("failed to parse OIDC response: %w", err)
 	}
 
-	return AuthInfo(directResponse), nil
+	var expiresIn *int64
+	if directResponse.ExpiresIn != nil {
+		expiresIn, err = getExpiresIn(directResponse.ExpiresIn)
+		if err != nil {
+			return AuthInfo{}, fmt.Errorf("failed to parse token expiration: %w", err)
+		}
+	}
+	return AuthInfo{
+		AccessToken:  directResponse.AccessToken,
+		RefreshToken: directResponse.RefreshToken,
+		ExpiresIn:    expiresIn,
+	}, nil
 }
 
 func (o OIDC) Renew(refreshToken string) (AuthInfo, error) {

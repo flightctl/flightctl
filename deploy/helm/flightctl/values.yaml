@@ -52,6 +52,10 @@ global:
     oidc:
       oidcAuthority: http://keycloak:8081/realms/flightctl
       externalOidcAuthority: ""
+      clientId: flightctl
+      scope: openid
+      inferAlgKey: false
+      forcePKCE: false
     aap:
       apiUrl: ""
       externalApiUrl: ""

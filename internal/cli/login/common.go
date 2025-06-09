@@ -10,8 +10,9 @@ import (
 )
 
 type OauthServerResponse struct {
-	TokenEndpoint string `json:"token_endpoint"`
-	AuthEndpoint  string `json:"authorization_endpoint"`
+	TokenEndpoint       string   `json:"token_endpoint"`
+	AuthEndpoint        string   `json:"authorization_endpoint"`
+	CodeChallengeMethod []string `json:"code_challenge_methods_supported"`
 }
 
 func getAuthClientTlsConfig(authCAFile string, insecureSkipVerify bool) (*tls.Config, error) {
