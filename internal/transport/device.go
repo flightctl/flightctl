@@ -25,12 +25,6 @@ func (h *TransportHandler) ListDevices(w http.ResponseWriter, r *http.Request, p
 	SetResponse(w, body, status)
 }
 
-// (DELETE /api/v1/devices)
-func (h *TransportHandler) DeleteDevices(w http.ResponseWriter, r *http.Request) {
-	status := h.serviceHandler.DeleteDevices(r.Context())
-	SetResponse(w, nil, status)
-}
-
 // (GET /api/v1/devices/{name})
 func (h *TransportHandler) GetDevice(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetDevice(r.Context(), name)

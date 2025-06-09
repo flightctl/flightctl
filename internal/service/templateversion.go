@@ -70,47 +70,6 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string,
 	}
 }
 
-func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, fleet string) api.Status {
-	orgId := store.NullOrgId
-
-	var (
-		fieldSelector *selector.FieldSelector
-		err           error
-	)
-	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": fleet}); err != nil {
-		return api.StatusInternalServerError(fmt.Sprintf("failed creating field selector: %v", err))
-	}
-
-	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's config storage
-	listParams := store.ListParams{
-		Limit:         100,
-		FieldSelector: fieldSelector,
-	}
-	for {
-		result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
-		if err != nil {
-			h.log.Warnf("failed deleting KV storage for templateVersions in org %s", orgId)
-			break
-		}
-		for _, tv := range result.Items {
-			tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: tv.Spec.Fleet, TemplateVersion: *tv.Metadata.Name}
-			err := h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
-			if err != nil {
-				h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, tv.Spec.Fleet, *tv.Metadata.Name)
-			}
-		}
-		if result.Metadata.Continue != nil {
-			cont, _ := store.ParseContinueString(result.Metadata.Continue)
-			listParams.Continue = cont
-		} else {
-			break
-		}
-	}
-
-	err = h.store.TemplateVersion().DeleteAll(ctx, orgId, &fleet)
-	return StoreErrorToApiStatus(err, false, api.TemplateVersionKind, nil)
-}
-
 func (h *ServiceHandler) GetTemplateVersion(ctx context.Context, fleet string, name string) (*api.TemplateVersion, api.Status) {
 	orgId := store.NullOrgId
 

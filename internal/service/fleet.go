@@ -56,13 +56,6 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, params api.ListFleetsPa
 	}
 }
 
-func (h *ServiceHandler) DeleteFleets(ctx context.Context) api.Status {
-	orgId := store.NullOrgId
-
-	err := h.store.Fleet().DeleteAll(ctx, orgId, h.callbackManager.AllFleetsDeletedCallback)
-	return StoreErrorToApiStatus(err, false, api.FleetKind, nil)
-}
-
 func (h *ServiceHandler) GetFleet(ctx context.Context, name string, params api.GetFleetParams) (*api.Fleet, api.Status) {
 	orgId := store.NullOrgId
 

@@ -18,8 +18,7 @@ type TemplateVersion interface {
 	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error)
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) (bool, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error
+	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) error
 
 	GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error
@@ -121,20 +120,6 @@ func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, f
 
 func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) (bool, error) {
 	return s.genericStore.Delete(ctx, model.TemplateVersion{OrgID: orgId, Name: name, FleetName: fleet}, nil)
-}
-
-func (s *TemplateVersionStore) DeleteAll(ctx context.Context, orgId uuid.UUID, fleet *string) error {
-	condition := model.TemplateVersion{}
-	unscoped := s.getDB(ctx).Unscoped()
-	var whereQuery *gorm.DB
-	if fleet != nil {
-		whereQuery = unscoped.Where("org_id = ? AND fleet_name = ?", orgId, *fleet)
-	} else {
-		whereQuery = unscoped.Where("org_id = ?", orgId)
-	}
-
-	result := whereQuery.Delete(&condition)
-	return ErrorFromGormError(result.Error)
 }
 
 func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error {

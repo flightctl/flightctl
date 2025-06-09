@@ -22,7 +22,6 @@ type ResourceSync interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error)
 }
 
@@ -36,7 +35,6 @@ type ResourceSyncStore struct {
 var _ ResourceSync = (*ResourceSyncStore)(nil)
 
 type removeOwnerCallback func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
-type removeAllResourceSyncOwnerCallback func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, kind string) error
 
 func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 	genericStore := NewGenericStore[*model.ResourceSync, model.ResourceSync, api.ResourceSync, api.ResourceSyncList](
@@ -133,15 +131,6 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 	}
 
 	return nil
-}
-
-func (s *ResourceSyncStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback removeAllResourceSyncOwnerCallback) error {
-	return s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Unscoped().Where("org_id = ?", orgId).Delete(&model.ResourceSync{}).Error; err != nil {
-			return ErrorFromGormError(err)
-		}
-		return callback(ctx, tx, orgId, api.ResourceSyncKind)
-	})
 }
 
 func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {

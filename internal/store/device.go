@@ -27,8 +27,7 @@ type Device interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) (bool, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 
@@ -286,10 +285,6 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
 		callback,
 		Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
-}
-
-func (s *DeviceStore) DeleteAll(ctx context.Context, orgId uuid.UUID, callback DeviceStoreAllDeletedCallback) error {
-	return s.genericStore.DeleteAll(ctx, orgId, callback)
 }
 
 func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {

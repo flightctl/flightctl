@@ -21,9 +21,6 @@ type ServerInterface interface {
 	// (GET /api/v1/auth/validate)
 	AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams)
 
-	// (DELETE /api/v1/certificatesigningrequests)
-	DeleteCertificateSigningRequests(w http.ResponseWriter, r *http.Request)
-
 	// (GET /api/v1/certificatesigningrequests)
 	ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params ListCertificateSigningRequestsParams)
 
@@ -44,9 +41,6 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/certificatesigningrequests/{name}/approval)
 	UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string)
-
-	// (DELETE /api/v1/devices)
-	DeleteDevices(w http.ResponseWriter, r *http.Request)
 
 	// (GET /api/v1/devices)
 	ListDevices(w http.ResponseWriter, r *http.Request, params ListDevicesParams)
@@ -84,9 +78,6 @@ type ServerInterface interface {
 	// (GET /api/v1/enrollmentconfig)
 	GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params GetEnrollmentConfigParams)
 
-	// (DELETE /api/v1/enrollmentrequests)
-	DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request)
-
 	// (GET /api/v1/enrollmentrequests)
 	ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params ListEnrollmentRequestsParams)
 
@@ -120,17 +111,11 @@ type ServerInterface interface {
 	// (GET /api/v1/events)
 	ListEvents(w http.ResponseWriter, r *http.Request, params ListEventsParams)
 
-	// (DELETE /api/v1/fleets)
-	DeleteFleets(w http.ResponseWriter, r *http.Request)
-
 	// (GET /api/v1/fleets)
 	ListFleets(w http.ResponseWriter, r *http.Request, params ListFleetsParams)
 
 	// (POST /api/v1/fleets)
 	CreateFleet(w http.ResponseWriter, r *http.Request)
-
-	// (DELETE /api/v1/fleets/{fleet}/templateversions)
-	DeleteTemplateVersions(w http.ResponseWriter, r *http.Request, fleet string)
 
 	// (GET /api/v1/fleets/{fleet}/templateversions)
 	ListTemplateVersions(w http.ResponseWriter, r *http.Request, fleet string, params ListTemplateVersionsParams)
@@ -165,9 +150,6 @@ type ServerInterface interface {
 	// (GET /api/v1/labels)
 	ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams)
 
-	// (DELETE /api/v1/repositories)
-	DeleteRepositories(w http.ResponseWriter, r *http.Request)
-
 	// (GET /api/v1/repositories)
 	ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams)
 
@@ -185,9 +167,6 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/repositories/{name})
 	ReplaceRepository(w http.ResponseWriter, r *http.Request, name string)
-
-	// (DELETE /api/v1/resourcesyncs)
-	DeleteResourceSyncs(w http.ResponseWriter, r *http.Request)
 
 	// (GET /api/v1/resourcesyncs)
 	ListResourceSyncs(w http.ResponseWriter, r *http.Request, params ListResourceSyncsParams)
@@ -225,11 +204,6 @@ func (_ Unimplemented) AuthValidate(w http.ResponseWriter, r *http.Request, para
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/certificatesigningrequests)
-func (_ Unimplemented) DeleteCertificateSigningRequests(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // (GET /api/v1/certificatesigningrequests)
 func (_ Unimplemented) ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params ListCertificateSigningRequestsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -262,11 +236,6 @@ func (_ Unimplemented) ReplaceCertificateSigningRequest(w http.ResponseWriter, r
 
 // (PUT /api/v1/certificatesigningrequests/{name}/approval)
 func (_ Unimplemented) UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (DELETE /api/v1/devices)
-func (_ Unimplemented) DeleteDevices(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -330,11 +299,6 @@ func (_ Unimplemented) GetEnrollmentConfig(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/enrollmentrequests)
-func (_ Unimplemented) DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // (GET /api/v1/enrollmentrequests)
 func (_ Unimplemented) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params ListEnrollmentRequestsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -390,11 +354,6 @@ func (_ Unimplemented) ListEvents(w http.ResponseWriter, r *http.Request, params
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/fleets)
-func (_ Unimplemented) DeleteFleets(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // (GET /api/v1/fleets)
 func (_ Unimplemented) ListFleets(w http.ResponseWriter, r *http.Request, params ListFleetsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -402,11 +361,6 @@ func (_ Unimplemented) ListFleets(w http.ResponseWriter, r *http.Request, params
 
 // (POST /api/v1/fleets)
 func (_ Unimplemented) CreateFleet(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (DELETE /api/v1/fleets/{fleet}/templateversions)
-func (_ Unimplemented) DeleteTemplateVersions(w http.ResponseWriter, r *http.Request, fleet string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -465,11 +419,6 @@ func (_ Unimplemented) ListLabels(w http.ResponseWriter, r *http.Request, params
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/repositories)
-func (_ Unimplemented) DeleteRepositories(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // (GET /api/v1/repositories)
 func (_ Unimplemented) ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -497,11 +446,6 @@ func (_ Unimplemented) PatchRepository(w http.ResponseWriter, r *http.Request, n
 
 // (PUT /api/v1/repositories/{name})
 func (_ Unimplemented) ReplaceRepository(w http.ResponseWriter, r *http.Request, name string) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (DELETE /api/v1/resourcesyncs)
-func (_ Unimplemented) DeleteResourceSyncs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -596,21 +540,6 @@ func (siw *ServerInterfaceWrapper) AuthValidate(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AuthValidate(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// DeleteCertificateSigningRequests operation middleware
-func (siw *ServerInterfaceWrapper) DeleteCertificateSigningRequests(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteCertificateSigningRequests(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -808,21 +737,6 @@ func (siw *ServerInterfaceWrapper) UpdateCertificateSigningRequestApproval(w htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCertificateSigningRequestApproval(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// DeleteDevices operation middleware
-func (siw *ServerInterfaceWrapper) DeleteDevices(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteDevices(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1180,21 +1094,6 @@ func (siw *ServerInterfaceWrapper) GetEnrollmentConfig(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// DeleteEnrollmentRequests operation middleware
-func (siw *ServerInterfaceWrapper) DeleteEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteEnrollmentRequests(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
 // ListEnrollmentRequests operation middleware
 func (siw *ServerInterfaceWrapper) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1514,21 +1413,6 @@ func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// DeleteFleets operation middleware
-func (siw *ServerInterfaceWrapper) DeleteFleets(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteFleets(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
 // ListFleets operation middleware
 func (siw *ServerInterfaceWrapper) ListFleets(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1595,32 +1479,6 @@ func (siw *ServerInterfaceWrapper) CreateFleet(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateFleet(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// DeleteTemplateVersions operation middleware
-func (siw *ServerInterfaceWrapper) DeleteTemplateVersions(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var err error
-
-	// ------------- Path parameter "fleet" -------------
-	var fleet string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "fleet", chi.URLParam(r, "fleet"), &fleet, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fleet", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteTemplateVersions(w, r, fleet)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2013,21 +1871,6 @@ func (siw *ServerInterfaceWrapper) ListLabels(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// DeleteRepositories operation middleware
-func (siw *ServerInterfaceWrapper) DeleteRepositories(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteRepositories(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
 // ListRepositories operation middleware
 func (siw *ServerInterfaceWrapper) ListRepositories(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -2190,21 +2033,6 @@ func (siw *ServerInterfaceWrapper) ReplaceRepository(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceRepository(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// DeleteResourceSyncs operation middleware
-func (siw *ServerInterfaceWrapper) DeleteResourceSyncs(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteResourceSyncs(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2520,9 +2348,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/auth/validate", wrapper.AuthValidate)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.DeleteCertificateSigningRequests)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.ListCertificateSigningRequests)
 	})
 	r.Group(func(r chi.Router) {
@@ -2542,9 +2367,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/certificatesigningrequests/{name}/approval", wrapper.UpdateCertificateSigningRequestApproval)
-	})
-	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/devices", wrapper.DeleteDevices)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices", wrapper.ListDevices)
@@ -2583,9 +2405,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/enrollmentconfig", wrapper.GetEnrollmentConfig)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.DeleteEnrollmentRequests)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.ListEnrollmentRequests)
 	})
 	r.Group(func(r chi.Router) {
@@ -2619,16 +2438,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/events", wrapper.ListEvents)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/fleets", wrapper.DeleteFleets)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/fleets", wrapper.ListFleets)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/fleets", wrapper.CreateFleet)
-	})
-	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions", wrapper.DeleteTemplateVersions)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions", wrapper.ListTemplateVersions)
@@ -2664,9 +2477,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/labels", wrapper.ListLabels)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/repositories", wrapper.DeleteRepositories)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/repositories", wrapper.ListRepositories)
 	})
 	r.Group(func(r chi.Router) {
@@ -2683,9 +2493,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/repositories/{name}", wrapper.ReplaceRepository)
-	})
-	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/resourcesyncs", wrapper.DeleteResourceSyncs)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/resourcesyncs", wrapper.ListResourceSyncs)

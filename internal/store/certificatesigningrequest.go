@@ -21,8 +21,7 @@ type CertificateSigningRequest interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
-	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
@@ -112,10 +111,6 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}, nil)
-}
-
-func (s *CertificateSigningRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
-	return s.genericStore.DeleteAll(ctx, orgId, nil)
 }
 
 func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {

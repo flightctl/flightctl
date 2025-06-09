@@ -104,24 +104,6 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(deleted).To(BeFalse())
 		})
 
-		It("Delete all enrollmentrequests in org", func() {
-			otherOrgId, _ := uuid.NewUUID()
-			err := storeInst.EnrollmentRequest().DeleteAll(ctx, otherOrgId)
-			Expect(err).ToNot(HaveOccurred())
-
-			listParams := store.ListParams{Limit: 1000}
-			enrollmentrequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(enrollmentrequests.Items)).To(Equal(numEnrollmentRequests))
-
-			err = storeInst.EnrollmentRequest().DeleteAll(ctx, orgId)
-			Expect(err).ToNot(HaveOccurred())
-
-			enrollmentrequests, err = storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(enrollmentrequests.Items)).To(Equal(0))
-		})
-
 		It("List with paging", func() {
 			listParams := store.ListParams{Limit: 1000}
 			allEnrollmentRequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
