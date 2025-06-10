@@ -29,7 +29,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, fleet api.Fleet) (*api
 
 	result, err := h.store.Fleet().Create(ctx, orgId, &fleet, h.callbackManager.FleetUpdatedCallback)
 	status := StoreErrorToApiStatus(err, true, api.FleetKind, fleet.Metadata.Name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.FleetKind, *fleet.Metadata.Name, status, nil))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.FleetKind, *fleet.Metadata.Name, status, nil, h.log))
 	return result, status
 }
 
@@ -82,7 +82,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet ap
 
 	result, created, updateDesc, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, true, h.callbackManager.FleetUpdatedCallback)
 	status := StoreErrorToApiStatus(err, created, api.FleetKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.FleetKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.FleetKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
@@ -104,7 +104,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, name string) api.Statu
 	deleted, err := h.store.Fleet().Delete(ctx, orgId, name, h.callbackManager.FleetUpdatedCallback)
 	status := StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 	if deleted || err != nil {
-		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.FleetKind, name, status))
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.FleetKind, name, status, h.log))
 	}
 	return status
 }
@@ -164,7 +164,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.
 	}
 	result, updateDesc, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback)
 	status := StoreErrorToApiStatus(err, false, api.FleetKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.FleetKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.FleetKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
