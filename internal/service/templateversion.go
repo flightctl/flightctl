@@ -86,7 +86,7 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string
 		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, fleet, name)
 	}
 
-	err = h.store.TemplateVersion().Delete(ctx, orgId, fleet, name)
+	_, err = h.store.TemplateVersion().Delete(ctx, orgId, fleet, name)
 	return StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
 }
 

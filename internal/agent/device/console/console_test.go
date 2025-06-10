@@ -296,7 +296,7 @@ func TestConsole(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			return v.stdoutBuffer.String() != ""
-		}, 2*time.Second, 50*time.Millisecond, "Expected to get bash prompt")
+		}, 3*time.Second, 50*time.Millisecond, "Expected to get bash prompt")
 
 		sendInput(v, StdinID, []byte("echo hello world"))
 

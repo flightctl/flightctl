@@ -18,7 +18,7 @@ type Repository interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error)
 
 	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error)
@@ -120,7 +120,7 @@ func (s *RepositoryStore) ListIgnoreOrg(ctx context.Context) ([]model.Repository
 	return repositories, nil
 }
 
-func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) error {
+func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) (bool, error) {
 	return s.genericStore.Delete(ctx, model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}, callback)
 }
 
