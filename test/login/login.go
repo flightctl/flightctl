@@ -43,8 +43,8 @@ func LoginToAPIWithToken(harness *e2e.Harness) AuthMethod {
 	ocExists := util.BinaryExistsOnPath(openshift)
 	if ocExists {
 		// If openshift token login fails then fallback to username/password
-		if authMethod, err := loginWithOpenshift(harness); err == nil {
-			return authMethod
+		if err := loginWithOpenshiftToken(harness); err == nil {
+			return AuthToken
 		}
 	}
 	return WithPassword(harness)
@@ -125,11 +125,11 @@ func loginWithPassword(harness *e2e.Harness) (AuthMethod, error) {
 	return AuthDisabled, errors.New("failed to sign in with user name and password")
 }
 
-func loginWithOpenshift(harness *e2e.Harness) (AuthMethod, error) {
+func loginWithOpenshiftToken(harness *e2e.Harness) error {
 	token, err := harness.SH(openshift, "whoami", "-t")
 	// If whoami fails just try logging in with the user
 	if err != nil {
-		return AuthDisabled, err
+		return fmt.Errorf("calling oc whoami: %w", err)
 	}
 	// otherwise try logging in with the openshift token but still fallback
 	// to regular username/password if that fails
@@ -138,10 +138,10 @@ func loginWithOpenshift(harness *e2e.Harness) (AuthMethod, error) {
 	loginArgsOcp := append(baseLoginArgs(), "--token", token)
 	out, err := harness.CLI(loginArgsOcp...)
 	if err != nil {
-		return AuthDisabled, fmt.Errorf("failed to sign in with OpenShift token: %w", err)
+		return fmt.Errorf("failed to sign in with OpenShift token: %w", err)
 	}
 	if isLoginSuccessful(out) {
-		return AuthToken, nil
+		return nil
 	}
-	return AuthDisabled, errors.New("failed to sign in with OpenShift token")
+	return errors.New("failed to sign in with OpenShift token")
 }
