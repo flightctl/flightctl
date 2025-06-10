@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -90,6 +91,9 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, name string) api.Statu
 
 	f, err := h.store.Fleet().Get(ctx, orgId, name)
 	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return api.StatusOK() // idempotent delete
+		}
 		return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 	}
 	if f.Metadata.Owner != nil {
@@ -97,9 +101,11 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, name string) api.Statu
 		return api.StatusConflict("unauthorized to delete fleet because it is owned by another resource")
 	}
 
-	err = h.store.Fleet().Delete(ctx, orgId, name, h.callbackManager.FleetUpdatedCallback)
+	deleted, err := h.store.Fleet().Delete(ctx, orgId, name, h.callbackManager.FleetUpdatedCallback)
 	status := StoreErrorToApiStatus(err, false, api.FleetKind, &name)
-	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.FleetKind, name, status))
+	if deleted || err != nil {
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.FleetKind, name, status))
+	}
 	return status
 }
 
