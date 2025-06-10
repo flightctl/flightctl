@@ -47,12 +47,9 @@ build_images() {
         echo -e "\033[32mCreating image ${FINAL_REF} with BUILD_TYPE=${BUILD_TYPE} \033[m"
 
         # apply image specific args here
-        local args=$BUILD_ARGS
+        local args="$BUILD_ARGS"
         if [ "$img" = "base" ]; then
-          if [ -n "$args" ]; then
-              args+=" "
-          fi
-          args="--build-arg=REGISTRY_ADDRESS=${REGISTRY_ADDRESS}"
+          args="${args:+${args} }--build-arg=REGISTRY_ADDRESS=${REGISTRY_ADDRESS}"
         fi
 
         podman build ${args:+${args}} -f "${containerfile_path}" -t "${container_name}" .

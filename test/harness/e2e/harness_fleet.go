@@ -199,7 +199,7 @@ func (h *Harness) UpdateFleet(fleetName string, updateFunc func(*v1alpha1.Fleet)
 
 	updateFunc(fleet)
 
-	replaceResp, err := h.Client.ReplaceFleetStatusWithResponse(h.Context, fleetName, *fleet)
+	replaceResp, err := h.Client.ReplaceFleetWithResponse(h.Context, fleetName, *fleet)
 	if err != nil {
 		logrus.Errorf("Unexpected error updating fleet %s: %v", fleetName, err)
 		return err

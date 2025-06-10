@@ -14,6 +14,9 @@ ARG RPM_COPR=
 ARG RPM_PACKAGE=flightctl-agent
 ARG REGISTRY_ADDRESS
 
+# Fail early when the build argument is missing
+RUN test -n "${REGISTRY_ADDRESS}" || (echo "REGISTRY_ADDRESS build arg is required" >&2 && exit 1)
+
 COPY bin/e2e-certs/pki/CA/ca.pem /etc/pki/ca-trust/source/anchors/
 RUN update-ca-trust
 
