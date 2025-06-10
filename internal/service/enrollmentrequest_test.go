@@ -46,4 +46,6 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, "foo", approval)
 	require.Equal(statusBadRequestCode, stat.Code)
 	require.Equal("Enrollment request is already approved", stat.Message)
+	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	require.Len(event.Items, 0)
 }
