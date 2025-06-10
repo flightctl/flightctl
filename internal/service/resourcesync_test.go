@@ -35,6 +35,8 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 	require.Equal(statusCreatedCode, status.Code)
 	resp, status := serviceHandler.PatchResourceSync(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	require.NotEmpty(event.Items)
 	return resp, *orig, status
 }
 
@@ -206,4 +208,6 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 	require.NoError(err)
 	_, status := serviceHandler.PatchResourceSync(ctx, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	require.Len(event.Items, 0)
 }

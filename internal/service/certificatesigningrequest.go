@@ -167,7 +167,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, &csr)
 	if err != nil {
 		status := StoreErrorToApiStatus(err, true, api.CertificateSigningRequestKind, csr.Metadata.Name)
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.CertificateSigningRequestKind, *csr.Metadata.Name, status, nil))
+		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.CertificateSigningRequestKind, *csr.Metadata.Name, status, nil, h.log))
 		return nil, status
 	}
 
@@ -179,7 +179,7 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.CertificateSigningRequestKind, *csr.Metadata.Name, api.StatusCreated(), nil))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.CertificateSigningRequestKind, *csr.Metadata.Name, api.StatusCreated(), nil, h.log))
 	return result, api.StatusCreated()
 }
 
@@ -189,7 +189,7 @@ func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, na
 	deleted, err := h.store.CertificateSigningRequest().Delete(ctx, orgId, name)
 	status := StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 	if deleted || err != nil {
-		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.CertificateSigningRequestKind, name, status))
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.CertificateSigningRequestKind, name, status, h.log))
 	}
 	return status
 }
@@ -234,7 +234,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 	result, updatedDesc, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj)
 	if err != nil {
 		status := StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.CertificateSigningRequestKind, name, status, &updatedDesc))
+		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.CertificateSigningRequestKind, name, status, &updatedDesc, h.log))
 		return nil, status
 	}
 
@@ -245,7 +245,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.CertificateSigningRequestKind, name, api.StatusOK(), &updatedDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.CertificateSigningRequestKind, name, api.StatusOK(), &updatedDesc, h.log))
 	return result, api.StatusOK()
 }
 
@@ -271,7 +271,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 	result, created, updatedDesc, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, &csr)
 	if err != nil {
 		status := StoreErrorToApiStatus(err, created, api.CertificateSigningRequestKind, &name)
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.CertificateSigningRequestKind, name, status, &updatedDesc))
+		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.CertificateSigningRequestKind, name, status, &updatedDesc, h.log))
 		return nil, status
 	}
 

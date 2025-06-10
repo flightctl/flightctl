@@ -24,7 +24,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, repo api.Reposito
 
 	result, err := h.store.Repository().Create(ctx, orgId, &repo, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, true, api.RepositoryKind, repo.Metadata.Name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.RepositoryKind, *repo.Metadata.Name, status, nil))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.RepositoryKind, *repo.Metadata.Name, status, nil, h.log))
 	return result, status
 }
 
@@ -74,7 +74,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, rep
 
 	result, created, updateDesc, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repo, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, created, api.RepositoryKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.RepositoryKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.RepositoryKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
@@ -84,7 +84,7 @@ func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.
 	deleted, err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 	if deleted || err != nil {
-		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.RepositoryKind, name, status))
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.RepositoryKind, name, status, h.log))
 	}
 	return status
 }
@@ -130,7 +130,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch
 	}
 	result, updateDesc, err := h.store.Repository().Update(ctx, orgId, newObj, updateCallback)
 	status := StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.RepositoryKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.RepositoryKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
