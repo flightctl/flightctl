@@ -275,6 +275,15 @@ type AuthConfig struct {
 
 	// AuthURL Auth URL.
 	AuthURL string `json:"authURL"`
+
+	// ClientId The default Client ID.
+	ClientId *string `json:"clientId,omitempty"`
+
+	// ForcePKCE Force PKCE flow even if auth server does not declare support.
+	ForcePKCE *bool `json:"forcePKCE,omitempty"`
+
+	// Scope The default scope.
+	Scope *string `json:"scope,omitempty"`
 }
 
 // Batch Batch is an element in batch sequence.

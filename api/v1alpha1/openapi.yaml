@@ -4665,6 +4665,15 @@ components:
         authURL:
           type: string
           description: Auth URL.
+        clientId:
+          type: string
+          description: The default Client ID.
+        scope:
+          type: string
+          description: The default scope.
+        forcePKCE:
+          type: boolean
+          description: Force PKCE flow even if auth server does not declare support.
       required:
         - authType
         - authURL

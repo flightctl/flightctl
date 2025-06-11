@@ -58,6 +58,10 @@ data:
         oidc:
             oidcAuthority: {{ .Values.global.auth.oidc.oidcAuthority }}
             externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
+            clientId: {{ .Values.global.auth.oidc.clientId }}
+            scope: {{ .Values.global.auth.oidc.scope }}
+            inferAlgKey: {{ .Values.global.auth.oidc.inferAlgKey }}
+            forcePKCE: {{ .Values.global.auth.oidc.forcePKCE }}
         {{- end }}
     {{- end }}
     {{- if .Values.prometheus.enabled }}

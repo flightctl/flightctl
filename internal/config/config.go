@@ -82,6 +82,10 @@ type k8sAuth struct {
 type oidcAuth struct {
 	OIDCAuthority         string `json:"oidcAuthority,omitempty"`
 	ExternalOIDCAuthority string `json:"externalOidcAuthority,omitempty"`
+	ClientId              string `json:"clientId,omitempty"`
+	Scope                 string `json:"scope,omitempty"`
+	InferAlgKey           bool   `json:"inferAlgKey,omitempty"`
+	ForcePKCE             bool   `json:"forcePKCE,omitempty"`
 }
 
 type aapAuth struct {

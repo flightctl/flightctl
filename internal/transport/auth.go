@@ -22,6 +22,16 @@ func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 		AuthType: authConfig.Type,
 		AuthURL:  authConfig.Url,
 	}
+
+	if authConfig.ClientId != "" {
+		conf.ClientId = &authConfig.ClientId
+	}
+	if authConfig.Scope != "" {
+		conf.Scope = &authConfig.Scope
+	}
+	if authConfig.ForcePKCE {
+		conf.ForcePKCE = &authConfig.ForcePKCE
+	}
 	SetResponse(w, conf, api.StatusOK())
 }
 

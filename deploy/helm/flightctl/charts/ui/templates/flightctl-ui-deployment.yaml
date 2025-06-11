@@ -77,6 +77,16 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: AUTH_CLIENT_ID
+          - name: AUTH_SCOPE
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: AUTH_SCOPE
+          - name: AUTH_FORCE_PKCE
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: AUTH_FORCE_PKCE
           {{- end }}
           {{- if .Values.image.image }}
           image: {{ .Values.image.image }}:{{ default .Chart.AppVersion .Values.image.tag }}

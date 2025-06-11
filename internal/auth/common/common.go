@@ -22,8 +22,11 @@ const (
 )
 
 type AuthConfig struct {
-	Type string
-	Url  string
+	Type      string
+	Url       string
+	ClientId  string
+	Scope     string
+	ForcePKCE bool
 }
 
 type Identity struct {

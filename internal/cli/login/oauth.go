@@ -30,9 +30,13 @@ func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.Auth
 		return AuthInfo{}, err
 	}
 
-	expiresIn, err := getExpiresIn(ad.ResponseData)
-	if err != nil {
-		return AuthInfo{}, err
+	var expiresIn *int64
+	expires_in_raw, ok := ad.ResponseData["expires_in"]
+	if ok {
+		expiresIn, err = getExpiresIn(expires_in_raw)
+		if err != nil {
+			return AuthInfo{}, err
+		}
 	}
 
 	return AuthInfo{
@@ -122,9 +126,13 @@ func oauth2RefreshTokenFlow(refreshToken string, getClient GetClientFunc) (AuthI
 	if err != nil {
 		return ret, fmt.Errorf("failed to refresh token: %w", err)
 	}
-	expiresIn, err := getExpiresIn(accessData.ResponseData)
-	if err != nil {
-		return ret, fmt.Errorf("failed to refresh token: %w", err)
+	var expiresIn *int64
+	expires_in_raw, ok := accessData.ResponseData["expires_in"]
+	if ok {
+		expiresIn, err = getExpiresIn(expires_in_raw)
+		if err != nil {
+			return ret, fmt.Errorf("failed to refresh token: %w", err)
+		}
 	}
 
 	ret.AccessToken = accessData.AccessToken
@@ -173,24 +181,20 @@ func getOAuth2Config(configUrl, caFile string, insecure bool) (OauthServerRespon
 }
 
 // based on GetToken() from osincli which parses the expires_in to int32 that may overflow
-func getExpiresIn(ret osincli.ResponseData) (*int64, error) {
-	expires_in_raw, ok := ret["expires_in"]
-	if ok {
-		rv := reflect.ValueOf(expires_in_raw)
-		switch rv.Kind() {
-		case reflect.Float64:
-			expiration := int64(rv.Float())
-			return &expiration, nil
-		case reflect.String:
-			// if string convert to integer
-			ei, err := strconv.ParseInt(rv.String(), 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			return &ei, nil
-		default:
-			return nil, errors.New("invalid parameter value")
+func getExpiresIn(expires_in_raw interface{}) (*int64, error) {
+	rv := reflect.ValueOf(expires_in_raw)
+	switch rv.Kind() {
+	case reflect.Float64:
+		expiration := int64(rv.Float())
+		return &expiration, nil
+	case reflect.String:
+		// if string convert to integer
+		ei, err := strconv.ParseInt(rv.String(), 10, 64)
+		if err != nil {
+			return nil, err
 		}
+		return &ei, nil
+	default:
+		return nil, errors.New("invalid parameter value")
 	}
-	return nil, nil
 }
