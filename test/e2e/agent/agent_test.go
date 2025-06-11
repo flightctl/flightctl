@@ -79,7 +79,6 @@ var _ = Describe("VM Agent behavior", func() {
 				fleet2Label = "environment"
 				fleet1Value = "world"
 				fleet2Value = "prod"
-				timeout     = "2m"
 			)
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 			currentVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
@@ -113,7 +112,7 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be applied", func(device *v1alpha1.Device) bool {
 				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.DeviceMultipleOwners, v1alpha1.ConditionStatusTrue)
-			}, timeout)
+			}, TIMEOUT)
 
 			// verify that the conflicting fleets are applied to the error message
 			device, err := harness.GetDevice(deviceId)
@@ -128,7 +127,7 @@ var _ = Describe("VM Agent behavior", func() {
 			harness.SetLabelsForDevice(deviceId, nil)
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be removed", func(device *v1alpha1.Device) bool {
 				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.DeviceMultipleOwners, v1alpha1.ConditionStatusFalse)
-			}, timeout)
+			}, TIMEOUT)
 
 			By("adding a label to a matching fleet, the device should update its rendered version")
 			expectedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
@@ -152,7 +151,7 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be reapplied", func(device *v1alpha1.Device) bool {
 				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.DeviceMultipleOwners, v1alpha1.ConditionStatusTrue)
-			}, timeout)
+			}, TIMEOUT)
 
 			// verify that the conflicting fleets are applied to the error message
 			device, err = harness.GetDevice(deviceId)
@@ -167,7 +166,7 @@ var _ = Describe("VM Agent behavior", func() {
 			for _, fleetName := range []string{fleet1Name, fleet2Name} {
 				harness.WaitForFleetContents(fleetName, "fleet selectors overlap should be applied", func(fleet *v1alpha1.Fleet) bool {
 					return e2e.ConditionStatusExists(fleet.Status.Conditions, v1alpha1.FleetOverlappingSelectors, v1alpha1.ConditionStatusTrue)
-				}, timeout)
+				}, TIMEOUT)
 			}
 
 			fleet, err := harness.GetFleet(fleet1Name)

@@ -202,7 +202,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					specs := lo.FromPtr(device.Spec.Config)
 					specs = append(specs, configProviderSpec)
 					device.Spec.Config = &specs
-					logrus.Infof("Updating %s with config %s", deviceId, *device.Spec.Config)
+					logrus.Infof("Updating %s with config %+v", deviceId, *device.Spec.Config)
 				})
 				expectedVersion := currentVersion + 1
 				desc := fmt.Sprintf("Updating to desired renderedVersion: %d", expectedVersion)

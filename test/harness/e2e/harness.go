@@ -164,7 +164,8 @@ func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface
 }
 
 func (h *Harness) AgentLogs(agent vm.TestVMInterface) string {
-	stdout, _ := agent.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
+	stdout, err := agent.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
+	Expect(err).ToNot(HaveOccurred())
 	return stdout.String()
 }
 
@@ -723,6 +724,9 @@ func (h *Harness) PrepareNextDeviceGeneration(deviceId string) (int64, error) {
 }
 
 func GetRenderedVersion(device *v1alpha1.Device) (int, error) {
+	if device == nil || device.Status == nil {
+		return -1, fmt.Errorf("invalid device: %+v", device)
+	}
 	version, err := strconv.Atoi(device.Status.Config.RenderedVersion)
 	if err != nil {
 		return -1, fmt.Errorf("failed to convert current rendered version '%s': %w", device.Status.Config.RenderedVersion, err)
