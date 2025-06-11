@@ -37,7 +37,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 		events = []api.Event{
 			{
 				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr("event-1"),
+					Name: lo.ToPtr("event-4"),
 				},
 				Type:    api.Normal,
 				Reason:  api.ResourceCreated,
@@ -90,7 +90,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 
 	Context("Event Store", func() {
 		It("List all events", func() {
-			listParams := store.ListParams{Limit: 100}
+			listParams := store.ListParams{Limit: 100, SortColumn: lo.ToPtr(store.SortByCreatedAt), SortOrder: lo.ToPtr(store.SortDesc)}
 			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventList.Items).To(HaveLen(len(events)))
@@ -103,7 +103,9 @@ var _ = Describe("EventStore Integration Tests", func() {
 
 		It("Filters events by reason", func() {
 			listParams := store.ListParams{
-				Limit: 100,
+				Limit:      100,
+				SortColumn: lo.ToPtr(store.SortByCreatedAt),
+				SortOrder:  lo.ToPtr(store.SortDesc),
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
 					map[string]string{"reason": string(api.ResourceDeleted)}, selector.WithPrivateSelectors()),
 			}
@@ -116,7 +118,9 @@ var _ = Describe("EventStore Integration Tests", func() {
 
 		It("Filters events by actor", func() {
 			listParams := store.ListParams{
-				Limit: 100,
+				Limit:      100,
+				SortColumn: lo.ToPtr(store.SortByCreatedAt),
+				SortOrder:  lo.ToPtr(store.SortDesc),
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
 					map[string]string{"actor": "user:admin"}, selector.WithPrivateSelectors()),
 			}
@@ -130,7 +134,9 @@ var _ = Describe("EventStore Integration Tests", func() {
 
 		It("Filters events by involved object", func() {
 			listParams := store.ListParams{
-				Limit: 100,
+				Limit:      100,
+				SortColumn: lo.ToPtr(store.SortByCreatedAt),
+				SortOrder:  lo.ToPtr(store.SortDesc),
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
 					map[string]string{"involvedObject.kind": string(api.DeviceKind), "involvedObject.name": "my-device"},
 					selector.WithPrivateSelectors()),

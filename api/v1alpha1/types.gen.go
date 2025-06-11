@@ -217,6 +217,12 @@ const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
 
+// Defines values for ListEventsParamsOrder.
+const (
+	Asc  ListEventsParamsOrder = "asc"
+	Desc ListEventsParamsOrder = "desc"
+)
+
 // Defines values for ListLabelsParamsKind.
 const (
 	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
@@ -1699,12 +1705,18 @@ type ListEventsParams struct {
 	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
 	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
 
+	// Order Sort order for the results by timestamp. Defaults to 'desc' (newest first).
+	Order *ListEventsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
 	// Limit The maximum number of events to return in the response.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 }
+
+// ListEventsParamsOrder defines parameters for ListEvents.
+type ListEventsParamsOrder string
 
 // ListFleetsParams defines parameters for ListFleets.
 type ListFleetsParams struct {

@@ -3074,6 +3074,15 @@ paths:
           description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
           schema:
             type: string
+        - name: order
+          in: query
+          description: Sort order for the results by timestamp. Defaults to 'desc' (newest first).
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: desc
         - name: limit
           in: query
           description: The maximum number of events to return in the response.
