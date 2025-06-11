@@ -8,7 +8,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -62,7 +61,7 @@ func (s *EventStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.
 }
 
 func (s *EventStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EventList, error) {
-	return s.genericStore.List(ctx, orgId, listParams, lo.ToPtr("created_at desc"))
+	return s.genericStore.List(ctx, orgId, listParams)
 }
 
 // DeleteEventsOlderThan deletes events older than the provided timestamp

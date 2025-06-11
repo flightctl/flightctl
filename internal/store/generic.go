@@ -2,10 +2,9 @@ package store
 
 import (
 	"context"
-	b64 "encoding/base64"
-	"encoding/json"
 	"errors"
 	"slices"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -357,20 +356,20 @@ func hasSpecColumn[M Model]() bool {
 	}
 }
 
-func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, listParams ListParams, sortDirective *string) (*AL, error) {
+func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*AL, error) {
 	var resourceList []M
 	var nextContinue *string
 	var numRemaining *int64
 
 	var resource M
-	query, err := ListQuery(&resource, WithSortDirective(sortDirective)).Build(ctx, s.getDB(ctx), orgId, listParams)
+	query, err := ListQuery(&resource).Build(ctx, s.getDB(ctx), orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
 
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue, listParams)
 	}
 	if hasSpecColumn[M]() {
 		query = query.Where("spec IS NOT NULL")
@@ -384,9 +383,9 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 	if listParams.Limit > 0 && len(resourceList) > listParams.Limit {
 		lastIndex := len(resourceList) - 1
 		lastItem := resourceList[lastIndex]
-		nextContinueStruct := Continue{
-			Name:    P(&lastItem).GetName(),
-			Version: CurrentContinueVersion,
+		nextContinueName := P(&lastItem).GetName()
+		if listParams.SortColumn != nil && *listParams.SortColumn == SortByCreatedAt {
+			nextContinueName = P(&lastItem).GetTimestamp().Format(time.RFC3339Nano)
 		}
 		resourceList = resourceList[:lastIndex]
 
@@ -401,12 +400,9 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 			if err != nil {
 				return nil, err
 			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
+			numRemainingVal = CountRemainingItems(countQuery, nextContinueName, listParams)
 		}
-		nextContinueStruct.Count = numRemainingVal
-		contByte, _ := json.Marshal(nextContinueStruct)
-		contStr := b64.StdEncoding.EncodeToString(contByte)
-		nextContinue = &contStr
+		nextContinue = BuildContinueString(nextContinueName, numRemainingVal)
 		numRemaining = &numRemainingVal
 	}
 

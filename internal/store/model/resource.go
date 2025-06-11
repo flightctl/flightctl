@@ -141,6 +141,10 @@ func (r *Resource) GetNonNilFieldsFromResource() []string {
 	return ret
 }
 
+func (r *Resource) GetTimestamp() time.Time {
+	return r.CreatedAt
+}
+
 type ResourceInterface interface {
 	GetKind() string
 	GetName() string
@@ -160,6 +164,7 @@ type ResourceInterface interface {
 	HasNilSpec() bool
 	HasSameSpecAs(any) bool
 	GetStatusAsJson() ([]byte, error)
+	GetTimestamp() time.Time
 }
 
 var _ ResourceInterface = (*Device)(nil)
