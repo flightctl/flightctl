@@ -23,7 +23,6 @@ import (
 type MockManagement struct {
 	ctrl     *gomock.Controller
 	recorder *MockManagementMockRecorder
-	isgomock struct{}
 }
 
 // MockManagementMockRecorder is the mock recorder for MockManagement.
@@ -118,7 +117,6 @@ func (mr *MockManagementMockRecorder) UpdateDeviceStatus(ctx, name, device any, 
 type MockEnrollment struct {
 	ctrl     *gomock.Controller
 	recorder *MockEnrollmentMockRecorder
-	isgomock struct{}
 }
 
 // MockEnrollmentMockRecorder is the mock recorder for MockEnrollment.
@@ -194,7 +192,6 @@ func (mr *MockEnrollmentMockRecorder) SetRPCMetricsCallback(cb any) *gomock.Call
 type MockBootc struct {
 	ctrl     *gomock.Controller
 	recorder *MockBootcMockRecorder
-	isgomock struct{}
 }
 
 // MockBootcMockRecorder is the mock recorder for MockBootc.
