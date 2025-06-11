@@ -82,7 +82,7 @@ var _ = Describe("VM Agent behavior", func() {
 				timeout     = "2m"
 			)
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-			err := harness.WaitForDeviceNewRenderedVersion(deviceId, 1)
+			currentVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("creating the first fleet")
@@ -122,7 +122,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).Should(And(ContainSubstring(fleet1Name), ContainSubstring(fleet2Name)))
 			// No updates from the fleet should have been applied
-			Expect(device.Status.Config.RenderedVersion).To(Equal("1"))
+			Expect(device.Status.Config.RenderedVersion).To(Equal(strconv.Itoa(currentVersion)))
 
 			By("resetting the labels should remove the condition from the device")
 			harness.SetLabelsForDevice(deviceId, nil)
@@ -131,10 +131,13 @@ var _ = Describe("VM Agent behavior", func() {
 			}, timeout)
 
 			By("adding a label to a matching fleet, the device should update its rendered version")
+			expectedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
 			harness.SetLabelsForDevice(deviceId, map[string]string{
 				fleet1Label: fleet1Value,
 			})
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, 2)
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
 			Expect(err).ToNot(HaveOccurred())
 			device, err = harness.GetDevice(deviceId)
 			Expect(err).ToNot(HaveOccurred())

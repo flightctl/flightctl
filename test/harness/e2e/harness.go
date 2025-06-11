@@ -722,8 +722,20 @@ func (h *Harness) PrepareNextDeviceGeneration(deviceId string) (int64, error) {
 	return currentGeneration + 1, nil
 }
 
-func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (deviceRenderedVersionInt int, err error) {
-	deviceRenderedVersion := "-1"
+func GetRenderedVersion(device *v1alpha1.Device) (int, error) {
+	version, err := strconv.Atoi(device.Status.Config.RenderedVersion)
+	if err != nil {
+		return -1, fmt.Errorf("failed to convert current rendered version '%s': %w", device.Status.Config.RenderedVersion, err)
+	}
+	if version <= 0 {
+		return -1, fmt.Errorf("invalid rendered version: %d", version)
+	}
+	return version, nil
+}
+
+func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) {
+	deviceRenderedVersion := -1
+	var renderedVersionError error
 
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
@@ -731,24 +743,17 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (deviceRender
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
-					deviceRenderedVersion = device.Status.Config.RenderedVersion
+					deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
 					return true
 				}
 			}
 			return false
 		}, TIMEOUT)
-
-	deviceRenderedVersionInt, err = strconv.Atoi(deviceRenderedVersion)
-	if err != nil {
-		return -1, fmt.Errorf("failed to get current rendered version: %w", err)
+	if renderedVersionError != nil {
+		return -1, renderedVersionError
 	}
-	if deviceRenderedVersionInt <= 0 {
-		return deviceRenderedVersionInt, fmt.Errorf("invalid version: %d", deviceRenderedVersionInt)
-
-	}
-	logrus.Infof("The device current renderedVersion is %d", deviceRenderedVersionInt)
-
-	return deviceRenderedVersionInt, nil
+	logrus.Infof("The device current renderedVersion is %d", deviceRenderedVersion)
+	return deviceRenderedVersion, nil
 }
 
 func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
