@@ -18,16 +18,24 @@ var (
 )
 
 func NewManagement(
-	client *client.ClientWithResponses,
+	client *client.ClientWithResponses, cb func(operation string, durationSeconds float64, err error),
 ) Management {
 	return &management{
-		client: client,
+		client:                 client,
+		rpcMetricsCallbackFunc: cb,
 	}
 }
 
 type management struct {
 	client                 *client.ClientWithResponses
 	rpcMetricsCallbackFunc func(operation string, durationSeconds float64, err error)
+}
+
+// SetRPCMetricsCallback sets the callback function to be called when a RPC
+// request is made. The callback function is called with the operation name,
+// the duration of the request in seconds, and the error if any.
+func (m *management) SetRPCMetricsCallback(cb func(operation string, durationSeconds float64, err error)) {
+	m.rpcMetricsCallbackFunc = cb
 }
 
 // UpdateDeviceStatus updates the status of the device with the given name.

@@ -13,10 +13,11 @@ import (
 var _ Enrollment = (*enrollment)(nil)
 
 func NewEnrollment(
-	client *client.ClientWithResponses,
+	client *client.ClientWithResponses, cb func(operation string, durationSeconds float64, err error),
 ) Enrollment {
 	return &enrollment{
-		client: client,
+		client:                 client,
+		rpcMetricsCallbackFunc: cb,
 	}
 }
 
