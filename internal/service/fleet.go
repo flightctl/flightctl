@@ -57,7 +57,10 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, params api.ListFleetsPa
 }
 
 func (h *ServiceHandler) GetFleet(ctx context.Context, name string, params api.GetFleetParams) (*api.Fleet, api.Status) {
-	orgId := store.NullOrgId
+	orgId, ok := util.OrganizationIDValue(ctx)
+	if !ok {
+		return nil, api.StatusBadRequest(flterrors.ErrOrgIDInvalid.Error())
+	}
 
 	result, err := h.store.Fleet().Get(ctx, orgId, name, store.GetWithDeviceSummary(util.DefaultBoolIfNil(params.AddDevicesSummary, false)))
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
