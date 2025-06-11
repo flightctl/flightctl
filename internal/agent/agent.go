@@ -32,7 +32,6 @@ import (
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/experimental"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -162,7 +161,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	policyManager := policy.NewManager(a.log)
 
 	devicePublisher := publisher.New(deviceName,
-		util.Max(time.Duration(a.config.SpecFetchInterval), time.Second)/2,
+		time.Duration(a.config.SpecFetchInterval),
 		backoff,
 		a.log)
 
