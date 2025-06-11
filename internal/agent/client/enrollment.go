@@ -33,15 +33,16 @@ func (e *enrollment) SetRPCMetricsCallback(cb func(operation string, durationSec
 func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
 	start := time.Now()
 	resp, err := e.client.CreateEnrollmentRequestWithResponse(ctx, req, cb...)
+
+	if e.rpcMetricsCallbackFunc != nil {
+		e.rpcMetricsCallbackFunc("create_enrollmentrequest_duration", time.Since(start).Seconds(), err)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 	if resp.HTTPResponse != nil {
 		defer func() { _ = resp.HTTPResponse.Body.Close() }()
-	}
-
-	if e.rpcMetricsCallbackFunc != nil {
-		e.rpcMetricsCallbackFunc("create_enrollmentrequest_duration", time.Since(start).Seconds(), err)
 	}
 
 	switch resp.StatusCode() {
@@ -59,15 +60,16 @@ func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.E
 func (e *enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
 	start := time.Now()
 	resp, err := e.client.ReadEnrollmentRequestWithResponse(ctx, id, cb...)
+
+	if e.rpcMetricsCallbackFunc != nil {
+		e.rpcMetricsCallbackFunc("create_enrollmentrequest_duration", time.Since(start).Seconds(), err)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 	if resp.HTTPResponse != nil {
 		defer func() { _ = resp.HTTPResponse.Body.Close() }()
-	}
-
-	if e.rpcMetricsCallbackFunc != nil {
-		e.rpcMetricsCallbackFunc("get_enrollmentrequest_duration", time.Since(start).Seconds(), err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
