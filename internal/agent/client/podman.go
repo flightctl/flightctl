@@ -155,6 +155,49 @@ func (p *Podman) pullImage(ctx context.Context, image string, pullSecretPath str
 	return out, nil
 }
 
+func (p *Podman) PullArtifact(ctx context.Context, artifact string, opts ...ClientOption) (string, error) {
+	options := clientOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	// TODO: handle retry and improve timeout
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+	args := []string{"artifact", "pull", artifact}
+	if options.pullSecretPath != "" {
+		exists, err := p.readWriter.PathExists(options.pullSecretPath)
+		if err != nil {
+			return "", fmt.Errorf("check pull secret path: %w", err)
+		}
+		if !exists {
+			p.log.Errorf("Pull secret path %s does not exist", options.pullSecretPath)
+		} else {
+			args = append(args, "--authfile", options.pullSecretPath)
+		}
+	}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("pull artifact: %w", errors.FromStderr(stderr, exitCode))
+	}
+	out := strings.TrimSpace(stdout)
+	return out, nil
+}
+
+func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	// TODO: only available in podman >= 4.5.0
+	args := []string{"artifact", "extract", artifact, destination}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("pull artifact: %w", errors.FromStderr(stderr, exitCode))
+	}
+	out := strings.TrimSpace(stdout)
+	return out, nil
+}
+
 // Inspect returns the JSON output of the image inspection. The expectation is
 // that the image exists in local container storage.
 func (p *Podman) Inspect(ctx context.Context, image string) (string, error) {
@@ -287,6 +330,53 @@ func (p *Podman) RemoveContainer(ctx context.Context, labels []string) error {
 	return nil
 }
 
+func (p *Podman) CreateVolume(ctx context.Context, name string, labels []string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"volume", "create", name}
+	for _, label := range labels {
+		args = append(args, "--label", label)
+	}
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("create volume: %s: %w", strings.TrimSpace(stdout), errors.FromStderr(stderr, exitCode))
+	}
+
+	inspectArgs := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
+	mountpointOut, inspectStderr, inspectExit := p.exec.ExecuteWithContext(ctx, podmanCmd, inspectArgs...)
+	if inspectExit != 0 {
+		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(inspectStderr, inspectExit))
+	}
+
+	mountpoint := strings.TrimSpace(mountpointOut)
+
+	return mountpoint, nil
+}
+
+func (p *Podman) VolumeExists(ctx context.Context, name string) bool {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"volume", "exists", name}
+	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	return exitCode == 0
+}
+
+func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	return strings.TrimSpace(stdout), nil
+}
+
 func (p *Podman) RemoveVolumes(ctx context.Context, labels []string) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
@@ -407,39 +497,44 @@ func copyContainerData(ctx context.Context, log *log.PrefixLogger, writer fileio
 	}()
 
 	// recursively copy image files to agent destination
-	err = filepath.Walk(writer.PathFor(mountPoint), func(filePath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			if info.Name() == "merged" {
-				log.Debugf("Skipping merged directory: %s", filePath)
-				return nil
-			}
-			log.Debugf("Creating directory: %s", info.Name())
-
-			// ensure any directories in the image are also created
-			return writer.MkdirAll(filepath.Join(destPath, info.Name()), fileio.DefaultDirectoryPermissions)
-		}
-
-		return copyContainerFile(filePath, writer.PathFor(destPath))
-	})
-	if err != nil {
+	if err := copyData(ctx, log, writer, mountPoint, destPath); err != nil {
 		return fmt.Errorf("error during copy: %w", err)
 	}
 
 	return nil
 }
 
-func copyContainerFile(from, to string) error {
-	// local writer ensures that the container from directory is correct.
-	writer := fileio.NewWriter()
-	if err := writer.CopyFile(from, to); err != nil {
-		return fmt.Errorf("failed to copy file: %w", err)
-	}
+func copyData(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, srcRoot, destRoot string) error {
+	return filepath.Walk(srcRoot, func(src string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
-	return nil
+		relPath, err := filepath.Rel(srcRoot, src)
+		if err != nil {
+			return fmt.Errorf("computing relative path: %w", err)
+		}
+		dest := filepath.Join(destRoot, relPath)
+
+		if info.IsDir() {
+			if info.Name() == "merged" {
+				log.Tracef("Skipping merged directory: %s", src)
+				return nil
+			}
+
+			// create the directory in the destination
+			log.Tracef("Creating directory: %s", dest)
+
+			// ensure any directories in the image are also created
+			return writer.MkdirAll(dest, fileio.DefaultDirectoryPermissions)
+		}
+
+		log.Tracef("Copying file from %s to %s", src, dest)
+		return writer.CopyFile(src, dest)
+	})
 }
 
 // SanitizePodmanLabel sanitizes a string to be used as a label in Podman.
