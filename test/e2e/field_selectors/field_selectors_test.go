@@ -4,11 +4,12 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Field Selectors", Label("sanity", "82219"), func() {
+var _ = Describe("Field Selectors Extension", Label("integration", "82219"), func() {
 	var (
 		harness              *e2e.Harness
 		expectedDevices      []*api.Device
@@ -20,6 +21,8 @@ var _ = Describe("Field Selectors", Label("sanity", "82219"), func() {
 		expectedDevices = nil
 		expectedFleets = nil
 		expectedRepositories = nil
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		harness = e2e.NewTestHarness(ctx)
 	})
 
 	AfterEach(func() {

@@ -128,7 +128,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 			Expect(out).To(ContainSubstring("defaultDevice"))
 		})
 
-		It("Field selector filters", func() {
+		It("Field selector filters", Label("77947", "sanity"), func() {
 			start, end := GetCurrentYearBounds()
 			tests := Cases(
 				EntryCase("filters devices by name", []string{"--field-selector", fmt.Sprintf("metadata.name=%s", deviceAName)}, true, deviceAName),
@@ -148,7 +148,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 			})
 		})
 
-		It("Label selector filters", func() {
+		It("Label selector filters", Label("78751", "sanity"), func() {
 			tests := Cases(
 				EntryCase("filters by region in set", []string{"-l", fmt.Sprintf("region in (test, %s)", DeviceARegion), "-owide"}, true, deviceAName),
 				EntryCase("filters by region not in set", []string{"-l", "region notin (test, eu-west-2)", "-owide"}, true, deviceAName),
@@ -169,7 +169,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 			})
 		})
 
-		It("Negative field selector and label cases", func() {
+		It("Negative field selector and label cases", Label("77948", "sanity"), func() {
 			tests := Cases(
 				EntryCase("invalid field selector", []string{"--field-selector", "invalid.field"}, false, unknownSelector),
 				EntryCase("unsupported field selector", []string{"--field-selector", "unsupported.field"}, false, unknownSelector),
