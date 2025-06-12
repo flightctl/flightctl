@@ -3,7 +3,6 @@ package device
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -55,6 +55,8 @@ func TestSync(t *testing.T) {
 			mockHookManager *hook.MockManager,
 			mockAppManager *applications.MockManager,
 			mockLifecycleManager *lifecycle.MockManager,
+			mockPolicyManager *policy.MockManager,
+			mockSpecManager *spec.MockManager,
 		)
 	}{
 		{
@@ -74,47 +76,72 @@ func TestSync(t *testing.T) {
 				mockHookManager *hook.MockManager,
 				mockAppManager *applications.MockManager,
 				mockLifecycleManager *lifecycle.MockManager,
+				mockPolicyManager *policy.MockManager,
+				mockSpecManager *spec.MockManager,
 			) {
 				nonRetryableHookError := errors.New("hook error")
 				gomock.InOrder(
+					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
+					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockPolicyManager.EXPECT().Sync(ctx, desired.Spec).Return(nil),
+					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
 					mockAppManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
 					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, desired.Spec).Return(nil),
+					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Update, desired.Version()).Return(nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					mockHookManager.EXPECT().Sync(current.Spec, desired.Spec).Return(nil),
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, desired.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, desired.Spec).Return(nil),
-					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
+					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError),
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					//
 					// rollback switch current and desired spec ordering
 					//
-					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec).Return(nil),
-					mockHookManager.EXPECT().OnBeforeUpdating(ctx, desired.Spec, current.Spec).Return(nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(true),
+					mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockSpecManager.EXPECT().Rollback(ctx).Return(nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockHookManager.EXPECT().Sync(desired.Spec, current.Spec).Return(nil),
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, desired.Spec, current.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, desired.Spec, current.Spec).Return(nil),
-					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
-					mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nonRetryableHookError),
+					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
+					mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil),
+					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					//
 					// resync steady state current 0 desired 0
 					//
+					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
+					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockPolicyManager.EXPECT().Sync(ctx, current.Spec).Return(nil),
+					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
 					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec).Return(nil),
 					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, current.Spec).Return(nil),
+					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Update, desired.Version()).Return(nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockHookManager.EXPECT().Sync(current.Spec, current.Spec).Return(nil),
 					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, current.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, current.Spec).Return(nil),
-					mockOSClient.EXPECT().Status(ctx).Return(&os.Status{}, nil),
-					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, current.Spec, false).Return(nonRetryableHookError),
+					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
+					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, current.Spec, false).Return(nil),
+					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 				)
 			},
 		},
@@ -133,6 +160,8 @@ func TestSync(t *testing.T) {
 			mockHookManager := hook.NewMockManager(ctrl)
 			mockAppManager := applications.NewMockManager(ctrl)
 			mockLifecycleManager := lifecycle.NewMockManager(ctrl)
+			mockPolicyManager := policy.NewMockManager(ctrl)
+			mockSpecManager := spec.NewMockManager(ctrl)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -146,6 +175,8 @@ func TestSync(t *testing.T) {
 				mockHookManager,
 				mockAppManager,
 				mockLifecycleManager,
+				mockPolicyManager,
+				mockSpecManager,
 			)
 
 			// setup
@@ -154,13 +185,11 @@ func TestSync(t *testing.T) {
 			tmpDir := t.TempDir()
 			readWriter := fileio.NewReadWriter()
 			readWriter.SetRootdir(tmpDir)
-			dataDir := filepath.Join(tmpDir, "data")
 			backoff := wait.Backoff{
 				Steps: 1,
 			}
 
 			podmanClient := client.NewPodman(log, mockExec, readWriter, backoff)
-			policyManager := policy.NewManager(log)
 			consoleController := console.NewController(mockRouterService, deviceName, mockExec, publisher.NewSubscription(), log)
 			appController := applications.NewController(podmanClient, mockAppManager, readWriter, log)
 			statusManager := status.NewManager(deviceName, log)
@@ -169,23 +198,12 @@ func TestSync(t *testing.T) {
 			resourceController := resource.NewController(log, mockResourceManager)
 			devicePublisher := publisher.NewSubscription()
 			require.NoError(devicePublisher.Push(tc.desired))
-			specManager := spec.NewManager(
-				dataDir,
-				policyManager,
-				readWriter,
-				mockOSClient,
-				devicePublisher,
-				log,
-			)
-
-			err := specManager.Initialize(ctx)
-			require.NoError(err)
 
 			agent := Agent{
 				log:                    log,
 				deviceWriter:           readWriter,
-				specManager:            specManager,
-				policyManager:          policyManager,
+				specManager:            mockSpecManager,
+				policyManager:          mockPolicyManager,
 				statusManager:          statusManager,
 				appManager:             mockAppManager,
 				applicationsController: appController,

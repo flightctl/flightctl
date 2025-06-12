@@ -30,7 +30,8 @@ type manager struct {
 	cache            *cache
 	queue            PriorityQueue
 
-	log *log.PrefixLogger
+	lastConsumedDevice *v1alpha1.Device
+	log                *log.PrefixLogger
 }
 
 // NewManager creates a new device spec manager.
@@ -320,7 +321,20 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 		}
 		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
 		s.queue.Add(ctx, newDesired)
+		s.lastConsumedDevice = newDesired
 		consumed = true
+	}
+	if !consumed && s.lastConsumedDevice != nil {
+		version, err := s.getRenderedVersion()
+		if err != nil {
+			return false, fmt.Errorf("getting rendered version: %w", err)
+		}
+		if s.lastConsumedDevice.Version() != version {
+			// In case of rollback we would like to consume again the last device
+			s.log.Debugf("Requeuing last consumed device. version: %s", s.lastConsumedDevice.Version())
+			s.queue.Add(ctx, s.lastConsumedDevice)
+			consumed = true
+		}
 	}
 	return consumed, nil
 }
@@ -491,6 +505,19 @@ func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath s
 
 func IsUpgrading(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 	return current.Version() != desired.Version()
+}
+
+// IsRollback returns true if the version of the current spec is greater than the desired.
+func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+	currentVersion, err := stringToInt64(current.Version())
+	if err != nil {
+		return false
+	}
+	desiredVersion, err := stringToInt64(desired.Version())
+	if err != nil {
+		return false
+	}
+	return currentVersion > desiredVersion
 }
 
 type rollbackConfig struct {
