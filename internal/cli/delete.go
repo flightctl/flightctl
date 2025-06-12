@@ -115,7 +115,7 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 		if err := processDeletionReponse(response, err, kind, name); err != nil {
 			return err
 		}
-		fmt.Printf("%s \"%s\" deleted\n", kind, name)
+		fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
 		return nil
 	}
 
@@ -135,7 +135,7 @@ func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientW
 			fmt.Printf("Error: %v\n", processErr)
 			errorCount++
 		} else {
-			fmt.Printf("%s \"%s\" deleted\n", kind, name)
+			fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
 		}
 	}
 
