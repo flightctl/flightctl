@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
@@ -25,6 +26,7 @@ func dispatchTasks(serviceHandler service.Service, callbackManager tasks_client.
 		}
 
 		ctx, span := instrumentation.StartSpan(ctx, "flightctl/tasks", reference.TaskName)
+		ctx = util.WithOrganizationID(ctx, reference.OrgID)
 		defer span.End()
 
 		span.SetAttributes(
