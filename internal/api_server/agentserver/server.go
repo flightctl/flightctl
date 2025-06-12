@@ -12,7 +12,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
-	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
@@ -102,7 +102,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	grpcServer := s.grpcServer.PrepareGRPCService()
 
 	handler := grpcMuxHandlerFunc(grpcServer, httpAPIHandler, s.log)
-	srv := tlsmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
+	srv := fcmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {
 		<-ctx.Done()
@@ -138,10 +138,11 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	// request size limits should come before logging to prevent DoS attacks from filling logs
 	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
-		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
+		fcmiddleware.AddOrgIDToCtx,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	}
 
