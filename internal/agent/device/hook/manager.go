@@ -61,6 +61,7 @@ func (m *manager) OnBeforeUpdating(ctx context.Context, current *api.DeviceSpec,
 }
 
 func (m *manager) OnAfterUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) error {
+
 	actionCtx := newActionContext(api.DeviceLifecycleHookAfterUpdating, current, desired, systemRebooted)
 	return m.loadAndExecuteActions(ctx, actionCtx)
 }
