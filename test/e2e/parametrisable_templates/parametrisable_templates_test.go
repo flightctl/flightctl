@@ -228,7 +228,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				gitConfigResponse, err := harness.GetDeviceGitConfig(device, gitConfigName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(gitConfigResponse.GitRef.Path).To(ContainSubstring(configLabelValue))
-				Expect(*gitConfigResponse.GitRef.MountPath).To(ContainSubstring(teamLabelValue))
+				Expect(*gitConfigResponse.GitRef.MountPath).To(ContainSubstring(configLabelValue))
 				Expect(gitConfigResponse.GitRef.TargetRevision).To(ContainSubstring(revisionLabelValue))
 
 				httpConfigResponse, err := harness.GetDeviceHttpConfig(device, httpConfigName)
@@ -325,12 +325,12 @@ var (
 	contentWithFunction   = "{{ replace \"a\" \"c\" .metadata.labels.team }}"
 	pathWithFunction      = "/var/home/user/{{ upper .metadata.labels.team | lower }}/test.txt"
 	repoTestName          = "git-repo"
-	repoTestUrl           = "https://github.com/flightctl/flightctl-demos"
+	repoTestUrl           = "https://github.com/siserafin/tests"
 	deviceAlias           = "base"
-	mountPath             = "/var/home/user/{{ .metadata.labels.team }}/file.txt"
+	mountPath             = "/etc/{{ .metadata.labels.config }}"
 	branchTargetRevision  = "demo"
 	httpRepoName          = "http-repo"
-	gitRepoConfigPath     = "/{{ .metadata.labels.config }}/bootc/Containerfile.arm64"
+	gitRepoConfigPath     = "/etc/{{ .metadata.labels.config }}/fleet-test-images.yaml"
 	httpConfigPath        = "/var/home/user/{{ .metadata.labels.config }}"
 	configLabelKey        = "config"
 	configLabelValue      = "fedora-bootc"
