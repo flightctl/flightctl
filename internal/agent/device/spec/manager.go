@@ -493,6 +493,19 @@ func IsUpgrading(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 	return current.Version() != desired.Version()
 }
 
+// IsRollback returns true if the version of the current spec is greater than the desired.
+func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+	currentVersion, err := stringToInt64(current.Version())
+	if err != nil {
+		return false
+	}
+	desiredVersion, err := stringToInt64(desired.Version())
+	if err != nil {
+		return false
+	}
+	return currentVersion > desiredVersion
+}
+
 type rollbackConfig struct {
 	setFailed bool
 }

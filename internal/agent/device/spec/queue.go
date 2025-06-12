@@ -116,29 +116,31 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	if !ok {
 		return nil, false
 	}
+	version := item.Version
 
-	m.log.Debugf("Evaluating template version: %d", item.Version)
+	m.log.Debugf("Evaluating template version: %d", version)
 	now := time.Now()
-	requeue, exists := m.requeueLookup[item.Version]
-	if exists && now.Before(requeue.nextAvailable) {
+	requeue := m.getOrCreateRequeueState(ctx, version)
+	if now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
-		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
+		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339))
 		return nil, false
 	}
-	if m.updatePolicy(ctx, requeue) {
-		m.log.Debugf("Template version policy updated: %d", item.Version)
-	}
 
-	if exists {
-		requeue.nextAvailable = time.Time{}
-		m.log.Debugf("Template version is now available for retrieval: %d", item.Version)
-		requeue.tries++
+	if !requeue.downloadPolicySatisfied && !requeue.updatePolicySatisfied {
+		m.log.Debugf("Template version %d policies are not satisfied skipping...", version)
+		m.queue.Add(item)
+		return nil, false
 	}
 
 	if item.Spec != nil {
-		m.log.Debugf("Retrieved template version from the queue: %d", item.Version)
+		m.log.Debugf("Retrieved template version from the queue: %d", version)
+		requeue.nextAvailable = time.Time{}
+		requeue.tries++
 		return item.Spec, true
 	}
+
+	m.log.Errorf("Dropping template version %d from queue: missing or invalid spec", version)
 	return nil, false
 }
 
@@ -222,6 +224,9 @@ func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64)
 	return false
 }
 
+// updatePolicy calls into the policyManager to check if the policys have been
+// satisfied since the last call an updates accordingly returns true if the
+// polciy has changed.
 func (m *queueManager) updatePolicy(ctx context.Context, requeue *requeueState) bool {
 	changed := false
 	if !requeue.downloadPolicySatisfied {
