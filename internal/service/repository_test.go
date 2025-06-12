@@ -2,11 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -14,12 +16,16 @@ import (
 
 type RepositoryStore struct {
 	store.Store
-	RepositoryVal api.Repository
-	EventVal      api.Event
+	RepositoryVal   api.Repository
+	EventVal        api.Event
+	ReturnErr       error
+	DummyRepository *DummyRepository
 }
 
 func (s *RepositoryStore) Repository() store.Repository {
-	return &DummyRepository{RepositoryVal: s.RepositoryVal}
+	repo := DummyRepository{RepositoryVal: s.RepositoryVal, ReturnErr: s.ReturnErr}
+	s.DummyRepository = &repo
+	return s.DummyRepository
 }
 
 func (s *RepositoryStore) Event() store.Event {
@@ -29,6 +35,8 @@ func (s *RepositoryStore) Event() store.Event {
 type DummyRepository struct {
 	store.Repository
 	RepositoryVal api.Repository
+	ReturnErr     error
+	CalledOrgId   uuid.UUID
 }
 
 func (s *DummyRepository) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
@@ -44,6 +52,17 @@ func (s *DummyRepository) Update(ctx context.Context, orgId uuid.UUID, repositor
 
 func (s *DummyRepository) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback store.RepositoryStoreCallback) (*api.Repository, bool, api.ResourceUpdatedDetails, error) {
 	return repository, false, api.ResourceUpdatedDetails{}, nil
+}
+
+func (s *DummyRepository) List(ctx context.Context, orgId uuid.UUID, params store.ListParams) (*api.RepositoryList, error) {
+	if s.ReturnErr != nil {
+		return nil, s.ReturnErr
+	}
+	s.CalledOrgId = orgId
+	return &api.RepositoryList{
+		Kind:  "RepositoryList",
+		Items: []api.Repository{s.RepositoryVal},
+	}, nil
 }
 
 func verifyRepoPatchFailed(require *require.Assertions, status api.Status) {
@@ -74,6 +93,7 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*
 	require.NotEqual(int32(500), status.Code)
 	return resp, repository, status
 }
+
 func TestRepositoryPatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
@@ -200,4 +220,65 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 	}
 	_, status := serviceHandler.PatchRepository(context.Background(), "bar", pr)
 	require.Equal(int32(404), status.Code)
+}
+
+func TestListRepositoriesNoOrgID(t *testing.T) {
+	require := require.New(t)
+
+	repository := api.Repository{
+		Kind: api.RepositoryKind,
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr("test-repo"),
+		},
+	}
+	serviceHandler := ServiceHandler{
+		store: &RepositoryStore{RepositoryVal: repository},
+	}
+
+	_, status := serviceHandler.ListRepositories(context.Background(), api.ListRepositoriesParams{})
+	require.Equal(int32(400), status.Code)
+	require.Equal(flterrors.ErrOrgIDInvalid.Error(), status.Message)
+}
+
+func TestListRepositoriesStoreError(t *testing.T) {
+	require := require.New(t)
+
+	repository := api.Repository{
+		Kind: api.RepositoryKind,
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr("test-repo"),
+		},
+	}
+	expectedErr := errors.New("OH NO!")
+	serviceHandler := ServiceHandler{
+		store: &RepositoryStore{RepositoryVal: repository, ReturnErr: expectedErr},
+	}
+
+	ctx := context.Background()
+	ctx = util.WithOrganizationID(ctx, uuid.New())
+	_, status := serviceHandler.ListRepositories(ctx, api.ListRepositoriesParams{})
+	require.Equal(int32(500), status.Code)
+	require.Equal(expectedErr.Error(), status.Message)
+}
+
+func TestListRepositories(t *testing.T) {
+	require := require.New(t)
+
+	repository := api.Repository{
+		Kind: api.RepositoryKind,
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr("test-repo"),
+		},
+	}
+	repoStore := &RepositoryStore{RepositoryVal: repository}
+	serviceHandler := ServiceHandler{
+		store: repoStore,
+	}
+	ctx := context.Background()
+	expectedOrgID := uuid.New()
+	ctx = util.WithOrganizationID(ctx, expectedOrgID)
+	resp, status := serviceHandler.ListRepositories(ctx, api.ListRepositoriesParams{})
+	require.Equal(int32(200), status.Code)
+	require.Equal(expectedOrgID, repoStore.DummyRepository.CalledOrgId)
+	require.Equal(repository, resp.Items[0])
 }
