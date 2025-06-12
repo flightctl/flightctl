@@ -30,7 +30,8 @@ type manager struct {
 	cache            *cache
 	queue            PriorityQueue
 
-	log *log.PrefixLogger
+	lastConsumedDevice *v1alpha1.Device
+	log                *log.PrefixLogger
 }
 
 // NewManager creates a new device spec manager.
@@ -320,7 +321,20 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 		}
 		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
 		s.queue.Add(ctx, newDesired)
+		s.lastConsumedDevice = newDesired
 		consumed = true
+	}
+	if !consumed && s.lastConsumedDevice != nil {
+		version, err := s.getRenderedVersion()
+		if err != nil {
+			return false, fmt.Errorf("getting rendered version: %w", err)
+		}
+		if s.lastConsumedDevice.Version() != version {
+			// In case of rollback we would like to consume again the last device
+			s.log.Debugf("Requeuing last consumed device. version: %s", s.lastConsumedDevice.Version())
+			s.queue.Add(ctx, s.lastConsumedDevice)
+			consumed = true
+		}
 	}
 	return consumed, nil
 }
