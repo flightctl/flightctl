@@ -575,11 +575,21 @@ A run action takes the following parameters:
 
 | Parameter | Description |
 | --------- | ----------- |
-| Run | The absolute path to the command to run, followed by any flags or arguments.<br/><br/>Example: `/usr/bin/nmcli connection reload`.<br/><br/>Note that the command is not executed in a shell, so you cannot use shell variables like `$PATH` or `$HOME` or chain commands (`\|` or `;`). However, it is possible to start a shell yourself if necessary by specifying the shell as command to run.<br/><br/>Example: `/usr/bin/bash -c 'echo $SHELL $HOME $USER'` |
+| Run | The absolute path to the command to run, followed by any flags or arguments.<br/><br/>Example: `/usr/bin/nmcli connection reload`.<br/><br/>Note that the command is not executed in a shell, so you cannot use shell variables like `$FOO_PATH` or chain commands (`\|` or `;`). However, it is possible to start a shell yourself if necessary by specifying the shell as command to run.<br/><br/>Example: `/usr/bin/bash -c 'echo foo'` |
 | EnvVars | (Optional) A list of key/value-pairs to set as environment variables for the command. |
 | WorkDir | (Optional) The directory the command will be run from. |
-| Timeout | (Optional) The maximum duration allowed for the action to complete. The duration must be be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours. |
+| Timeout | (Optional) The maximum duration allowed for the action to complete. The duration must be be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours.<br/><br/>Default: 10s |
 | If | (Optional) A list of conditions that must be true for the action to be run (see below). If not provided, actions will run unconditionally. |
+
+> [!NOTE]
+> When using a shell with `run`, the executed environment does not inherit the system environment, any required environment variables must be provided explicitly via the `envVars` field in the API.
+>
+>```sh
+>- run: /usr/bin/bash -c "until [ -f $KUBECONFIG ]; do sleep 1; done"
+>   timeout: 5m
+>   envVars:
+>     KUBECONFIG: "/var/lib/microshift/resources/kubeadmin/kubeconfig"
+>```
 
 By default, actions are performed every time the hook is triggered. However, for the `afterUpdating` hook you can use the `If` parameter to add conditions that must be true for an action to be performed, otherwise the action will be skipped.
 
