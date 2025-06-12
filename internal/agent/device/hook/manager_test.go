@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util"
@@ -30,8 +29,8 @@ func TestHookManager(t *testing.T) {
 	testCases := []struct {
 		name             string
 		hooks            map[string]string
-		current          *api.DeviceSpec
-		desired          *api.DeviceSpec
+		current          *v1alpha1.DeviceSpec
+		desired          *v1alpha1.DeviceSpec
 		rebooted         bool
 		expectedCommands []command
 	}{
@@ -84,7 +83,7 @@ func TestHookManager(t *testing.T) {
 			current:          createDeviceSpec(require, map[string]string{}),
 			desired:          createDeviceSpec(require, map[string]string{"/etc/someservice/some.config": "data:,content"}),
 			rebooted:         true,
-			expectedCommands: []command{{"echo", []string{"\"System was rebooted.\""}}},
+			expectedCommands: []command{{"echo", []string{"System was rebooted."}}},
 		},
 		{
 			name:             "actions with rebooted condition should run if the system rebooted during the update",
@@ -92,7 +91,7 @@ func TestHookManager(t *testing.T) {
 			current:          createDeviceSpec(require, map[string]string{}),
 			desired:          createDeviceSpec(require, map[string]string{"/etc/someservice/some.config": "data:,content"}),
 			rebooted:         false,
-			expectedCommands: []command{{"echo", []string{"\"System was not rebooted.\""}}},
+			expectedCommands: []command{{"echo", []string{"System was not rebooted."}}},
 		},
 	}
 
@@ -159,7 +158,7 @@ func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter
 	return readerWriter
 }
 
-func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *api.DeviceSpec {
+func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v1alpha1.DeviceSpec {
 	files := []v1alpha1.FileSpec{}
 	for path, data := range fileMap {
 		files = append(files, v1alpha1.FileSpec{
@@ -171,7 +170,7 @@ func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *a
 	config, err := config.FilesToProviderSpec(files)
 	require.NoError(err)
 
-	return &api.DeviceSpec{
+	return &v1alpha1.DeviceSpec{
 		Config: config,
 	}
 }
