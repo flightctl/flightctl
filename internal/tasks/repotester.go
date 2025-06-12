@@ -6,12 +6,14 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,9 +42,23 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 
 	log.Info("Running RepoTester")
 
+	organizationIDs, status := r.serviceHandler.ListAllOrganizationIDs(ctx)
+	if status.Code != 200 {
+		log.Errorf("error fetching organizations: %s", status.Message)
+		return
+	}
+
+	for _, orgID := range organizationIDs {
+		r.TestRepositoriesForOrganization(ctx, log, orgID)
+	}
+}
+
+func (r *RepoTester) TestRepositoriesForOrganization(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	ctx = util.WithOrganizationID(ctx, orgID)
+	log = log.WithField("organization", orgID)
+
 	limit := int32(ItemsPerPage)
 	continueToken := (*string)(nil)
-
 	for {
 		repositories, status := r.serviceHandler.ListRepositories(ctx, api.ListRepositoriesParams{
 			Limit:    &limit,

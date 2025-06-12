@@ -6,8 +6,10 @@ import (
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 )
 
@@ -29,7 +31,10 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, repo api.Reposito
 }
 
 func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status) {
-	orgId := store.NullOrgId
+	orgId, ok := util.OrganizationIDValue(ctx)
+	if !ok {
+		return nil, api.StatusBadRequest(flterrors.ErrOrgIDInvalid.Error())
+	}
 
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {

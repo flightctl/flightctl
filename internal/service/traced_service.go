@@ -10,6 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -543,6 +544,12 @@ func (t *TracedService) ListEvents(ctx context.Context, params api.ListEventsPar
 func (t *TracedService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status) {
 	ctx, span := startSpan(ctx, "DeleteEventsOlderThan")
 	resp, st := t.inner.DeleteEventsOlderThan(ctx, cutoffTime)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) ListAllOrganizationIDs(ctx context.Context) ([]uuid.UUID, api.Status) {
+	ctx, span := startSpan(ctx, "ListAllOrganizationIDs")
+	resp, st := t.inner.ListAllOrganizationIDs(ctx)
 	endSpan(span, st)
 	return resp, st
 }
