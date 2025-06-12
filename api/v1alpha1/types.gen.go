@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for AppType.
@@ -1272,6 +1273,9 @@ type ObjectMeta struct {
 
 	// Name The name of the object.
 	Name *string `json:"name,omitempty"`
+
+	// OrganizationID The unique identifier for the organization that owns this resource.
+	OrganizationID *openapi_types.UUID `json:"organizationID,omitempty"`
 
 	// Owner A resource that owns this resource, in "kind/name" format.
 	Owner *string `json:"owner,omitempty"`

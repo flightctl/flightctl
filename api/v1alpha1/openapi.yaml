@@ -4715,6 +4715,10 @@ components:
         owner:
           type: string
           description: A resource that owns this resource, in "kind/name" format.
+        organizationID:
+          type: string
+          description: The unique identifier for the organization that owns this resource.
+          format: uuid
         annotations:
           type: object
           additionalProperties:

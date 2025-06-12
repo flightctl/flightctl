@@ -1,12 +1,15 @@
 package util
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"golang.org/x/exp/constraints"
 	"k8s.io/klog/v2"
@@ -317,4 +320,13 @@ func Clone[T any](t *T) *T {
 	}
 	ret := *t
 	return &ret
+}
+
+func WithOrganizationID(ctx context.Context, orgID uuid.UUID) context.Context {
+	return context.WithValue(ctx, consts.OrganizationIDKey, orgID)
+}
+
+func OrganizationIDValue(ctx context.Context) (uuid.UUID, bool) {
+	orgID, ok := ctx.Value(consts.OrganizationIDKey).(uuid.UUID)
+	return orgID, ok
 }

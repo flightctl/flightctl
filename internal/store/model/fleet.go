@@ -95,6 +95,7 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
 			Annotations:       lo.ToPtr(util.EnsureMap(f.Resource.Annotations)),
 			Generation:        f.Generation,
 			Owner:             f.Owner,
+			OrganizationID:    lo.ToPtr(f.Resource.OrgID),
 			ResourceVersion:   lo.Ternary(f.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(f.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,

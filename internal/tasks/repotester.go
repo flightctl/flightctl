@@ -43,6 +43,10 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 	limit := int32(ItemsPerPage)
 	continueToken := (*string)(nil)
 
+	// Repos are scoped by org but we don't have an org in context
+	//
+	// We either need to fetch and iterate over orgs and call ListRepositories per org,
+	// or provide methods to list all repositories across all orgs.
 	for {
 		repositories, status := r.serviceHandler.ListRepositories(ctx, api.ListRepositoriesParams{
 			Limit:    &limit,

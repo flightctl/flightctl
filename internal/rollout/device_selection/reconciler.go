@@ -6,8 +6,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -158,15 +158,14 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 }
 
 func (r *reconciler) Reconcile(ctx context.Context) {
-	// Get all relevant fleets
-	orgId := store.NullOrgId
-
 	fleetList, status := r.serviceHandler.ListFleetRolloutDeviceSelection(ctx)
 	if status.Code != http.StatusOK {
 		r.log.WithError(service.ApiStatusToErr(status)).Error("ListRolloutDeviceSelection")
 		return
 	}
 	for _, fleet := range fleetList.Items {
-		r.reconcileFleet(ctx, orgId, fleet)
+		fleetOrgId := lo.FromPtr(fleet.Metadata.OrganizationID)
+		ctxWithOrgId := util.WithOrganizationID(ctx, fleetOrgId)
+		r.reconcileFleet(ctxWithOrgId, fleetOrgId, fleet)
 	}
 }
