@@ -24,7 +24,7 @@ var _ = Describe("ConvertFileSystemToIgnition", func() {
 			file2, _ := mfs.Create(filepath.Join("/testDAta", files[1]))
 			_, _ = file2.Write([]byte("content2"))
 
-			ignitionConfig, err := ConvertFileSystemToIgnition(mfs, "/testDAta", "/etc")
+			ignitionConfig, err := ConvertFileSystemToIgnition(mfs, "/testDAta")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ignitionConfig.Storage.Files).To(HaveLen(2))
 
@@ -43,7 +43,7 @@ var _ = Describe("ConvertFileSystemToIgnition", func() {
 			file, _ := mfs.Create(path)
 			_, _ = file.Write([]byte("content"))
 
-			ignitionConfig, err := ConvertFileSystemToIgnition(mfs, path, "/etc/")
+			ignitionConfig, err := ConvertFileSystemToIgnition(mfs, path)
 			Expect(err).ToNot(HaveOccurred())
 			fmt.Println(ignitionConfig)
 			Expect(ignitionConfig.Storage.Files).To(HaveLen(1))
@@ -57,7 +57,7 @@ var _ = Describe("ConvertFileSystemToIgnition", func() {
 			file, _ := mfs.Create("/testfile")
 			_, _ = file.Write([]byte("content"))
 
-			ignitionConfig, err := ConvertFileSystemToIgnition(mfs, "/testfile", "/")
+			ignitionConfig, err := ConvertFileSystemToIgnition(mfs, "/testfile")
 			Expect(err).ToNot(HaveOccurred())
 			fmt.Println(ignitionConfig)
 			Expect(ignitionConfig.Storage.Files).To(HaveLen(1))
@@ -69,7 +69,7 @@ var _ = Describe("ConvertFileSystemToIgnition", func() {
 		It("returns an error", func() {
 			mfs := memfs.New()
 
-			_, err := ConvertFileSystemToIgnition(mfs, "/nonexistent", "/")
+			_, err := ConvertFileSystemToIgnition(mfs, "/nonexistent")
 			Expect(err).To(HaveOccurred())
 		})
 	})
@@ -78,7 +78,7 @@ var _ = Describe("ConvertFileSystemToIgnition", func() {
 		It("returns an error", func() {
 			mfs := memfs.New()
 
-			_, err := ConvertFileSystemToIgnition(mfs, "", "")
+			_, err := ConvertFileSystemToIgnition(mfs, "")
 			Expect(err).To(HaveOccurred())
 		})
 	})
