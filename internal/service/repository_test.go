@@ -23,9 +23,9 @@ type RepositoryStore struct {
 }
 
 func (s *RepositoryStore) Repository() store.Repository {
-	repo := DummyRepository{RepositoryVal: s.RepositoryVal, ReturnErr: s.ReturnErr}
-	s.DummyRepository = &repo
-	return s.DummyRepository
+	repo := &DummyRepository{RepositoryVal: s.RepositoryVal, ReturnErr: s.ReturnErr}
+	s.DummyRepository = repo
+	return repo
 }
 
 func (s *RepositoryStore) Event() store.Event {
@@ -237,7 +237,7 @@ func TestListRepositoriesNoOrgID(t *testing.T) {
 
 	_, status := serviceHandler.ListRepositories(context.Background(), api.ListRepositoriesParams{})
 	require.Equal(int32(400), status.Code)
-	require.Equal(flterrors.ErrOrgIDInvalid.Error(), status.Message)
+	require.Equal(flterrors.ErrInvalidOrganizationID.Error(), status.Message)
 }
 
 func TestListRepositoriesStoreError(t *testing.T) {

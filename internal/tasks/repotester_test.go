@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,8 +17,6 @@ type mockRepoTesterService struct {
 	orgsToReturn  []uuid.UUID
 	orgsStatus    api.Status
 	reposToReturn *api.RepositoryList
-	reposStatus   api.Status
-	replaceStatus api.Status
 	repoToReturn  *api.Repository
 
 	listReposCallCount     int
@@ -32,12 +31,12 @@ func (m *mockRepoTesterService) ListAllOrganizationIDs(ctx context.Context) ([]u
 func (m *mockRepoTesterService) ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status) {
 	m.listReposCallCount = m.listReposCallCount + 1
 	m.listReposContexts = append(m.listReposContexts, ctx)
-	return m.reposToReturn, m.reposStatus
+	return m.reposToReturn, api.Status{Code: 200}
 }
 
 func (m *mockRepoTesterService) ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status) {
 	m.replaceStatusCallCount = m.replaceStatusCallCount + 1
-	return m.repoToReturn, m.replaceStatus
+	return m.repoToReturn, api.Status{Code: 200}
 }
 
 type mockTypeSpecificRepoTester struct {
@@ -142,10 +141,12 @@ func TestTestRepositories(t *testing.T) {
 			ctx := context.Background()
 
 			spec := api.RepositorySpec{}
-			spec.FromGenericRepoSpec(api.GenericRepoSpec{
+			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 				Url:  repoURL,
 				Type: tc.repoType,
 			})
+			require.NoError(err)
+
 			repo := api.Repository{
 				Metadata: api.ObjectMeta{Name: &repoName},
 				Spec:     spec,
@@ -154,18 +155,16 @@ func TestTestRepositories(t *testing.T) {
 				orgsToReturn:      tc.orgsToReturn,
 				orgsStatus:        tc.orgsStatus,
 				reposToReturn:     &api.RepositoryList{Items: []api.Repository{repo}},
-				reposStatus:       api.Status{Code: 200},
-				replaceStatus:     api.Status{Code: 200},
 				repoToReturn:      &repo,
 				listReposContexts: []context.Context{},
 			}
-			mockTypeTester := &mockTypeSpecificRepoTester{}
 			repoTester := &RepoTester{
-				log:                    log,
-				serviceHandler:         mockService,
-				TypeSpecificRepoTester: mockTypeTester,
+				log:            log,
+				serviceHandler: mockService,
 			}
-
+			getRepoTesterForType = func(_ logrus.FieldLogger, _ api.RepoSpecType) (TypeSpecificRepoTester, error) {
+				return &mockTypeSpecificRepoTester{}, nil
+			}
 			repoTester.TestRepositories(ctx)
 
 			if tc.orgsStatus.Code != 200 {

@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// GetAllOrganizations returns a list of ALL organizations.
+// ListAllOrganizationIDs returns a list of ALL organizations.
 //
 // Usage is currently intended for internal purposes only such as fetching
 // organizations for tasks that require unscoped knowledge of all organizations

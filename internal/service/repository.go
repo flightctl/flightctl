@@ -33,7 +33,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, repo api.Reposito
 func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status) {
 	orgId, ok := util.OrganizationIDValue(ctx)
 	if !ok {
-		return nil, api.StatusBadRequest(flterrors.ErrOrgIDInvalid.Error())
+		return nil, api.StatusBadRequest(flterrors.ErrInvalidOrganizationID.Error())
 	}
 
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)

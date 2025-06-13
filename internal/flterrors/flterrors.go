@@ -38,5 +38,5 @@ var (
 	ErrEncodeCert      = errors.New("error encoding certificate")
 
 	// organization
-	ErrOrgIDInvalid = errors.New("invalid organization ID")
+	ErrInvalidOrganizationID = errors.New("invalid organization ID")
 )

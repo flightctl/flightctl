@@ -17,14 +17,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type API interface {
-	Test()
-}
-
 type RepoTester struct {
-	log                    logrus.FieldLogger
-	serviceHandler         RepoTesterService
-	TypeSpecificRepoTester TypeSpecificRepoTester
+	log            logrus.FieldLogger
+	serviceHandler RepoTesterService
 }
 
 type RepoTesterService interface {
@@ -79,20 +74,15 @@ func (r *RepoTester) TestRepositoriesForOrganization(ctx context.Context, log lo
 			repository := repositories.Items[i]
 
 			repoSpec, _ := repository.Spec.GetGenericRepoSpec()
-			switch repoSpec.Type {
-			case api.Http:
-				log.Info("Detected HTTP repository type")
-				r.TypeSpecificRepoTester = &HttpRepoTester{}
-			case api.Git:
-				log.Info("Defaulting to Git repository type")
-				r.TypeSpecificRepoTester = &GitRepoTester{}
-			default:
-				log.Errorf("unsupported repository type: %s", repoSpec.Type)
+			typeSpecificRepoTester, err := getRepoTesterForType(log, repoSpec.Type)
+			if err != nil {
+				log.Errorf("Failed to get repo tester for type %s: %v", repoSpec.Type, err)
+				continue
 			}
 
-			accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
+			accessErr := typeSpecificRepoTester.TestAccess(&repository)
 
-			err := r.SetAccessCondition(ctx, &repository, accessErr)
+			err = r.SetAccessCondition(ctx, &repository, accessErr)
 			if err != nil {
 				log.Errorf("Failed to update repository status for %s: %v", *repository.Metadata.Name, err)
 			}
@@ -102,6 +92,21 @@ func (r *RepoTester) TestRepositoriesForOrganization(ctx context.Context, log lo
 		if continueToken == nil {
 			break
 		}
+	}
+}
+
+// Assigned as a var to allow for easy mocking in tests
+var getRepoTesterForType = func(log logrus.FieldLogger, repoType api.RepoSpecType) (TypeSpecificRepoTester, error) {
+	switch repoType {
+	case api.Http:
+		log.Info("Detected HTTP repository type")
+		return &HttpRepoTester{}, nil
+	case api.Git:
+		log.Info("Detected Git repository type")
+		return &GitRepoTester{}, nil
+	default:
+		log.Errorf("unsupported repository type: %s", repoType)
+		return nil, fmt.Errorf("unsupported repository type: %s", repoType)
 	}
 }
 
