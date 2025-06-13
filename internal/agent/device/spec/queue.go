@@ -127,12 +127,6 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 		return nil, false
 	}
 
-	if !requeue.downloadPolicySatisfied && !requeue.updatePolicySatisfied {
-		m.log.Debugf("Template version %d policies are not satisfied skipping...", version)
-		m.queue.Add(item)
-		return nil, false
-	}
-
 	if item.Spec != nil {
 		m.log.Debugf("Retrieved template version from the queue: %d", version)
 		requeue.nextAvailable = time.Time{}
