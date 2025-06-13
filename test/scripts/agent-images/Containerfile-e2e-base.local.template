@@ -24,6 +24,8 @@ RUN if [[ -z $RPM_COPR ]]; then \
         dnf copr -y enable ${RPM_COPR} &&  \
         dnf install -y ${RPM_PACKAGE}; \
     fi && \
+    semanage fcontext -a -t install_exec_t "/usr/bin/flightctl-agent" && \
+    restorecon -v /usr/bin/flightctl-agent && \
     systemctl enable flightctl-agent.service
 
 
