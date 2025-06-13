@@ -1084,6 +1084,9 @@ func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []ma
 
 	for i, deviceID := range deviceIDs {
 		labels := labelsList[i]
+		if labels == nil {
+			labels = make(map[string]string)
+		}
 		labels["fleet"] = fleetName
 		h.SetLabelsForDevice(deviceID, labels)
 	}
