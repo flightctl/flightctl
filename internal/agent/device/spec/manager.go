@@ -26,6 +26,7 @@ type manager struct {
 
 	deviceReadWriter fileio.ReadWriter
 	osClient         os.Client
+	policyManager    policy.Manager
 	devicePublisher  publisher.Subscription
 	cache            *cache
 	queue            PriorityQueue
@@ -62,6 +63,7 @@ func NewManager(
 		osClient:         osClient,
 		cache:            newCache(log),
 		devicePublisher:  devicePublisher,
+		policyManager:    policyManager,
 		queue:            queue,
 		log:              log,
 	}
@@ -320,6 +322,15 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 			break
 		}
 		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
+
+		// to ensure that the agent is able to correct for an invalid policy, it
+		// is updated here. this means the policy will update based on the
+		// latest consumed version.
+		if err := s.policyManager.Sync(ctx, newDesired.Spec); err != nil {
+			// error should not return
+			s.log.Errorf("policy: %v", err)
+		}
+
 		s.queue.Add(ctx, newDesired)
 		s.lastConsumedDevice = newDesired
 		consumed = true
