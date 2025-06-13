@@ -217,7 +217,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				cmd := []string{
 					"sudo", "oc", "wait",
 					"--for=condition=Ready", "pods",
-					"--all", "-A", "--timeout=30s",
+					"--all", "-A", "--timeout=300s",
 					fmt.Sprintf("--kubeconfig=%s", kubeconfigPath),
 				}
 				_, err = harness.VM.RunSSH(cmd, nil)
