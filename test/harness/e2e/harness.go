@@ -12,11 +12,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	client "github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
@@ -25,6 +26,8 @@ import (
 	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 )
 
@@ -37,6 +40,7 @@ type Harness struct {
 	VMs       []vm.TestVMInterface
 	Client    *apiclient.ClientWithResponses
 	Context   context.Context
+	Cluster   kubernetes.Interface
 	ctxCancel context.CancelFunc
 	startTime time.Time
 
@@ -60,6 +64,51 @@ func findTopLevelDir() string {
 	return ""
 }
 
+// try to resolve the kube config at a few well known locations
+func resolveKubeConfigPath() (string, error) {
+	if kc, ok := os.LookupEnv("KUBECONFIG"); ok && kc != "" {
+		return kc, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	paths := []string{
+		filepath.Join(home, ".kube", "config"),                                                           // default
+		filepath.Join(string(filepath.Separator), "home", "kni", "clusterconfigs", "kubeconfig"),         // qa path
+		filepath.Join(string(filepath.Separator), "home", "kni", "auth", "clusterconfigs", "kubeconfig"), // qa path
+	}
+	for _, path := range paths {
+		if _, err = os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to find kubeconfig file in the paths: %v", paths)
+}
+
+// build a k8s interface so that tests can interact with it directly from Go rather than
+// shelling out to `oc` or `kubectl`
+func kubernetesClient() (kubernetes.Interface, error) {
+	kubeconfig, err := resolveKubeConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("unable to resolve kubeconfig location: %w", err)
+	}
+
+	logrus.Debugf("Using kubeconfig: %s", kubeconfig)
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("error building kubeconfig: %w", err)
+	}
+
+	iface, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("error creating kubernetes api: %w", err)
+	}
+	return iface, nil
+}
+
 func NewTestHarness(ctx context.Context) *Harness {
 
 	startTime := time.Now()
@@ -79,10 +128,14 @@ func NewTestHarness(ctx context.Context) *Harness {
 
 	ctx, cancel := context.WithCancel(ctx)
 
+	k8sCluster, err := kubernetesClient()
+	Expect(err).ToNot(HaveOccurred(), "failed to get kubernetes cluster")
+
 	return &Harness{
 		VMs:       []vm.TestVMInterface{testVM},
 		Client:    c,
 		Context:   ctx,
+		Cluster:   k8sCluster,
 		ctxCancel: cancel,
 		startTime: startTime,
 		VM:        testVM,
@@ -108,6 +161,30 @@ func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface
 		createdVMs = append(createdVMs, vm)
 	}
 	return createdVMs, nil
+}
+
+// ReadClientConfig returns the client config for at the specified location. The default config path is used if no path is
+// specified
+func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
+	if filePath == "" {
+		filePath = client.DefaultFlightctlClientConfigPath()
+	}
+	return client.ParseConfigFile(filePath)
+}
+
+// MarkClientAccessTokenExpired updates the client configuration at the specified path by marking the token as expired
+// If no path is supplied, the default config path will be used
+func (h *Harness) MarkClientAccessTokenExpired(filePath string) error {
+	if filePath == "" {
+		filePath = client.DefaultFlightctlClientConfigPath()
+	}
+	cfg, err := client.ParseConfigFile(filePath)
+	if err != nil {
+		return err
+	}
+	// expire the token by making setting the time to one minute ago
+	cfg.AuthInfo.AuthProvider.Config[client.AuthAccessTokenExpiryKey] = time.Now().Add(-1 * time.Minute).Format(time.RFC3339Nano)
+	return cfg.Persist(filePath)
 }
 
 // Harness cleanup, this will delete the VM and cancel the context
@@ -1180,6 +1257,19 @@ func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error)
 	return v1alpha1.Condition{}, fmt.Errorf("fleet rollout condition not found")
 }
 
+func tcpNetworkTableRule(ip, port string, remove bool) []string {
+	flag := "-A" // add
+	if remove {
+		flag = "-D" // delete
+	}
+
+	return []string{"iptables", flag, "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "DROP"}
+}
+
+func buildIPTablesCmd(ip, port string, remove bool) []string {
+	return append([]string{"sudo"}, tcpNetworkTableRule(ip, port, remove)...)
+}
+
 func (h *Harness) SimulateNetworkFailure() error {
 	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
 	if err != nil {
@@ -1187,7 +1277,7 @@ func (h *Harness) SimulateNetworkFailure() error {
 	}
 
 	blockCommands := [][]string{
-		{"sudo", "iptables", "-A", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", registryPort, "-j", "DROP"},
+		buildIPTablesCmd(registryIP, registryPort, false),
 	}
 
 	for _, cmd := range blockCommands {
@@ -1207,6 +1297,24 @@ func (h *Harness) SimulateNetworkFailure() error {
 	return nil
 }
 
+// SimulateNetworkFailureForCLI adds an entry to iptables to drop tcp traffic to the specified port:ip
+// It returns a function that will only execute once to undo the iptables modification
+func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, error) {
+	args := tcpNetworkTableRule(ip, port, false)
+	_, err := h.SH("sudo", args...)
+	noop := func() error { return nil }
+	if err != nil {
+		return noop, fmt.Errorf("failed to add iptables rule %v: %w", args, err)
+	}
+
+	var once sync.Once
+	var respErr error = nil
+	return func() error {
+		once.Do(func() { respErr = h.FixNetworkFailureForCLI(ip, port) })
+		return respErr
+	}, nil
+}
+
 func (h *Harness) FixNetworkFailure() error {
 	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
 	if err != nil {
@@ -1214,7 +1322,7 @@ func (h *Harness) FixNetworkFailure() error {
 	}
 
 	unblockCommands := [][]string{
-		{"sudo", "iptables", "-D", "OUTPUT", "-d", registryIP, "-p", "tcp", "--dport", registryPort, "-j", "DROP"},
+		buildIPTablesCmd(registryIP, registryPort, true),
 	}
 
 	for _, cmd := range unblockCommands {
@@ -1233,6 +1341,19 @@ func (h *Harness) FixNetworkFailure() error {
 	} else {
 		logrus.Debugf("Current iptables rules after recovery:\n%s", stdout.String())
 	}
+
+	return nil
+}
+
+// FixNetworkFailureForCLI removes an entry from iptables if it exists. returns an error
+// if no entry for the ip:port combo exists
+func (h *Harness) FixNetworkFailureForCLI(ip, port string) error {
+	args := tcpNetworkTableRule(ip, port, true)
+	_, err := h.SH("sudo", args...)
+	if err != nil {
+		return fmt.Errorf("failed to add iptables rule %v: %w", args, err)
+	}
+	_, _ = h.SH("sudo", "systemd-resolve", "--flush-caches")
 
 	return nil
 }
