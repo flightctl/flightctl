@@ -37,6 +37,7 @@ type Management interface {
 	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
 	GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error)
 	PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error
+	SetRPCMetricsCallback(cb func(operation string, durationSeconds float64, err error))
 }
 
 // Enrollment is client the interface for managing device enrollment.
