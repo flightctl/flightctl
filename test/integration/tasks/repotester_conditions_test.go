@@ -85,7 +85,13 @@ var _ = Describe("RepoTester", func() {
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(stores, callbackManager, kvStore, nil, log, "", "")
 		repotestr = tasks.NewRepoTester(log, serviceHandler)
-		repotestr.TypeSpecificRepoTester = &MockRepoTester{}
+
+		// Override the GetRepoTesterForType function to return our mock tester
+		origGetter := tasks.GetRepoTesterForType
+		tasks.GetRepoTesterForType = func(_ logrus.FieldLogger, _ api.RepoSpecType) (tasks.TypeSpecificRepoTester, error) {
+			return &MockRepoTester{}, nil
+		}
+		DeferCleanup(func() { tasks.GetRepoTesterForType = origGetter })
 	})
 
 	AfterEach(func() {

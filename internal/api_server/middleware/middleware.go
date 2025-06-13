@@ -8,6 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	chi "github.com/go-chi/chi/v5/middleware"
 )
@@ -54,6 +56,14 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 			}
 		}
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, fmt.Sprintf("user:%s", userName))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func AddOrgIDToCtx(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ctx = util.WithOrganizationID(ctx, store.NullOrgId)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -6,23 +6,26 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
-type API interface {
-	Test()
+type RepoTester struct {
+	log            logrus.FieldLogger
+	serviceHandler RepoTesterService
 }
 
-type RepoTester struct {
-	log                    logrus.FieldLogger
-	serviceHandler         service.Service
-	TypeSpecificRepoTester TypeSpecificRepoTester
+type RepoTesterService interface {
+	ListAllOrganizationIDs(ctx context.Context) ([]uuid.UUID, api.Status)
+	ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status)
+	ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status)
 }
 
 func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *RepoTester {
@@ -40,9 +43,23 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 
 	log.Info("Running RepoTester")
 
+	organizationIDs, status := r.serviceHandler.ListAllOrganizationIDs(ctx)
+	if status.Code != 200 {
+		log.Errorf("error fetching organizations: %s", status.Message)
+		return
+	}
+
+	for _, orgID := range organizationIDs {
+		r.TestRepositoriesForOrganization(ctx, log, orgID)
+	}
+}
+
+func (r *RepoTester) TestRepositoriesForOrganization(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	ctx = util.WithOrganizationID(ctx, orgID)
+	log = log.WithField("organization", orgID)
+
 	limit := int32(ItemsPerPage)
 	continueToken := (*string)(nil)
-
 	for {
 		repositories, status := r.serviceHandler.ListRepositories(ctx, api.ListRepositoriesParams{
 			Limit:    &limit,
@@ -56,23 +73,23 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 		for i := range repositories.Items {
 			repository := repositories.Items[i]
 
-			repoSpec, _ := repository.Spec.GetGenericRepoSpec()
-			switch repoSpec.Type {
-			case api.Http:
-				log.Info("Detected HTTP repository type")
-				r.TypeSpecificRepoTester = &HttpRepoTester{}
-			case api.Git:
-				log.Info("Defaulting to Git repository type")
-				r.TypeSpecificRepoTester = &GitRepoTester{}
-			default:
-				log.Errorf("unsupported repository type: %s", repoSpec.Type)
+			repoSpec, err := repository.Spec.GetGenericRepoSpec()
+			if err != nil {
+				log.Errorf("failed to get generic repo spec for %s: %v", *repository.Metadata.Name, err)
+				continue
 			}
 
-			accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
-
-			err := r.SetAccessCondition(ctx, &repository, accessErr)
+			typeSpecificRepoTester, err := GetRepoTesterForType(log, repoSpec.Type)
 			if err != nil {
-				log.Errorf("Failed to update repository status for %s: %v", *repository.Metadata.Name, err)
+				log.Errorf("failed to get repo tester for type %s: %v", repoSpec.Type, err)
+				continue
+			}
+
+			accessErr := typeSpecificRepoTester.TestAccess(&repository)
+
+			err = r.SetAccessCondition(ctx, &repository, accessErr)
+			if err != nil {
+				log.Errorf("failed to update repository status for %s: %v", *repository.Metadata.Name, err)
 			}
 		}
 
@@ -80,6 +97,21 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 		if continueToken == nil {
 			break
 		}
+	}
+}
+
+// Assigned as a var to allow for easy mocking in tests
+var GetRepoTesterForType = func(log logrus.FieldLogger, repoType api.RepoSpecType) (TypeSpecificRepoTester, error) {
+	switch repoType {
+	case api.Http:
+		log.Info("detected HTTP repository type")
+		return &HttpRepoTester{}, nil
+	case api.Git:
+		log.Info("detected Git repository type")
+		return &GitRepoTester{}, nil
+	default:
+		log.Errorf("unsupported repository type: %s", repoType)
+		return nil, fmt.Errorf("unsupported repository type: %s", repoType)
 	}
 }
 
