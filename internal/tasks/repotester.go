@@ -73,10 +73,15 @@ func (r *RepoTester) TestRepositoriesForOrganization(ctx context.Context, log lo
 		for i := range repositories.Items {
 			repository := repositories.Items[i]
 
-			repoSpec, _ := repository.Spec.GetGenericRepoSpec()
-			typeSpecificRepoTester, err := getRepoTesterForType(log, repoSpec.Type)
+			repoSpec, err := repository.Spec.GetGenericRepoSpec()
 			if err != nil {
-				log.Errorf("Failed to get repo tester for type %s: %v", repoSpec.Type, err)
+				log.Errorf("failed to get generic repo spec for %s: %v", *repository.Metadata.Name, err)
+				continue
+			}
+
+			typeSpecificRepoTester, err := GetRepoTesterForType(log, repoSpec.Type)
+			if err != nil {
+				log.Errorf("failed to get repo tester for type %s: %v", repoSpec.Type, err)
 				continue
 			}
 
@@ -84,7 +89,7 @@ func (r *RepoTester) TestRepositoriesForOrganization(ctx context.Context, log lo
 
 			err = r.SetAccessCondition(ctx, &repository, accessErr)
 			if err != nil {
-				log.Errorf("Failed to update repository status for %s: %v", *repository.Metadata.Name, err)
+				log.Errorf("failed to update repository status for %s: %v", *repository.Metadata.Name, err)
 			}
 		}
 
@@ -96,13 +101,13 @@ func (r *RepoTester) TestRepositoriesForOrganization(ctx context.Context, log lo
 }
 
 // Assigned as a var to allow for easy mocking in tests
-var getRepoTesterForType = func(log logrus.FieldLogger, repoType api.RepoSpecType) (TypeSpecificRepoTester, error) {
+var GetRepoTesterForType = func(log logrus.FieldLogger, repoType api.RepoSpecType) (TypeSpecificRepoTester, error) {
 	switch repoType {
 	case api.Http:
-		log.Info("Detected HTTP repository type")
+		log.Info("detected HTTP repository type")
 		return &HttpRepoTester{}, nil
 	case api.Git:
-		log.Info("Detected Git repository type")
+		log.Info("detected Git repository type")
 		return &GitRepoTester{}, nil
 	default:
 		log.Errorf("unsupported repository type: %s", repoType)

@@ -162,7 +162,7 @@ func TestTestRepositories(t *testing.T) {
 				log:            log,
 				serviceHandler: mockService,
 			}
-			getRepoTesterForType = func(_ logrus.FieldLogger, _ api.RepoSpecType) (TypeSpecificRepoTester, error) {
+			GetRepoTesterForType = func(_ logrus.FieldLogger, _ api.RepoSpecType) (TypeSpecificRepoTester, error) {
 				return &mockTypeSpecificRepoTester{}, nil
 			}
 			repoTester.TestRepositories(ctx)
