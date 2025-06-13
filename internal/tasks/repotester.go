@@ -23,8 +23,14 @@ type API interface {
 
 type RepoTester struct {
 	log                    logrus.FieldLogger
-	serviceHandler         service.Service
+	serviceHandler         RepoTesterService
 	TypeSpecificRepoTester TypeSpecificRepoTester
+}
+
+type RepoTesterService interface {
+	ListAllOrganizationIDs(ctx context.Context) ([]uuid.UUID, api.Status)
+	ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status)
+	ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status)
 }
 
 func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *RepoTester {
