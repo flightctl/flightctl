@@ -297,12 +297,6 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 }
 
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Device) error {
-	// to ensure that the agent is able to correct for an invalid policy, it is reconciled first.
-	// the new policy will go into affect on the next sync.
-	if err := a.policyManager.Sync(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("policy: %w", err)
-	}
-
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
 		return fmt.Errorf("download policy: %w", err)
 	}
