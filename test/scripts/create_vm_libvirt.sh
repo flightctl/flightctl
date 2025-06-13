@@ -2,6 +2,9 @@
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
+KUBECONFIG_PATH="${1:-/home/kni/clusterconfigs/auth/kubeconfig}"
+echo "kubeconfig path is: ${KUBECONFIG_PATH}"
+export KUBECONFIG=${KUBECONFIG_PATH}
 
 # Variables
 VM_NAME="test-vm"
@@ -10,6 +13,7 @@ VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE=30          # Disk size
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
 NETWORK_NAME=${NETWORK_NAME:-baremetal-0}
+echo "ocp_network name is: ${NETWORK_NAME}"
 ISO_URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-x86_64-9-latest.x86_64.qcow2"
 DISK_PATH="/var/lib/libvirt/images/${VM_NAME}.qcow2"
 DISK_PATH_SRC="/var/lib/libvirt/images/${VM_NAME}_src.qcow2"
