@@ -5,7 +5,7 @@ set -eo pipefail
 # Load secret generation functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/secrets.sh
-source "${SCRIPT_DIR}"/init_utils.sh
+source "${SCRIPT_DIR}"/init_utils_host.sh
 
 SERVICE_CONFIG_FILE="/etc/flightctl/service-config.yaml"
 
