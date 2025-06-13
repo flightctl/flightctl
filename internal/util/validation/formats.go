@@ -68,3 +68,16 @@ var GitRevisionRegexp = regexp.MustCompile("^" + GitRevisionFmt + "$")
 func ValidateGitRevision(name *string, path string) []error {
 	return ValidateString(name, path, 1, GitRevisionMaxLength, GitRevisionRegexp, GitRevisionFmt)
 }
+
+const (
+	// SystemD unit pattern supports all allowed formats for unit files and glob searches
+	// This includes templated services (e.g., foo@.service, foo@bar.service)
+	// and glob patterns (e.g., foo*.service, foo[0-9].service)
+	SystemdNameFmt string = `[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+(@[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+)?(\.[a-zA-Z\[\]!\-\*\?]+)?`
+)
+
+var SystemdNameRegexp = regexp.MustCompile("^" + SystemdNameFmt + "$")
+
+func ValidateSystemdName(name *string, path string) []error {
+	return ValidateString(name, path, 1, dns1123LabelMaxLength, SystemdNameRegexp, SystemdNameFmt)
+}

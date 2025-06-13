@@ -88,3 +88,28 @@ func TestValidateGitRevision(t *testing.T) {
 		assert.NotEmpty(ValidateGitRevision(&val, "bad.image.ref"), fmt.Sprintf("value: %q", val))
 	}
 }
+
+func TestValidateSystemdUnitPattern(t *testing.T) {
+	assert := assert.New(t)
+
+	goodValues := []string{
+		"foo.service",
+		"service",
+		"foo[0-9].service",
+		"foo?.service",
+		"foo\\.service",
+	}
+	for _, val := range goodValues {
+		assert.Empty(ValidateSystemdName(&val, "good.unit"))
+	}
+
+	badValues := []string{
+		"foo@@bar.service",
+		"",
+		"@bar.service",
+		"foo;bar.service",
+	}
+	for _, val := range badValues {
+		assert.NotEmpty(ValidateSystemdName(&val, "bad.unit"), fmt.Sprintf("value: %q", val))
+	}
+}

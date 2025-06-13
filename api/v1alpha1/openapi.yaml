@@ -4600,7 +4600,7 @@ components:
               items:
                 type: string
                 description: A single systemd unit name, with or without suffix, or a shell-style glob pattern to match against currently loaded units.
-                pattern: '^[a-zA-Z0-9:\-_.\\*]*$' # * plus https://github.com/systemd/systemd/blob/9cebda59e818cdb89dc1e53ab5bb51b91b3dc3ff/src/basic/unit-name.c#L42
+                pattern: '^[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+(@[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+)?(\.[a-zA-Z\[\]!\-\*\?]+)?$' # SystemD unit pattern supports all allowed formats for unit files and glob searches including templated services
                 maxLength: 256
         resources:
           type: array
