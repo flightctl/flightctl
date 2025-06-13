@@ -17,6 +17,7 @@ import (
 
 var (
 	suiteCtx context.Context
+	ctx      context.Context
 )
 
 func TestBasicOperations(t *testing.T) {
@@ -28,7 +29,7 @@ var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Basic Operations E2E Suite")
 })
 
-var _ = Describe("Basic Operations", Label("sanity", "82220"), func() {
+var _ = Describe("Basic Operations", Label("integration", "82220"), func() {
 	const createdResource = "201 Created"
 
 	var (
@@ -36,7 +37,8 @@ var _ = Describe("Basic Operations", Label("sanity", "82220"), func() {
 	)
 
 	BeforeEach(func() {
-		_ = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		harness = e2e.NewTestHarness(ctx)
 	})
 
 	DescribeTable("Create a resource from example file",
@@ -56,8 +58,8 @@ var _ = Describe("Basic Operations", Label("sanity", "82220"), func() {
 
 			response, err := resources.Delete(harness, resourceType, name)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(response).Should(MatchRegexp(fmt.Sprintf("%s \"%s\" deleted\n", resourceType, name)),
-				fmt.Sprintf("Resource deletion response should match '%s/<name> deleted' pattern for %s", resourceType, fileName))
+			Expect(response).Should(MatchRegexp(fmt.Sprintf("Deletion request for %s \"%s\" completed\n", resourceType, name)),
+				fmt.Sprintf("Resource deletion response should match 'Deletion request for %s <name> completed' pattern for %s", resourceType, fileName))
 		},
 		Entry("Create a device from example file", util.Device, "device.yaml", extractDeviceNameFromExampleFile),
 		Entry("Create a fleet from example file", util.Fleet, "fleet.yaml", extractFleetNameFromExampleFile),

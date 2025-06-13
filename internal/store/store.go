@@ -145,18 +145,43 @@ func (s *DataStore) Close() error {
 	return sqlDB.Close()
 }
 
+type SortColumn string
+type SortOrder string
+
+const (
+	SortByName      SortColumn = "name"
+	SortByCreatedAt SortColumn = "created_at"
+
+	SortAsc  SortOrder = "asc"
+	SortDesc SortOrder = "desc"
+)
+
 type ListParams struct {
 	Limit              int
 	Continue           *Continue
 	FieldSelector      *selector.FieldSelector
 	LabelSelector      *selector.LabelSelector
 	AnnotationSelector *selector.AnnotationSelector
+	SortOrder          *SortOrder
+	SortColumn         *SortColumn
 }
 
 type Continue struct {
 	Version int
 	Name    string
 	Count   int64
+}
+
+func BuildContinueString(name string, count int64) *string {
+	cont := Continue{
+		Version: CurrentContinueVersion,
+		Name:    name,
+		Count:   count,
+	}
+
+	sEnc, _ := json.Marshal(cont)
+	sEncStr := b64.StdEncoding.EncodeToString(sEnc)
+	return &sEncStr
 }
 
 func ParseContinueString(contStr *string) (*Continue, error) {

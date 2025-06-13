@@ -105,7 +105,7 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 }
 
 func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error) {
-	return s.genericStore.List(ctx, orgId, listParams, nil)
+	return s.genericStore.List(ctx, orgId, listParams)
 }
 
 func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {

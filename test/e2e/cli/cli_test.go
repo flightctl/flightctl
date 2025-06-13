@@ -336,7 +336,7 @@ var _ = Describe("cli operation", func() {
 			out, err = harness.CLI("delete", util.Device, device1Name, device2Name)
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring("deleted"))
+			Expect(out).To(ContainSubstring("completed"))
 
 			By("Verifying both devices were deleted")
 			dev1, err := harness.Client.GetDeviceWithResponse(harness.Context, device1Name)

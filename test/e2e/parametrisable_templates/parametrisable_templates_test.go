@@ -112,7 +112,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				harness.WaitForDeviceContents(deviceId, `The device could not be updated to the fleet`,
 					func(device *v1alpha1.Device) bool {
 						return device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusOutOfDate
-					}, "2m")
+					}, testutil.TIMEOUT)
 				resp, err := harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device := resp.JSON200

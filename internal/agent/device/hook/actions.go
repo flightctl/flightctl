@@ -184,14 +184,72 @@ func splitCommandAndArgs(command string) (string, []string) {
 	return parts[0], parts[1:]
 }
 
+// splitWithQuotes splits a command string into tokens, respecting basic shell like quoting rules.
 func splitWithQuotes(s string) []string {
-	quoted := false
-	return strings.FieldsFunc(s, func(r rune) bool {
-		if r == '"' {
-			quoted = !quoted
+	var (
+		args    []string
+		current strings.Builder
+		inQuote rune
+		escaped bool
+	)
+
+	for _, r := range s {
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+
+		case r == '\\':
+			escaped = true
+
+		case (r == '"' || r == '\''):
+			if inQuote == 0 {
+				inQuote = r          // start quote
+				current.WriteRune(r) // preserve opening unmatched quote
+			} else if inQuote == r {
+				current.WriteRune(r) // preserve closing quote
+				inQuote = 0          // quote closed
+			} else {
+				current.WriteRune(r) // mismatched quote
+			}
+
+		// treat space || tab as delimiter if not inside quotes
+		case (r == ' ' || r == '\t') && inQuote == 0:
+			if current.Len() > 0 {
+				// flush the current token, removing matched surrounding quotes "foo" --> foo
+				args = append(args, stripMatchedQuotes(current.String()))
+				current.Reset()
+			}
+
+		default:
+			current.WriteRune(r)
 		}
-		return !quoted && r == ' '
-	})
+	}
+
+	if current.Len() > 0 {
+		// add final token with matched quotes stripped
+		args = append(args, stripMatchedQuotes(current.String()))
+	}
+
+	if len(args) == 0 {
+		return []string{}
+	}
+
+	return args
+}
+
+// stripMatchedQuotes removes surrounding matching quotes from a string.
+// It only strips the quotes if both the first and last characters match
+// and are either single or double quotes.
+func stripMatchedQuotes(s string) string {
+	if len(s) >= 2 {
+		first := s[0]
+		last := s[len(s)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
 }
 
 func validateEnvVars(envVars *map[string]string) error {

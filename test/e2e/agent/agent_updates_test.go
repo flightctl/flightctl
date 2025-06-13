@@ -40,7 +40,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
-				}, "2m")
+				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
@@ -48,7 +48,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
-				}, "2m")
+				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusRebooting))
@@ -62,7 +62,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 						}
 					}
 					return false
-				}, "2m")
+				}, TIMEOUT)
 			logrus.Info("Device updated to new image 🎉")
 		})
 
@@ -78,14 +78,14 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
-				}, "2m")
+				}, TIMEOUT)
 
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
-				}, "2m")
+				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
@@ -99,7 +99,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 						}
 					}
 					return false
-				}, "4m")
+				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
@@ -121,14 +121,14 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 3",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
-				}, "1m")
+				}, TIMEOUT)
 
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
-				}, "2m")
+				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
@@ -142,7 +142,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 						}
 					}
 					return false
-				}, "2m")
+				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))

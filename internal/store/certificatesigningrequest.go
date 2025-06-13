@@ -106,7 +106,7 @@ func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUI
 }
 
 func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error) {
-	return s.genericStore.List(ctx, orgId, listParams, nil)
+	return s.genericStore.List(ctx, orgId, listParams)
 }
 
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {

@@ -283,7 +283,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 
 	if listParams.Limit > 0 {
 		// Request 1 more than the user asked for to see if we need to return "continue"
-		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue)
+		query = AddPaginationToQuery(query, listParams.Limit+1, listParams.Continue, listParams)
 	}
 	result := query.Scan(&fleetsWithCount)
 
@@ -306,7 +306,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 			if err != nil {
 				return nil, err
 			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name)
+			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name, listParams)
 		}
 		nextContinueStruct.Count = numRemainingVal
 		contByte, _ := json.Marshal(nextContinueStruct)

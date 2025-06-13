@@ -64,16 +64,9 @@ func WithSelectorResolver(resolver selector.Resolver) ListQueryOption {
 	}
 }
 
-func WithSortDirective(sortDirective *string) ListQueryOption {
-	return func(q *listQuery) {
-		q.sortDirective = sortDirective
-	}
-}
-
 type listQuery struct {
-	dest          any
-	resolver      selector.Resolver
-	sortDirective *string
+	dest     any
+	resolver selector.Resolver
 }
 
 func ListQuery(dest any, opts ...ListQueryOption) *listQuery {
@@ -131,16 +124,27 @@ func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.U
 	return query, nil
 }
 
+func getColumnAndOrder(listParams ListParams) (SortColumn, SortOrder) {
+	// default is name in ascending order
+	column := SortByName
+	if listParams.SortColumn != nil {
+		column = *listParams.SortColumn
+	}
+	order := SortAsc
+	if listParams.SortOrder != nil {
+		order = *listParams.SortOrder
+	}
+	return column, order
+}
+
 func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
 	query, err := lq.BuildNoOrder(ctx, db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
-	sortDirective := "name"
-	if lq.sortDirective != nil {
-		sortDirective = *lq.sortDirective
-	}
-	return query.Order(sortDirective), nil
+	column, order := getColumnAndOrder(listParams)
+
+	return query.Order(fmt.Sprintf("%s %s", column, order)), nil
 }
 
 func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string {
@@ -154,21 +158,28 @@ func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string
 	return d
 }
 
-func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
+func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue, listParams ListParams) *gorm.DB {
 	if limit == 0 {
 		return query
 	}
+
 	query = query.Limit(limit)
-	if cont != nil {
-		query = query.Where("name >= ?", cont.Name)
+	if cont == nil {
+		return query
 	}
 
+	column, order := getColumnAndOrder(listParams)
+
+	query = query.Where(fmt.Sprintf("%s %s ?", column, map[SortOrder]string{SortAsc: ">=", SortDesc: "<="}[order]), cont.Name)
 	return query
 }
 
-func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
+func CountRemainingItems(query *gorm.DB, lastItemName string, listParams ListParams) int64 {
 	var count int64
-	query.Where("name >= ?", lastItemName).Count(&count)
+
+	column, order := getColumnAndOrder(listParams)
+
+	query.Where(fmt.Sprintf("%s %s ?", column, map[SortOrder]string{SortAsc: ">=", SortDesc: "<="}[order]), lastItemName).Count(&count)
 	return count
 }
 

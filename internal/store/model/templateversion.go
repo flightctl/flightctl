@@ -225,3 +225,7 @@ func (tv *TemplateVersion) GetStatusAsJson() ([]byte, error) {
 	}
 	return tv.Status.MarshalJSON()
 }
+
+func (tv *TemplateVersion) GetTimestamp() time.Time {
+	return tv.CreatedAt
+}
