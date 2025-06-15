@@ -206,7 +206,7 @@ func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
 // Example: ConvertFileSystemToIgnition(mfs, "/test-path) will go through all subfolder and files and build ignition paths like
 // /etc/motd, /etc/config/file.yaml
 // The function will return an error if the path does not exist or if there is an error reading the filesystem
-func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string, mountPath string) (*config_latest_types.Config, error) {
+func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_latest_types.Config, error) {
 	fileInfo, err := mfs.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed accessing path %s: %w", path, err)
@@ -222,12 +222,12 @@ func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string, mountPath st
 		if err != nil {
 			return nil, fmt.Errorf("failed reading directory %s: %w", path, err)
 		}
-		err = addGitDirToIgnitionConfig(mfs, path, mountPath, files, wrapper)
+		err = addGitDirToIgnitionConfig(mfs, path, files, wrapper)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting directory %s to ignition: %w", path, err)
 		}
 	} else {
-		err = addGitFileToIgnitionConfig(mfs, path, filepath.Join(mountPath, fileInfo.Name()), fileInfo, wrapper)
+		err = addGitFileToIgnitionConfig(mfs, path, fileInfo.Name(), fileInfo, wrapper)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting file %s to ignition: %w", path, err)
 		}
@@ -237,19 +237,19 @@ func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string, mountPath st
 	return &ignition, nil
 }
 
-func CloneGitRepoToIgnition(repo *api.Repository, revision string, path string, mountPath string) (*config_latest_types.Config, string, error) {
+func CloneGitRepoToIgnition(repo *api.Repository, revision string, path string) (*config_latest_types.Config, string, error) {
 	mfs, hash, err := CloneGitRepo(repo, &revision, nil)
 	if err != nil {
 		return nil, "", err
 	}
-	ign, err := ConvertFileSystemToIgnition(mfs, path, mountPath)
+	ign, err := ConvertFileSystemToIgnition(mfs, path)
 	if err != nil {
 		return nil, "", err
 	}
 	return ign, hash, nil
 }
 
-func addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix string, fileInfos []fs.FileInfo, wrapper ignition.Wrapper) error {
+func addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix string, fileInfos []fs.FileInfo, wrapper ignition.Wrapper) error {
 	for _, fileInfo := range fileInfos {
 		if fileInfo.IsDir() {
 			subdirFiles, err := mfs.ReadDir(filepath.Join(fullPrefix, fileInfo.Name()))
@@ -257,12 +257,12 @@ func addGitDirToIgnitionConfig(mfs billy.Filesystem, fullPrefix, ignPrefix strin
 				return fmt.Errorf("failed reading directory %s: %w", fileInfo.Name(), err)
 			}
 			// recursion!
-			err = addGitDirToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), filepath.Join(ignPrefix, fileInfo.Name()), subdirFiles, wrapper)
+			err = addGitDirToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), subdirFiles, wrapper)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := addGitFileToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), filepath.Join(ignPrefix, fileInfo.Name()), fileInfo, wrapper)
+			err := addGitFileToIgnitionConfig(mfs, filepath.Join(fullPrefix, fileInfo.Name()), fileInfo.Name(), fileInfo, wrapper)
 			if err != nil {
 				return err
 			}
