@@ -1,0 +1,110 @@
+{{ if .Values.alertmanager.enabled }}
+
+---
+# ConfigMap for Alertmanager configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-alertmanager-config
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+data:
+  alertmanager.yml: |-
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: default
+      group_by: ['alertname']
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 3h
+    receivers:
+      - name: default
+---
+# StatefulSet for Alertmanager
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: flightctl-alertmanager
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    flightctl.service: flightctl-alertmanager
+spec:
+  serviceName: flightctl-alertmanager
+  revisionHistoryLimit: 10
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-alertmanager
+  podManagementPolicy: OrderedReady
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-alertmanager
+    spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      containers:
+        - name: flightctl-alertmanager
+          image: {{ .Values.alertmanager.image.image }}:{{ .Values.alertmanager.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.alertmanager.image.pullPolicy }}
+          args:
+            - "--config.file=/etc/alertmanager/alertmanager.yml"
+            - "--storage.path=/alertmanager"
+            - "--web.listen-address=:9093"
+          ports:
+            - name: web
+              containerPort: 9093
+          volumeMounts:
+            - name: flightctl-alertmanager-data
+              mountPath: /alertmanager
+            - name: flightctl-alertmanager-config
+              mountPath: /etc/alertmanager/alertmanager.yml
+              subPath: alertmanager.yml
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+      volumes:
+        - name: flightctl-alertmanager-config
+          configMap:
+            name: flightctl-alertmanager-config
+            defaultMode: 0644
+  volumeClaimTemplates:
+    - metadata:
+        name: flightctl-alertmanager-data
+        {{- if .Values.global.appCode }}
+        labels:
+          paas.redhat.com/appcode: {{ .Values.global.appCode }}
+        {{- end }}
+      spec:
+        storageClassName: {{ .Values.global.storageClassName }}
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+---
+# Service for Alertmanager
+apiVersion: v1
+kind: Service
+metadata:
+  name: flightctl-alertmanager
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    flightctl.service: flightctl-alertmanager
+spec:
+  {{- if and .Values.global.nodePorts.alertmanager (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+  type: NodePort
+  {{- end }}
+  ports:
+    - name: "9093"
+      port: 9093
+      targetPort: 9093
+  selector:
+    flightctl.service: flightctl-alertmanager
+{{- end }}

@@ -1,0 +1,23 @@
+{{ if .Values.alertExporter.enabled }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-alert-exporter-config
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+data:
+  config.yaml: |-
+    database:
+        hostname: flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        type: pgsql
+        port: 5432
+        name: flightctl
+    service: {}
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
+    alertmanager:
+        hostname: flightctl-alertmanager.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 9093
+{{ end }}

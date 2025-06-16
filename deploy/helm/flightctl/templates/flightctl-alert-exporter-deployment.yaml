@@ -1,0 +1,55 @@
+{{ if .Values.alertExporter.enabled }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-alert-exporter
+  name: flightctl-alert-exporter
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-alert-exporter
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-alert-exporter
+    spec:
+      containers:
+        - name: alert-exporter
+          image: {{ .Values.alertExporter.image.image }}:{{ default .Chart.AppVersion .Values.alertExporter.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.alertExporter.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-secret
+                  key: masterUser
+          volumeMounts:
+            - mountPath: /root/.flightctl
+              name: flightctl-alert-exporter-config
+              readOnly: true
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-alert-exporter-config
+          configMap:
+            name: flightctl-alert-exporter-config
+{{ end }}

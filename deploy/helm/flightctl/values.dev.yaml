@@ -11,6 +11,7 @@ global:
     agent: 7443
     db: 5432
     kv: 6379
+    alertmanager: 9093
     keycloak: 8081
     prometheus: 9090
     gitserver: 3222
@@ -33,6 +34,11 @@ worker:
 periodic:
   image:
     image: localhost/flightctl-periodic
+    tag: latest
+alertExporter:
+  image:
+    image: localhost/flightctl-alert-exporter
+    tag: latest
 prometheus:
   enabled: true
 ui:

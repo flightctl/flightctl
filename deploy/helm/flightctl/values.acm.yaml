@@ -10,3 +10,9 @@ kv:
   image:
     image: registry.redhat.io/rhel9/redis-7
     tag: 9.5-1736454843
+
+alertmanager:
+  image:
+    image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
+    tag: v2.13.2
+  
