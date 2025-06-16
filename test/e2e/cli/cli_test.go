@@ -20,15 +20,16 @@ import (
 )
 
 var (
-	invalidSyntax = "invalid syntax"
-	kind          = "involvedObject.kind"
-	fieldSelector = "--field-selector"
-	fleetYAMLPath = "fleet.yaml"
-	limit         = "--limit"
-	repoYAMLPath  = "repository-flightctl.yaml"
-	erYAMLPath    = "enrollmentrequest.yaml"
-
-	suiteCtx context.Context
+	invalidSyntax       = "invalid syntax"
+	kind                = "involvedObject.kind"
+	unspecifiedResource = "Error: name must be specified when deleting"
+	fieldSelector       = "--field-selector"
+	fleetYAMLPath       = "fleet.yaml"
+	limit               = "--limit"
+	repoYAMLPath        = "repository-flightctl.yaml"
+	resourceCreated     = `(200 OK|201 Created)`
+	erYAMLPath          = "enrollmentrequest.yaml"
+	suiteCtx            context.Context
 )
 
 // _ is used as a blank identifier to ignore the return value of BeforeSuite, typically for initialization purposes.
@@ -315,19 +316,19 @@ var _ = Describe("cli operation", func() {
 			err := harness.CleanUpAllResources()
 			Expect(err).ToNot(HaveOccurred())
 
-			out, err := harness.CLI("apply", "-f", deviceYamlPath)
+			out, err := harness.ManageResource("apply", "device.yaml")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 			device1 := harness.GetDeviceByYaml(deviceYamlPath)
 			device1Name := *device1.Metadata.Name
 
-			out, err = harness.CLI("apply", "-f", deviceBYamlPath)
+			out, err = harness.ManageResource("apply", "device-b.yaml")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 			device2 := harness.GetDeviceByYaml(deviceBYamlPath)
 			device2Name := *device2.Metadata.Name
 
-			devices, err := harness.CLI("get", "devices")
+			devices, err := harness.RunGetDevices()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devices).To(ContainSubstring(device1Name))
 			Expect(devices).To(ContainSubstring(device2Name))
@@ -346,6 +347,45 @@ var _ = Describe("cli operation", func() {
 			dev2, err := harness.Client.GetDeviceWithResponse(harness.Context, device2Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev2.JSON404).ToNot(BeNil(), "second device should not exist after deletion")
+		})
+
+		It("Validation works when trying to delete resources without names", Label("82540", "sanity"), func() {
+			By("Creating multiple test resources")
+			err := harness.CleanUpAllResources()
+			Expect(err).ToNot(HaveOccurred())
+
+			applyResources := []string{
+				"device.yaml",
+				"fleet.yaml",
+				"repository-flightctl.yaml",
+				"enrollmentrequest.yaml",
+				"resourcesync.yaml",
+			}
+
+			for _, file := range applyResources {
+				out, err := harness.ManageResource("apply", file)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(out).To(MatchRegexp(resourceCreated))
+			}
+
+			tests := util.Cases[DeleteWithoutNameTestParams](
+				DeleteEntryCase("fails deleting unspecified device", util.Device),
+				DeleteEntryCase("fails deleting unspecified device", "devices"),
+				DeleteEntryCase("fails deleting unspecified fleet", util.Fleet),
+				DeleteEntryCase("fails deleting unspecified fleet", "fleets"),
+				DeleteEntryCase("fails deleting unspecified repository", util.Repository),
+				DeleteEntryCase("fails deleting unspecified repository", "repositories"),
+				DeleteEntryCase("fails deleting unspecified enrollment request", util.EnrollmentRequest),
+				DeleteEntryCase("fails deleting unspecified enrollment request)", "enrollmentrequests"),
+				DeleteEntryCase("fails deleting unspecified resource sync", util.ResourceSync),
+				DeleteEntryCase("fails deleting unspecified resource sync", "resourcesyncs"),
+			)
+
+			util.RunTable[DeleteWithoutNameTestParams](tests, func(params DeleteWithoutNameTestParams) {
+				out, err := harness.ManageResource("delete", params.ResourceArg)
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring(unspecifiedResource))
+			})
 		})
 	})
 
@@ -681,6 +721,21 @@ var _ = Describe("cli login", func() {
 // formatResourceEvent formats the event's message and returns it as a string
 func formatResourceEvent(resource, name, action string) string {
 	return fmt.Sprintf("%s %s %s successfully", resource, name, action)
+}
+
+// DeleteWithoutNameTestParams defines the parameters for delete-without-name tests.
+type DeleteWithoutNameTestParams struct {
+	ResourceArg string
+}
+
+// For delete-without-name test cases
+func DeleteEntryCase(desc string, resourceArg string) util.TestCase[DeleteWithoutNameTestParams] {
+	return util.TestCase[DeleteWithoutNameTestParams]{
+		Description: desc,
+		Params: DeleteWithoutNameTestParams{
+			ResourceArg: resourceArg,
+		},
+	}
 }
 
 // GetVersionByPrefix searches the output for a line starting with the given prefix
