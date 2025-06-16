@@ -14,7 +14,7 @@ func verifyRepoPatchFailed(require *require.Assertions, status api.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest, expectEvent bool) (*api.Repository, api.Repository, api.Status) {
+func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest, expectEvents bool) (*api.Repository, api.Repository, api.Status) {
 	spec := api.RepositorySpec{}
 	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 		Url:  "foo",
@@ -39,12 +39,12 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest, ex
 	require.NoError(err)
 	resp, status := serviceHandler.PatchRepository(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
-	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
-	length := 0
-	if expectEvent {
-		length = 1
+	event, _ := serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
+	if expectEvents {
+		require.NotEmpty(event.Items)
+	} else {
+		require.Empty(event.Items)
 	}
-	require.Len(event.Items, length)
 	return resp, repository, status
 }
 func TestRepositoryPatchName(t *testing.T) {
