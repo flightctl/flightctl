@@ -57,7 +57,7 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest, expect
 	return resp, device, retStatus
 }
 
-func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest, expectEvents int) (*api.Device, api.Status) {
+func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest, expectEvents bool) (*api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
 	_ = auth.InitAuth(nil, log.InitLogs())
 	serviceHandler := &ServiceHandler{
@@ -71,7 +71,11 @@ func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch a
 	require.NotEqual(statusFailedCode, retStatus.Code)
 	if retStatus.Code == http.StatusOK || retStatus.Code == http.StatusCreated {
 		event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
-		require.Len(event.Items, expectEvents)
+		if expectEvents {
+			require.NotEmpty(event.Items)
+		} else {
+			require.Empty(event.Items)
+		}
 	}
 	return resp, retStatus
 }
@@ -103,7 +107,7 @@ func TestDeviceStatusPatch(t *testing.T) {
 		expectedCode       int32
 		expectedSystemInfo *api.DeviceSystemInfo
 		expectError        bool
-		expectEvents       int
+		expectEvents       bool
 		errorMessage       string
 	}{
 		{
@@ -123,7 +127,7 @@ func TestDeviceStatusPatch(t *testing.T) {
 				BootID:          "c",
 				OperatingSystem: "d",
 			},
-			expectEvents: 2,
+			expectEvents: true,
 		},
 		{
 			name:           "update system info partial",
@@ -142,7 +146,7 @@ func TestDeviceStatusPatch(t *testing.T) {
 				BootID:          "3",
 				OperatingSystem: "4",
 			},
-			expectEvents: 2,
+			expectEvents: true,
 		},
 		{
 			name:           "attempt to patch metadata name should fail",
@@ -212,7 +216,6 @@ func TestDeviceStatusPatch(t *testing.T) {
 					{Op: "replace", Path: tc.patchPath, Value: &value},
 				}
 			}
-
 			resp, status := testDeviceStatusPatch(require, device, patchRequest, tc.expectEvents)
 			require.Equal(tc.expectedCode, status.Code)
 

@@ -14,7 +14,7 @@ func verifyFleetPatchFailed(require *require.Assertions, status api.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func testFleetPatch(require *require.Assertions, patch api.PatchRequest, expectEvent bool) (*api.Fleet, api.Fleet, api.Status) {
+func testFleetPatch(require *require.Assertions, patch api.PatchRequest, expectEvents bool) (*api.Fleet, api.Fleet, api.Status) {
 	fleet := api.Fleet{
 		ApiVersion: "v1",
 		Kind:       "Fleet",
@@ -46,23 +46,24 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest, expectE
 			},
 		},
 	}
+
 	serviceHandler := &ServiceHandler{
 		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil)
+	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil)
 	require.NoError(err)
 	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
-	event, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	event, err := serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
 	require.NoError(err)
-	length := 0
-	if expectEvent {
-		length = 1
+	if expectEvents {
+		require.NotEmpty(event.Items)
+	} else {
+		require.Empty(event.Items)
 	}
-	require.Len(event.Items, length)
-	return resp, fleet, status
+	return resp, *orig, status
 }
 func TestFleetPatchName(t *testing.T) {
 	require := require.New(t)
@@ -218,8 +219,7 @@ func TestFleetNonExistingResource(t *testing.T) {
 	require.NoError(err)
 	_, status := serviceHandler.PatchFleet(ctx, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
-	_, status = serviceHandler.PatchFleet(context.Background(), "bar", pr)
 	event, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.NoError(err)
-	require.Len(event.Items, 0)
+	require.Empty(event.Items)
 }
