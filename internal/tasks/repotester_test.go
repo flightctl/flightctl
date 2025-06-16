@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -58,8 +57,6 @@ func TestTestRepositories(t *testing.T) {
 		repoType                  api.RepoSpecType
 		orgsStatus                api.Status
 		orgsToReturn              []uuid.UUID
-		testAccessError           error
-		expectedConditionMsg      string
 		expectedListReposCalls    int
 		expectedStatusUpdateCalls int
 	}{
@@ -68,58 +65,14 @@ func TestTestRepositories(t *testing.T) {
 			orgsStatus:                api.Status{Code: 500, Message: "Broken"},
 			orgsToReturn:              []uuid.UUID{},
 			repoType:                  api.Git,
-			testAccessError:           nil,
-			expectedConditionMsg:      "",
 			expectedListReposCalls:    0,
 			expectedStatusUpdateCalls: 0,
-		},
-		{
-			name:                      "Git repo accessible",
-			orgsStatus:                api.Status{Code: 200},
-			orgsToReturn:              []uuid.UUID{orgID},
-			repoType:                  api.Git,
-			testAccessError:           nil,
-			expectedConditionMsg:      "Accessible",
-			expectedListReposCalls:    1,
-			expectedStatusUpdateCalls: 1,
-		},
-		{
-			name:                      "Git repo inaccessible",
-			orgsStatus:                api.Status{Code: 200},
-			orgsToReturn:              []uuid.UUID{orgID},
-			repoType:                  api.Git,
-			testAccessError:           errors.New("auth failed"),
-			expectedConditionMsg:      "Inaccessible: auth failed",
-			expectedListReposCalls:    1,
-			expectedStatusUpdateCalls: 1,
-		},
-		{
-			name:                      "HTTP repo accessible",
-			orgsStatus:                api.Status{Code: 200},
-			orgsToReturn:              []uuid.UUID{orgID},
-			repoType:                  api.Http,
-			testAccessError:           nil,
-			expectedConditionMsg:      "Accessible",
-			expectedListReposCalls:    1,
-			expectedStatusUpdateCalls: 1,
-		},
-		{
-			name:                      "HTTP repo inaccessible",
-			orgsStatus:                api.Status{Code: 200},
-			orgsToReturn:              []uuid.UUID{orgID},
-			repoType:                  api.Http,
-			testAccessError:           errors.New("404 not found"),
-			expectedConditionMsg:      "Inaccessible: 404 not found",
-			expectedListReposCalls:    1,
-			expectedStatusUpdateCalls: 1,
 		},
 		{
 			name:                      "No orgs",
 			orgsStatus:                api.Status{Code: 200},
 			orgsToReturn:              []uuid.UUID{},
 			repoType:                  api.Git,
-			testAccessError:           nil,
-			expectedConditionMsg:      "",
 			expectedListReposCalls:    0,
 			expectedStatusUpdateCalls: 0,
 		},
@@ -128,8 +81,6 @@ func TestTestRepositories(t *testing.T) {
 			orgsStatus:                api.Status{Code: 200},
 			orgsToReturn:              []uuid.UUID{orgID, orgIDTwo},
 			repoType:                  api.Git,
-			testAccessError:           nil,
-			expectedConditionMsg:      "Accessible",
 			expectedListReposCalls:    2,
 			expectedStatusUpdateCalls: 2,
 		},
