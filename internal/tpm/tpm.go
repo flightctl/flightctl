@@ -2,9 +2,13 @@ package tpm
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/ecdsa"
+	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 
 	"github.com/google/go-tpm-tools/client"
@@ -27,6 +31,7 @@ type TPM struct {
 	channel    io.ReadWriteCloser
 	srk        *tpm2.NamedHandle
 	ldevid     *tpm2.NamedHandle
+	ldevidPub  crypto.PublicKey
 }
 
 // Note: this may be a hardware TPM or a software or emulated TPM available to the system
@@ -167,6 +172,88 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 		Name:   loadRsp.Name,
 	}
 	return t.ldevid, nil
+}
+
+func (t *TPM) GetLDevIDPubKey() (*crypto.PublicKey, error) {
+	transportTPM := transport.FromReadWriter(t.channel)
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: t.ldevid.Handle,
+	}.Execute(transportTPM)
+	if err != nil {
+		return nil, fmt.Errorf("could not read public key: %v", err)
+	}
+	outpub, err := pub.OutPublic.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("could not get contents of TPM2Bpublic: %v", err)
+	}
+	if outpub.Type != tpm2.TPMAlgECC {
+		return nil, fmt.Errorf("public key alg %d for ldevid key is unsupported", outpub.Type)
+	}
+	details, err := outpub.Parameters.ECCDetail()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read ecc details for ldevid key: %v", err)
+	}
+	curve, err := details.CurveID.Curve()
+	if err != nil {
+		return nil, fmt.Errorf("could not get curve id for ldevid key: %v", err)
+	}
+	unique, err := outpub.Unique.ECC()
+	if err != nil {
+		return nil, fmt.Errorf("could not get unique parameters for ldevid key: %v", err)
+	}
+	pubkey := &ecdsa.PublicKey{
+		Curve: curve,
+		X:     big.NewInt(0).SetBytes(unique.X.Buffer),
+		Y:     big.NewInt(0).SetBytes(unique.Y.Buffer),
+	}
+	var cryptopubkey crypto.PublicKey = pubkey
+	t.ldevidPub = cryptopubkey
+	return &cryptopubkey, nil
+}
+
+func (t TPM) Public() crypto.PublicKey {
+	return t.ldevidPub
+}
+
+func (t TPM) GetSigner() crypto.Signer {
+	return t
+}
+
+func (t TPM) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) ([]byte, error) {
+	sign := tpm2.Sign{
+		KeyHandle: tpm2.NamedHandle{
+			Handle: t.ldevid.Handle,
+			Name:   t.ldevid.Name,
+		},
+		Digest: tpm2.TPM2BDigest{
+			Buffer: data[:],
+		},
+		Validation: tpm2.TPMTTKHashCheck{
+			Tag: tpm2.TPMSTHashCheck,
+		},
+	}
+
+	transportTPM := transport.FromReadWriter(t.channel)
+	signRsp, err := sign.Execute(transportTPM)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign digest with ldevid: %v", err)
+	}
+	ecdsaSig, err := signRsp.Signature.Signature.ECDSA()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ECDSA signature from sign response: %v", err)
+	}
+	bigR := big.NewInt(0).SetBytes(ecdsaSig.SignatureR.Buffer)
+	bigS := big.NewInt(0).SetBytes(ecdsaSig.SignatureS.Buffer)
+	es := EcdsaSignature{
+		R: bigR,
+		S: bigS,
+	}
+	return asn1.Marshal(es)
+}
+
+type EcdsaSignature struct {
+	R *big.Int
+	S *big.Int
 }
 
 func (t *TPM) GetQuote(nonce []byte, ak *client.Key, pcr_selection *legacy.PCRSelection) (*pbtpm.Quote, error) {
