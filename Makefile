@@ -50,7 +50,7 @@ help:
 	@echo "    unit-test:       run unit tests"
 	@echo "    test:            run all tests"
 	@echo "    deploy:          deploy flightctl-server and db as pods in kind"
-	@echo "    redeploy-*       redeploy the api,worker,periodic containers in kind"
+	@echo "    redeploy-*       redeploy the api,worker,periodic,alert-exporter containers in kind"
 	@echo "    deploy-db:       deploy only the database as a container, for testing"
 	@echo "    deploy-mq:       deploy only the message queue broker as a container"
 	@echo "    deploy-quadlets: deploy the Flight Control service using Quadlets"
@@ -79,7 +79,8 @@ build: bin build-cli
 		./cmd/flightctl-agent \
 		./cmd/flightctl-api \
 		./cmd/flightctl-periodic \
-		./cmd/flightctl-worker
+		./cmd/flightctl-worker \
+		./cmd/flightctl-alert-exporter
 
 bin/flightctl-agent: bin $(GO_FILES)
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
@@ -103,6 +104,8 @@ build-worker: bin
 build-periodic: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-periodic
 
+build-alert-exporter: bin
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alert-exporter
 
 # rebuild container only on source changes
 bin/.flightctl-api-container: bin Containerfile.api go.mod go.sum $(GO_FILES)
@@ -124,6 +127,11 @@ bin/.flightctl-periodic-container: bin Containerfile.periodic go.mod go.sum $(GO
 	podman build -f Containerfile.periodic $(GO_CACHE) -t flightctl-periodic:latest
 	touch bin/.flightctl-periodic-container
 
+bin/.flightctl-alert-exporter-container: bin Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
+	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
+	podman build -f Containerfile.alert-exporter $(GO_CACHE) -t flightctl-alert-exporter:latest
+	touch bin/.flightctl-alert-exporter-container
+
 bin/.flightctl-multiarch-cli-container: bin Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
 	podman build -f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
@@ -135,9 +143,11 @@ flightctl-worker-container: bin/.flightctl-worker-container
 
 flightctl-periodic-container: bin/.flightctl-periodic-container
 
+flightctl-alert-exporter-container: bin/.flightctl-alert-exporter-container
+
 flightctl-multiarch-cli-container: bin/.flightctl-multiarch-cli-container
 
-build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-multiarch-cli-container
+build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-multiarch-cli-container
 
 .PHONY: build-containers build-cli build-multiarch-clis
 
@@ -152,7 +162,7 @@ bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-periodic build-worker
+.PHONY: rpm build build-api build-periodic build-worker build-alert-exporter
 
 # cross-building for deb pkg
 bin/amd64:
@@ -191,7 +201,7 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
-.PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container
+.PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container
 tools: $(GOBIN)/golangci-lint
 
 $(GOBIN)/golangci-lint:

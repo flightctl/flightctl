@@ -1,0 +1,21 @@
+[Unit]
+Description=Flight Control Alert Exporter service
+PartOf=flightctl.target
+After=flightctl-db.service flightctl-kv.service flightctl-alertmanager.service
+Requires=flightctl-db.service flightctl-kv.service flightctl-alertmanager.service
+
+[Container]
+ContainerName=flightctl-alert-exporter
+Image=quay.io/flightctl/flightctl-alert-exporter:latest
+Network=flightctl.network
+Environment=HOME=/root
+Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+Volume=/usr/share/flightctl/flightctl-alert-exporter/config.yaml:/root/.flightctl/config.yaml:ro,z
+
+[Service]
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target
