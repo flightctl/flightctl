@@ -17,7 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/service"
@@ -56,9 +56,9 @@ type Server struct {
 	ca                 *crypto.CAClient
 	listener           net.Listener
 	queuesProvider     queues.Provider
-	metrics            *instrumentation.ApiMetrics
 	consoleEndpointReg console.InternalSessionRegistration
 	orgResolver        *org.Resolver
+	httpCollector      *metrics.HTTPCollector
 }
 
 // New returns a new instance of a flightctl server.
@@ -69,7 +69,7 @@ func New(
 	ca *crypto.CAClient,
 	listener net.Listener,
 	queuesProvider queues.Provider,
-	metrics *instrumentation.ApiMetrics,
+	httpCollector *metrics.HTTPCollector,
 	consoleEndpointReg console.InternalSessionRegistration,
 ) *Server {
 	resolver := org.NewResolver(st.Organization(), 5*time.Minute)
@@ -80,7 +80,7 @@ func New(
 		ca:                 ca,
 		listener:           listener,
 		queuesProvider:     queuesProvider,
-		metrics:            metrics,
+		httpCollector:      httpCollector,
 		consoleEndpointReg: consoleEndpointReg,
 		orgResolver:        resolver,
 	}
@@ -204,8 +204,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Group(func(r chi.Router) {
 		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
 		// to avoid issues with websocket connections
-		if s.metrics != nil {
-			r.Use(s.metrics.ApiServerMiddleware)
+		if s.httpCollector != nil {
+			r.Use(s.httpCollector.ApiServerMiddleware)
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
@@ -240,8 +240,8 @@ func (s *Server) Run(ctx context.Context) error {
 	// This ensures it gets all the necessary middleware with stricter rate limiting
 	router.Group(func(r chi.Router) {
 		// Add conditional middleware
-		if s.metrics != nil {
-			r.Use(s.metrics.ApiServerMiddleware)
+		if s.httpCollector != nil {
+			r.Use(s.httpCollector.ApiServerMiddleware)
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)

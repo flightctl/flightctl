@@ -73,11 +73,30 @@ data:
             externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         {{- end }}
     {{ end }}
-    {{ if .Values.prometheus.enabled }}
-    prometheus:
+    {{ if .Values.global.metrics.enabled }}
+    metrics:
+        enabled: true
         address: ":15690"
-        sloMax: 4.0
-        apiLatencyBins: [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1]
+        systemCollector:
+            enabled: true
+            tickerInterval: 5s
+        httpCollector:
+            enabled: true
+            sloMax: 4.0
+            apiLatencyBins: [1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0]
+        deviceCollector:
+            enabled: true
+            tickerInterval: 30s
+            groupByFleet: true
+        fleetCollector:
+            enabled: true
+            tickerInterval: 30s
+        repositoryCollector:
+            enabled: true
+            tickerInterval: 30s
+        resourceSyncCollector:
+            enabled: true
+            tickerInterval: 30s
     {{ end }}
     {{ if .Values.global.tracing.enabled }}
     tracing:

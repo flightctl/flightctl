@@ -24,7 +24,7 @@ type Config struct {
 	KV           *kvConfig           `json:"kv,omitempty"`
 	Alertmanager *alertmanagerConfig `json:"alertmanager,omitempty"`
 	Auth         *authConfig         `json:"auth,omitempty"`
-	Prometheus   *prometheusConfig   `json:"prometheus,omitempty"`
+	Metrics      *metricsConfig      `json:"metrics,omitempty"`
 	CA           *ca.Config          `json:"ca,omitempty"`
 	Tracing      *tracingConfig      `json:"tracing,omitempty"`
 	GitOps       *gitOpsConfig       `json:"gitOps,omitempty"`
@@ -117,10 +117,50 @@ type aapAuth struct {
 	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
 }
 
-type prometheusConfig struct {
-	Address        string    `json:"address,omitempty"`
+type metricsConfig struct {
+	Enabled               bool                         `json:"enabled,omitempty"`
+	Address               string                       `json:"address,omitempty"`
+	SystemCollector       *systemCollectorConfig       `json:"systemCollector,omitempty"`
+	HttpCollector         *httpCollectorConfig         `json:"httpCollector,omitempty"`
+	DeviceCollector       *deviceCollectorConfig       `json:"deviceCollector,omitempty"`
+	FleetCollector        *fleetCollectorConfig        `json:"fleetCollector,omitempty"`
+	RepositoryCollector   *repositoryCollectorConfig   `json:"repositoryCollector,omitempty"`
+	ResourceSyncCollector *resourceSyncCollectorConfig `json:"resourceSyncCollector,omitempty"`
+}
+type collectorConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+type periodicCollectorConfig struct {
+	Enabled        bool          `json:"enabled,omitempty"`
+	TickerInterval util.Duration `json:"tickerInterval,omitempty"`
+}
+
+type systemCollectorConfig struct {
+	periodicCollectorConfig
+}
+
+type httpCollectorConfig struct {
+	collectorConfig
 	SloMax         float64   `json:"sloMax,omitempty"`
 	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
+}
+
+type deviceCollectorConfig struct {
+	periodicCollectorConfig
+	GroupByFleet bool `json:"groupByFleet,omitempty"`
+}
+
+type fleetCollectorConfig struct {
+	periodicCollectorConfig
+}
+
+type repositoryCollectorConfig struct {
+	periodicCollectorConfig
+}
+
+type resourceSyncCollectorConfig struct {
+	periodicCollectorConfig
 }
 
 type tracingConfig struct {
@@ -206,10 +246,47 @@ func NewDefault(opts ...ConfigOption) *Config {
 			BaseDelay:  "500ms",
 			MaxDelay:   "10s",
 		},
-		Prometheus: &prometheusConfig{
-			Address:        ":15690",
-			SloMax:         4.0,
-			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+		Metrics: &metricsConfig{
+			Enabled: true,
+			Address: ":15690",
+			SystemCollector: &systemCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(5 * time.Second),
+				},
+			},
+			HttpCollector: &httpCollectorConfig{
+				collectorConfig: collectorConfig{
+					Enabled: true,
+				},
+				SloMax:         4.0,
+				ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+			},
+			DeviceCollector: &deviceCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(30 * time.Second),
+				},
+				GroupByFleet: true,
+			},
+			FleetCollector: &fleetCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(30 * time.Second),
+				},
+			},
+			RepositoryCollector: &repositoryCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(30 * time.Second),
+				},
+			},
+			ResourceSyncCollector: &resourceSyncCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(30 * time.Second),
+				},
+			},
 		},
 		GitOps: &gitOpsConfig{
 			IgnoreResourceUpdates: []string{
