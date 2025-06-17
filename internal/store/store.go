@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -106,7 +106,7 @@ func (s *DataStore) Organization() Organization {
 }
 
 func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/store", "RunMigrationWithMigrationUser")
+	ctx, span := tracing.StartSpan(ctx, "flightctl/store", "RunMigrationWithMigrationUser")
 	defer span.End()
 
 	// Create migration database connection

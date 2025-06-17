@@ -6,14 +6,14 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 func PrepareDBForUnitTests(ctx context.Context, log *logrus.Logger) (Store, *config.Config, string, *gorm.DB) {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/store", "PrepareDBForUnitTests")
+	ctx, span := tracing.StartSpan(ctx, "flightctl/store", "PrepareDBForUnitTests")
 	defer span.End()
 
 	cfg := config.NewDefault()
