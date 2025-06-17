@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"slices"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -15,7 +14,6 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -43,7 +41,6 @@ type AgentServer struct {
 	listener       net.Listener
 	queuesProvider queues.Provider
 	tlsConfig      *tls.Config
-	metrics        *instrumentation.ApiMetrics
 	grpcServer     *AgentGrpcServer
 }
 
@@ -56,7 +53,6 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
-	metrics *instrumentation.ApiMetrics,
 ) *AgentServer {
 	return &AgentServer{
 		log:            log,
@@ -66,7 +62,6 @@ func New(
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
-		metrics:        metrics,
 		grpcServer:     NewAgentGrpcServer(log, cfg),
 	}
 }
@@ -143,10 +138,6 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 		middleware.Logger,
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
-	}
-
-	if s.metrics != nil {
-		middlewares = slices.Insert(middlewares, 0, s.metrics.AgentServerMiddleware)
 	}
 
 	router := chi.NewRouter()
