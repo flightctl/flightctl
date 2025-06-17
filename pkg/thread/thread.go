@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -76,7 +76,7 @@ func (t *Thread) loop() {
 		case <-t.done:
 			return
 		case <-ticker.C:
-			ctx, span := instrumentation.StartSpan(t.ctx, "flightctl/thread", t.name, trace.WithNewRoot())
+			ctx, span := tracing.StartSpan(t.ctx, "flightctl/thread", t.name, trace.WithNewRoot())
 			t.lastRunStartedAt = time.Now()
 			t.exec(ctx)
 			span.End()

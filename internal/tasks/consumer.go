@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -24,7 +24,7 @@ func dispatchTasks(serviceHandler service.Service, callbackManager tasks_client.
 			return err
 		}
 
-		ctx, span := instrumentation.StartSpan(ctx, "flightctl/tasks", reference.TaskName)
+		ctx, span := tracing.StartSpan(ctx, "flightctl/tasks", reference.TaskName)
 		defer span.End()
 
 		span.SetAttributes(

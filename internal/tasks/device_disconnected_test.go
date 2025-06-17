@@ -8,7 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -37,7 +37,7 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 		}
 	}()
 
-	ctx, span := instrumentation.StartSpan(ctx,
+	ctx, span := tracing.StartSpan(ctx,
 		"flightctl/tasks", "BenchmarkDeviceDisconnectedPoll")
 	defer span.End()
 
