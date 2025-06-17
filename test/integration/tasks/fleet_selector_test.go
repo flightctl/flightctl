@@ -187,11 +187,13 @@ var _ = Describe("FleetSelector", func() {
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nofleet", lo.ToPtr("Fleet/fleet4"), nil, &map[string]string{"key4": "val4"})
 			// Match no fleet with no labels
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nolabels", lo.ToPtr("Fleet/fleet4"), nil, &map[string]string{})
+			// Match no fleet with no previous owner
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "nolabels-noowner", nil, nil, &map[string]string{})
 
 			// All devices had multiple owners
 			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(devices.Items)).To(Equal(6))
+			Expect(len(devices.Items)).To(Equal(7))
 			for _, device := range devices.Items {
 				condition := api.Condition{Type: api.DeviceMultipleOwners, Status: api.ConditionStatusTrue, Message: "overlap"}
 				err = deviceStore.SetServiceConditions(ctx, orgId, *device.Metadata.Name, []api.Condition{condition})
@@ -218,7 +220,7 @@ var _ = Describe("FleetSelector", func() {
 			// Check device ownership and annotations
 			devices, err = deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(devices.Items)).To(Equal(6))
+			Expect(len(devices.Items)).To(Equal(7))
 
 			for _, device := range devices.Items {
 				switch *device.Metadata.Name {
@@ -238,6 +240,9 @@ var _ = Describe("FleetSelector", func() {
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners)).To(BeFalse())
 				case "nolabels":
+					Expect(device.Metadata.Owner).To(BeNil())
+					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners)).To(BeFalse())
+				case "nolabels-noowner":
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners)).To(BeFalse())
 				}
