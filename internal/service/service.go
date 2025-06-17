@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/google/uuid"
 )
 
 type Service interface {
@@ -109,4 +110,7 @@ type Service interface {
 	CreateEvent(ctx context.Context, event *api.Event)
 	ListEvents(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status)
 	DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status)
+
+	// Organization
+	ListAllOrganizationIDs(ctx context.Context) ([]uuid.UUID, api.Status)
 }
