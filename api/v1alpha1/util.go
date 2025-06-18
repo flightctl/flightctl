@@ -317,6 +317,11 @@ func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
 		return false
 	}
 
+	// Check UpdatePolicy
+	if !reflect.DeepEqual(d1.UpdatePolicy, d2.UpdatePolicy) {
+		return false
+	}
+
 	return true
 }
 
