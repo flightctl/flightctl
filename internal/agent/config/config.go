@@ -81,6 +81,9 @@ type Config struct {
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
 	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
 
+	// managementMetricsCallback is a callback to report metrics about the management process.
+	managementMetricsCallback func(operation string, durationSeconds float64, err error)
+
 	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
 	DefaultLabels map[string]string `json:"default-labels,omitempty"`
 
@@ -153,6 +156,18 @@ func (cfg *Config) PathFor(filePath string) string {
 
 func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duractionSeconds float64, err error)) {
 	cfg.enrollmentMetricsCallback = cb
+}
+
+func (cfg *Config) GetEnrollmentMetricsCallback() func(operation string, durationSeconds float64, err error) {
+	return cfg.enrollmentMetricsCallback
+}
+
+func (cfg *Config) SetManagementMetricsCallback(cb func(operation string, duractionSeconds float64, err error)) {
+	cfg.managementMetricsCallback = cb
+}
+
+func (cfg *Config) GetManagementMetricsCallback() func(operation string, durationSeconds float64, err error) {
+	return cfg.managementMetricsCallback
 }
 
 // Complete fills in defaults for fields not set by the config file
