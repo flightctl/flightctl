@@ -26,6 +26,8 @@ RUN if [[ -z $RPM_COPR ]]; then \
     fi && \
     systemctl enable flightctl-agent.service
 
+RUN dnf copr -y enable rhcontainerbot/podman-next && \
+    dnf install -y --allowerasing podman
 
 RUN dnf install -y epel-release epel-next-release
 RUN dnf install -y greenboot greenboot-default-health-checks podman-compose && \

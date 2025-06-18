@@ -23,6 +23,7 @@ var (
 	ErrAppNameRequired        = errors.New("application name is required")
 	ErrAppNotFound            = errors.New("application not found")
 	ErrUnsupportedAppType     = errors.New("unsupported application type")
+	ErrUnsupportedVolumeType  = errors.New("unsupported volume type")
 	ErrParseAppType           = errors.New("failed to parse application type")
 	ErrAppDependency          = errors.New("failed to resolve application dependency")
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")

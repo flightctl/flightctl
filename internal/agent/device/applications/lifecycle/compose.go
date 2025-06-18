@@ -54,6 +54,12 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 		return err
 	}
 
+	// convert names into unique compose ids which are tied directly to the volumes
+	formattedVolumes := convertVolumeNames(action.Volumes)
+	if err := c.podman.RemoveVolumes(ctx, formattedVolumes...); err != nil {
+		return err
+	}
+
 	c.log.Infof("Removed application: %s", appName)
 	return nil
 }

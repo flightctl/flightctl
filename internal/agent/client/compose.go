@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,27 +15,88 @@ import (
 	"github.com/flightctl/flightctl/internal/api/common"
 )
 
-const defaultPodmanTimeout = 2 * time.Minute
+const (
+	ComposeOverrideFilename = "99-compose-flightctl-agent.override.yaml"
+	defaultPodmanTimeout    = 10 * time.Minute
+)
+
+var (
+	BaseComposeFiles = []string{
+		"docker-compose.yaml",
+		"docker-compose.yml",
+		"podman-compose.yaml",
+		"podman-compose.yml",
+	}
+
+	OverrideComposeFiles = []string{
+		"docker-compose.override.yaml",
+		"docker-compose.override.yml",
+		"podman-compose.override.yaml",
+		"podman-compose.override.yml",
+	}
+)
 
 type Compose struct {
 	*Podman
 }
 
-// UpFromWorkDir runs `docker-compose up -d` or `podman-compose up -d` from the
-// given workDir. The last argument is a flag to prevent recreation of existing
-// containers.
+// UpFromWorkDir runs `podman compose up -d` from the given workDir using Compose file layering.
+//
+// It searches for Compose files in the following order:
+//  1. One base file (required), chosen from BaseComposeFiles.
+//  2. One standard override file (optional), chosen from OverrideComposeFiles.
+//  3. An optional flightctl override file (ComposeOverrideFilename) if present.
+//
+// The method builds the final compose command by layering the discovered files in order.
+// The noRecreate flag, if true, adds `--no-recreate` to prevent recreating existing containers.
 func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string, noRecreate bool) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{
-		"compose",
-		"-p",
-		projectName,
-		"up",
-		"-d",
+	args := []string{"compose", "-p", projectName}
+
+	// base compose file is required
+	baseFound := false
+	for _, file := range BaseComposeFiles {
+		path := filepath.Join(workDir, file)
+		found, err := p.readWriter.PathExists(path)
+		if err != nil {
+			return fmt.Errorf("checking base compose file %q existence: %w", path, err)
+		}
+		if found {
+			args = append(args, "-f", file)
+			baseFound = true
+			break
+		}
+	}
+	if !baseFound {
+		return fmt.Errorf("no base compose file found in: %s", workDir)
 	}
 
+	// check for override (optional)
+	for _, file := range OverrideComposeFiles {
+		path := filepath.Join(workDir, file)
+		found, err := p.readWriter.PathExists(path)
+		if err != nil {
+			return fmt.Errorf("checking override compose file %q existence: %w", path, err)
+		}
+		if found {
+			args = append(args, "-f", file)
+			break
+		}
+	}
+
+	// check for agent override file (optional)
+	flightctlPath := filepath.Join(workDir, ComposeOverrideFilename)
+	found, err := p.readWriter.PathExists(flightctlPath)
+	if err != nil {
+		return fmt.Errorf("checking flightctl override file %q existence: %w", flightctlPath, err)
+	}
+	if found {
+		args = append(args, "-f", ComposeOverrideFilename)
+	}
+
+	args = append(args, "up", "-d")
 	if noRecreate {
 		args = append(args, "--no-recreate")
 	}
@@ -43,6 +105,7 @@ func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string
 	if exitCode != 0 {
 		return fmt.Errorf("podman compose up: %w", errors.FromStderr(stderr, exitCode))
 	}
+
 	return nil
 }
 
@@ -104,37 +167,22 @@ func (p *Compose) Down(ctx context.Context, path string) error {
 
 // ParseComposeSpecFromDir reads a compose spec from the given directory and will perform a merge of the base {docker,podman}-compose.yaml and -override.yaml files.
 func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*common.ComposeSpec, error) {
-	// check for docker-compose.yaml or podman-compose.yaml and override files
-	//
-	// Note: podman nor docker handle merge files from other packages for
-	// example podman-compose and docker-compose.override.yaml. for now we will
-	// do the same but I will leave this note here for further consideration.
-	baseFiles := []string{
-		"docker-compose.yaml",
-		"docker-compose.yml",
-		"podman-compose.yaml",
-		"podman-compose.yml",
+	spec := &common.ComposeSpec{
+		Services: make(map[string]common.ComposeService),
+		Volumes:  make(map[string]common.ComposeVolume),
 	}
-	overrideFiles := []string{
-		"docker-compose.override.yaml",
-		"docker-compose.override.yml",
-		"podman-compose.override.yaml",
-		"podman-compose.override.yml",
-	}
-
-	spec := &common.ComposeSpec{Services: make(map[string]common.ComposeService)}
 
 	// ensure base
-	found, err := readFirstExistingFile(baseFiles, dir, reader, spec)
+	found, err := readFirstExistingFile(BaseComposeFiles, dir, reader, spec)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
-		return nil, fmt.Errorf("%w found in: %s supported file names: %s", errors.ErrNoComposeFile, dir, strings.Join(baseFiles, ", "))
+		return nil, fmt.Errorf("%w found in: %s supported file names: %s", errors.ErrNoComposeFile, dir, strings.Join(BaseComposeFiles, ", "))
 	}
 
 	// merge override
-	_, err = readFirstExistingFile(overrideFiles, dir, reader, spec)
+	_, err = readFirstExistingFile(OverrideComposeFiles, dir, reader, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -181,8 +229,11 @@ func mergeFileIntoSpec(filePath string, reader fileio.Reader, spec *common.Compo
 		return fmt.Errorf("parsing compose: %s: %w", filePath, err)
 	}
 
-	for name, svc := range partial.Services {
-		spec.Services[name] = svc
-	}
+	// merge services
+	maps.Copy(spec.Services, partial.Services)
+
+	// merge volumes
+	maps.Copy(spec.Volumes, partial.Volumes)
+
 	return nil
 }
