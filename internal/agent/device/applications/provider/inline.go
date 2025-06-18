@@ -37,6 +37,7 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 			EnvVars:        lo.FromPtr(spec.EnvVars),
 			Embedded:       false,
 			InlineProvider: &provider,
+			Volumes:        provider.Volumes,
 		},
 	}
 
@@ -56,9 +57,14 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
-	if err := ensureDependenciesFromType(p.spec.AppType); err != nil {
-		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
+		return fmt.Errorf("%w: ensuring app dependencies: %w", errors.ErrNoRetry, err)
 	}
+
+	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.InlineProvider.Volumes); err != nil {
+		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
+	}
+
 	// create a temporary directory to copy the image contents
 	tmpAppPath, err := p.readWriter.MkdirTemp("app_temp")
 	if err != nil {
@@ -82,6 +88,9 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
+		if err := ensureVolumesContent(ctx, p.log, p.podman, p.spec.InlineProvider.Volumes); err != nil {
+			return fmt.Errorf("ensuring volumes: %w", err)
+		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
@@ -96,6 +105,34 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
 		return fmt.Errorf("writing env file: %w", err)
 	}
+
+	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", p.spec.ID)}
+	if err := ensurePodmanVolumes(ctx, p.log, p.readWriter, p.podman, p.spec.InlineProvider.Volumes, labels); err != nil {
+		return fmt.Errorf("creating volumes: %w", err)
+	}
+
+	spec, err := client.ParseComposeSpecFromDir(p.readWriter, p.spec.Path)
+	if err != nil {
+		p.log.WithError(err).Errorf("Failed to parse Compose spec from %q", p.spec.Path)
+		return err
+	}
+	p.log.Debugf("Parsed Compose spec from %q successfully with %d services and %d volumes",
+		p.spec.Path, len(spec.Services), len(spec.Volumes))
+
+	patched, renamed := patchRenamedVolumesInComposeSpec(p.log, spec, p.spec.Volumes)
+
+	if len(renamed) == 0 {
+		p.log.Debug("No volumes renamed; skipping override patch write.")
+	} else {
+		p.log.Debugf("Renamed volumes: %v", renamed)
+	}
+
+	err = writeComposeOverrideDiff(p.log, p.spec.Path, spec, patched, renamed, p.readWriter, client.ComposeOverrideFilename)
+	if err != nil {
+		p.log.WithError(err).Errorf("Failed to write override file to %q", client.ComposeOverrideFilename)
+		return err
+	}
+	p.log.Debugf("Compose override patch written (if needed) to %q", client.ComposeOverrideFilename)
 
 	return nil
 }

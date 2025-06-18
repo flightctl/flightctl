@@ -185,6 +185,7 @@ func (m *PodmanMonitor) Ensure(app Application) error {
 		ID:       appID,
 		Path:     app.Path(),
 		Embedded: app.IsEmbedded(),
+		Volumes:  volumeNames(app.Volumes()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -210,6 +211,7 @@ func (m *PodmanMonitor) Remove(app Application) error {
 		Type:    lifecycle.ActionRemove,
 		Name:    app.Name(),
 		ID:      appID,
+		Volumes: volumeNames(app.Volumes()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -235,6 +237,7 @@ func (m *PodmanMonitor) Update(app Application) error {
 		Name:    app.Name(),
 		ID:      appID,
 		Path:    app.Path(),
+		Volumes: volumeNames(app.Volumes()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -488,4 +491,12 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 		}
 	}
 	return initialStatus
+}
+
+func volumeNames(volumes []v1alpha1.ApplicationVolume) []string {
+	names := make([]string, len(volumes))
+	for i, v := range volumes {
+		names[i] = v.Name
+	}
+	return names
 }

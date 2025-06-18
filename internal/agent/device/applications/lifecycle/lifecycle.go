@@ -39,4 +39,15 @@ type Action struct {
 	Path string
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
+	// Volumes is a list of volume names related to this application
+	Volumes []string
+}
+
+// convertVolumeNames converts a list of volume names into a unique compose label format
+func convertVolumeNames(src []string) []string {
+	var out []string
+	for _, name := range src {
+		out = append(out, NewComposeID(name))
+	}
+	return out
 }
