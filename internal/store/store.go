@@ -163,19 +163,19 @@ type ListParams struct {
 	LabelSelector      *selector.LabelSelector
 	AnnotationSelector *selector.AnnotationSelector
 	SortOrder          *SortOrder
-	SortColumn         *SortColumn
+	SortColumns        []SortColumn
 }
 
 type Continue struct {
 	Version int
-	Name    string
+	Names   []string
 	Count   int64
 }
 
-func BuildContinueString(name string, count int64) *string {
+func BuildContinueString(names []string, count int64) *string {
 	cont := Continue{
 		Version: CurrentContinueVersion,
-		Name:    name,
+		Names:   names,
 		Count:   count,
 	}
 

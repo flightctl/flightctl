@@ -36,7 +36,7 @@ func (h *ServiceHandler) ListEvents(ctx context.Context, params api.ListEventsPa
 	}
 
 	// default is to sort created_at with desc
-	listParams.SortColumn = lo.ToPtr(store.SortByCreatedAt)
+	listParams.SortColumns = []store.SortColumn{store.SortByCreatedAt, store.SortByName}
 	listParams.SortOrder = lo.ToPtr(store.SortDesc)
 	if params.Order != nil {
 		listParams.SortOrder = lo.ToPtr(map[api.ListEventsParamsOrder]store.SortOrder{api.Asc: store.SortAsc, api.Desc: store.SortDesc}[*params.Order])
