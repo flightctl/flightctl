@@ -7,82 +7,21 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/google/uuid"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
-type DeviceStore struct {
-	store.Store
-	DeviceVal api.Device
-	EventVal  api.Event
-}
-
-func (s *DeviceStore) Device() store.Device {
-	return &DummyDevice{DeviceVal: s.DeviceVal}
-}
-
-type DummyDevice struct {
-	store.Device
-	DeviceVal api.Device
-}
-
-func (s *DeviceStore) Event() store.Event {
-	return &DummyEvent{EventVal: s.EventVal}
-}
-
-type DummyEvent struct {
-	store.Event
-	EventVal api.Event
-}
-
-type dummyPublisher struct{}
-
-func (d *dummyPublisher) Publish(_ context.Context, _ []byte) error {
-	return nil
-}
-
-func (d *dummyPublisher) Close() {
-
-}
-
-func dummyCallbackManager() tasks_client.CallbackManager {
-	return tasks_client.NewCallbackManager(&dummyPublisher{}, logrus.New())
-}
-
-func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
-	if name == *s.DeviceVal.Metadata.Name {
-		return &s.DeviceVal, nil
-	}
-	return nil, flterrors.ErrResourceNotFound
-}
-
-func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*api.Device, api.ResourceUpdatedDetails, error) {
-	return device, api.ResourceUpdatedDetails{}, nil
-}
-
-func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error) {
-	return device, false, api.ResourceUpdatedDetails{}, nil
-}
-
-func (s *DummyEvent) Create(ctx context.Context, orgId uuid.UUID, event *api.Event) error {
-	return nil
-}
-
 func verifyDevicePatchSucceeded(require *require.Assertions, expectedDevice api.Device, resp *api.Device, status api.Status) {
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 	require.True(api.DeviceSpecsAreEqual(*expectedDevice.Spec, *resp.Spec))
 	require.Equal(expectedDevice.Metadata, resp.Metadata)
 }
 
 func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
-	require.Equal(int32(400), status.Code)
+	require.Equal(statusBadRequestCode, status.Code)
 }
 
 func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.Device, api.Device, api.Status) {
@@ -102,23 +41,29 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 		Status: &status,
 	}
 	serviceHandler := ServiceHandler{
-		store:           &DeviceStore{DeviceVal: device},
+		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 	}
-	resp, retStatus := serviceHandler.PatchDevice(context.Background(), "foo", patch)
-	require.NotEqual(int32(500), retStatus.Code)
+	ctx := context.Background()
+	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil)
+	require.NoError(err)
+	resp, retStatus := serviceHandler.PatchDevice(ctx, "foo", patch)
+	require.NotEqual(statusFailedCode, retStatus.Code)
 	return resp, device, retStatus
 }
 
 func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
 	_ = auth.InitAuth(nil, log.InitLogs())
-	serviceHandler := ServiceHandler{
-		store:           &DeviceStore{DeviceVal: orig},
+	serviceHandler := &ServiceHandler{
+		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 	}
-	resp, retStatus := serviceHandler.PatchDeviceStatus(context.Background(), "foo", patch)
-	require.NotEqual(int32(500), retStatus.Code)
+	ctx := context.Background()
+	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil)
+	require.NoError(err)
+	resp, retStatus := serviceHandler.PatchDeviceStatus(ctx, "foo", patch)
+	require.NotEqual(statusFailedCode, retStatus.Code)
 	return resp, retStatus
 }
 
@@ -388,10 +333,15 @@ func TestDeviceNonExistingResource(t *testing.T) {
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &DeviceStore{DeviceVal: api.Device{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
-		}},
+		store:           &TestStore{},
+		callbackManager: dummyCallbackManager(),
 	}
-	_, status := serviceHandler.PatchDevice(context.Background(), "bar", pr)
-	require.Equal(api.StatusResourceNotFound("Device", "bar"), status)
+	ctx := context.Background()
+	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &api.Device{
+		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
+	}, nil)
+	require.NoError(err)
+	_, retStatus := serviceHandler.PatchDevice(ctx, "bar", pr)
+	require.Equal(statusNotFoundCode, retStatus.Code)
+	require.Equal(api.StatusResourceNotFound("Device", "bar"), retStatus)
 }
