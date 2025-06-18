@@ -102,4 +102,4 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
-.PHONY: unit-test prepare-integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm
+.PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm
