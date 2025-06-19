@@ -185,7 +185,7 @@ func (m *PodmanMonitor) Ensure(app Application) error {
 		ID:       appID,
 		Path:     app.Path(),
 		Embedded: app.IsEmbedded(),
-		Volumes:  volumeNames(app.Volumes()),
+		Volumes:  lifecycle.ComposeVolumeNames(appName, app.Volumes()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -204,14 +204,15 @@ func (m *PodmanMonitor) Remove(app Application) error {
 	}
 
 	delete(m.apps, appID)
+	appName := app.Name()
 
 	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionRemove,
-		Name:    app.Name(),
+		Name:    appName,
 		ID:      appID,
-		Volumes: volumeNames(app.Volumes()),
+		Volumes: lifecycle.ComposeVolumeNames(appName, app.Volumes()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -229,15 +230,16 @@ func (m *PodmanMonitor) Update(app Application) error {
 	}
 
 	m.apps[appID] = app
+	appName := app.Name()
 
 	// currently we don't support updating embedded applications
 	action := lifecycle.Action{
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionUpdate,
-		Name:    app.Name(),
+		Name:    appName,
 		ID:      appID,
 		Path:    app.Path(),
-		Volumes: volumeNames(app.Volumes()),
+		Volumes: lifecycle.ComposeVolumeNames(appName, app.Volumes()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -491,12 +493,4 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 		}
 	}
 	return initialStatus
-}
-
-func volumeNames(volumes []v1alpha1.ApplicationVolume) []string {
-	names := make([]string, len(volumes))
-	for i, v := range volumes {
-		names[i] = v.Name
-	}
-	return names
 }
