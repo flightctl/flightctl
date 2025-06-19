@@ -18,8 +18,7 @@ spec:
           gitRef:
             repository: default-repo
             targetRevision: main
-            path: /production
-            mountPath: /etc/microshift/manifests
+            path: /etc/microshift/manifests/production
         - name: acm-secrets
           secretRef:
             name: device-name

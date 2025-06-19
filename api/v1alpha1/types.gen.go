@@ -1082,9 +1082,6 @@ type GenericRepoSpec struct {
 type GitConfigProviderSpec struct {
 	// GitRef The reference to a Git configuration server.
 	GitRef struct {
-		// MountPath Path in the device's file system at which the repository's path should be mounted.
-		MountPath *string `json:"mountPath,omitempty"`
-
 		// Path The path to the config in the Repository.
 		Path string `json:"path"`
 
