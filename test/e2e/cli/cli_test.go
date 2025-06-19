@@ -2,10 +2,12 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -26,6 +28,7 @@ var (
 	fieldSelector       = "--field-selector"
 	fleetYAMLPath       = "fleet.yaml"
 	limit               = "--limit"
+	jsonFlag            = "-ojson"
 	repoYAMLPath        = "repository-flightctl.yaml"
 	resourceCreated     = `(200 OK|201 Created)`
 	erYAMLPath          = "enrollmentrequest.yaml"
@@ -410,7 +413,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Events API Tests", func() {
-		It("should list events resource is created/updated/deleted", Label("80452", "sanity"), func() {
+		It("should list events resource is created/updated/deleted", Label("81779", "sanity"), func() {
 			var deviceName, fleetName, repoName string
 			var er *v1alpha1.EnrollmentRequest
 
@@ -586,6 +589,30 @@ var _ = Describe("cli operation", func() {
 			out, err = harness.RunGetEvents(limit, "1", "2")
 			Expect(err).To(HaveOccurred())
 			Expect(out).To(ContainSubstring("accepts 1 arg(s), received 2"))
+
+			By("fetching the next page of events using the continue flag", func() {
+				page, err := getEventsPage(harness, limit, "1", jsonFlag)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(page.Items).To(HaveLen(1))
+				Expect(page.Metadata.Continue).ToNot(BeEmpty())
+
+				nextPage, err := getEventsPage(harness, "--continue", page.Metadata.Continue, jsonFlag)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(nextPage.Items).ToNot(BeEmpty())
+			})
+
+			By("verifying that events are sorted by creationTimestamp descending", func() {
+				page, err := getEventsPage(harness, jsonFlag)
+				Expect(err).ToNot(HaveOccurred())
+				timestamps, err := extractTimestamps(page.Items)
+				Expect(err).ToNot(HaveOccurred())
+
+				for i := 1; i < len(timestamps); i++ {
+					Expect(timestamps[i-1].After(timestamps[i]) || timestamps[i-1].Equal(timestamps[i])).To(BeTrue(),
+						"Events should be sorted descending by creationTimestamp")
+				}
+			})
+
 		})
 	})
 })
@@ -747,6 +774,58 @@ func GetVersionByPrefix(output, prefix string) string {
 		}
 	}
 	return ""
+}
+
+type EventsPage struct {
+	Items    []json.RawMessage `json:"items"`
+	Metadata struct {
+		Continue string `json:"continue"`
+	} `json:"metadata"`
+}
+
+type EventWithTimestamp struct {
+	Metadata struct {
+		CreationTimestamp string `json:"creationTimestamp"`
+	} `json:"metadata"`
+}
+
+func getEventsPage(harness *e2e.Harness, args ...string) (EventsPage, error) {
+	var page EventsPage
+
+	out, err := harness.RunGetEvents(args...)
+	if err != nil {
+		return page, err
+	}
+
+	err = json.Unmarshal([]byte(out), &page)
+	if err != nil {
+		return page, err
+	}
+
+	return page, nil
+}
+
+func extractTimestamps(events []json.RawMessage) ([]time.Time, error) {
+	var timestamps []time.Time
+
+	for _, raw := range events {
+		var event EventWithTimestamp
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return nil, err
+		}
+
+		ts, err := time.Parse(time.RFC3339Nano, event.Metadata.CreationTimestamp)
+		if err != nil {
+			ts, err = time.Parse(time.RFC3339, event.Metadata.CreationTimestamp)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		timestamps = append(timestamps, ts)
+	}
+
+	return timestamps, nil
 }
 
 // TIMEOUT represents the default duration string for timeout, set to 1 minute.
