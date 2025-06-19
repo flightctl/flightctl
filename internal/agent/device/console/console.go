@@ -126,7 +126,7 @@ func (c *ConsoleController) start(ctx context.Context, dc v1alpha1.DeviceConsole
 	}
 	defer c.close(s)
 
-	c.log.Debugf("starting session %s, metedata %s", dc.SessionID, dc.SessionMetadata)
+	c.log.Debugf("starting session %s, metadata %s", dc.SessionID, dc.SessionMetadata)
 
 	sessionMetadata, err := c.parseMetadata(dc.SessionMetadata)
 	if err != nil {
