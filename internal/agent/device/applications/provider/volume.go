@@ -4,15 +4,12 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"slices"
-	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/pkg/log"
 	"sigs.k8s.io/yaml"
 )
@@ -21,6 +18,7 @@ import (
 func ensurePodmanVolumes(
 	ctx context.Context,
 	log *log.PrefixLogger,
+	appName string,
 	writer fileio.Writer,
 	podman *client.Podman,
 	volumes *[]v1alpha1.ApplicationVolume,
@@ -42,7 +40,8 @@ func ensurePodmanVolumes(
 			if err != nil {
 				return fmt.Errorf("getting image volume provider spec: %w", err)
 			}
-			if err := ensurePodmanVolume(ctx, log, writer, podman, volume.Name, &v, labels); err != nil {
+			uniqueVolumeName := lifecycle.ComposeVolumeName(appName, volume.Name)
+			if err := ensurePodmanVolume(ctx, log, writer, podman, uniqueVolumeName, &v, labels); err != nil {
 				return fmt.Errorf("pulling image volume: %w", err)
 			}
 		default:
@@ -63,13 +62,12 @@ func ensurePodmanVolume(
 	labels []string,
 ) error {
 	imageRef := provider.Image.Reference
-	uniqueName := lifecycle.NewComposeID(name)
 
-	if podman.VolumeExists(ctx, uniqueName) {
-		log.Tracef("Volume %q already exists, updating contents", uniqueName)
-		volumePath, err := podman.InspectVolumeMount(ctx, uniqueName)
+	if podman.VolumeExists(ctx, name) {
+		log.Tracef("Volume %q already exists, updating contents", name)
+		volumePath, err := podman.InspectVolumeMount(ctx, name)
 		if err != nil {
-			return fmt.Errorf("inspect volume %q: %w", uniqueName, err)
+			return fmt.Errorf("inspect volume %q: %w", name, err)
 		}
 		if err := writer.RemoveContents(volumePath); err != nil {
 			return fmt.Errorf("removing volume content %q: %w", volumePath, err)
@@ -80,11 +78,11 @@ func ensurePodmanVolume(
 		return nil
 	}
 
-	log.Infof("Creating volume %q from image %q", uniqueName, imageRef)
+	log.Infof("Creating volume %q from image %q", name, imageRef)
 
-	volumePath, err := podman.CreateVolume(ctx, uniqueName, labels)
+	volumePath, err := podman.CreateVolume(ctx, name, labels)
 	if err != nil {
-		return fmt.Errorf("creating volume %q: %w", uniqueName, err)
+		return fmt.Errorf("creating volume %q: %w", name, err)
 	}
 	if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
 		return fmt.Errorf("copy image contents: %w", err)
@@ -175,123 +173,42 @@ func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, v
 	return nil
 }
 
-func patchRenamedVolumesInComposeSpec(
-	log *log.PrefixLogger,
-	original *common.ComposeSpec,
-	volumes *[]v1alpha1.ApplicationVolume,
-) (*common.ComposeSpec, map[string]string) {
-	if volumes == nil {
-		log.Debug("No volumes provided, skipping patch.")
-		return original, nil
-	}
-	renameSet := make(map[string]struct{}, len(*volumes))
-	for _, vol := range *volumes {
-		renameSet[vol.Name] = struct{}{}
-	}
-
-	patchedServices := make(map[string]common.ComposeService, len(original.Services))
-	for name, svc := range original.Services {
-		newVolumes := append([]string(nil), svc.Volumes...)
-		patchedServices[name] = common.ComposeService{
-			Image:         svc.Image,
-			ContainerName: svc.ContainerName,
-			Volumes:       newVolumes,
-		}
-	}
-
-	patchedVolumes := make(map[string]common.ComposeVolume, len(original.Volumes))
-	for name, vol := range original.Volumes {
-		patchedVolumes[name] = vol
-	}
-
-	// rename volumes
-	renamed := make(map[string]string)
-	newVolumes := make(map[string]common.ComposeVolume, len(patchedVolumes))
-	for name, vol := range patchedVolumes {
-		if _, ok := renameSet[name]; ok {
-			newName := lifecycle.NewComposeID(name)
-			renamed[name] = newName
-			newVolumes[newName] = vol
-			log.Infof("Renaming volume %q to %q", name, newName)
-		} else {
-			newVolumes[name] = vol
-		}
-	}
-
-	// rewrite volume references in services
-	for svcName, svc := range patchedServices {
-		originalVolumes := svc.Volumes
-		for i, vol := range svc.Volumes {
-			parts := strings.SplitN(vol, ":", 2)
-			if newName, ok := renamed[parts[0]]; ok {
-				if len(parts) == 2 {
-					svc.Volumes[i] = fmt.Sprintf("%s:%s", newName, parts[1])
-				} else {
-					svc.Volumes[i] = newName
-				}
-				log.Infof("Service %q volume reference %q updated to %q", svcName, vol, svc.Volumes[i])
-			}
-		}
-		if !slices.Equal(originalVolumes, svc.Volumes) {
-			log.Debugf("Service %q volume list changed: %v to %v", svcName, originalVolumes, svc.Volumes)
-		}
-		patchedServices[svcName] = svc
-	}
-
-	log.Debugf("Patch complete. Renamed volumes: %v", renamed)
-
-	return &common.ComposeSpec{
-		Services: patchedServices,
-		Volumes:  newVolumes,
-	}, renamed
-}
-
-func writeComposeOverrideDiff(
+// writeComposeOverride creates an override file that maps volumes to external names and perists to disk.
+func writeComposeOverride(
 	log *log.PrefixLogger,
 	dir string,
-	original, patched *common.ComposeSpec,
-	renamed map[string]string,
+	appName string,
+	volumes *[]v1alpha1.ApplicationVolume,
 	writer fileio.Writer,
 	overrideFilename string,
 ) error {
-	override := &common.ComposeSpec{
-		Services: map[string]common.ComposeService{},
-		Volumes:  map[string]common.ComposeVolume{},
-	}
-
-	log.Debugf("Preparing to write override diff to %q", overrideFilename)
-
-	// add renamed volumes
-	for _, newName := range renamed {
-		override.Volumes[newName] = patched.Volumes[newName]
-		log.Infof("Override will include renamed volume: %q", newName)
-	}
-
-	for name, patchedSvc := range patched.Services {
-		origSvc, found := original.Services[name]
-		if !found || !slices.Equal(patchedSvc.Volumes, origSvc.Volumes) {
-			override.Services[name] = patchedSvc
-			log.Infof("Override will include service %q due to volume change or new service", name)
-		}
-	}
-
-	if len(override.Services) == 0 && len(override.Volumes) == 0 {
-		log.Debug("No changes detected; override file will not be written.")
+	if volumes == nil || len(*volumes) == 0 {
 		return nil
+	}
+
+	override := map[string]any{
+		"volumes": map[string]any{},
+	}
+
+	volMap := override["volumes"].(map[string]any)
+	for _, volume := range *volumes {
+		uniqueName := lifecycle.ComposeVolumeName(appName, volume.Name)
+		volMap[volume.Name] = map[string]any{
+			"external": true,
+			"name":     uniqueName,
+		}
 	}
 
 	overrideBytes, err := yaml.Marshal(override)
 	if err != nil {
-		log.WithError(err).Error("Failed to marshal override spec")
-		return fmt.Errorf("marshal override: %w", err)
+		return fmt.Errorf("marshal override yaml: %w", err)
 	}
 
 	path := filepath.Join(dir, overrideFilename)
 	if err := writer.WriteFile(path, overrideBytes, fileio.DefaultFilePermissions); err != nil {
-		log.WithError(err).Errorf("Failed to write override file to %s", path)
 		return fmt.Errorf("write override file: %w", err)
 	}
 
-	log.Infof("Override file written to %q", path)
+	log.Infof("Compose override file written: %s", path)
 	return nil
 }
