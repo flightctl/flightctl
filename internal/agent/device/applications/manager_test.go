@@ -28,7 +28,7 @@ func TestManager(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
 		name         string
-		setupMocks   func(*executer.MockExecuter)
+		setupMocks   func(*executer.MockExecuter, *fileio.MockReadWriter)
 		current      *v1alpha1.DeviceSpec
 		desired      *v1alpha1.DeviceSpec
 		wantAppNames []string
@@ -37,7 +37,7 @@ func TestManager(t *testing.T) {
 			name:    "no applications",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			setupMocks: func(mockExec *executer.MockExecuter) {
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExecPodmanEvents(mockExec),
 				)
@@ -49,13 +49,14 @@ func TestManager(t *testing.T) {
 			desired: newTestDeviceWithApplications(require, "app-new", []testInlineDetails{
 				{Content: compose1, Path: "podman-compose.yaml"},
 			}),
-			setupMocks: func(mockExec *executer.MockExecuter) {
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
 				gomock.InOrder(
 					// start new app
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-					mockExecPodmanComposeUp(mockExec, "app-new"),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
+					mockExecPodmanComposeUp(mockExec, "app-new", true, true),
 					mockExecPodmanEvents(mockExec),
 				)
 			},
@@ -67,14 +68,15 @@ func TestManager(t *testing.T) {
 				{Content: compose1, Path: "podman-compose.yaml"},
 			}),
 			desired: &v1alpha1.DeviceSpec{},
-			setupMocks: func(mockExec *executer.MockExecuter) {
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
 				id := lifecycle.NewComposeID("app-remove")
 				gomock.InOrder(
 					// start current app
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-					mockExecPodmanComposeUp(mockExec, "app-remove"),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
+					mockExecPodmanComposeUp(mockExec, "app-remove", true, true),
 
 					// remove current app
 					mockExecPodmanNetworkList(mockExec, "app-remove"),
@@ -93,7 +95,7 @@ func TestManager(t *testing.T) {
 			desired: newTestDeviceWithApplications(require, "app-update", []testInlineDetails{
 				{Content: compose2, Path: "podman-compose.yaml"},
 			}),
-			setupMocks: func(mockExec *executer.MockExecuter) {
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
 				id := lifecycle.NewComposeID("app-update")
 				gomock.InOrder(
 					// verify current app
@@ -105,15 +107,17 @@ func TestManager(t *testing.T) {
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
 
 					// start current app
-					mockExecPodmanComposeUp(mockExec, "app-update"),
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
+					mockExecPodmanComposeUp(mockExec, "app-update", true, true),
 
-					// stop and remove current app
+					// // stop and remove current app
 					mockExecPodmanNetworkList(mockExec, "app-update"),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
 
-					// start desired app
-					mockExecPodmanComposeUp(mockExec, "app-update"),
+					// // start desired app
+					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
+					mockExecPodmanComposeUp(mockExec, "app-update", true, true),
 					mockExecPodmanEvents(mockExec),
 				)
 			},
@@ -130,13 +134,17 @@ func TestManager(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
-			mockPodmanClient := client.NewPodman(log, mockExec, readWriter, util.NewBackoff())
+			mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewBackoff())
 
 			tmpDir := t.TempDir()
 			readWriter.SetRootdir(tmpDir)
 
-			tc.setupMocks(mockExec)
+			tc.setupMocks(
+				mockExec,
+				mockReadWriter,
+			)
 
 			currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.current)
 			require.NoError(err)
@@ -195,10 +203,18 @@ func mockExecPodmanEvents(mockExec *executer.MockExecuter) *gomock.Call {
 	).Return(exec.CommandContext(context.Background(), "echo", `{}`))
 }
 
-func mockExecPodmanComposeUp(mockExec *executer.MockExecuter, name string) *gomock.Call {
+func mockExecPodmanComposeUp(mockExec *executer.MockExecuter, name string, hasOverride, hasAgentOverride bool) *gomock.Call {
 	workDir := fmt.Sprintf("/etc/compose/manifests/%s", name)
 	id := lifecycle.NewComposeID(name)
-	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", []string{"compose", "-p", id, "up", "-d", "--no-recreate"}).Return("", "", 0)
+	args := []string{"compose", "-p", id, "-f", "docker-compose.yaml"}
+	if hasOverride {
+		args = append(args, "-f", "docker-compose.override.yaml")
+	}
+	if hasAgentOverride {
+		args = append(args, "-f", "99-compose-flightctl-agent.override.yaml")
+	}
+	args = append(args, "up", "-d", "--no-recreate")
+	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", args).Return("", "", 0)
 }
 
 func mockExecPodmanNetworkList(mockExec *executer.MockExecuter, name string) *gomock.Call {

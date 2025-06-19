@@ -13,12 +13,22 @@ import (
 
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm-tools/simulator"
-	"github.com/google/go-tpm/legacy/tpm2"
+	legacy "github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm/tpm2"
 	"github.com/stretchr/testify/require"
 )
 
 type TestFixture struct {
 	tpm *TPM
+}
+
+type TestData struct {
+	tpm    *TPM
+	srk    *tpm2.NamedHandle
+	ldevid *tpm2.NamedHandle
+	lak    *client.Key
+	nonce  []byte
+	pcrSel *legacy.PCRSelection
 }
 
 func openTPMSimulator(t *testing.T) (*TPM, error) {
@@ -42,56 +52,71 @@ func setupTestFixture(t *testing.T) (*TestFixture, error) {
 	return &TestFixture{tpm: tpm}, nil
 }
 
-func setupTestData(t *testing.T) (*TPM, *client.Key, []byte, *tpm2.PCRSelection) {
+func setupTestData(t *testing.T) TestData {
 	t.Helper()
 	require := require.New(t)
 
 	f, err := setupTestFixture(t)
 	require.NoError(err)
 
-	key, err := f.tpm.CreateLAK()
+	srk, err := f.tpm.GenerateSRKPrimary()
+	require.NoError(err)
+
+	lak, err := f.tpm.CreateLAK()
+	require.NoError(err)
+
+	ldevid, err := f.tpm.CreateLDevID(*srk)
 	require.NoError(err)
 
 	nonce := make([]byte, 8)
 	_, err = io.ReadFull(rand.Reader, nonce)
 	require.NoError(err)
 
-	selection := client.FullPcrSel(tpm2.AlgSHA256)
+	selection := client.FullPcrSel(legacy.AlgSHA256)
 
-	return f.tpm, key, nonce, &selection
+	data := TestData{
+		tpm:    f.tpm,
+		srk:    srk,
+		ldevid: ldevid,
+		lak:    lak,
+		nonce:  nonce,
+		pcrSel: &selection,
+	}
+
+	return data
 }
 
 func TestLAK(t *testing.T) {
-	tpm, key, _, _ := setupTestData(t)
+	data := setupTestData(t)
 	defer func() {
-		tpm.Close()
-		key.Close()
+		data.tpm.Close()
+		data.lak.Close()
 	}()
 
 	// This template is based on that used for AK ECC key creation in go-tpm-tools, see:
 	// https://github.com/google/go-tpm-tools/blob/3e063ade7f302972d7b893ca080a75efa3db5506/client/template.go#L108
 	//
 	// For more template options, see https://pkg.go.dev/github.com/google/go-tpm/legacy/tpm2#Public
-	params := tpm2.ECCParams{
+	params := legacy.ECCParams{
 		Symmetric: nil,
-		CurveID:   tpm2.CurveNISTP256,
-		Point: tpm2.ECPoint{
+		CurveID:   legacy.CurveNISTP256,
+		Point: legacy.ECPoint{
 			XRaw: make([]byte, 32),
 			YRaw: make([]byte, 32),
 		},
 	}
-	params.Sign = &tpm2.SigScheme{
-		Alg:  tpm2.AlgECDSA,
-		Hash: tpm2.AlgSHA256,
+	params.Sign = &legacy.SigScheme{
+		Alg:  legacy.AlgECDSA,
+		Hash: legacy.AlgSHA256,
 	}
-	template := tpm2.Public{
-		Type:          tpm2.AlgECC,
-		NameAlg:       tpm2.AlgSHA256,
-		Attributes:    tpm2.FlagSignerDefault,
+	template := legacy.Public{
+		Type:          legacy.AlgECC,
+		NameAlg:       legacy.AlgSHA256,
+		Attributes:    legacy.FlagSignerDefault,
 		ECCParameters: &params,
 	}
 
-	pub := key.PublicArea()
+	pub := data.lak.PublicArea()
 	if !pub.MatchesTemplate(template) {
 		t.Errorf("local attestation key does not match template")
 	}
@@ -99,13 +124,13 @@ func TestLAK(t *testing.T) {
 
 func TestGetQuote(t *testing.T) {
 	require := require.New(t)
-	tpm, key, nonce, selection := setupTestData(t)
+	data := setupTestData(t)
 	defer func() {
-		tpm.Close()
-		key.Close()
+		data.tpm.Close()
+		data.lak.Close()
 	}()
 
-	_, err := tpm.GetQuote(nonce, key, selection)
+	_, err := data.tpm.GetQuote(data.nonce, data.lak, data.pcrSel)
 	require.NoError(err)
 }
 
@@ -117,26 +142,26 @@ func TestGetAttestation(t *testing.T) {
 	}
 
 	require := require.New(t)
-	tpm, key, nonce, _ := setupTestData(t)
+	data := setupTestData(t)
 	defer func() {
-		tpm.Close()
-		key.Close()
+		data.tpm.Close()
+		data.lak.Close()
 	}()
 
-	_, err = tpm.GetAttestation(nonce, key)
+	_, err = data.tpm.GetAttestation(data.nonce, data.lak)
 	require.NoError(err)
 }
 
 func TestGetPCRValues(t *testing.T) {
 	require := require.New(t)
-	tpm, key, _, _ := setupTestData(t)
+	data := setupTestData(t)
 	defer func() {
-		tpm.Close()
-		key.Close()
+		data.tpm.Close()
+		data.lak.Close()
 	}()
 
 	measurements := make(map[string]string)
 
-	err := tpm.GetPCRValues(measurements)
+	err := data.tpm.GetPCRValues(measurements)
 	require.NoError(err)
 }

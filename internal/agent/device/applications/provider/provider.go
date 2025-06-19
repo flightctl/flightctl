@@ -45,6 +45,8 @@ type ApplicationSpec struct {
 	EnvVars map[string]string
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
+	// Volumes is a list of external volume names associated with this application
+	Volumes *[]v1alpha1.ApplicationVolume
 	// ImageProvider is the spec for the image provider
 	ImageProvider *v1alpha1.ImageApplicationProviderSpec
 	// InlineProvider is the spec for the inline provider
@@ -264,7 +266,7 @@ func ensureCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 	}
 
 	for _, svc := range spec.Services {
-		if err := ensureImageExists(ctx, log, podman, svc.Image); err != nil {
+		if err := ensureImageExists(ctx, log, podman, svc.Image, v1alpha1.PullIfNotPresent); err != nil {
 			return fmt.Errorf("pulling service image: %w", err)
 		}
 	}
@@ -286,8 +288,8 @@ func writeENVFile(appPath string, writer fileio.Writer, envVars map[string]strin
 	return nil
 }
 
-// ensureDependenciesFromType ensures that the dependencies required for the given app type are available.
-func ensureDependenciesFromType(appType v1alpha1.AppType) error {
+// ensureDependenciesFromAppType ensures that the dependencies required for the given app type are available.
+func ensureDependenciesFromAppType(appType v1alpha1.AppType) error {
 	var deps []string
 	switch appType {
 	case v1alpha1.AppTypeCompose:
@@ -306,11 +308,16 @@ func ensureDependenciesFromType(appType v1alpha1.AppType) error {
 }
 
 // ensureImageExists ensures that the image exists in the container storage.
-func ensureImageExists(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, image string) error {
+func ensureImageExists(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, image string, pullPolicy v1alpha1.ImagePullPolicy) error {
+	if pullPolicy == v1alpha1.PullNever {
+		log.Tracef("Pull policy is set to never, skipping image pull: %s", image)
+		return nil
+	}
+	// if the image is not set, return
 	// pull the image if it does not exist. it is possible that the image
 	// tag such as latest in which case it will be pulled later. but we
 	// don't want to require calling out the network on every sync.
-	if podman.ImageExists(ctx, image) {
+	if podman.ImageExists(ctx, image) && pullPolicy != v1alpha1.PullAlways {
 		log.Tracef("Image already exists in container storage: %s", image)
 		return nil
 	}

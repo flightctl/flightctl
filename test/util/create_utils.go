@@ -188,6 +188,52 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 	return nil
 }
 
+func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context, store store.Store, orgId uuid.UUID) {
+	for i := 1; i <= numEnrollmentRequests; i++ {
+		resource := api.EnrollmentRequest{
+			Metadata: api.ObjectMeta{
+				Name:   lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
+				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+			},
+			Spec: api.EnrollmentRequestSpec{
+				Csr: "csr string",
+			},
+			Status: &api.EnrollmentRequestStatus{
+				Certificate: lo.ToPtr("cert"),
+			},
+		}
+
+		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource)
+		if err != nil {
+			log.Fatalf("creating enrollmentrequest: %v", err)
+		}
+		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource)
+		if err != nil {
+			log.Fatalf("updating enrollmentrequest status: %v", err)
+		}
+	}
+}
+
+func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, storeInst store.Store, orgId uuid.UUID) {
+	for i := 1; i <= numResourceSyncs; i++ {
+		resource := api.ResourceSync{
+			Metadata: api.ObjectMeta{
+				Name:   lo.ToPtr(fmt.Sprintf("myresourcesync-%d", i)),
+				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
+			},
+			Spec: api.ResourceSyncSpec{
+				Repository: "myrepo",
+				Path:       "my/path",
+			},
+		}
+
+		_, err := storeInst.ResourceSync().Create(ctx, orgId, &resource)
+		if err != nil {
+			log.Fatalf("creating resourcesync: %v", err)
+		}
+	}
+}
+
 func NewBackoff() wait.Backoff {
 	return wait.Backoff{
 		Steps: 1,

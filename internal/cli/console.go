@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	api_remotecommand "k8s.io/apimachinery/pkg/util/remotecommand"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -139,7 +141,7 @@ func (o *ConsoleOptions) Run(ctx context.Context, flagArgs, passThroughArgs []st
 		return err
 	}
 
-	o.analyzeResponseAndExit(o.connectViaWS(ctx, config, name, client.GetAccessToken(config, o.ConfigFilePath), passThroughArgs))
+	o.analyzeResponseAndExit(ctx, name, o.connectViaWS(ctx, config, name, client.GetAccessToken(config, o.ConfigFilePath), passThroughArgs))
 
 	// unreachable
 	return nil
@@ -342,15 +344,52 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 	return wsClient.StreamWithContext(ctx, options)
 }
 
-func (o *ConsoleOptions) analyzeResponseAndExit(err error) {
+func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name string, origErr error) {
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating client: %v\n", err)
+		return
+	}
+	response, err := c.GetDeviceWithResponse(ctx, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting device %s: %v\n", name, err)
+		return
+	}
+	if response != nil && response.StatusCode() != http.StatusOK {
+		var status *api.Status
+		switch {
+		case response.JSON401 != nil:
+			status = response.JSON401
+		case response.JSON403 != nil:
+			status = response.JSON403
+		case response.JSON404 != nil:
+			status = response.JSON404
+		case response.JSON503 != nil:
+			status = response.JSON503
+		}
+		if status != nil {
+			fmt.Fprintf(os.Stderr, "Error for device %s: %s\n", name, status.Message)
+			return
+		}
+	}
+	fmt.Fprintf(os.Stderr, "Unexpected error for device %s: %v\n", name, origErr)
+}
+
+func (o *ConsoleOptions) analyzeResponseAndExit(ctx context.Context, name string, err error) {
 	var exitCode int
-	switch concreteErr := err.(type) {
-	case nil:
-	case exec.CodeExitError:
-		exitCode = concreteErr.Code
-	default:
-		exitCode = 255
-		if !errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) {
+		// If the context was canceled, we exit with code 130 (SIGINT)
+		exitCode = 130
+	} else {
+		switch concreteErr := err.(type) {
+		case nil:
+		case exec.CodeExitError:
+			exitCode = concreteErr.Code
+		case *httpstream.UpgradeFailureError:
+			exitCode = 255
+			o.emitUpgradeFailureError(ctx, name, err)
+		default:
+			exitCode = 255
 			fmt.Fprintf(os.Stderr, "Unexpected error type %T: %+v\n", err, err)
 		}
 	}

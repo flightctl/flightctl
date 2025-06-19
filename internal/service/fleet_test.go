@@ -5,49 +5,13 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
-type FleetStore struct {
-	store.Store
-	FleetVal api.Fleet
-	EventVal api.Event
-}
-
-func (s *FleetStore) Fleet() store.Fleet {
-	return &DummyFleet{FleetVal: s.FleetVal}
-}
-
-type DummyFleet struct {
-	store.Fleet
-	FleetVal api.Fleet
-}
-
-func (s *FleetStore) Event() store.Event {
-	return &DummyEvent{EventVal: s.EventVal}
-}
-
-func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...store.GetOption) (*api.Fleet, error) {
-	if name == *s.FleetVal.Metadata.Name {
-		return &s.FleetVal, nil
-	}
-	return nil, flterrors.ErrResourceNotFound
-}
-
-func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback) (*api.Fleet, api.ResourceUpdatedDetails, error) {
-	return fleet, api.ResourceUpdatedDetails{}, nil
-}
-
-func (s *DummyFleet) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback) (*api.Fleet, bool, api.ResourceUpdatedDetails, error) {
-	return fleet, false, api.ResourceUpdatedDetails{}, nil
-}
-
 func verifyFleetPatchFailed(require *require.Assertions, status api.Status) {
-	require.Equal(int32(400), status.Code)
+	require.Equal(statusBadRequestCode, status.Code)
 }
 
 func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.Fleet, api.Fleet, api.Status) {
@@ -82,12 +46,15 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.F
 			},
 		},
 	}
-	serviceHandler := ServiceHandler{
-		store:           &FleetStore{FleetVal: fleet},
+	serviceHandler := &ServiceHandler{
+		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 	}
-	resp, status := serviceHandler.PatchFleet(context.Background(), "foo", patch)
-	require.NotEqual(int32(500), status.Code)
+	ctx := context.Background()
+	_, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil)
+	require.NoError(err)
+	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
+	require.NotEqual(statusFailedCode, status.Code)
 	return resp, fleet, status
 }
 func TestFleetPatchName(t *testing.T) {
@@ -158,18 +125,8 @@ func TestFleetPatchSpec(t *testing.T) {
 		{Op: "replace", Path: "/spec/template/spec/os/image", Value: &value},
 	}
 	resp, orig, status := testFleetPatch(require, pr)
-	orig.Spec.Template = struct {
-		Metadata *api.ObjectMeta "json:\"metadata,omitempty\""
-		Spec     api.DeviceSpec  "json:\"spec\""
-	}{
-		Spec: api.DeviceSpec{
-			Os: &api.DeviceOsSpec{
-				Image: "newimg",
-			},
-		},
-	}
 	orig.Spec.Template.Spec.Os.Image = "newimg"
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	pr = api.PatchRequest{
@@ -177,7 +134,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	}
 	resp, orig, status = testFleetPatch(require, pr)
 	orig.Spec.Template.Spec.Os = nil
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	value = "foo"
@@ -223,7 +180,7 @@ func TestFleetPatchLabels(t *testing.T) {
 
 	resp, orig, status := testFleetPatch(require, pr)
 	orig.Metadata.Labels = &addLabels
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	pr = api.PatchRequest{
@@ -232,7 +189,7 @@ func TestFleetPatchLabels(t *testing.T) {
 
 	resp, orig, status = testFleetPatch(require, pr)
 	orig.Metadata.Labels = &map[string]string{}
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 }
 
@@ -243,11 +200,15 @@ func TestFleetNonExistingResource(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
-	serviceHandler := ServiceHandler{
-		store: &FleetStore{FleetVal: api.Fleet{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
-		}},
+	serviceHandler := &ServiceHandler{
+		store:           &TestStore{},
+		callbackManager: dummyCallbackManager(),
 	}
-	_, status := serviceHandler.PatchFleet(context.Background(), "bar", pr)
-	require.Equal(int32(404), status.Code)
+	ctx := context.Background()
+	_, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &api.Fleet{
+		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
+	}, nil)
+	require.NoError(err)
+	_, status := serviceHandler.PatchFleet(ctx, "bar", pr)
+	require.Equal(statusNotFoundCode, status.Code)
 }

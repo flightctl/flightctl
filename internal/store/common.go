@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -124,17 +125,19 @@ func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.U
 	return query, nil
 }
 
-func getColumnAndOrder(listParams ListParams) (SortColumn, SortOrder) {
-	// default is name in ascending order
-	column := SortByName
-	if listParams.SortColumn != nil {
-		column = *listParams.SortColumn
-	}
+func getSortColumns(listParams ListParams) ([]SortColumn, SortOrder, string) {
 	order := SortAsc
 	if listParams.SortOrder != nil {
 		order = *listParams.SortOrder
 	}
-	return column, order
+	op := map[SortOrder]string{SortAsc: ">=", SortDesc: "<="}[order]
+
+	columns := listParams.SortColumns
+	if len(columns) == 0 {
+		columns = []SortColumn{SortByName}
+	}
+
+	return columns, order, op
 }
 
 func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
@@ -142,9 +145,13 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 	if err != nil {
 		return nil, err
 	}
-	column, order := getColumnAndOrder(listParams)
 
-	return query.Order(fmt.Sprintf("%s %s", column, order)), nil
+	columns, order, _ := getSortColumns(listParams)
+	orderExprs := lo.Map(columns, func(col SortColumn, _ int) string {
+		return fmt.Sprintf("%s %s", col, order)
+	})
+
+	return query.Order(strings.Join(orderExprs, ", ")), nil
 }
 
 func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string {
@@ -168,18 +175,45 @@ func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue, listParams 
 		return query
 	}
 
-	column, order := getColumnAndOrder(listParams)
+	columns, _, op := getSortColumns(listParams)
+	if len(columns) == 1 {
+		return query.Where(
+			fmt.Sprintf("%s %s ?", columns[0], op),
+			cont.Names[0],
+		)
+	}
 
-	query = query.Where(fmt.Sprintf("%s %s ?", column, map[SortOrder]string{SortAsc: ">=", SortDesc: "<="}[order]), cont.Name)
-	return query
+	// Multi-column tuple comparison
+	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(col SortColumn, _ int) string {
+		return string(col)
+	}), ", "))
+
+	placeholderExpr := strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ")
+	return query.Where(
+		fmt.Sprintf("%s %s (%s)", columnExpr, op, placeholderExpr),
+		lo.ToAnySlice(cont.Names)...,
+	)
 }
 
-func CountRemainingItems(query *gorm.DB, lastItemName string, listParams ListParams) int64 {
+func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListParams) int64 {
 	var count int64
 
-	column, order := getColumnAndOrder(listParams)
+	columns, _, op := getSortColumns(listParams)
+	if len(columns) != len(nextValues) {
+		return 0
+	}
 
-	query.Where(fmt.Sprintf("%s %s ?", column, map[SortOrder]string{SortAsc: ">=", SortDesc: "<="}[order]), lastItemName).Count(&count)
+	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(c SortColumn, _ int) string {
+		return string(c)
+	}), ", "))
+
+	placeholderExpr := strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ")
+	query = query.Where(
+		fmt.Sprintf("%s %s (%s)", columnExpr, op, placeholderExpr),
+		lo.ToAnySlice(nextValues)...,
+	)
+
+	query.Count(&count)
 	return count
 }
 

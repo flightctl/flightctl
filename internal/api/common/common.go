@@ -8,13 +8,18 @@ import (
 
 // ComposeSpec represents a Docker Compose specification.
 type ComposeSpec struct {
-	Services map[string]ComposeService `json:"services"`
+	Services map[string]ComposeService `json:"services,omitempty"`
+	Volumes  map[string]ComposeVolume  `json:"volumes,omitempty"`
 }
 
 // ComposeService represents a service in a Docker Compose specification.
 type ComposeService struct {
-	Image         string `json:"image"`
-	ContainerName string `json:"container_name"`
+	Image         string   `json:"image"`
+	ContainerName string   `json:"container_name,omitempty"`
+	Volumes       []string `json:"volumes,omitempty"`
+}
+type ComposeVolume struct {
+	External bool `json:"external,omitempty"`
 }
 
 // ParseComposeSpec parses YAML data into a ComposeSpec

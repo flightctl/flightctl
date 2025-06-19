@@ -2,8 +2,6 @@ package store_test
 
 import (
 	"context"
-	"fmt"
-	"log"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -21,26 +19,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
-
-func createResourceSyncs(ctx context.Context, numResourceSyncs int, storeInst store.Store, orgId uuid.UUID) {
-	for i := 1; i <= numResourceSyncs; i++ {
-		resource := api.ResourceSync{
-			Metadata: api.ObjectMeta{
-				Name:   lo.ToPtr(fmt.Sprintf("myresourcesync-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
-			},
-			Spec: api.ResourceSyncSpec{
-				Repository: "myrepo",
-				Path:       "my/path",
-			},
-		}
-
-		_, err := storeInst.ResourceSync().Create(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("creating resourcesync: %v", err)
-		}
-	}
-}
 
 var _ = Describe("ResourceSyncStore create", func() {
 	var (
@@ -60,7 +38,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		numResourceSyncs = 3
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
-		createResourceSyncs(ctx, 3, storeInst, orgId)
+		testutil.CreateTestResourceSyncs(ctx, 3, storeInst, orgId)
 	})
 
 	AfterEach(func() {

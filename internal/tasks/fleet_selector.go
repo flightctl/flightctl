@@ -444,7 +444,8 @@ func (f FleetSelectorMatchingLogic) handleDeviceWithPotentialOverlap(ctx context
 			if err != nil {
 				return nil, err
 			}
-
+		}
+		if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
 			condition := api.Condition{
 				Type:   api.DeviceMultipleOwners,
 				Status: api.ConditionStatusFalse,

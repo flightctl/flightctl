@@ -53,6 +53,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 			EnvVars:       lo.FromPtr(spec.EnvVars),
 			Embedded:      embedded,
 			ImageProvider: &provider,
+			Volumes:       provider.Volumes,
 		},
 	}, nil
 }
@@ -63,7 +64,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 	}
 
 	image := p.spec.ImageProvider.Image
-	if err := ensureImageExists(ctx, p.log, p.podman, image); err != nil {
+	if err := ensureImageExists(ctx, p.log, p.podman, image, v1alpha1.PullIfNotPresent); err != nil {
 		return fmt.Errorf("pulling image: %w", err)
 	}
 
@@ -76,8 +77,12 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		p.spec.AppType = appType
 	}
 
-	if err := ensureDependenciesFromType(p.spec.AppType); err != nil {
+	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
 		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+	}
+
+	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.ImageProvider.Volumes); err != nil {
+		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
 	}
 
 	// create a temporary directory to copy the image contents
@@ -111,6 +116,9 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
+		if err := ensureVolumesContent(ctx, p.log, p.podman, p.spec.ImageProvider.Volumes); err != nil {
+			return fmt.Errorf("ensuring volumes: %w", err)
+		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
@@ -129,6 +137,15 @@ func (p *imageProvider) Install(ctx context.Context) error {
 
 	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
 		return fmt.Errorf("writing env file: %w", err)
+	}
+
+	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", p.spec.ID)}
+	if err := ensurePodmanVolumes(ctx, p.log, p.spec.Name, p.readWriter, p.podman, p.spec.ImageProvider.Volumes, labels); err != nil {
+		return fmt.Errorf("creating volumes: %w", err)
+	}
+
+	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Name, p.spec.Volumes, p.readWriter, client.ComposeOverrideFilename); err != nil {
+		return fmt.Errorf("writing override file %w", err)
 	}
 
 	return nil

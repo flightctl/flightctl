@@ -148,6 +148,7 @@ UUID
 cron
 IANA
 crontab
+datasets
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp

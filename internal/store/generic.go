@@ -374,6 +374,7 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 	if hasSpecColumn[M]() {
 		query = query.Where("spec IS NOT NULL")
 	}
+
 	result := query.Find(&resourceList)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
@@ -383,10 +384,22 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 	if listParams.Limit > 0 && len(resourceList) > listParams.Limit {
 		lastIndex := len(resourceList) - 1
 		lastItem := resourceList[lastIndex]
-		nextContinueName := P(&lastItem).GetName()
-		if listParams.SortColumn != nil && *listParams.SortColumn == SortByCreatedAt {
-			nextContinueName = P(&lastItem).GetTimestamp().Format(time.RFC3339Nano)
+		columns, _, _ := getSortColumns(listParams)
+
+		// Build values for continue token
+		continueValues := make([]string, len(columns))
+		for i, col := range columns {
+			switch col {
+			case SortByName:
+				continueValues[i] = P(&lastItem).GetName()
+			case SortByCreatedAt:
+				continueValues[i] = P(&lastItem).GetTimestamp().Format(time.RFC3339Nano)
+			default:
+				// Handle unsupported columns
+				continueValues[i] = ""
+			}
 		}
+
 		resourceList = resourceList[:lastIndex]
 
 		var numRemainingVal int64
@@ -400,9 +413,10 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 			if err != nil {
 				return nil, err
 			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueName, listParams)
+			numRemainingVal = CountRemainingItems(countQuery, continueValues, listParams)
 		}
-		nextContinue = BuildContinueString(nextContinueName, numRemainingVal)
+
+		nextContinue = BuildContinueString(continueValues, numRemainingVal)
 		numRemaining = &numRemainingVal
 	}
 

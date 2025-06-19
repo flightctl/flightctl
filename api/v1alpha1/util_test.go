@@ -127,3 +127,74 @@ func TestExecuteGoTemplateOnDevice(t *testing.T) {
 		})
 	}
 }
+
+func TestDeviceSpecsAreEqual(t *testing.T) {
+	tests := []struct {
+		name   string
+		spec1  DeviceSpec
+		spec2  DeviceSpec
+		expect bool
+	}{
+		{
+			name:   "empty specs",
+			spec1:  DeviceSpec{},
+			spec2:  DeviceSpec{},
+			expect: true,
+		},
+		// TODO a lot more cases should be added here
+		{
+			name: "differing update policies",
+			spec1: DeviceSpec{
+				UpdatePolicy: &DeviceUpdatePolicySpec{
+					DownloadSchedule: &UpdateSchedule{
+						At:                 "*/10 * * * *",
+						StartGraceDuration: nil,
+						TimeZone:           nil,
+					},
+					UpdateSchedule: nil,
+				},
+			},
+			spec2: DeviceSpec{
+				UpdatePolicy: &DeviceUpdatePolicySpec{
+					DownloadSchedule: &UpdateSchedule{
+						At:                 "*/1 * * * *",
+						StartGraceDuration: nil,
+						TimeZone:           nil,
+					},
+					UpdateSchedule: nil,
+				},
+			},
+			expect: false,
+		},
+		{
+			name: "same update policies",
+			spec1: DeviceSpec{
+				UpdatePolicy: &DeviceUpdatePolicySpec{
+					DownloadSchedule: &UpdateSchedule{
+						At:                 "*/10 * * * *",
+						StartGraceDuration: nil,
+						TimeZone:           nil,
+					},
+					UpdateSchedule: nil,
+				},
+			},
+			spec2: DeviceSpec{
+				UpdatePolicy: &DeviceUpdatePolicySpec{
+					DownloadSchedule: &UpdateSchedule{
+						At:                 "*/10 * * * *",
+						StartGraceDuration: nil,
+						TimeZone:           nil,
+					},
+					UpdateSchedule: nil,
+				},
+			},
+			expect: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := require.New(t)
+			req.Equal(tt.expect, DeviceSpecsAreEqual(tt.spec1, tt.spec2))
+		})
+	}
+}
