@@ -140,32 +140,13 @@ func (p *imageProvider) Install(ctx context.Context) error {
 	}
 
 	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", p.spec.ID)}
-	if err := ensurePodmanVolumes(ctx, p.log, p.readWriter, p.podman, p.spec.ImageProvider.Volumes, labels); err != nil {
+	if err := ensurePodmanVolumes(ctx, p.log, p.spec.Name, p.readWriter, p.podman, p.spec.ImageProvider.Volumes, labels); err != nil {
 		return fmt.Errorf("creating volumes: %w", err)
 	}
 
-	spec, err := client.ParseComposeSpecFromDir(p.readWriter, p.spec.Path)
-	if err != nil {
-		p.log.WithError(err).Errorf("Failed to parse Compose spec from path: %q", p.spec.Path)
-		return err
+	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Name, p.spec.Volumes, p.readWriter, client.ComposeOverrideFilename); err != nil {
+		return fmt.Errorf("writing override file %w", err)
 	}
-
-	p.log.Debugf("Successfully parsed Compose spec from %q with %d services and %d volumes",
-		p.spec.Path, len(spec.Services), len(spec.Volumes))
-
-	patched, renamed := patchRenamedVolumesInComposeSpec(p.log, spec, p.spec.Volumes)
-
-	if len(renamed) == 0 {
-		p.log.Debug("No volume names matched for renaming; skipping override file generation.")
-	} else {
-		p.log.Debugf("Volumes renamed: %v", renamed)
-	}
-
-	if err := writeComposeOverrideDiff(p.log, p.spec.Path, spec, patched, renamed, p.readWriter, client.ComposeOverrideFilename); err != nil {
-		p.log.WithError(err).Errorf("Failed to write Compose override file to %q", client.ComposeOverrideFilename)
-		return err
-	}
-	p.log.Debugf("Compose override diff written (if any changes) to %q", client.ComposeOverrideFilename)
 
 	return nil
 }

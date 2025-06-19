@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -54,9 +55,7 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 		return err
 	}
 
-	// convert names into unique compose ids which are tied directly to the volumes
-	formattedVolumes := convertVolumeNames(action.Volumes)
-	if err := c.podman.RemoveVolumes(ctx, formattedVolumes...); err != nil {
+	if err := c.podman.RemoveVolumes(ctx, action.Volumes...); err != nil {
 		return err
 	}
 
@@ -144,4 +143,20 @@ func NewComposeID(input string) string {
 	builder.WriteString(string(suffix[:suffixLength]))
 
 	return builder.String()
+}
+
+// ComposeVolumeName generates a unique Compose-compatible volume name
+// based on the application and volume names.
+func ComposeVolumeName(appName, volumeName string) string {
+	return NewComposeID(appName + "-" + volumeName)
+}
+
+// ComposeVolumeNames returns the list of unique Compose-compatible volume names
+// for the given application name and list of volumes.
+func ComposeVolumeNames(appName string, volumes []v1alpha1.ApplicationVolume) []string {
+	names := make([]string, len(volumes))
+	for i, vol := range volumes {
+		names[i] = ComposeVolumeName(appName, vol.Name)
+	}
+	return names
 }
