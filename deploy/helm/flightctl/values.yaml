@@ -105,6 +105,12 @@ kv:
   save: 300 1
   loglevel: warning
   fsGroup: ""
+alertmanager:
+  enabled: true
+  image:
+    image: quay.io/prometheus/alertmanager
+    tag: "v0.28.1"
+    pullPolicy: ""
 keycloak:
   db:
     fsGroup: ""
@@ -132,6 +138,12 @@ periodic:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-periodic
+    tag: ""
+    pullPolicy: ""
+alertExporter:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alert-exporter
     tag: ""
     pullPolicy: ""
 prometheus:

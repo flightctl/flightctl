@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -45,7 +44,6 @@ var _ = Describe("ConvertFileSystemToIgnition", func() {
 
 			ignitionConfig, err := ConvertFileSystemToIgnition(mfs, path, "/etc/")
 			Expect(err).ToNot(HaveOccurred())
-			fmt.Println(ignitionConfig)
 			Expect(ignitionConfig.Storage.Files).To(HaveLen(1))
 			Expect(ignitionConfig.Storage.Files[0].Path).To(Equal("/etc/testfile"))
 		})
@@ -59,7 +57,6 @@ var _ = Describe("ConvertFileSystemToIgnition", func() {
 
 			ignitionConfig, err := ConvertFileSystemToIgnition(mfs, "/testfile", "/")
 			Expect(err).ToNot(HaveOccurred())
-			fmt.Println(ignitionConfig)
 			Expect(ignitionConfig.Storage.Files).To(HaveLen(1))
 			Expect(ignitionConfig.Storage.Files[0].Path).To(Equal("/testfile"))
 		})

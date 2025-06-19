@@ -47,7 +47,11 @@ run-integration-test:
 
 integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
-integration-test: deploy-db deploy-kv run-integration-test kill-kv kill-db
+integration-test:
+	@set -e; \
+	$(MAKE) deploy-db deploy-kv deploy-alertmanager; \
+	trap '$(MAKE) -k kill-alertmanager kill-kv kill-db' EXIT; \
+	$(MAKE) run-integration-test
 
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem

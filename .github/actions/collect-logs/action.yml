@@ -30,7 +30,7 @@ runs:
 
         log_files_collected=false
 
-        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker; do
+        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter; do
           echo "Collecting logs for $deployment..."
           namespace=""
           if [[ "$deployment" == "flightctl-api" ]]; then
