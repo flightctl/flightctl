@@ -3386,10 +3386,6 @@ components:
             path:
               type: string
               description: The path to the config in the Repository.
-            mountPath:
-              type: string
-              description: Path in the device's file system at which the repository's path should be mounted.
-              default: "/"
           required:
             - repository
             - targetRevision
