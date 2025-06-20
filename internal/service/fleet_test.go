@@ -14,7 +14,7 @@ func verifyFleetPatchFailed(require *require.Assertions, status api.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.Fleet, api.Fleet, api.Status) {
+func testFleetPatch(require *require.Assertions, patch api.PatchRequest, expectEvents bool) (*api.Fleet, api.Fleet, api.Status) {
 	fleet := api.Fleet{
 		ApiVersion: "v1",
 		Kind:       "Fleet",
@@ -46,16 +46,24 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.F
 			},
 		},
 	}
+
 	serviceHandler := &ServiceHandler{
 		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil)
+	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil)
 	require.NoError(err)
 	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
-	return resp, fleet, status
+	event, err := serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
+	require.NoError(err)
+	if expectEvents {
+		require.NotEmpty(event.Items)
+	} else {
+		require.Empty(event.Items)
+	}
+	return resp, *orig, status
 }
 func TestFleetPatchName(t *testing.T) {
 	require := require.New(t)
@@ -63,12 +71,12 @@ func TestFleetPatchName(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
-	_, _, status := testFleetPatch(require, pr)
+	_, _, status := testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
-	_, _, status = testFleetPatch(require, pr)
+	_, _, status = testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 }
 
@@ -78,13 +86,13 @@ func TestFleetPatchKind(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
-	_, _, status := testFleetPatch(require, pr)
+	_, _, status := testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
-	_, _, status = testFleetPatch(require, pr)
+	_, _, status = testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 }
 
@@ -94,13 +102,13 @@ func TestFleetPatchAPIVersion(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
-	_, _, status := testFleetPatch(require, pr)
+	_, _, status := testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
-	_, _, status = testFleetPatch(require, pr)
+	_, _, status = testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 }
 
@@ -117,14 +125,14 @@ func TestFleetPatchSpec(t *testing.T) {
 	pr = api.PatchRequest{
 		{Op: "replace", Path: "/spec/selector/matchLabels/devKey", Value: &value},
 	}
-	_, _, status = testFleetPatch(require, pr)
+	_, _, status = testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 
 	value = "newimg"
 	pr = api.PatchRequest{
 		{Op: "replace", Path: "/spec/template/spec/os/image", Value: &value},
 	}
-	resp, orig, status := testFleetPatch(require, pr)
+	resp, orig, status := testFleetPatch(require, pr, true)
 	orig.Spec.Template.Spec.Os.Image = "newimg"
 	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
@@ -132,7 +140,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/spec/template/spec/os"},
 	}
-	resp, orig, status = testFleetPatch(require, pr)
+	resp, orig, status = testFleetPatch(require, pr, true)
 	orig.Spec.Template.Spec.Os = nil
 	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
@@ -141,7 +149,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	pr = api.PatchRequest{
 		{Op: "replace", Path: "/spec/template/spec/os", Value: &value},
 	}
-	_, _, status = testFleetPatch(require, pr)
+	_, _, status = testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 }
 
@@ -150,7 +158,7 @@ func TestFleetPatchStatus(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "remove", Path: "/status/conditions/0"},
 	}
-	_, _, status := testFleetPatch(require, pr)
+	_, _, status := testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 }
 
@@ -160,13 +168,13 @@ func TestFleetPatchNonExistingPath(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/spec/doesnotexist", Value: &value},
 	}
-	_, _, status := testFleetPatch(require, pr)
+	_, _, status := testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/spec/doesnotexist"},
 	}
-	_, _, status = testFleetPatch(require, pr)
+	_, _, status = testFleetPatch(require, pr, false)
 	verifyFleetPatchFailed(require, status)
 }
 
@@ -178,7 +186,7 @@ func TestFleetPatchLabels(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
-	resp, orig, status := testFleetPatch(require, pr)
+	resp, orig, status := testFleetPatch(require, pr, true)
 	orig.Metadata.Labels = &addLabels
 	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
@@ -187,7 +195,7 @@ func TestFleetPatchLabels(t *testing.T) {
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
-	resp, orig, status = testFleetPatch(require, pr)
+	resp, orig, status = testFleetPatch(require, pr, true)
 	orig.Metadata.Labels = &map[string]string{}
 	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
@@ -211,4 +219,7 @@ func TestFleetNonExistingResource(t *testing.T) {
 	require.NoError(err)
 	_, status := serviceHandler.PatchFleet(ctx, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
+	event, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	require.NoError(err)
+	require.Empty(event.Items)
 }

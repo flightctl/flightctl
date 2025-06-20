@@ -25,7 +25,7 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.Resource
 
 	result, err := h.store.ResourceSync().Create(ctx, orgId, &rs)
 	status := StoreErrorToApiStatus(err, true, api.ResourceSyncKind, rs.Metadata.Name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.ResourceSyncKind, *rs.Metadata.Name, status, nil))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.ResourceSyncKind, *rs.Metadata.Name, status, nil, h.log))
 	return result, status
 }
 
@@ -74,7 +74,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, name string, r
 
 	result, created, updateDesc, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs)
 	status := StoreErrorToApiStatus(err, created, api.ResourceSyncKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.ResourceSyncKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.ResourceSyncKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
@@ -90,7 +90,7 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, name string) ap
 	err := h.store.ResourceSync().Delete(ctx, orgId, name, callback)
 	status := StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 	if deleted || err != nil {
-		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.ResourceSyncKind, name, status))
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.ResourceSyncKind, name, status, h.log))
 	}
 	return status
 }
@@ -130,7 +130,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, name string, pat
 	newObj.Metadata.ResourceVersion = nil
 	result, updateDesc, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
 	status := StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.ResourceSyncKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.ResourceSyncKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
