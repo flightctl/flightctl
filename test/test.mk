@@ -21,6 +21,7 @@ endif
 
 GO_TEST_FLAGS := 			 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
 GO_TEST_INTEGRATION_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_integration_test.xml $(GOTEST_PUBLISH_FLAGS)
+KUBECONFIG_PATH = '/home/kni/clusterconfigs/auth/kubeconfig'
 
 _integration_test: $(REPORTS)
 	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_E2E_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
@@ -61,7 +62,7 @@ deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
 deploy-e2e-ocp-test-vm:
-	sudo test/scripts/create_vm_libvirt.sh
+	sudo test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
 
 prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
 	./test/scripts/prepare_cli.sh
