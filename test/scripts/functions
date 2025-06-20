@@ -206,14 +206,23 @@ function is_acm_installed() {
 
 # Function to get the ocp nodes network name
 function get_ocp_nodes_network() {
-  local vm_name
-  vm_name=$(sudo virsh list --name | grep 'master-0' | head -n 1)
-  [ -z "$vm_name" ] && return 1
+  ip=$(/usr/local/bin/oc get node -owide --no-headers | tail -n 1 | awk '{print $6}') || return 1
+  if [[ -z "$ip" ]]; then
+    echo "No nodes found" >&2
+    return 1
+  fi
+   ip=${ip%.*}
+  if [[ -z "$ip" ]]; then
+    echo "Invalid IP format" >&2
+    return 1
+  fi
 
-  local network_name
-  network_name=$(sudo virsh domiflist "$vm_name" | awk 'NR > 2 && $3 != "" && $3 != "provisioning-0" {print $3; exit}')
-  [ -z "$network_name" ] && return 1
-
-  echo "$network_name"
+  # get the network name from the ip
+  for net in $(sudo virsh net-list --name); do
+    if [[ "$(sudo virsh net-dumpxml $net |grep $ip)" != "" ]];
+      then echo $net;
+      break;
+    fi;
+  done
 }
 
