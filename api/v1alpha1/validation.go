@@ -990,9 +990,15 @@ func validateTimeZone(timeZone string) []error {
 }
 
 func validateGraceDuration(schedule cron.Schedule, duration string) error {
+	// validating the duration first so that we can potentially report more issues
+	// to the caller if malformed duration is also applied
 	graceDuration, err := time.ParseDuration(duration)
 	if err != nil {
 		return fmt.Errorf("invalid duration: %w", err)
+	}
+
+	if schedule == nil {
+		return fmt.Errorf("invalid schedule: cannot validate grace duration")
 	}
 
 	start := time.Now()
