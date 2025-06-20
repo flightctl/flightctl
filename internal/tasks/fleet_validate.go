@@ -2,6 +2,9 @@ package tasks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +16,21 @@ import (
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
+
+// The fleet_validate task is triggered when a fleet is updated. It validates the
+// fleet's configuration and, if valid, creates a new template version representing
+// the fleet's desired state.
+//
+// To ensure idempotency, the template version name is derived deterministically
+// from the fleet name and a hash of the Template.Spec. This prevents duplicate
+// template versions from being created if the task is retried or processed more
+// than once.
+//
+// If a template version with the computed name already exists, the task assumes
+// it was previously created successfully and exits without error.
+//
+// This design avoids unnecessary object creation, ensures consistency, and allows
+// safe reprocessing of the task without side effects.
 
 func fleetValidate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
 	logic := NewFleetValidateLogic(callbackManager, log, serviceHandler, k8sClient, *resourceRef)
@@ -47,6 +65,11 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		return fmt.Errorf("failed getting fleet %s/%s: %s", t.resourceRef.OrgID, t.resourceRef.Name, status.Message)
 	}
 
+	templateVersionName, err := generateTemplateVersionName(t.resourceRef.Name, fleet.Spec.Template.Spec)
+	if err != nil {
+		return fmt.Errorf("failed generating template version name: %w", err)
+	}
+
 	t.templateConfig = fleet.Spec.Template.Spec.Config
 	referencedRepos, validationErr := t.validateConfig(ctx)
 
@@ -63,7 +86,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 
 	templateVersion := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
-			Name:  util.TimeStampStringPtr(),
+			Name:  &templateVersionName,
 			Owner: util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name),
 		},
 		Spec: api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
@@ -80,7 +103,11 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	immediateRollout := fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil
 	tv, status := t.serviceHandler.CreateTemplateVersion(ctx, templateVersion, immediateRollout)
 	if status.Code != http.StatusCreated {
-		return t.setStatus(ctx, fmt.Errorf("creating templateVersion for valid fleet: %s", status.Message))
+		if status.Code == http.StatusConflict {
+			t.log.Warnf("templateVersion %s already exists", templateVersionName)
+			return nil
+		}
+		return t.setStatus(ctx, fmt.Errorf("failed creating templateVersion for valid fleet: %s", status.Message))
 	}
 
 	annotations := map[string]string{
@@ -88,7 +115,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	}
 	status = t.serviceHandler.UpdateFleetAnnotations(ctx, *fleet.Metadata.Name, annotations, nil)
 	if status.Code != http.StatusOK {
-		return t.setStatus(ctx, fmt.Errorf("setting fleet annotation with newly-created templateVersion: %s", status.Message))
+		return t.setStatus(ctx, fmt.Errorf("failed setting fleet annotation with newly-created templateVersion: %s", status.Message))
 	}
 
 	return t.setStatus(ctx, nil)
@@ -230,4 +257,17 @@ func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, con
 	}
 
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
+}
+
+// generateTemplateVersionName creates a deterministic name from the fleet name and Template.Spec hash.
+func generateTemplateVersionName(fleetName string, spec api.DeviceSpec) (string, error) {
+	specBytes, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal template spec for hashing: %w", err)
+	}
+
+	hash := sha256.Sum256(specBytes)
+	shortHash := hex.EncodeToString(hash[:])[:8]
+
+	return fmt.Sprintf("%s-%s", fleetName, shortHash), nil
 }
