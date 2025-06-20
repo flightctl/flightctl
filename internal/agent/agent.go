@@ -247,6 +247,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		lifecycleManager,
 		&a.config.ManagementService.Config,
 		systemInfoManager,
+		podmanClient,
 		a.log,
 	)
 

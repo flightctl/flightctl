@@ -547,6 +547,79 @@ spec:
 > [!NOTE]
 > Inline compose applications can have at most two paths. The first should be named `podman-compose.yaml`, and the second (override) must be named `podman-compose.override.yaml`.
 
+### Adding Application Volumes
+
+> [!NOTE]
+> This feature requires the Flight Control Agent to run with **Podman version 5.5 or higher**.
+
+Applications can declare persistent data volumes that are populated from OCI artifacts. This allows delivering large datasets (such as ML models or static assets) as part of the application deployment.
+
+Volumes are declared under each application in the `volumes` field. These volumes are mounted into the application containers via the Compose `volumes` section.
+
+#### Specifying Volumes
+
+Each volume definition includes:
+
+| Field | Description |
+| ----- | ----------- |
+| `name` | Logical volume name. Must match the volume name referenced in the Compose file. |
+| `image.reference` | Fully qualified OCI artifact reference containing the volume contents. |
+| `image.pullPolicy` | (Optional) Defines pull behavior: `Always`, `IfNotPresent`, or `Never`. Defaults to `IfNotPresent` if not specified. |
+
+> [!IMPORTANT]
+> In the Compose file, volumes must be declared as `external: true` to allow the agent to handle preparation and mounting.
+
+#### Example Inline Application with Volume
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: Device
+metadata:
+  name: some_device_name
+[...]
+spec:
+  applications:
+    - name: my-inline
+      appType: compose
+      inline:
+        - path: docker-compose.yaml
+          content: |
+            version: "3.8"
+            services:
+              service1:
+                image: quay.io/flightctl-tests/alpine:v1
+                command: ["sleep", "infinity"]
+                volumes:
+                  - my-data:/data
+            volumes:
+              my-data:
+                external: true
+      volumes:
+        - name: my-data
+          image:
+            reference: quay.io/flightctl-tests/models/gpt2
+            pullPolicy: IfNotPresent
+```
+
+#### OCI Artifact Requirements
+
+Volume images must follow the OCI artifact specification:
+
+* Published as OCI images (media type: `application/vnd.oci.image.manifest.v1+json`).
+* Contain one or more tar layers representing the volume contents.
+* Hosted on any OCI-compatible registry accessible by the device.
+
+> [!TIP]
+> Typically, volume artifacts contain a single tar layer with the full extracted content.
+
+#### Device Requirements
+
+The following are required on the device to support application volumes:
+
+* Podman **5.5 or newer** installed.
+* `podman-compose` installed.
+* OCI registry authentication (if needed) must be configured prior to deployment.
+
 ## Using Device Lifecycle Hooks
 
 You can use device lifecycle hooks to make the agent run user-defined commands at specific points in the device's lifecycle. For example, you can add a shell script to your OS images that backs up your application data and then specify that this script shall be run and complete successfully before the agent can start updating the system.

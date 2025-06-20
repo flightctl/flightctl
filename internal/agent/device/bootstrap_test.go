@@ -16,9 +16,11 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestInitialization(t *testing.T) {
@@ -38,6 +40,7 @@ func TestInitialization(t *testing.T) {
 			mockEnrollmentClient *client.MockEnrollment,
 			mockSystemInfoManager *systeminfo.MockManager,
 			mockLifecycleInitializer *lifecycle.MockInitializer,
+			mockExecutor *executer.MockExecuter,
 		)
 		expectedError error
 	}{
@@ -52,8 +55,10 @@ func TestInitialization(t *testing.T) {
 				_ *client.MockEnrollment,
 				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
+				mockExecutor *executer.MockExecuter,
 			) {
 				gomock.InOrder(
+					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
 					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
@@ -82,9 +87,11 @@ func TestInitialization(t *testing.T) {
 				_ *client.MockEnrollment,
 				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
+				mockExecutor *executer.MockExecuter,
 			) {
 				bootedOSVersion := "2.0.0"
 				gomock.InOrder(
+					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
 					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
@@ -114,9 +121,10 @@ func TestInitialization(t *testing.T) {
 				mockEnrollmentClient *client.MockEnrollment,
 				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
-
+				mockExecutor *executer.MockExecuter,
 			) {
 				gomock.InOrder(
+					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
 					mockLifecycleInitializer.EXPECT().IsInitialized().Return(false),
 					mockSpecManager.EXPECT().Initialize(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
@@ -148,6 +156,10 @@ func TestInitialization(t *testing.T) {
 			mockEnrollmentClient := client.NewMockEnrollment(ctrl)
 			mockSystemInfoManager := systeminfo.NewMockManager(ctrl)
 			mockLifecycleInitializer := lifecycle.NewMockInitializer(ctrl)
+			mockExecutor := executer.NewMockExecuter(ctrl)
+
+			log := log.NewPrefixLogger("test")
+			podmanClient := client.NewPodman(log, mockExecutor, mockReadWriter, wait.Backoff{})
 
 			b := &Bootstrap{
 				statusManager:           mockStatusManager,
@@ -158,7 +170,8 @@ func TestInitialization(t *testing.T) {
 				deviceReadWriter:        mockReadWriter,
 				managementServiceConfig: &baseclient.Config{},
 				systemInfoManager:       mockSystemInfoManager,
-				log:                     log.NewPrefixLogger("test"),
+				podmanClient:            podmanClient,
+				log:                     log,
 			}
 
 			ctx := context.TODO()
@@ -172,6 +185,7 @@ func TestInitialization(t *testing.T) {
 				mockEnrollmentClient,
 				mockSystemInfoManager,
 				mockLifecycleInitializer,
+				mockExecutor,
 			)
 
 			err := b.Initialize(ctx)
