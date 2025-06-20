@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, tv api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
@@ -39,6 +40,10 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string,
 	if status != api.StatusOK() {
 		return nil, status
 	}
+
+	// sort primarily by created_at with desc (newest first)
+	listParams.SortColumns = []store.SortColumn{store.SortByCreatedAt, store.SortByName}
+	listParams.SortOrder = lo.ToPtr(store.SortDesc)
 
 	var fieldSelector *selector.FieldSelector
 	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": fleet}); err != nil {
