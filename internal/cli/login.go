@@ -253,6 +253,12 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("persisting client config: %w", err)
 	}
+
+	defaultConfigPath := client.DefaultFlightctlClientConfigPath()
+	if o.ConfigFilePath != defaultConfigPath {
+		fmt.Printf("Using a non-default configuration file path: %s (Default: %s)\n", o.ConfigFilePath, defaultConfigPath)
+	}
+
 	fmt.Println("Login successful.")
 	return nil
 }
