@@ -12,6 +12,10 @@ FROM quay.io/centos-bootc/centos-bootc:stream9
 
 ARG RPM_COPR=
 ARG RPM_PACKAGE=flightctl-agent
+ARG REGISTRY_ADDRESS
+
+# Fail early when the build argument is missing
+RUN test -n "${REGISTRY_ADDRESS}" || (echo "REGISTRY_ADDRESS build arg is required" >&2 && exit 1)
 
 COPY bin/e2e-certs/pki/CA/ca.pem /etc/pki/ca-trust/source/anchors/
 RUN update-ca-trust
@@ -43,3 +47,9 @@ RUN useradd -ms /bin/bash user && \
 ## Add your flightctl configuration and certificates
 ADD bin/agent/etc/flightctl/config.yaml /etc/flightctl/
 ADD bin/agent/etc/flightctl/certs/* /etc/flightctl/certs/
+
+# Add the registry
+RUN mkdir -p /etc/containers/registries.conf.d/ && \
+    echo "[[registry]]" > /etc/containers/registries.conf.d/custom-registry.conf && \
+    echo "location = \"${REGISTRY_ADDRESS}\"" >> /etc/containers/registries.conf.d/custom-registry.conf && \
+    echo "insecure = true" >> /etc/containers/registries.conf.d/custom-registry.conf
