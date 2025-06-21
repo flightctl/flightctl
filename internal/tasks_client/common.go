@@ -8,12 +8,10 @@ const (
 	FleetRolloutOpUpdate              = "update"
 	FleetSelectorMatchOpUpdate        = "update"
 	FleetSelectorMatchOpUpdateOverlap = "update-overlap"
-	FleetSelectorMatchOpDeleteAll     = "delete-all"
 	TemplateVersionPopulateOpCreated  = "create"
 	FleetValidateOpUpdate             = "update"
 	DeviceRenderOpUpdate              = "update"
 	RepositoryUpdateOpUpdate          = "update"
-	RepositoryUpdateOpDeleteAll       = "delete-all"
 )
 
 type ResourceReference struct {

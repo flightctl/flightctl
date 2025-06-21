@@ -187,16 +187,4 @@ var _ = Describe("RepoUpdate", func() {
 
 		})
 	})
-
-	When("all Repository definitions are deleted", func() {
-		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}
-			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, resourceRef)
-			mockPublisher.EXPECT().Publish(gomock.Any(), newResourceReferenceMatcher(tasks_client.FleetValidateTask, "")).Times(2)
-			mockPublisher.EXPECT().Publish(gomock.Any(), newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "")).Times(2)
-			err := logic.HandleAllRepositoriesDeleted(ctx, log)
-			Expect(err).ToNot(HaveOccurred())
-
-		})
-	})
 })

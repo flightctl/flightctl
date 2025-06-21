@@ -41,42 +41,6 @@ func (m *MockCallbackManager) EXPECT() *MockCallbackManagerMockRecorder {
 	return m.recorder
 }
 
-// AllDevicesDeletedCallback mocks base method.
-func (m *MockCallbackManager) AllDevicesDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "AllDevicesDeletedCallback", ctx, orgId)
-}
-
-// AllDevicesDeletedCallback indicates an expected call of AllDevicesDeletedCallback.
-func (mr *MockCallbackManagerMockRecorder) AllDevicesDeletedCallback(ctx, orgId any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllDevicesDeletedCallback", reflect.TypeOf((*MockCallbackManager)(nil).AllDevicesDeletedCallback), ctx, orgId)
-}
-
-// AllFleetsDeletedCallback mocks base method.
-func (m *MockCallbackManager) AllFleetsDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "AllFleetsDeletedCallback", ctx, orgId)
-}
-
-// AllFleetsDeletedCallback indicates an expected call of AllFleetsDeletedCallback.
-func (mr *MockCallbackManagerMockRecorder) AllFleetsDeletedCallback(ctx, orgId any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllFleetsDeletedCallback", reflect.TypeOf((*MockCallbackManager)(nil).AllFleetsDeletedCallback), ctx, orgId)
-}
-
-// AllRepositoriesDeletedCallback mocks base method.
-func (m *MockCallbackManager) AllRepositoriesDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "AllRepositoriesDeletedCallback", ctx, orgId)
-}
-
-// AllRepositoriesDeletedCallback indicates an expected call of AllRepositoriesDeletedCallback.
-func (mr *MockCallbackManagerMockRecorder) AllRepositoriesDeletedCallback(ctx, orgId any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllRepositoriesDeletedCallback", reflect.TypeOf((*MockCallbackManager)(nil).AllRepositoriesDeletedCallback), ctx, orgId)
-}
-
 // DeviceSourceUpdated mocks base method.
 func (m *MockCallbackManager) DeviceSourceUpdated(ctx context.Context, orgId uuid.UUID, name string) {
 	m.ctrl.T.Helper()
