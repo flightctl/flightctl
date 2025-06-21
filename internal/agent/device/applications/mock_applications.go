@@ -329,18 +329,18 @@ func (mr *MockApplicationMockRecorder) Status() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockApplication)(nil).Status))
 }
 
-// Volumes mocks base method.
-func (m *MockApplication) Volumes() []v1alpha1.ApplicationVolume {
+// Volume mocks base method.
+func (m *MockApplication) Volume() provider.VolumeManager {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Volumes")
-	ret0, _ := ret[0].([]v1alpha1.ApplicationVolume)
+	ret := m.ctrl.Call(m, "Volume")
+	ret0, _ := ret[0].(provider.VolumeManager)
 	return ret0
 }
 
-// Volumes indicates an expected call of Volumes.
-func (mr *MockApplicationMockRecorder) Volumes() *gomock.Call {
+// Volume indicates an expected call of Volume.
+func (mr *MockApplicationMockRecorder) Volume() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Volumes", reflect.TypeOf((*MockApplication)(nil).Volumes))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Volume", reflect.TypeOf((*MockApplication)(nil).Volume))
 }
 
 // Workload mocks base method.

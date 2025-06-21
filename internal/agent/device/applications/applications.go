@@ -8,7 +8,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/samber/lo"
 )
 
 const (
@@ -79,9 +78,8 @@ type Application interface {
 	RemoveWorkload(name string) bool
 	// IsEmbedded returns true if the application is embedded.
 	IsEmbedded() bool
-	// Volumes provides a list of the names of the volumes
-	// which are directly related to this application.
-	Volumes() []v1alpha1.ApplicationVolume
+	// Volume is a volume manager.
+	Volume() provider.VolumeManager
 	// Status reports the status of an application using the name as defined by
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
@@ -102,9 +100,9 @@ type application struct {
 	appType   v1alpha1.AppType
 	path      string
 	workloads []Workload
+	volume    provider.VolumeManager
 	status    *v1alpha1.DeviceApplicationStatus
 	embedded  bool
-	volumes   []v1alpha1.ApplicationVolume
 }
 
 // NewApplication creates a new application from an application provider.
@@ -119,7 +117,7 @@ func NewApplication(provider provider.Provider) *application {
 			Name:   spec.Name,
 			Status: v1alpha1.ApplicationStatusUnknown,
 		},
-		volumes: lo.FromPtr(spec.Volumes),
+		volume: spec.Volume,
 	}
 }
 
@@ -166,8 +164,8 @@ func (a *application) IsEmbedded() bool {
 	return a.embedded
 }
 
-func (a *application) Volumes() []v1alpha1.ApplicationVolume {
-	return a.volumes
+func (a *application) Volume() provider.VolumeManager {
+	return a.volume
 }
 
 func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
@@ -232,16 +230,8 @@ func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.Devi
 		a.status.Restarts = restarts
 	}
 
-	// TODO: report live volume status
-	if len(a.volumes) > 0 {
-		volumes := []v1alpha1.ApplicationVolumeStatus{}
-		for _, vol := range a.volumes {
-			volumes = append(volumes, v1alpha1.ApplicationVolumeStatus{Name: vol.Name})
-		}
-		a.status.Volumes = &volumes
-	} else {
-		a.status.Volumes = nil
-	}
+	// update volume status
+	a.volume.Status(a.status)
 
 	return a.status, summary, nil
 }

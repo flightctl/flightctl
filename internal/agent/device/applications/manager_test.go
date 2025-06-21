@@ -8,7 +8,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -69,7 +68,7 @@ func TestManager(t *testing.T) {
 			}),
 			desired: &v1alpha1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
-				id := lifecycle.NewComposeID("app-remove")
+				id := client.NewComposeID("app-remove")
 				gomock.InOrder(
 					// start current app
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
@@ -96,7 +95,7 @@ func TestManager(t *testing.T) {
 				{Content: compose2, Path: "podman-compose.yaml"},
 			}),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
-				id := lifecycle.NewComposeID("app-update")
+				id := client.NewComposeID("app-update")
 				gomock.InOrder(
 					// verify current app
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
@@ -171,7 +170,7 @@ func TestManager(t *testing.T) {
 			require.NoError(err)
 
 			for _, appName := range tc.wantAppNames {
-				id := lifecycle.NewComposeID(appName)
+				id := client.NewComposeID(appName)
 				log.Debugf("Checking for app: %v", manager.podmanMonitor.apps)
 				_, ok := manager.podmanMonitor.apps[id]
 				require.True(ok)
@@ -205,7 +204,7 @@ func mockExecPodmanEvents(mockExec *executer.MockExecuter) *gomock.Call {
 
 func mockExecPodmanComposeUp(mockExec *executer.MockExecuter, name string, hasOverride, hasAgentOverride bool) *gomock.Call {
 	workDir := fmt.Sprintf("/etc/compose/manifests/%s", name)
-	id := lifecycle.NewComposeID(name)
+	id := client.NewComposeID(name)
 	args := []string{"compose", "-p", id, "-f", "docker-compose.yaml"}
 	if hasOverride {
 		args = append(args, "-f", "docker-compose.override.yaml")
@@ -226,7 +225,7 @@ func mockExecPodmanNetworkList(mockExec *executer.MockExecuter, name string) *go
 			[]string{
 				"network", "ls",
 				"--format", "{{.Network.ID}}",
-				"--filter", "label=com.docker.compose.project=" + lifecycle.NewComposeID(name),
+				"--filter", "label=com.docker.compose.project=" + client.NewComposeID(name),
 			},
 		).
 		Return("", "", 0)
