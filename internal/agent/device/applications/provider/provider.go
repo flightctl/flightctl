@@ -45,8 +45,8 @@ type ApplicationSpec struct {
 	EnvVars map[string]string
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
-	// Volumes is a list of external volume names associated with this application
-	Volumes *[]v1alpha1.ApplicationVolume
+	// Volume manager.
+	Volume VolumeManager
 	// ImageProvider is the spec for the image provider
 	ImageProvider *v1alpha1.ImageApplicationProviderSpec
 	// InlineProvider is the spec for the inline provider
