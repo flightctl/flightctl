@@ -6,7 +6,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -42,6 +41,11 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 		return nil, fmt.Errorf("getting app path: %w", err)
 	}
 
+	volumeManager, err := NewVolumeManager(log, appName, provider.Volumes)
+	if err != nil {
+		return nil, err
+	}
+
 	return &imageProvider{
 		log:        log,
 		podman:     podman,
@@ -53,7 +57,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 			EnvVars:       lo.FromPtr(spec.EnvVars),
 			Embedded:      embedded,
 			ImageProvider: &provider,
-			Volumes:       provider.Volumes,
+			Volume:        volumeManager,
 		},
 	}, nil
 }
@@ -105,7 +109,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 
 	switch p.spec.AppType {
 	case v1alpha1.AppTypeCompose:
-		p.spec.ID = lifecycle.NewComposeID(p.spec.Name)
+		p.spec.ID = client.NewComposeID(p.spec.Name)
 		path, err := pathFromAppType(p.spec.AppType, p.spec.Name, p.spec.Embedded)
 		if err != nil {
 			return fmt.Errorf("getting app path: %w", err)
@@ -139,12 +143,7 @@ func (p *imageProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
-	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", p.spec.ID)}
-	if err := ensurePodmanVolumes(ctx, p.log, p.spec.Name, p.readWriter, p.podman, p.spec.ImageProvider.Volumes, labels); err != nil {
-		return fmt.Errorf("creating volumes: %w", err)
-	}
-
-	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Name, p.spec.Volumes, p.readWriter, client.ComposeOverrideFilename); err != nil {
+	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
 		return fmt.Errorf("writing override file %w", err)
 	}
 
