@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -46,7 +47,7 @@ func NewPodmanMonitor(
 ) *PodmanMonitor {
 	return &PodmanMonitor{
 		client:   podman,
-		compose:  lifecycle.NewCompose(log, podman),
+		compose:  lifecycle.NewCompose(log, writer, podman),
 		apps:     make(map[string]Application),
 		bootTime: bootTime,
 		log:      log,
@@ -185,7 +186,7 @@ func (m *PodmanMonitor) Ensure(app Application) error {
 		ID:       appID,
 		Path:     app.Path(),
 		Embedded: app.IsEmbedded(),
-		Volumes:  lifecycle.ComposeVolumeNames(appName, app.Volumes()),
+		Volumes:  provider.ToLifecycleVolumes(app.Volume().List()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -212,7 +213,7 @@ func (m *PodmanMonitor) Remove(app Application) error {
 		Type:    lifecycle.ActionRemove,
 		Name:    appName,
 		ID:      appID,
-		Volumes: lifecycle.ComposeVolumeNames(appName, app.Volumes()),
+		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -230,16 +231,15 @@ func (m *PodmanMonitor) Update(app Application) error {
 	}
 
 	m.apps[appID] = app
-	appName := app.Name()
 
 	// currently we don't support updating embedded applications
 	action := lifecycle.Action{
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionUpdate,
-		Name:    appName,
+		Name:    app.Name(),
 		ID:      appID,
 		Path:    app.Path(),
-		Volumes: lifecycle.ComposeVolumeNames(appName, app.Volumes()),
+		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -414,6 +414,16 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 }
 
 func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	if event.Type == "container" {
+		m.updateContainerStatus(ctx, app, event)
+		return
+	}
+	if event.Type == "volume" {
+		app.Volume().UpdateStatus(event)
+	}
+}
+
+func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	inspectData, err := m.inspectContainer(ctx, event.ID)
 	if err != nil {
 		if errors.Is(err, errors.ErrNotFound) {
