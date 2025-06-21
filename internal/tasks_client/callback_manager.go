@@ -38,9 +38,6 @@ type CallbackManager interface {
 	FleetUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Fleet)
 	RepositoryUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Repository)
 	TemplateVersionCreatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.TemplateVersion)
-	AllRepositoriesDeletedCallback(ctx context.Context, orgId uuid.UUID)
-	AllFleetsDeletedCallback(ctx context.Context, orgId uuid.UUID)
-	AllDevicesDeletedCallback(ctx context.Context, orgId uuid.UUID)
 	FleetSourceUpdated(ctx context.Context, orgId uuid.UUID, name string)
 	DeviceSourceUpdated(ctx context.Context, orgId uuid.UUID, name string)
 	FleetRolloutSelectionUpdated(ctx context.Context, orgId uuid.UUID, name string)
@@ -139,18 +136,6 @@ func (t *callbackManager) RepositoryUpdatedCallback(ctx context.Context, orgId u
 		Name:  *repository.Metadata.Name,
 	}
 	t.submitTask(ctx, RepositoryUpdatesTask, resourceRef, RepositoryUpdateOpUpdate)
-}
-
-func (t *callbackManager) AllRepositoriesDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	t.submitTask(ctx, RepositoryUpdatesTask, ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}, RepositoryUpdateOpDeleteAll)
-}
-
-func (t *callbackManager) AllFleetsDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	t.submitTask(ctx, FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.FleetKind}, FleetSelectorMatchOpDeleteAll)
-}
-
-func (t *callbackManager) AllDevicesDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	t.submitTask(ctx, FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.DeviceKind}, FleetSelectorMatchOpDeleteAll)
 }
 
 func (t *callbackManager) DeviceUpdatedNoRenderCallback(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device) {
