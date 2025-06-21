@@ -12,6 +12,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// The repositoryUpdate task is triggered when a repository is updated or deleted.
+// It notifies all fleets and devices that reference the repository so they can
+// re-validate or re-process their configurations.
+//
+// For update events, it looks up all associated fleets and devices and triggers
+// FleetSourceUpdated or DeviceSourceUpdated callbacks.
+//
+// For delete-all events, it iterates over all fleets and devices in the org,
+// checking whether any configuration references a repository. If so, it triggers
+// the appropriate callback.
+//
+// This task is idempotent because it performs only read operations followed by
+// conditional notifications. Re-executing the task results in the same callbacks
+// being sent again, which is safe and intended. No persistent state is modified,
+// and the callbacks themselves are assumed to be idempotent or safely repeatable.
+
 func repositoryUpdate(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	logic := NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, *resourceRef)
 
