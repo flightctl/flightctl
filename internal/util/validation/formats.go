@@ -68,3 +68,9 @@ var GitRevisionRegexp = regexp.MustCompile("^" + GitRevisionFmt + "$")
 func ValidateGitRevision(name *string, path string) []error {
 	return ValidateString(name, path, 1, GitRevisionMaxLength, GitRevisionRegexp, GitRevisionFmt)
 }
+
+const (
+	SystemdNameFmt      string = `^[a-zA-Z0-9:\-_.\\*]*$`
+)
+
+var SystemdNameRegexp = regexp.MustCompile(SystemdNameFmt)
