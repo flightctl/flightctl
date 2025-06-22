@@ -113,10 +113,12 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 					p.log.Error(err)
 					return false, err
 				}
+				p.log.Warnf("A retriable error occurred while pulling image %s: %v. Retrying…", image, err)
 				return false, nil
 			}
 			return true, nil
 		})
+
 		if err != nil {
 			return "", err
 		}
