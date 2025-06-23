@@ -18,7 +18,7 @@ func TestWriteComposeOverride(t *testing.T) {
 	tests := []struct {
 		name     string
 		appName  string
-		volumes  *[]v1alpha1.ApplicationVolume
+		volumes  []string
 		expected string
 		written  bool
 	}{
@@ -31,11 +31,7 @@ func TestWriteComposeOverride(t *testing.T) {
 		{
 			name:    "single volume",
 			appName: "testapp",
-			volumes: &[]v1alpha1.ApplicationVolume{
-				{
-					Name: "vol1",
-				},
-			},
+			volumes: []string{"vol1"},
 			expected: `volumes:
   vol1:
     external: true
@@ -45,10 +41,7 @@ func TestWriteComposeOverride(t *testing.T) {
 		{
 			name:    "multiple volumes",
 			appName: "app1",
-			volumes: &[]v1alpha1.ApplicationVolume{
-				{Name: "data"},
-				{Name: "cache"},
-			},
+			volumes: []string{"data", "cache"},
 			expected: `volumes:
   cache:
     external: true
@@ -61,7 +54,7 @@ func TestWriteComposeOverride(t *testing.T) {
 		{
 			name:    "empty volumes slice",
 			appName: "empty",
-			volumes: &[]v1alpha1.ApplicationVolume{},
+			volumes: []string{},
 			written: false,
 		},
 	}
@@ -72,7 +65,10 @@ func TestWriteComposeOverride(t *testing.T) {
 			writer := fileio.NewReadWriter()
 			writer.SetRootdir(tmpDir)
 
-			err := writeComposeOverride(log, "/etc/compose/manifest", tt.appName, tt.volumes, writer, client.ComposeOverrideFilename)
+			volumeManager, err := NewVolumeManager(log, tt.appName, newTestImageApplicationVolumes(require, tt.volumes))
+			require.NoError(err)
+
+			err = writeComposeOverride(log, "/etc/compose/manifest", volumeManager, writer, client.ComposeOverrideFilename)
 			require.NoError(err)
 
 			path := filepath.Join("/etc/compose/manifest", client.ComposeOverrideFilename)
@@ -87,4 +83,21 @@ func TestWriteComposeOverride(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newTestImageApplicationVolumes(require *require.Assertions, names []string) *[]v1alpha1.ApplicationVolume {
+	spec := v1alpha1.ImageVolumeProviderSpec{
+		Image: v1alpha1.ImageVolumeSource{
+			Reference: "quay.io/test/artifact:latest",
+		},
+	}
+	volumes := []v1alpha1.ApplicationVolume{}
+	for _, volName := range names {
+		vol := v1alpha1.ApplicationVolume{Name: volName}
+		err := vol.FromImageVolumeProviderSpec(spec)
+		require.NoError(err)
+		volumes = append(volumes, vol)
+	}
+
+	return &volumes
 }

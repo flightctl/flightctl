@@ -6,7 +6,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -20,6 +19,10 @@ type embeddedProvider struct {
 }
 
 func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1alpha1.AppType) (Provider, error) {
+	volumeManager, err := NewVolumeManager(log, name, nil)
+	if err != nil {
+		return nil, err
+	}
 	return &embeddedProvider{
 		log:        log,
 		podman:     podman,
@@ -29,6 +32,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 			AppType:  appType,
 			Embedded: true,
 			EnvVars:  make(map[string]string),
+			Volume:   volumeManager,
 		},
 	}, nil
 }
@@ -40,7 +44,7 @@ func (p *embeddedProvider) Verify(ctx context.Context) error {
 	}
 	switch p.spec.AppType {
 	case v1alpha1.AppTypeCompose:
-		p.spec.ID = lifecycle.NewComposeID(p.spec.Name)
+		p.spec.ID = client.NewComposeID(p.spec.Name)
 		p.spec.Path = appPath
 		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, appPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)

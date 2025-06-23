@@ -12,7 +12,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -37,7 +36,7 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app start",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -52,7 +51,7 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app multiple containers started then one manual stop exit code 0",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -70,7 +69,7 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app multiple containers started then one manual stop result sigkill",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -88,7 +87,7 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app start then die",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -103,7 +102,7 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app multiple containers one error one running",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -121,8 +120,8 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "multiple apps preparing to running",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
-				createTestApplication("app2", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app2", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -139,7 +138,7 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app start then removed",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -154,7 +153,7 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app upgrade different service/container counts",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -176,7 +175,7 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app only creates container no start",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
@@ -356,7 +355,7 @@ func TestApplicationAddRemove(t *testing.T) {
 
 			podman := client.NewPodman(log, execMock, readWriter, util.NewBackoff())
 			podmanMonitor := NewPodmanMonitor(log, podman, "", readWriter)
-			testApp := createTestApplication(tc.appName, v1alpha1.ApplicationStatusPreparing)
+			testApp := createTestApplication(require, tc.appName, v1alpha1.ApplicationStatusPreparing)
 
 			switch tc.action {
 			case "add":
@@ -374,8 +373,8 @@ func TestApplicationAddRemove(t *testing.T) {
 	}
 }
 
-func createTestApplication(name string, status v1alpha1.ApplicationStatusType) Application {
-	provider := newMockProvider(name)
+func createTestApplication(require *require.Assertions, name string, status v1alpha1.ApplicationStatusType) Application {
+	provider := newMockProvider(require, name)
 	app := NewApplication(provider)
 	app.status.Status = status
 	return app
@@ -409,7 +408,7 @@ func createMockPodmanEvent(name, service, status string, exitCode int) client.Po
 		Attributes: map[string]string{
 			"PODMAN_SYSTEMD_UNIT":                     "podman-compose@user.service",
 			"com.docker.compose.container-number":     "1",
-			"com.docker.compose.project":              lifecycle.NewComposeID(name),
+			"com.docker.compose.project":              client.NewComposeID(name),
 			"com.docker.compose.project.config_files": "podman-compose.yaml",
 			"com.docker.compose.project.working_dir":  path.Join("/usr/local/lib/compose", name),
 			"com.docker.compose.service":              service,
@@ -437,18 +436,19 @@ func BenchmarkNewComposeID(b *testing.B) {
 		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
 			input := strings.Repeat("a", size)
 			for i := 0; i < b.N; i++ {
-				lifecycle.NewComposeID(input)
+				client.NewComposeID(input)
 			}
 		})
 	}
 }
 
-func newMockProvider(name string) provider.Provider {
-	return &mockProvider{name: name}
+func newMockProvider(require *require.Assertions, name string) provider.Provider {
+	return &mockProvider{name: name, require: require}
 }
 
 type mockProvider struct {
-	name string
+	name    string
+	require *require.Assertions
 }
 
 func (m *mockProvider) Name() string {
@@ -456,9 +456,12 @@ func (m *mockProvider) Name() string {
 }
 
 func (m *mockProvider) Spec() *provider.ApplicationSpec {
+	volManager, err := provider.NewVolumeManager(nil, m.name, nil)
+	m.require.NoError(err)
 	return &provider.ApplicationSpec{
-		ID:   lifecycle.NewComposeID(m.name),
-		Name: m.name,
+		ID:     client.NewComposeID(m.name),
+		Name:   m.name,
+		Volume: volManager,
 	}
 }
 
