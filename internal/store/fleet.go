@@ -290,7 +290,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	// If we got more than the user requested, remove one record and calculate "continue"
 	if listParams.Limit > 0 && len(fleetsWithCount) > listParams.Limit {
 		nextContinueStruct := Continue{
-			Name:    fleetsWithCount[len(fleetsWithCount)-1].Name,
+			Names:   []string{fleetsWithCount[len(fleetsWithCount)-1].Name},
 			Version: CurrentContinueVersion,
 		}
 		fleetsWithCount = fleetsWithCount[:len(fleetsWithCount)-1]
@@ -306,7 +306,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 			if err != nil {
 				return nil, err
 			}
-			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Name, listParams)
+			numRemainingVal = CountRemainingItems(countQuery, nextContinueStruct.Names, listParams)
 		}
 		nextContinueStruct.Count = numRemainingVal
 		contByte, _ := json.Marshal(nextContinueStruct)

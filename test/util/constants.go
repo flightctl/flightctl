@@ -40,6 +40,11 @@ const POLLING = "250ms"
 const LONGTIMEOUT = "10m"
 const DURATION_TIMEOUT = 5 * time.Minute
 
+const E2E_NAMESPACE = "flightctl-e2e"
+const E2E_REGISTRY_NAME = "registry"
+const KIND = "KIND"
+const OCP = "OCP"
+
 // Define a type for messages.
 type Message string
 

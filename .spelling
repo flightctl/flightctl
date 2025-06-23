@@ -150,6 +150,7 @@ IANA
 OpenTelemetry
 OTLP
 crontab
+datasets
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
