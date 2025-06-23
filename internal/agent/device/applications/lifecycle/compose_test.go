@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,7 +37,7 @@ func TestNewComposeID(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := NewComposeID(tc.input)
+			result := client.NewComposeID(tc.input)
 			require.Equal(tc.expected, result)
 		})
 	}

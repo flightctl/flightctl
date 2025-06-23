@@ -7,7 +7,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -27,17 +26,23 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 		return nil, fmt.Errorf("getting provider spec:%w", err)
 	}
 
+	appName := lo.FromPtr(spec.Name)
+	volumeManager, err := NewVolumeManager(log, appName, provider.Volumes)
+	if err != nil {
+		return nil, err
+	}
+
 	p := &inlineProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
 		spec: &ApplicationSpec{
-			Name:           lo.FromPtr(spec.Name),
+			Name:           appName,
 			AppType:        lo.FromPtr(spec.AppType),
 			EnvVars:        lo.FromPtr(spec.EnvVars),
 			Embedded:       false,
 			InlineProvider: &provider,
-			Volumes:        provider.Volumes,
+			Volume:         volumeManager,
 		},
 	}
 
@@ -47,7 +52,7 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 	}
 
 	p.spec.Path = path
-	p.spec.ID = lifecycle.NewComposeID(p.spec.Name)
+	p.spec.ID = client.NewComposeID(p.spec.Name)
 
 	return p, nil
 
@@ -106,12 +111,7 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
-	labels := []string{fmt.Sprintf("com.docker.compose.project=%s", p.spec.ID)}
-	if err := ensurePodmanVolumes(ctx, p.log, p.spec.Name, p.readWriter, p.podman, p.spec.InlineProvider.Volumes, labels); err != nil {
-		return fmt.Errorf("creating volumes: %w", err)
-	}
-
-	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Name, p.spec.Volumes, p.readWriter, client.ComposeOverrideFilename); err != nil {
+	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
 		return fmt.Errorf("writing override file %w", err)
 	}
 

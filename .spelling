@@ -147,6 +147,8 @@ DMI
 UUID
 cron
 IANA
+OpenTelemetry
+OTLP
 crontab
 datasets
  - docs/user/api-resources.md
