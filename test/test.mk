@@ -21,6 +21,7 @@ endif
 
 GO_TEST_FLAGS := 			 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
 GO_TEST_INTEGRATION_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_integration_test.xml $(GOTEST_PUBLISH_FLAGS)
+KUBECONFIG_PATH = '/home/kni/clusterconfigs/auth/kubeconfig'
 
 _integration_test: $(REPORTS)
 	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_E2E_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
@@ -45,16 +46,23 @@ unit-test:
 run-integration-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
-integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
-integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
-integration-test: deploy-db deploy-kv run-integration-test kill-kv kill-db
+prepare-integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
+prepare-integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
+prepare-integration-test: deploy-db deploy-kv
+
+integration-test:
+	@$(MAKE) prepare-integration-test && \
+	$(MAKE) run-integration-test;        \
+	rc=$$?;                              \
+	$(MAKE) -s kill-kv kill-db;          \
+	exit $$rc
 
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
 deploy-e2e-ocp-test-vm:
-	sudo test/scripts/create_vm_libvirt.sh
+	sudo test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
 
 prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
 	./test/scripts/prepare_cli.sh
@@ -95,4 +103,4 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
-.PHONY: unit-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm
+.PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm

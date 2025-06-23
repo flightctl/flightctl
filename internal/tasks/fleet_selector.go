@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
@@ -40,6 +42,7 @@ func fleetSelectorMatching(ctx context.Context, resourceRef *tasks_client.Resour
 		log:             log,
 		serviceHandler:  serviceHandler,
 		resourceRef:     *resourceRef,
+		itemsPerPage:    ItemsPerPage,
 	}
 
 	var err error
@@ -72,7 +75,7 @@ type FleetSelectorMatchingLogic struct {
 	log             logrus.FieldLogger
 	serviceHandler  service.Service
 	resourceRef     tasks_client.ResourceReference
-	itemsPerPage    int
+	itemsPerPage    int32
 }
 
 func NewFleetSelectorMatchingLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, resourceRef tasks_client.ResourceReference) FleetSelectorMatchingLogic {
@@ -85,8 +88,35 @@ func NewFleetSelectorMatchingLogic(callbackManager tasks_client.CallbackManager,
 	}
 }
 
-func (f *FleetSelectorMatchingLogic) SetItemsPerPage(items int) {
+func (f *FleetSelectorMatchingLogic) SetItemsPerPage(items int32) {
 	f.itemsPerPage = items
+}
+
+// resolveNoDeviceOwner determines whether the triggering fleet can become the owner of a device with no current ownership
+// Returns a list of fleets that can claim ownership if more than one exists. If ownership of the device is unique then no fleets are returned
+func (f FleetSelectorMatchingLogic) resolveNoDeviceOwner(ctx context.Context, loadFleets func() ([]api.Fleet, error), device *api.Device) ([]string, error) {
+	allFleets, err := loadFleets()
+	devName := util.DefaultIfNil(device.Metadata.Name, "<none>")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch all fleets to find distinct owner of device %s/%s: %w", f.resourceRef.OrgID, devName, err)
+	}
+	matchingFleets := findMatchingFleets(util.EnsureMap(lo.FromPtr(device.Metadata.Labels)), allFleets)
+	overlappingFleets := matchingFleets
+	// If there's only one matching fleet it's the fleet that triggered the processing of this event
+	if len(matchingFleets) == 1 {
+		if err = f.setDeviceOwnerAccordingToMatchingFleets(ctx, device, "", matchingFleets); err != nil {
+			return nil, fmt.Errorf("failed to set ownership of device %s/%s to %s: %w", f.resourceRef.OrgID, devName, f.resourceRef.Name, err)
+		}
+		// if there's only one matching fleet then there are no overlapping fleets
+		overlappingFleets = nil
+	}
+
+	// ensure the "MultipleOwners" condition is set properly for any device with no owner. Maybe it should be removed, but
+	// it may need to be added/updated
+	if err = f.setDeviceMultipleOwnersCondition(ctx, device, matchingFleets); err != nil {
+		return nil, fmt.Errorf("failed to set multiple owner condition of device %s/%s: %w", f.resourceRef.OrgID, devName, err)
+	}
+	return overlappingFleets, nil
 }
 
 // Iterate devices that match the fleet's selector and set owners/conditions as necessary
@@ -115,12 +145,23 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 	// List the devices that now match the fleet's selector
 	listParams := api.ListDevicesParams{
 		LabelSelector: labelSelectorFromLabelMap(getMatchLabelsSafe(fleet)),
-		Limit:         lo.ToPtr(int32(ItemsPerPage)),
+		Limit:         lo.ToPtr(f.itemsPerPage),
 	}
 	errors := 0
 
 	// overlappingFleets acts as a set of strings
 	overlappingFleets := map[string]struct{}{}
+
+	// lazy load the fleets. Only fetch it once and only if actually needed
+	var loadFleetsOnce sync.Once
+	var allFleets []api.Fleet
+	var allFleetsError error
+	loadFleets := func() ([]api.Fleet, error) {
+		loadFleetsOnce.Do(func() {
+			allFleets, allFleetsError = f.fetchAllFleets(ctx)
+		})
+		return allFleets, allFleetsError
+	}
 
 	for {
 		devices, status := f.serviceHandler.ListDevices(ctx, listParams, nil)
@@ -128,15 +169,17 @@ func (f FleetSelectorMatchingLogic) FleetSelectorUpdatedNoOverlapping(ctx contex
 			return fmt.Errorf("failed to list devices that no longer belong to fleet: %s", status.Message)
 		}
 
-		for devIndex := range devices.Items {
-			device := devices.Items[devIndex]
-
-			// If the device didn't have an owner, just set it to this fleet
-			if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
-				err := f.updateDeviceOwner(ctx, &device, f.resourceRef.Name)
+		for _, device := range devices.Items {
+			// If the device didn't have an owner, ensure that there isn't a reason ownership wasn't already applied
+			if lo.FromPtr(device.Metadata.Owner) == "" {
+				overlapping, err := f.resolveNoDeviceOwner(ctx, loadFleets, &device)
 				if err != nil {
-					f.log.Errorf("failed to set owner of device %s/%s to %s: %v", f.resourceRef.OrgID, *device.Metadata.Name, f.resourceRef.Name, err)
 					errors++
+					f.log.Errorf("failed to resolve ownership of device: %v", err)
+					continue
+				}
+				for _, fleetName := range overlapping {
+					overlappingFleets[fleetName] = struct{}{}
 				}
 				continue
 			}
@@ -248,7 +291,7 @@ func (f FleetSelectorMatchingLogic) removeOwnerFromOrphanedDevices(ctx context.C
 
 	// Remove the owner from devices that don't match the label selector but still have this owner
 	listParams := api.ListDevicesParams{
-		Limit:         lo.ToPtr(int32(ItemsPerPage)),
+		Limit:         lo.ToPtr(f.itemsPerPage),
 		LabelSelector: lo.ToPtr(ls),
 		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *util.SetResourceOwner(api.FleetKind, *fleet.Metadata.Name))),
 	}
@@ -315,19 +358,9 @@ func (f FleetSelectorMatchingLogic) CompareFleetsAndSetDeviceOwner(ctx context.C
 		return nil
 	}
 
-	var fleets []api.Fleet
-	fleetListParams := api.ListFleetsParams{Limit: lo.ToPtr(int32(ItemsPerPage))}
-	for {
-		fleetBatch, status := f.serviceHandler.ListFleets(ctx, fleetListParams)
-		if status.Code != http.StatusOK {
-			return fmt.Errorf("failed fetching fleets: %s", status.Message)
-		}
-
-		fleets = append(fleets, fleetBatch.Items...)
-		if fleetBatch.Metadata.Continue == nil {
-			break
-		}
-		fleetListParams.Continue = fleetBatch.Metadata.Continue
+	fleets, err := f.fetchAllFleets(ctx)
+	if err != nil {
+		return err
 	}
 
 	// Iterate over all fleets and find the (hopefully) one that matches
@@ -355,22 +388,12 @@ func (f FleetSelectorMatchingLogic) HandleOrgwideUpdate(ctx context.Context) err
 	// overlappingFleets acts as a set of strings
 	overlappingFleets := map[string]struct{}{}
 
-	var fleets []api.Fleet
-	fleetListParams := api.ListFleetsParams{Limit: lo.ToPtr(int32(ItemsPerPage))}
-	for {
-		fleetBatch, status := f.serviceHandler.ListFleets(ctx, fleetListParams)
-		if status.Code != http.StatusOK {
-			return fmt.Errorf("failed fetching fleets: %s", status.Message)
-		}
-
-		fleets = append(fleets, fleetBatch.Items...)
-		if fleetBatch.Metadata.Continue == nil {
-			break
-		}
-		fleetListParams.Continue = fleetBatch.Metadata.Continue
+	fleets, err := f.fetchAllFleets(ctx)
+	if err != nil {
+		return err
 	}
 
-	devListParams := api.ListDevicesParams{Limit: lo.ToPtr(int32(ItemsPerPage))}
+	devListParams := api.ListDevicesParams{Limit: lo.ToPtr(f.itemsPerPage)}
 	for {
 		devices, status := f.serviceHandler.ListDevices(ctx, devListParams, nil)
 		if status.Code != http.StatusOK {
@@ -400,8 +423,7 @@ func (f FleetSelectorMatchingLogic) HandleOrgwideUpdate(ctx context.Context) err
 	}
 
 	// Set overlapping conditions to true/false
-	for fleetIndex := range fleets {
-		fleet := fleets[fleetIndex]
+	for _, fleet := range fleets {
 		_, ok := overlappingFleets[*fleet.Metadata.Name]
 		if ok {
 			if api.IsStatusConditionFalse(fleet.Status.Conditions, api.FleetOverlappingSelectors) {
@@ -463,44 +485,42 @@ func (f FleetSelectorMatchingLogic) handleDeviceWithPotentialOverlap(ctx context
 }
 
 func (f FleetSelectorMatchingLogic) findDeviceOwnerAmongAllFleets(ctx context.Context, device *api.Device, currentOwnerFleet string, fleets []api.Fleet) (*[]string, error) {
-	// Find all fleets with a selector that the device matches
-	var matchingFleets []string
-
-	for fleetIndex := range fleets {
-		fleet := &fleets[fleetIndex]
-		if util.LabelsMatchLabelSelector(*device.Metadata.Labels, getMatchLabelsSafe(fleet)) {
-			matchingFleets = append(matchingFleets, *fleet.Metadata.Name)
-		}
-	}
-	newConditionMessage := createOverlappingConditionMessage(matchingFleets)
-	currentConditionMessage := ""
-	condition := api.FindStatusCondition(device.Status.Conditions, api.DeviceMultipleOwners)
-	if condition != nil {
-		currentConditionMessage = condition.Message
-	}
+	matchingFleets := findMatchingFleets(*device.Metadata.Labels, fleets)
 
 	err := f.setDeviceOwnerAccordingToMatchingFleets(ctx, device, currentOwnerFleet, matchingFleets)
 	if err != nil {
 		return nil, err
 	}
 
+	if err = f.setDeviceMultipleOwnersCondition(ctx, device, matchingFleets); err != nil {
+		return nil, err
+	}
+
+	return &matchingFleets, nil
+}
+
+func (f FleetSelectorMatchingLogic) setDeviceMultipleOwnersCondition(ctx context.Context, device *api.Device, matchingFleets []string) error {
+	newConditionMessage := createOverlappingConditionMessage(matchingFleets)
+	currentConditionMessage := ""
+	if device.Status != nil {
+		if cond := api.FindStatusCondition(device.Status.Conditions, api.DeviceMultipleOwners); cond != nil {
+			currentConditionMessage = cond.Message
+		}
+	}
 	if currentConditionMessage != newConditionMessage {
-		condition := api.Condition{Type: api.DeviceMultipleOwners}
+		condition := api.Condition{Type: api.DeviceMultipleOwners, Status: api.ConditionStatusFalse}
 		if len(matchingFleets) > 1 {
 			condition.Status = api.ConditionStatusTrue
 			condition.Reason = "MultipleOwners"
 			condition.Message = newConditionMessage
-		} else {
-			condition.Status = api.ConditionStatusFalse
 		}
 
 		status := f.serviceHandler.SetDeviceServiceConditions(ctx, *device.Metadata.Name, []api.Condition{condition})
 		if status.Code != http.StatusOK {
-			return nil, service.ApiStatusToErr(status)
+			return service.ApiStatusToErr(status)
 		}
 	}
-
-	return &matchingFleets, nil
+	return nil
 }
 
 func (f FleetSelectorMatchingLogic) setDeviceOwnerAccordingToMatchingFleets(ctx context.Context, device *api.Device, currentOwnerFleet string, matchingFleets []string) error {
@@ -525,7 +545,7 @@ func (f FleetSelectorMatchingLogic) setDeviceOwnerAccordingToMatchingFleets(ctx 
 }
 
 func (f FleetSelectorMatchingLogic) HandleDeleteAllDevices(ctx context.Context) error {
-	listParams := api.ListFleetsParams{Limit: lo.ToPtr(int32(ItemsPerPage))}
+	listParams := api.ListFleetsParams{Limit: lo.ToPtr(f.itemsPerPage)}
 	errors := 0
 
 	condition := api.Condition{
@@ -567,7 +587,7 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllDevices(ctx context.Context) 
 }
 
 func (f FleetSelectorMatchingLogic) HandleDeleteAllFleets(ctx context.Context) error {
-	listParams := api.ListDevicesParams{Limit: lo.ToPtr(int32(ItemsPerPage))}
+	listParams := api.ListDevicesParams{Limit: lo.ToPtr(f.itemsPerPage)}
 	errors := 0
 
 	for {
@@ -612,7 +632,7 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllFleets(ctx context.Context) e
 func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, device *api.Device, newOwnerFleet string) error {
 	// do not update decommissioning devices
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
-		f.log.Debugf("SKipping update of device owner for decommissioned device: %s", device.Metadata.Name)
+		f.log.Debugf("Skipping update of device owner for decommissioned device: %s", device.Metadata.Name)
 		return nil
 	}
 
@@ -629,6 +649,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 	return service.ApiStatusToErr(status)
 }
 
+// called on the device kind flow and the fleet kind flow
 func (f FleetSelectorMatchingLogic) setOverlappingFleetConditions(ctx context.Context, overlappingFleetNames []string) error {
 	if len(overlappingFleetNames) == 0 {
 		return f.setOverlappingFleetConditionFalse(ctx, f.resourceRef.Name)
@@ -669,9 +690,31 @@ func (f FleetSelectorMatchingLogic) setOverlappingFleetConditionFalse(ctx contex
 	return service.ApiStatusToErr(status)
 }
 
+func (f FleetSelectorMatchingLogic) fetchAllFleets(ctx context.Context) ([]api.Fleet, error) {
+	var fleets []api.Fleet
+	fleetListParams := api.ListFleetsParams{Limit: lo.ToPtr(f.itemsPerPage)}
+	for {
+		fleetBatch, status := f.serviceHandler.ListFleets(ctx, fleetListParams)
+		if status.Code != http.StatusOK {
+			return nil, fmt.Errorf("failed fetching fleets: %s", status.Message)
+		}
+
+		fleets = append(fleets, fleetBatch.Items...)
+		if fleetBatch.Metadata.Continue == nil {
+			break
+		}
+		fleetListParams.Continue = fleetBatch.Metadata.Continue
+	}
+	return fleets, nil
+}
+
 func createOverlappingConditionMessage(matchingFleets []string) string {
 	if len(matchingFleets) > 1 {
-		return strings.Join(matchingFleets, ",")
+		// this message is used to determine whether an update occurs or not, so do a quick sort on a copy to ensure
+		// stable updates without mutating the caller args
+		fleets := append([]string{}, matchingFleets...)
+		sort.Strings(fleets)
+		return strings.Join(fleets, ",")
 	} else {
 		return ""
 	}
@@ -693,4 +736,15 @@ func labelSelectorFromLabelMap(labels map[string]string) *string {
 		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
 	}
 	return lo.ToPtr(strings.Join(parts, ","))
+}
+
+func findMatchingFleets(labels map[string]string, fleets []api.Fleet) []string {
+	// Find all fleets with a selector that the device matches
+	var matchingFleets []string
+	for _, fleet := range fleets {
+		if util.LabelsMatchLabelSelector(labels, getMatchLabelsSafe(&fleet)) {
+			matchingFleets = append(matchingFleets, *fleet.Metadata.Name)
+		}
+	}
+	return matchingFleets
 }
