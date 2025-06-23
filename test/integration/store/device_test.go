@@ -370,13 +370,202 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("CreateOrUpdateDevice update labels owned from API", func() {
-			testutil.CreateTestDevice(ctx, devStore, orgId, "owned-device", lo.ToPtr("ownerfleet"), nil, nil)
+			// Create a comprehensive DeviceSpec with all possible fields to test our comparison logic
+			createComprehensiveTestDevice := func(orgId uuid.UUID, name string, owner *string, labels *map[string]string) api.Device {
+				// Create OS spec
+				osSpec := &api.DeviceOsSpec{
+					Image: "quay.io/flightctl/comprehensive-os:latest",
+				}
+
+				// Create all types of config providers (union types)
+				gitConfig := &api.GitConfigProviderSpec{
+					Name: "git-config",
+					GitRef: struct {
+						Path           string `json:"path"`
+						Repository     string `json:"repository"`
+						TargetRevision string `json:"targetRevision"`
+					}{
+						Path:           "/config/git",
+						Repository:     "test-repo",
+						TargetRevision: "main",
+					},
+				}
+				gitItem := api.ConfigProviderSpec{}
+				_ = gitItem.FromGitConfigProviderSpec(*gitConfig)
+
+				inlineConfig := &api.InlineConfigProviderSpec{
+					Name: "inline-config",
+					Inline: []api.FileSpec{
+						{
+							Path:    "/etc/test-config",
+							Content: "test configuration content",
+						},
+					},
+				}
+				inlineItem := api.ConfigProviderSpec{}
+				_ = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
+
+				httpConfig := &api.HttpConfigProviderSpec{
+					Name: "http-config",
+					HttpRef: struct {
+						FilePath   string  `json:"filePath"`
+						Repository string  `json:"repository"`
+						Suffix     *string `json:"suffix,omitempty"`
+					}{
+						FilePath:   "/config/http",
+						Repository: "http-repo",
+						Suffix:     lo.ToPtr("/config.yaml"),
+					},
+				}
+				httpItem := api.ConfigProviderSpec{}
+				_ = httpItem.FromHttpConfigProviderSpec(*httpConfig)
+
+				// Create application providers (union types)
+				// Create application volumes (union types)
+				imageVolume := api.ApplicationVolume{
+					Name: "test-image-volume",
+				}
+				_ = imageVolume.FromImageVolumeProviderSpec(api.ImageVolumeProviderSpec{
+					Image: api.ImageVolumeSource{
+						Reference:  "quay.io/flightctl/test-volume:latest",
+						PullPolicy: lo.ToPtr(api.PullIfNotPresent),
+					},
+				})
+
+				imageApp := &api.ImageApplicationProviderSpec{
+					Image:   "quay.io/flightctl/test-app:latest",
+					Volumes: &[]api.ApplicationVolume{imageVolume},
+				}
+				imageAppItem := api.ApplicationProviderSpec{
+					AppType: lo.ToPtr(api.AppTypeCompose),
+					Name:    lo.ToPtr("test-image-app"),
+				}
+				_ = imageAppItem.FromImageApplicationProviderSpec(*imageApp)
+
+				inlineApp := &api.InlineApplicationProviderSpec{
+					Inline: []api.ApplicationContent{
+						{
+							Path:    "docker-compose.yaml",
+							Content: lo.ToPtr("version: '3'\nservices:\n  test:\n    image: alpine\n"),
+						},
+					},
+					Volumes: &[]api.ApplicationVolume{imageVolume}, // Reuse the same volume
+				}
+				inlineAppItem := api.ApplicationProviderSpec{
+					AppType: lo.ToPtr(api.AppTypeCompose),
+					Name:    lo.ToPtr("test-inline-app"),
+				}
+				_ = inlineAppItem.FromInlineApplicationProviderSpec(*inlineApp)
+
+				// Create resource monitors (union types)
+				cpuMonitor := api.ResourceMonitor{}
+				_ = cpuMonitor.FromCpuResourceMonitorSpec(api.CpuResourceMonitorSpec{
+					MonitorType:      "CPU",
+					SamplingInterval: "30s",
+					AlertRules: []api.ResourceAlertRule{
+						{
+							Severity:    api.ResourceAlertSeverityTypeCritical,
+							Percentage:  90.0,
+							Duration:    "5m",
+							Description: "High CPU usage",
+						},
+					},
+				})
+
+				memoryMonitor := api.ResourceMonitor{}
+				_ = memoryMonitor.FromMemoryResourceMonitorSpec(api.MemoryResourceMonitorSpec{
+					MonitorType:      "Memory",
+					SamplingInterval: "30s",
+					AlertRules: []api.ResourceAlertRule{
+						{
+							Severity:    api.ResourceAlertSeverityTypeWarning,
+							Percentage:  80.0,
+							Duration:    "10m",
+							Description: "High memory usage",
+						},
+					},
+				})
+
+				diskMonitor := api.ResourceMonitor{}
+				_ = diskMonitor.FromDiskResourceMonitorSpec(api.DiskResourceMonitorSpec{
+					MonitorType:      "Disk",
+					Path:             "/",
+					SamplingInterval: "60s",
+					AlertRules: []api.ResourceAlertRule{
+						{
+							Severity:    api.ResourceAlertSeverityTypeWarning,
+							Percentage:  85.0,
+							Duration:    "15m",
+							Description: "High disk usage",
+						},
+					},
+				})
+
+				// Create consoles
+				consoles := []api.DeviceConsole{
+					{
+						SessionID:       "session-123",
+						SessionMetadata: "terminal=xterm",
+					},
+				}
+
+				// Create decommissioning spec
+				decommissioning := &api.DeviceDecommission{
+					Target: api.DeviceDecommissionTargetTypeUnenroll,
+				}
+
+				// Create systemd spec
+				systemd := &struct {
+					MatchPatterns *[]string `json:"matchPatterns,omitempty"`
+				}{
+					MatchPatterns: &[]string{"systemd-*", "docker.service"},
+				}
+
+				// Create update policy
+				updatePolicy := &api.DeviceUpdatePolicySpec{
+					DownloadSchedule: &api.UpdateSchedule{
+						At:       "0 2 * * *",
+						TimeZone: lo.ToPtr("UTC"),
+					},
+					UpdateSchedule: &api.UpdateSchedule{
+						At:       "0 3 * * *",
+						TimeZone: lo.ToPtr("UTC"),
+					},
+				}
+
+				return api.Device{
+					Metadata: api.ObjectMeta{
+						Name:   &name,
+						Labels: labels,
+						Owner:  owner,
+					},
+					Spec: &api.DeviceSpec{
+						Os:              osSpec,
+						Config:          &[]api.ConfigProviderSpec{gitItem, inlineItem, httpItem},
+						Applications:    &[]api.ApplicationProviderSpec{imageAppItem, inlineAppItem},
+						Resources:       &[]api.ResourceMonitor{cpuMonitor, memoryMonitor, diskMonitor},
+						Consoles:        &consoles,
+						Decommissioning: decommissioning,
+						Systemd:         systemd,
+						UpdatePolicy:    updatePolicy,
+					},
+				}
+			}
+
+			// Create the first device with comprehensive spec
+			device1 := createComprehensiveTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), nil)
+			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, &device1, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Get the device from the store
 			dev, err := devStore.Get(ctx, orgId, "owned-device")
 			Expect(err).ToNot(HaveOccurred())
 
-			newDev := testutil.ReturnTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), nil, &map[string]string{"newkey": "newval"})
+			// Create the second device with the same comprehensive spec but different labels
+			newDev := createComprehensiveTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), &map[string]string{"newkey": "newval"})
 			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
 
+			// This should succeed because only labels (metadata) are different, not the spec
 			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback)
 
 			Expect(err).ToNot(HaveOccurred())

@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"text/template"
-
-	"github.com/samber/lo"
 )
 
 type DeviceCompletionCount struct {
@@ -170,171 +167,131 @@ func PercentageAsInt(p Percentage) (int, error) {
 	return int(percentage), nil
 }
 
-func configsAreEqual(c1, c2 *[]ConfigProviderSpec) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ConfigProviderSpec, item2 ConfigProviderSpec) bool {
-		type1, err := item1.Type()
-		if err != nil {
-			return false
-		}
-		type2, err := item2.Type()
-		if err != nil {
-			return false
-		}
-		if type1 != type2 {
-			return false
-		}
-
-		switch type1 {
-		case GitConfigProviderType:
-			c1, err := item1.AsGitConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsGitConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case HttpConfigProviderType:
-			c1, err := item1.AsHttpConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsHttpConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case InlineConfigProviderType:
-			c1, err := item1.AsInlineConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsInlineConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case KubernetesSecretProviderType:
-			c1, err := item1.AsKubernetesSecretProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsKubernetesSecretProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		default:
-			return false
-		}
-	})
-}
-
-func applicationsAreEqual(c1, c2 *[]ApplicationProviderSpec) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ApplicationProviderSpec, item2 ApplicationProviderSpec) bool {
-		type1, err := item1.Type()
-		if err != nil {
-			return false
-		}
-		type2, err := item2.Type()
-		if err != nil {
-			return false
-		}
-		if type1 != type2 {
-			return false
-		}
-
-		switch type1 {
-		case ImageApplicationProviderType:
-			imageSpec1, err := item1.AsImageApplicationProviderSpec()
-			if err != nil {
-				return false
-			}
-			imageSpec2, err := item2.AsImageApplicationProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(imageSpec1, imageSpec2)
-		case InlineApplicationProviderType:
-			inlineSpec1, err := item1.AsInlineApplicationProviderSpec()
-			if err != nil {
-				return false
-			}
-			inlineSpec2, err := item2.AsInlineApplicationProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(inlineSpec1, inlineSpec2)
-		default:
-			return false
-		}
-	})
-}
-
-func resourcesAreEqual(c1, c2 *[]ResourceMonitor) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ResourceMonitor, item2 ResourceMonitor) bool {
-		value1, err := item1.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		value2, err := item2.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		return reflect.DeepEqual(value1, value2)
-	})
-}
-
 func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
-	// Check OS
-	if !reflect.DeepEqual(d1.Os, d2.Os) {
+	return deepEqualWithSpecialHandling(reflect.ValueOf(d1), reflect.ValueOf(d2))
+}
+
+// deepEqualWithSpecialHandling performs deep comparison with special handling for union types
+func deepEqualWithSpecialHandling(v1, v2 reflect.Value) bool {
+	if v1.Type() != v2.Type() {
 		return false
 	}
 
-	// Check Config
-	if !configsAreEqual(d1.Config, d2.Config) {
+	switch v1.Kind() {
+	case reflect.Ptr:
+		if v1.IsNil() && v2.IsNil() {
+			return true
+		}
+		if v1.IsNil() || v2.IsNil() {
+			return false
+		}
+		return deepEqualWithSpecialHandling(v1.Elem(), v2.Elem())
+
+	case reflect.Slice:
+		if v1.IsNil() && v2.IsNil() {
+			return true
+		}
+		if v1.IsNil() || v2.IsNil() {
+			return false
+		}
+		if v1.Len() != v2.Len() {
+			return false
+		}
+		for i := 0; i < v1.Len(); i++ {
+			if !deepEqualWithSpecialHandling(v1.Index(i), v2.Index(i)) {
+				return false
+			}
+		}
+		return true
+
+	case reflect.Struct:
+		// Special handling for union types that contain json.RawMessage
+		if isUnionType(v1.Type()) {
+			return compareUnionTypeAsJSON(v1, v2)
+		}
+
+		// Regular struct comparison
+		for i := 0; i < v1.NumField(); i++ {
+			if !deepEqualWithSpecialHandling(v1.Field(i), v2.Field(i)) {
+				return false
+			}
+		}
+		return true
+
+	case reflect.Map:
+		if v1.IsNil() && v2.IsNil() {
+			return true
+		}
+		if v1.IsNil() || v2.IsNil() {
+			return false
+		}
+		if v1.Len() != v2.Len() {
+			return false
+		}
+		for _, key := range v1.MapKeys() {
+			val1 := v1.MapIndex(key)
+			val2 := v2.MapIndex(key)
+			if !val2.IsValid() || !deepEqualWithSpecialHandling(val1, val2) {
+				return false
+			}
+		}
+		return true
+
+	default:
+		// For basic types, use reflect.DeepEqual
+		return reflect.DeepEqual(v1.Interface(), v2.Interface())
+	}
+}
+
+// isUnionType checks if a type is one of our known union types that contain json.RawMessage
+func isUnionType(t reflect.Type) bool {
+	if t.Kind() != reflect.Struct {
 		return false
 	}
 
-	// Check Applications
-	if !applicationsAreEqual(d1.Applications, d2.Applications) {
+	// Check if struct contains a json.RawMessage field named "union"
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.Name == "union" && field.Type == reflect.TypeOf(json.RawMessage{}) {
+			return true
+		}
+	}
+	return false
+}
+
+// compareUnionTypeAsJSON compares union types using normalized JSON serialization
+func compareUnionTypeAsJSON(v1, v2 reflect.Value) bool {
+	json1, err1 := json.Marshal(v1.Interface())
+	json2, err2 := json.Marshal(v2.Interface())
+
+	if err1 != nil || err2 != nil {
 		return false
 	}
 
-	// Check Systemd
-	if !reflect.DeepEqual(d1.Systemd, d2.Systemd) {
+	// Normalize JSON by unmarshaling and remarshaling to ensure consistent formatting
+	var obj1, obj2 interface{}
+	if err := json.Unmarshal(json1, &obj1); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(json2, &obj2); err != nil {
 		return false
 	}
 
-	// Check Resources
-	if !resourcesAreEqual(d1.Resources, d2.Resources) {
-		return false
-	}
-
-	// Check Decommission
-	if !reflect.DeepEqual(d1.Decommissioning, d2.Decommissioning) {
-		return false
-	}
-
-	// Check UpdatePolicy
-	if !reflect.DeepEqual(d1.UpdatePolicy, d2.UpdatePolicy) {
-		return false
-	}
-
-	return true
+	// Use reflect.DeepEqual on the unmarshaled objects for semantic comparison
+	return reflect.DeepEqual(obj1, obj2)
 }
 
 func FleetSpecsAreEqual(f1, f2 FleetSpec) bool {
-	if !reflect.DeepEqual(f1.Selector, f2.Selector) {
+	// Use JSON comparison for consistent, automatic handling of all fields
+	json1, err := json.Marshal(f1)
+	if err != nil {
 		return false
 	}
-
-	if !reflect.DeepEqual(f1.Template.Metadata, f2.Template.Metadata) {
+	json2, err := json.Marshal(f2)
+	if err != nil {
 		return false
 	}
-
-	return DeviceSpecsAreEqual(f1.Template.Spec, f2.Template.Spec)
+	return bytes.Equal(json1, json2)
 }
 
 // Some functions that we provide to users.  In case of a missing label,
