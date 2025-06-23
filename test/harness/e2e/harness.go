@@ -1206,12 +1206,24 @@ func (h *Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error
 }
 
 func tcpNetworkTableRule(ip, port string, remove bool) []string {
-	flag := "-A" // add
+	flag := "-A" // Add rule
 	if remove {
-		flag = "-D" // delete
+		flag = "-D" // Delete rule
 	}
 
-	return []string{"iptables", flag, "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "DROP"}
+	rule := []string{"iptables", flag, "OUTPUT"}
+
+	if ip != "" {
+		rule = append(rule, "-d", ip)
+	}
+
+	if port != "" {
+		rule = append(rule, "-p", "tcp", "--dport", port)
+	}
+
+	rule = append(rule, "-j", "DROP")
+
+	return rule
 }
 
 func buildIPTablesCmd(ip, port string, remove bool) []string {
@@ -1219,13 +1231,26 @@ func buildIPTablesCmd(ip, port string, remove bool) []string {
 }
 
 func (h *Harness) SimulateNetworkFailure() error {
-	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
+	registryIP, registryPort, err := h.getRegistryEndpointInfo()
+
 	if err != nil {
-		return fmt.Errorf("invalid registry endpoint: %v", err)
+		return fmt.Errorf("failed to get the registry endpoint info: %w", err)
 	}
 
 	blockCommands := [][]string{
 		buildIPTablesCmd(registryIP, registryPort, false),
+	}
+
+	context, err := getContext()
+	if err != nil {
+		return fmt.Errorf("failed to get the context: %w", err)
+	}
+
+	if context == util.OCP {
+		args := fmt.Sprintf(`
+		 echo '1.2.3.4 %s' | sudo tee -a /etc/hosts
+	`, h.RegistryEndpoint())
+		blockCommands = append(blockCommands, []string{"sudo", "bash", "-c", args})
 	}
 
 	for _, cmd := range blockCommands {
@@ -1264,13 +1289,22 @@ func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, e
 }
 
 func (h *Harness) FixNetworkFailure() error {
-	registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
+	registryIP, registryPort, err := h.getRegistryEndpointInfo()
 	if err != nil {
-		return fmt.Errorf("invalid registry endpoint: %v", err)
+		return fmt.Errorf("failed to get the registry port: %w", err)
 	}
 
 	unblockCommands := [][]string{
 		buildIPTablesCmd(registryIP, registryPort, true),
+	}
+
+	context, err := getContext()
+	if err != nil {
+		return fmt.Errorf("failed to get the context: %w", err)
+	}
+
+	if context == util.OCP {
+		unblockCommands = append(unblockCommands, []string{"bash", "-c", "head -n -1 /etc/hosts > /tmp/hosts_tmp && sudo mv /tmp/hosts_tmp /etc/hosts"})
 	}
 
 	for _, cmd := range unblockCommands {
@@ -1505,4 +1539,73 @@ func (h *Harness) WaitForFileInDevice(filePath string, timeout string, polling s
 				echo %s
 				`, timeout, filePath, filePath, filePath, polling, readyMsg)
 	return h.VM.RunSSH([]string{"sudo", "bash", "-c", script}, nil)
+}
+
+func getContext() (string, error) {
+	kubeContext, err := exec.Command("kubectl", "config", "current-context").Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current kube context: %w", err)
+	}
+	contextStr := strings.TrimSpace(string(kubeContext))
+	if strings.Contains(contextStr, "kind") {
+		logrus.Debugf("The context is: %s", contextStr)
+		return util.KIND, nil
+	}
+	contextStr = util.OCP
+	logrus.Debugf("The context is: %s", contextStr)
+	return contextStr, nil
+}
+
+func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
+	context, err := getContext()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get context: %w", err)
+	}
+
+	switch context {
+	case util.KIND:
+		registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
+		if err != nil {
+			return "", "", fmt.Errorf("invalid registry endpoint: %w", err)
+		}
+		return registryIP, registryPort, nil
+
+	case util.OCP:
+		// #nosec G204
+		cmd := exec.Command("getent", "hosts", util.E2E_REGISTRY_NAME)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+
+		if err := cmd.Run(); err != nil {
+			return "", "", fmt.Errorf("failed to run 'getent host': %w", err)
+		}
+
+		registryIP := ""
+
+		fields := strings.Fields(out.String())
+		if len(fields) > 0 {
+			registryIP = strings.TrimSpace(fields[0])
+		} else {
+			return "", "", fmt.Errorf("no IP found")
+		}
+
+		// registryIP := strings.TrimSpace(out.String())
+		var output bytes.Buffer
+		// #nosec G204
+		cmd = exec.Command("oc", "get", "route", util.E2E_REGISTRY_NAME, "-n", util.E2E_NAMESPACE, "-o", "jsonpath={.spec.port.targetPort}")
+		cmd.Stdout = &output
+
+		if err := cmd.Run(); err != nil {
+			return "", "", fmt.Errorf("failed to run 'oc get route': %w", err)
+		}
+
+		port := strings.TrimSpace(output.String())
+		if port == "" {
+			return "", "", fmt.Errorf("registry port not found in route spec")
+		}
+
+		return registryIP, port, nil
+	}
+
+	return "", "", fmt.Errorf("unknown context")
 }
