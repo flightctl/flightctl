@@ -240,7 +240,8 @@ var _ = Describe("CLI - device console", Serial, func() {
 
 		repoHost, repoPort, err := net.SplitHostPort(strings.SplitN(newImageRef, "/", 2)[0])
 		Expect(err).ToNot(HaveOccurred())
-		Expect(harness.SimulateNetworkFailureFor(repoHost, repoPort)).To(Succeed())
+		fixFunc, err := harness.SimulateNetworkFailureForCLI(repoHost, repoPort)
+		Expect(err).ToNot(HaveOccurred())
 
 		in, out, err := harness.RunInteractiveCLI(
 			"console", "device/"+deviceID, "--",
@@ -255,7 +256,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 		_ = buf.Clear()
 		Eventually(buf, 10*time.Minute, 10*time.Second).Should(Say(".*retriable error.*pull.*image.*"))
 
-		Expect(harness.FixNetworkFailureFor(repoHost, repoPort)).To(Succeed())
+		Expect(fixFunc()).To(Succeed())
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			WithTimeout(4 * time.Minute).WithPolling(10 * time.Second).
