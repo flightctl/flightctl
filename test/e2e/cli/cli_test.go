@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -31,7 +30,6 @@ var (
 	repoYAMLPath        = "repository-flightctl.yaml"
 	resourceCreated     = `(200 OK|201 Created)`
 	erYAMLPath          = "enrollmentrequest.yaml"
-	suiteCtx            context.Context
 )
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
