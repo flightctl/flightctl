@@ -5,6 +5,7 @@
 # where filename is relative to this configuration file
 AAP
 ACM
+Alertmanager
 amd64
 API
 APIs
@@ -241,3 +242,8 @@ yaml
  - docs/user/rollout-policies.md
 rollouts
 BatchSequence
+ - docs/user/alerts.md
+alertmanager
+DeviceDisconnected
+DeviceCPUCritical
+programmatically
