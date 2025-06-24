@@ -2,9 +2,11 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -19,13 +21,17 @@ import (
 )
 
 var (
-	invalidSyntax = "invalid syntax"
-	kind          = "involvedObject.kind"
-	fieldSelector = "--field-selector"
-	fleetYAMLPath = "fleet.yaml"
-	limit         = "--limit"
-	repoYAMLPath  = "repository-flightctl.yaml"
-	erYAMLPath    = "enrollmentrequest.yaml"
+	invalidSyntax       = "invalid syntax"
+	kind                = "involvedObject.kind"
+	unspecifiedResource = "Error: name must be specified when deleting"
+	fieldSelector       = "--field-selector"
+	fleetYAMLPath       = "fleet.yaml"
+	limit               = "--limit"
+	jsonFlag            = "-ojson"
+	repoYAMLPath        = "repository-flightctl.yaml"
+	resourceCreated     = `(200 OK|201 Created)`
+	erYAMLPath          = "enrollmentrequest.yaml"
+	suiteCtx            context.Context
 )
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
@@ -260,19 +266,19 @@ var _ = Describe("cli operation", func() {
 			err := harness.CleanUpAllResources()
 			Expect(err).ToNot(HaveOccurred())
 
-			out, err := harness.CLI("apply", "-f", deviceYamlPath)
+			out, err := harness.ManageResource("apply", "device.yaml")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 			device1 := harness.GetDeviceByYaml(deviceYamlPath)
 			device1Name := *device1.Metadata.Name
 
-			out, err = harness.CLI("apply", "-f", deviceBYamlPath)
+			out, err = harness.ManageResource("apply", "device-b.yaml")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 			device2 := harness.GetDeviceByYaml(deviceBYamlPath)
 			device2Name := *device2.Metadata.Name
 
-			devices, err := harness.CLI("get", "devices")
+			devices, err := harness.RunGetDevices()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(devices).To(ContainSubstring(device1Name))
 			Expect(devices).To(ContainSubstring(device2Name))
@@ -291,6 +297,45 @@ var _ = Describe("cli operation", func() {
 			dev2, err := harness.Client.GetDeviceWithResponse(harness.Context, device2Name)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(dev2.JSON404).ToNot(BeNil(), "second device should not exist after deletion")
+		})
+
+		It("Validation works when trying to delete resources without names", Label("82540", "sanity"), func() {
+			By("Creating multiple test resources")
+			err := harness.CleanUpAllResources()
+			Expect(err).ToNot(HaveOccurred())
+
+			applyResources := []string{
+				"device.yaml",
+				"fleet.yaml",
+				"repository-flightctl.yaml",
+				"enrollmentrequest.yaml",
+				"resourcesync.yaml",
+			}
+
+			for _, file := range applyResources {
+				out, err := harness.ManageResource("apply", file)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(out).To(MatchRegexp(resourceCreated))
+			}
+
+			tests := util.Cases[DeleteWithoutNameTestParams](
+				DeleteEntryCase("fails deleting unspecified device", util.Device),
+				DeleteEntryCase("fails deleting unspecified device", "devices"),
+				DeleteEntryCase("fails deleting unspecified fleet", util.Fleet),
+				DeleteEntryCase("fails deleting unspecified fleet", "fleets"),
+				DeleteEntryCase("fails deleting unspecified repository", util.Repository),
+				DeleteEntryCase("fails deleting unspecified repository", "repositories"),
+				DeleteEntryCase("fails deleting unspecified enrollment request", util.EnrollmentRequest),
+				DeleteEntryCase("fails deleting unspecified enrollment request)", "enrollmentrequests"),
+				DeleteEntryCase("fails deleting unspecified resource sync", util.ResourceSync),
+				DeleteEntryCase("fails deleting unspecified resource sync", "resourcesyncs"),
+			)
+
+			util.RunTable[DeleteWithoutNameTestParams](tests, func(params DeleteWithoutNameTestParams) {
+				out, err := harness.ManageResource("delete", params.ResourceArg)
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring(unspecifiedResource))
+			})
 		})
 	})
 
@@ -315,7 +360,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Events API Tests", func() {
-		It("should list events resource is created/updated/deleted", Label("80452", "sanity"), func() {
+		It("should list events resource is created/updated/deleted", Label("81779", "sanity"), func() {
 			var deviceName, fleetName, repoName string
 			var er *v1alpha1.EnrollmentRequest
 
@@ -491,6 +536,30 @@ var _ = Describe("cli operation", func() {
 			out, err = harness.RunGetEvents(limit, "1", "2")
 			Expect(err).To(HaveOccurred())
 			Expect(out).To(ContainSubstring("accepts 1 arg(s), received 2"))
+
+			By("fetching the next page of events using the continue flag", func() {
+				page, err := getEventsPage(harness, limit, "1", jsonFlag)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(page.Items).To(HaveLen(1))
+				Expect(page.Metadata.Continue).ToNot(BeEmpty())
+
+				nextPage, err := getEventsPage(harness, "--continue", page.Metadata.Continue, jsonFlag)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(nextPage.Items).ToNot(BeEmpty())
+			})
+
+			By("verifying that events are sorted by creationTimestamp descending", func() {
+				page, err := getEventsPage(harness, jsonFlag)
+				Expect(err).ToNot(HaveOccurred())
+				timestamps, err := extractTimestamps(page.Items)
+				Expect(err).ToNot(HaveOccurred())
+
+				for i := 1; i < len(timestamps); i++ {
+					Expect(timestamps[i-1].After(timestamps[i]) || timestamps[i-1].Equal(timestamps[i])).To(BeTrue(),
+						"Events should be sorted descending by creationTimestamp")
+				}
+			})
+
 		})
 	})
 })
@@ -628,6 +697,21 @@ func formatResourceEvent(resource, name, action string) string {
 	return fmt.Sprintf("%s %s %s successfully", resource, name, action)
 }
 
+// DeleteWithoutNameTestParams defines the parameters for delete-without-name tests.
+type DeleteWithoutNameTestParams struct {
+	ResourceArg string
+}
+
+// For delete-without-name test cases
+func DeleteEntryCase(desc string, resourceArg string) util.TestCase[DeleteWithoutNameTestParams] {
+	return util.TestCase[DeleteWithoutNameTestParams]{
+		Description: desc,
+		Params: DeleteWithoutNameTestParams{
+			ResourceArg: resourceArg,
+		},
+	}
+}
+
 // GetVersionByPrefix searches the output for a line starting with the given prefix
 // and returns the trimmed value following the prefix. Returns an empty string if not found.
 func GetVersionByPrefix(output, prefix string) string {
@@ -637,6 +721,58 @@ func GetVersionByPrefix(output, prefix string) string {
 		}
 	}
 	return ""
+}
+
+type EventsPage struct {
+	Items    []json.RawMessage `json:"items"`
+	Metadata struct {
+		Continue string `json:"continue"`
+	} `json:"metadata"`
+}
+
+type EventWithTimestamp struct {
+	Metadata struct {
+		CreationTimestamp string `json:"creationTimestamp"`
+	} `json:"metadata"`
+}
+
+func getEventsPage(harness *e2e.Harness, args ...string) (EventsPage, error) {
+	var page EventsPage
+
+	out, err := harness.RunGetEvents(args...)
+	if err != nil {
+		return page, err
+	}
+
+	err = json.Unmarshal([]byte(out), &page)
+	if err != nil {
+		return page, err
+	}
+
+	return page, nil
+}
+
+func extractTimestamps(events []json.RawMessage) ([]time.Time, error) {
+	var timestamps []time.Time
+
+	for _, raw := range events {
+		var event EventWithTimestamp
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return nil, err
+		}
+
+		ts, err := time.Parse(time.RFC3339Nano, event.Metadata.CreationTimestamp)
+		if err != nil {
+			ts, err = time.Parse(time.RFC3339, event.Metadata.CreationTimestamp)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		timestamps = append(timestamps, ts)
+	}
+
+	return timestamps, nil
 }
 
 // TIMEOUT represents the default duration string for timeout, set to 1 minute.

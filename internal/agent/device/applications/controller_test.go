@@ -166,7 +166,7 @@ func TestParseAppProviders(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			log := log.NewPrefixLogger("test")
-			log.SetLevel(logrus.DebugLevel)
+			log.SetLevel(logrus.TraceLevel)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

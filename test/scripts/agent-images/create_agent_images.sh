@@ -7,19 +7,13 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/../functions
 
 REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST="base v2 v3 v4 v5 v6"
+IMAGE_LIST="base v2 v3 v4 v5 v6 v8"
 
 if is_acm_installed; then
     IMAGE_LIST="${IMAGE_LIST} v7"
     sed -i 's|<memory unit="MiB">512</memory>|<memory unit="MiB">2048</memory>|' test/harness/e2e/vm/domain-template.xml # increate the memory only for microshift cluster registration test
     echo "IMAGE_LIST=${IMAGE_LIST}"
 fi
-
-# Create the file and add the registry configuration
-cp "${SCRIPT_DIR}"/Containerfile-e2e-base.local.template "${SCRIPT_DIR}"/Containerfile-e2e-base.local
-sudo tee -a "${SCRIPT_DIR}"/Containerfile-e2e-base.local <<EOF
-RUN  mkdir -p /etc/containers/registries.conf.d/ && echo -e '[[registry]]\nlocation = "${REGISTRY_ADDRESS}"\ninsecure = true' > /etc/containers/registries.conf.d/flightctl-e2e.conf
-EOF
 
 # if FLIGHTCTL_RPM is not empty
 if [ -n "${FLIGHTCTL_RPM:-}" ]; then
@@ -52,7 +46,13 @@ build_images() {
 
         echo -e "\033[32mCreating image ${FINAL_REF} with BUILD_TYPE=${BUILD_TYPE} \033[m"
 
-        podman build ${BUILD_ARGS:+${BUILD_ARGS}} -f "${containerfile_path}" -t "${container_name}" .
+        # apply image specific args here
+        local args="$BUILD_ARGS"
+        if [ "$img" = "base" ]; then
+          args="${args:+${args} }--build-arg=REGISTRY_ADDRESS=${REGISTRY_ADDRESS}"
+        fi
+
+        podman build ${args:+${args}} -f "${containerfile_path}" -t "${container_name}" .
         podman tag "${container_name}" "${FINAL_REF}"
         podman push "${FINAL_REF}"
     done

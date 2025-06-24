@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/robfig/cron/v3"
@@ -259,6 +260,58 @@ func TestValidateGraceDuration(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+		})
+	}
+}
+
+func TestValidateScheduleAndGraceDuration(t *testing.T) {
+	tests := []struct {
+		name           string
+		cronExpression string
+		duration       string
+		errMsg         string
+	}{
+		{
+			name:           "invalid cron expression, valid duration",
+			cronExpression: "* * * * * *", // invalid expression, too many *s
+			duration:       "30m",
+			errMsg:         "cannot validate grace duration",
+		},
+		{
+			name:           "valid cron expression, invalid duration",
+			cronExpression: "0 * * * *", // every hr
+			duration:       "",
+			errMsg:         "invalid duration",
+		},
+		// basic case that is handled more in depth in the TestValidateGraceDuration cases
+		{
+			name:           "valid cron expression, valid duration",
+			cronExpression: "0 * * * *", // every hr
+			duration:       "30m",
+			errMsg:         "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			schedule := UpdateSchedule{
+				At:                 tt.cronExpression,
+				StartGraceDuration: lo.ToPtr(tt.duration),
+			}
+
+			errs := schedule.Validate()
+			if tt.errMsg != "" {
+				require.Condition(func() bool {
+					for _, err := range errs {
+						if strings.Contains(err.Error(), tt.errMsg) {
+							return true
+						}
+					}
+					return false
+				})
+				return
+			}
+			require.Empty(errs)
 		})
 	}
 }
