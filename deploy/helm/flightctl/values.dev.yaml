@@ -12,6 +12,7 @@ global:
     db: 5432
     kv: 6379
     alertmanager: 9093
+    alertmanagerProxy: 8443
     keycloak: 8081
     prometheus: 9090
     gitserver: 3222
@@ -38,6 +39,10 @@ periodic:
 alertExporter:
   image:
     image: localhost/flightctl-alert-exporter
+    tag: latest
+alertmanagerProxy:
+  image:
+    image: localhost/flightctl-alertmanager-proxy
     tag: latest
 prometheus:
   enabled: true

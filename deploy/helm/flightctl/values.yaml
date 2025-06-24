@@ -68,6 +68,7 @@ global:
     agent: 7443
     ui: 9000
     keycloak: 8081
+    alertmanagerProxy: 8443
   gatewayPorts:
     tls: 443
     http: 80
@@ -144,6 +145,12 @@ alertExporter:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-alert-exporter
+    tag: ""
+    pullPolicy: ""
+alertmanagerProxy:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alertmanager-proxy
     tag: ""
     pullPolicy: ""
 prometheus:
