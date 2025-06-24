@@ -301,9 +301,11 @@ The Git Config Provider takes the following parameters:
 | Repository | The name of a Repository resource defined in Flight Control. |
 | TargetRevision | The branch, tag, or commit of the repository to checkout. |
 | Path | The subdirectory of the repository that contains the configuration. |
-| MountPath | (Optional) The directory in the device's file system to write the configuration to. Defaults to the file system root `/`. |
 
 The Repository resource definition tells Flight Control the Git repository to connect to and which protocol and access credentials to use. It needs to be set up once (see Setting Up Repositories) and can then be used to configure multiple devices or fleets.
+
+The subdirectory of the repository (pointed to by Path) will be mounted to the root of the device. When specifying a Path, make sure the directories in it already exist with writable access on the system (the application cannot write to the root).  
+Using non-existent or read-only directories may result in errors due to insufficient permissions or read-only file systems.
 
 #### Example
 
@@ -334,7 +336,6 @@ You can now reference this Repository when you configure devices. For example, t
 | Repository | site-settings |
 | TargetRevision | production |
 | Path | /factory-a |
-| MountPath | (leave empty to use the default `/` root directory) |
 
 ### Getting Secrets from a Kubernetes Cluster
 

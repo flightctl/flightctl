@@ -40,5 +40,10 @@ type Action struct {
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
 	// Volumes is a list of volume names related to this application
-	Volumes []string
+	Volumes []Volume
+}
+
+type Volume struct {
+	ID        string
+	Reference string
 }

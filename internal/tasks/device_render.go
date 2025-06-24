@@ -278,12 +278,12 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 
 	// If the device is not part of a fleet, just clone from git into ignition
 	if t.ownerFleet == nil {
-		ignition, _, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
+		ignition, _, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path)
 		if err != nil {
 			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 		}
 	} else {
-		ignition, err = t.cloneCachedGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, lo.FromPtr(gitSpec.GitRef.MountPath))
+		ignition, err = t.cloneCachedGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path)
 		if err != nil {
 			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
 		}
@@ -497,7 +497,7 @@ func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *ap
 	return nil
 }
 
-func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *api.Repository, targetRevision string, path, mountPath string) (*config_latest_types.Config, error) {
+func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *api.Repository, targetRevision string, path string) (*config_latest_types.Config, error) {
 	// 1. Get the frozen repository URL
 	err := t.getFrozenRepositoryURL(ctx, repo)
 	if err != nil {
@@ -540,7 +540,6 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 				return nil, fmt.Errorf("fetched invalid json-encoded ignition from kvstore: %w", err)
 			}
 
-			wrapper.ChangeMountPath(mountPath)
 			ign := wrapper.AsIgnitionConfig()
 			return &ign, nil
 		}
@@ -553,7 +552,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 	}
 
 	// We clone from git and get ignition with no mount path prefix (i.e., set to "/")
-	ign, hash, err := CloneGitRepoToIgnition(repo, revisionToClone, path, "/")
+	ign, hash, err := CloneGitRepoToIgnition(repo, revisionToClone, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed cloning git: %w", err)
 	}
@@ -577,8 +576,6 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 		return nil, fmt.Errorf("failed caching git data: %w", err)
 	}
 
-	// 7. Change the mount path to what was requested and return
-	wrapper.ChangeMountPath(mountPath)
 	ignToReturn := wrapper.AsIgnitionConfig()
 	return &ignToReturn, nil
 }

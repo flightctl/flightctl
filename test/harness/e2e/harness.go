@@ -166,6 +166,12 @@ func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface
 	return createdVMs, nil
 }
 
+func (h *Harness) AgentLogs(agent vm.TestVMInterface) string {
+	stdout, err := agent.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
+	Expect(err).ToNot(HaveOccurred())
+	return stdout.String()
+}
+
 // ReadClientConfig returns the client config for at the specified location. The default config path is used if no path is
 // specified
 func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
@@ -217,8 +223,7 @@ func (h *Harness) Cleanup(printConsole bool) {
 			fmt.Println("============ systemctl status flightctl-agent ============")
 			fmt.Println(stdout.String())
 			fmt.Println("=============== logs for flightctl-agent =================")
-			stdout, _ = vm.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
-			fmt.Println(stdout.String())
+			fmt.Println(h.AgentLogs(vm))
 			if printConsole {
 				fmt.Println("======================= VM Console =======================")
 				fmt.Println(vm.GetConsoleOutput())
@@ -491,10 +496,16 @@ func (h *Harness) SH(command string, args ...string) (string, error) {
 	return h.SHWithStdin("", command, args...)
 }
 
+func updateResourceWithRetries(updateFunc func() error) {
+	Eventually(func() error {
+		return updateFunc()
+	}, TIMEOUT, "1s").Should(BeNil())
+}
+
 func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) {
-	Eventually(func(updFunction func(*v1alpha1.Device)) error {
-		return h.UpdateDevice(deviceId, updFunction)
-	}, TIMEOUT, "1s").WithArguments(updateFunction).Should(BeNil())
+	updateResourceWithRetries(func() error {
+		return h.UpdateDevice(deviceId, updateFunction)
+	})
 }
 
 func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1alpha1.Device)) error {
@@ -509,6 +520,10 @@ func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1alpha1.De
 	updateFunction(device)
 
 	resp, err := h.Client.ReplaceDeviceWithResponse(h.Context, deviceId, *device)
+	if err != nil {
+		logrus.Errorf("Unexpected error updating device %s: %v", deviceId, err)
+		return err
+	}
 
 	// if a conflict happens (the device updated status or object since we read it) we retry
 	if resp.JSON409 != nil {
@@ -520,11 +535,6 @@ func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1alpha1.De
 		logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
 		logrus.Errorf("Unexpected http response: %s", string(resp.Body))
 		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode(), string(resp.Body))
-	}
-
-	if err != nil {
-		logrus.Errorf("Unexpected error updating device %s: %v", deviceId, err)
-		return err
 	}
 
 	return nil
@@ -592,35 +602,42 @@ func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName s
 	return h.UpdateDevice(deviceId, updateFunc)
 }
 
-func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
+func waitForResourceContents[T any](id string, description string, fetch func(string) (T, error), condition func(T) bool, timeout string) {
 	lastResourcePrint := ""
 
 	Eventually(func() error {
 		logrus.Infof("Waiting for condition: %q to be met", description)
-		response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
+		resource, err := fetch(id)
 		Expect(err).NotTo(HaveOccurred())
-		if response.JSON200 == nil {
-			logrus.Errorf("An error happened retrieving device: %+v", response)
-			return errors.New("device not found???")
-		}
-		device := response.JSON200
 
-		yamlData, err := yaml.Marshal(device)
+		yamlData, err := yaml.Marshal(resource)
 		yamlString := string(yamlData)
 		Expect(err).ToNot(HaveOccurred())
 		if yamlString != lastResourcePrint {
 			fmt.Println("")
-			fmt.Println("======================= Device resource change ===================== ")
+			fmt.Println("======================= Resource change ========================== ")
 			fmt.Println(yamlString)
 			fmt.Println("================================================================== ")
 			lastResourcePrint = yamlString
 		}
 
-		if condition(device) {
+		if condition(resource) {
 			return nil
 		}
-		return errors.New("not updated")
+		return fmt.Errorf("resource: %s not updated", id)
 	}, timeout, "2s").Should(BeNil())
+}
+
+func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
+	waitForResourceContents(deviceId, description, func(id string) (*v1alpha1.Device, error) {
+		response, err := h.Client.GetDeviceWithResponse(h.Context, id)
+		Expect(err).NotTo(HaveOccurred())
+		if response.JSON200 == nil {
+			logrus.Errorf("An error happened retrieving device: %+v", response)
+			return nil, errors.New("device not found???")
+		}
+		return response.JSON200, nil
+	}, condition, timeout)
 }
 
 func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
@@ -717,8 +734,27 @@ func (h *Harness) PrepareNextDeviceGeneration(deviceId string) (int64, error) {
 	return currentGeneration + 1, nil
 }
 
-func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (deviceRenderedVersionInt int, err error) {
-	deviceRenderedVersion := "-1"
+var (
+	InvalidRenderedVersionErr = fmt.Errorf("invalid rendered version")
+)
+
+func GetRenderedVersion(device *v1alpha1.Device) (int, error) {
+	if device == nil || device.Status == nil {
+		return -1, fmt.Errorf("invalid device: %+v", device)
+	}
+	version, err := strconv.Atoi(device.Status.Config.RenderedVersion)
+	if err != nil {
+		return -1, fmt.Errorf("failed to convert current rendered version '%s': %w", device.Status.Config.RenderedVersion, err)
+	}
+	if version <= 0 {
+		return -1, fmt.Errorf("version: %d: %w", version, InvalidRenderedVersionErr)
+	}
+	return version, nil
+}
+
+func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) {
+	deviceRenderedVersion := -1
+	var renderedVersionError error
 
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
@@ -726,24 +762,18 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (deviceRender
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
-					deviceRenderedVersion = device.Status.Config.RenderedVersion
-					return true
+					deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
+					// try until we get a valid rendered version
+					return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
 				}
 			}
 			return false
 		}, TIMEOUT)
-
-	deviceRenderedVersionInt, err = strconv.Atoi(deviceRenderedVersion)
-	if err != nil {
-		return -1, fmt.Errorf("failed to get current rendered version: %w", err)
+	if renderedVersionError != nil {
+		return -1, renderedVersionError
 	}
-	if deviceRenderedVersionInt <= 0 {
-		return deviceRenderedVersionInt, fmt.Errorf("invalid version: %d", deviceRenderedVersionInt)
-
-	}
-	logrus.Infof("The device current renderedVersion is %d", deviceRenderedVersionInt)
-
-	return deviceRenderedVersionInt, nil
+	logrus.Infof("The device current renderedVersion is %d", deviceRenderedVersion)
+	return deviceRenderedVersion, nil
 }
 
 func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
@@ -987,58 +1017,8 @@ func (h *Harness) GetDeviceOsImage(device *v1alpha1.Device) (image string, err e
 	return device.Spec.Os.Image, nil
 }
 
-// Create a test fleet resource
-func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelector interface{}, deviceSpec ...v1alpha1.DeviceSpec) error {
-	testFleet := v1alpha1.Fleet{
-		ApiVersion: v1alpha1.FleetAPIVersion,
-		Kind:       v1alpha1.FleetKind,
-		Metadata: v1alpha1.ObjectMeta{
-			Name:   &testFleetName,
-			Labels: &map[string]string{},
-		},
-	}
-
-	switch spec := fleetSpecOrSelector.(type) {
-	case v1alpha1.FleetSpec:
-		testFleet.Spec = spec
-
-	case v1alpha1.LabelSelector:
-
-		if len(deviceSpec) == 0 {
-			return fmt.Errorf("DeviceSpec is required when using LabelSelector")
-		}
-
-		testFleet.Spec = v1alpha1.FleetSpec{
-			Selector: &spec,
-			Template: struct {
-				Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
-				Spec     v1alpha1.DeviceSpec  "json:\"spec\""
-			}{
-				Spec: deviceSpec[0],
-			},
-		}
-
-	default:
-		return fmt.Errorf("first parameter must be either FleetSpec or LabelSelector")
-	}
-
-	_, err := h.Client.ReplaceFleetWithResponse(h.Context, testFleetName, testFleet)
-	return err
-}
-
-// Create a test fleet with a configuration
-func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelector v1alpha1.LabelSelector, configProviderSpec v1alpha1.ConfigProviderSpec) error {
-	var testFleetSpec = v1alpha1.DeviceSpec{
-		Config: &[]v1alpha1.ConfigProviderSpec{
-			configProviderSpec,
-		},
-	}
-	err := h.CreateOrUpdateTestFleet(testFleetName, testFleetSelector, testFleetSpec)
-	return err
-}
-
 // Create a repository resource
-func (h Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
+func (h *Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
 	var repository = v1alpha1.Repository{
 		ApiVersion: v1alpha1.RepositoryAPIVersion,
 		Kind:       v1alpha1.RepositoryKind,
@@ -1050,8 +1030,27 @@ func (h Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metada
 	return err
 }
 
+// ReplaceRepository ensures the specified repository exists and is updated to the appropriate values
+func (h *Harness) ReplaceRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
+	var repository = v1alpha1.Repository{
+		ApiVersion: v1alpha1.RepositoryAPIVersion,
+		Kind:       v1alpha1.RepositoryKind,
+
+		Metadata: metadata,
+		Spec:     repositorySpec,
+	}
+	_, err := h.Client.ReplaceRepositoryWithResponse(h.Context, *metadata.Name, repository)
+	return err
+}
+
+// DeleteRepository deletes the specified repository
+func (h *Harness) DeleteRepository(name string) error {
+	_, err := h.Client.DeleteRepository(h.Context, name)
+	return err
+}
+
 // Check that the device summary status is equal to the status input
-func (h Harness) CheckDeviceStatus(deviceId string, status v1alpha1.DeviceSummaryStatusType) (*v1alpha1.Device, error) {
+func (h *Harness) CheckDeviceStatus(deviceId string, status v1alpha1.DeviceSummaryStatusType) (*v1alpha1.Device, error) {
 	response := h.GetDeviceWithStatusSystem(deviceId)
 	if response == nil {
 		return nil, fmt.Errorf("device response is nil")
@@ -1068,7 +1067,7 @@ func (h Harness) CheckDeviceStatus(deviceId string, status v1alpha1.DeviceSummar
 }
 
 // Get device with response
-func (h Harness) GetDevice(deviceId string) (*v1alpha1.Device, error) {
+func (h *Harness) GetDevice(deviceId string) (*v1alpha1.Device, error) {
 	response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device with response: %s", err)
@@ -1080,6 +1079,20 @@ func (h Harness) GetDevice(deviceId string) (*v1alpha1.Device, error) {
 	return device, nil
 }
 
+func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) {
+	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+		if len(labels) == 0 {
+			device.Metadata.Labels = nil
+			return
+		}
+		devLabels := make(map[string]string, len(labels))
+		for key, value := range labels {
+			devLabels[key] = value
+		}
+		device.Metadata.Labels = &devLabels
+	})
+}
+
 func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []map[string]string, fleetName string) error {
 	if len(deviceIDs) != len(labelsList) {
 		return fmt.Errorf("mismatched lengths: deviceIDs (%d) and labelsList (%d)", len(deviceIDs), len(labelsList))
@@ -1087,62 +1100,16 @@ func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []ma
 
 	for i, deviceID := range deviceIDs {
 		labels := labelsList[i]
-		h.UpdateDeviceWithRetries(deviceID, func(device *v1alpha1.Device) {
-			if device.Metadata.Labels == nil {
-				device.Metadata.Labels = &map[string]string{}
-			}
-			for key, value := range labels {
-				(*device.Metadata.Labels)[key] = value
-			}
-			(*device.Metadata.Labels)["fleet"] = fleetName
-		})
-
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		labels["fleet"] = fleetName
+		h.SetLabelsForDevice(deviceID, labels)
 	}
 	return nil
 }
 
-func (h Harness) WaitForBatchStart(fleetName string, batchNumber int) {
-	Eventually(func() int {
-		response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
-		if err != nil {
-			logrus.Debugf("failed to get fleet with response: %s", err)
-			return -2
-		}
-		if response == nil {
-			logrus.Debugf("fleet response is nil")
-			return -2
-		}
-		fleet := response.JSON200
-		if fleet == nil {
-			logrus.Debugf("fleet is nil")
-			return -2
-		}
-
-		annotations := fleet.Metadata.Annotations
-		if annotations == nil {
-			logrus.Debugf("annotations are nil")
-			return -2
-		}
-
-		batchNumberStr, ok := (*annotations)[v1alpha1.FleetAnnotationBatchNumber]
-		if !ok {
-			logrus.Debugf("batch number not found in annotations - available annotations: %v", *annotations)
-			return -2
-		}
-
-		batchNumberInt, err := strconv.Atoi(batchNumberStr)
-		if err != nil {
-			logrus.Debugf("failed to convert batch number to int: %s", err)
-			return -2
-		}
-
-		logrus.Debugf("Current batch number: %d, waiting for  %d", batchNumberInt, batchNumber)
-
-		return batchNumberInt
-	}, LONGTIMEOUT, POLLINGLONG).Should(Equal(batchNumber))
-}
-
-func (h Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Device, error) {
+func (h *Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
 	listDeviceParams := &v1alpha1.ListDevicesParams{
 		LabelSelector: &labelSelector,
@@ -1172,7 +1139,7 @@ func (h Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Devic
 	return result, nil
 }
 
-func (h Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []string) (map[string][]*v1alpha1.Device, error) {
+func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []string) (map[string][]*v1alpha1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
 	listDeviceParams := &v1alpha1.ListDevicesParams{
 		LabelSelector: &labelSelector,
@@ -1221,7 +1188,7 @@ func (h Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []strin
 	return result, nil
 }
 
-func (h Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error) {
+func (h *Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
 	listDeviceParams := &v1alpha1.ListDevicesParams{
 		LabelSelector: &labelSelector,
@@ -1247,25 +1214,6 @@ func (h Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error)
 	}
 
 	return result, nil
-}
-
-func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error) {
-	response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
-	if err != nil {
-		return v1alpha1.Condition{}, fmt.Errorf("failed to get fleet with response: %s", err)
-	}
-	fleet := response.JSON200
-
-	if fleet.Status == nil || fleet.Status.Conditions == nil {
-		return v1alpha1.Condition{}, fmt.Errorf("fleet status or conditions is nil")
-	}
-
-	for _, condition := range fleet.Status.Conditions {
-		if condition.Type == v1alpha1.FleetRolloutInProgress {
-			return condition, nil
-		}
-	}
-	return v1alpha1.Condition{}, fmt.Errorf("fleet rollout condition not found")
 }
 
 func tcpNetworkTableRule(ip, port string, remove bool) []string {
@@ -1404,7 +1352,7 @@ func (h *Harness) FixNetworkFailureForCLI(ip, port string) error {
 }
 
 // CheckRunningContainers verifies the expected number of running containers on the VM.
-func (h Harness) CheckRunningContainers() (string, error) {
+func (h *Harness) CheckRunningContainers() (string, error) {
 	out, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
 	if err != nil {
 		return "", err
@@ -1412,12 +1360,12 @@ func (h Harness) CheckRunningContainers() (string, error) {
 	return out.String(), nil
 }
 
-func (h Harness) CheckApplicationDirectoryExist(applicationName string) error {
+func (h *Harness) CheckApplicationDirectoryExist(applicationName string) error {
 	_, err := h.VM.RunSSH([]string{"test", "-d", "/etc/compose/manifests/" + applicationName}, nil)
 	return err
 }
 
-func (h Harness) CheckApplicationComposeFileExist(applicationName string, ComposeFile string) error {
+func (h *Harness) CheckApplicationComposeFileExist(applicationName string, ComposeFile string) error {
 	_, err := h.VM.RunSSH([]string{"test", "-f", "/etc/compose/manifests/" + applicationName + "/" + ComposeFile}, nil)
 	return err
 }
@@ -1435,7 +1383,7 @@ func (h Harness) CheckApplicationStatus(deviceId string, applicationName string)
 	return "", nil // Application status not found, return empty status and no error
 }
 
-func (h Harness) CheckEnvInjectedToApplication(envVarName string, image string) (string, error) {
+func (h *Harness) CheckEnvInjectedToApplication(envVarName string, image string) (string, error) {
 	containersOutput, err := h.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to list containers: %w", err)
@@ -1465,20 +1413,20 @@ func (h Harness) CheckEnvInjectedToApplication(envVarName string, image string) 
 }
 
 // RunGetDevices executes "get devices" CLI command with optional arguments.
-func (h Harness) RunGetDevices(args ...string) (string, error) {
+func (h *Harness) RunGetDevices(args ...string) (string, error) {
 	allArgs := append([]string{"get", "devices"}, args...)
 	return h.CLI(allArgs...)
 }
 
 // RunGetEvents executes "get events" CLI command with optional arguments.
-func (h Harness) RunGetEvents(args ...string) (string, error) {
+func (h *Harness) RunGetEvents(args ...string) (string, error) {
 	// Starting with the base command to get events
 	allArgs := append([]string{"get", "events"}, args...)
 	return h.CLI(allArgs...)
 }
 
 // ManageResource performs an operation ("apply" or "delete") on a specified resource.
-func (h Harness) ManageResource(operation, resource string, args ...string) (string, error) {
+func (h *Harness) ManageResource(operation, resource string, args ...string) (string, error) {
 	switch operation {
 	case "apply":
 		return h.CLI("apply", "-f", util.GetTestExamplesYamlPath(resource))
@@ -1496,43 +1444,32 @@ func (h Harness) ManageResource(operation, resource string, args ...string) (str
 	}
 }
 
-// ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
-func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
-	for _, condition := range d.Status.Conditions {
-		if string(condition.Type) == conditionType &&
-			condition.Reason == conditionReason &&
-			string(condition.Status) == conditionStatus {
+func conditionExists(conditions []v1alpha1.Condition, predicate func(condition *v1alpha1.Condition) bool) bool {
+	for _, condition := range conditions {
+		if predicate(&condition) {
 			return true
 		}
 	}
 	return false
 }
 
-func (h *Harness) WaitForFleetUpdateToFail(fleetName string) error {
-	logrus.Infof("Waiting for fleet update to fail for fleet %s", fleetName)
-	Eventually(func() (bool, error) {
-		rolloutStatus, err := h.GetRolloutStatus(fleetName)
-		if err != nil {
-			return false, err
-		}
+// ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
+func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
+	return conditionExists(d.Status.Conditions, func(condition *v1alpha1.Condition) bool {
+		return string(condition.Type) == conditionType && condition.Reason == conditionReason && string(condition.Status) == conditionStatus
+	})
+}
 
-		if rolloutStatus.Type == v1alpha1.FleetRolloutInProgress &&
-			rolloutStatus.Status == v1alpha1.ConditionStatusFalse &&
-			rolloutStatus.Reason == v1alpha1.RolloutSuspendedReason {
-			logrus.Infof("Fleet update failed for fleet %s: status=%s, reason=%s",
-				fleetName, rolloutStatus.Status, rolloutStatus.Reason)
-			return true, nil
-		}
-
-		return false, nil
-	}, LONGTIMEOUT, POLLING).Should(BeTrue(),
-		fmt.Sprintf("Timed out waiting for fleet %s update to fail", fleetName))
-	return nil
+// ConditionStatusExists returns true if the specified type and status exists on the condition slice
+func ConditionStatusExists(conditions []v1alpha1.Condition, condType v1alpha1.ConditionType, status v1alpha1.ConditionStatus) bool {
+	return conditionExists(conditions, func(condition *v1alpha1.Condition) bool {
+		return condition.Type == condType && condition.Status == status
+	})
 }
 
 // UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
 // It applies the provided configuration and waits for the device to reach the specified rendered version.
-func (h Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
+func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
 	h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 		device.Spec.Config = &configs
 		logrus.WithFields(logrus.Fields{
@@ -1545,7 +1482,7 @@ func (h Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alph
 }
 
 // It executes a command without starting a console session
-func (h Harness) ExecuteCommandWithConsole(deviceId string, cmd string) (output string, err error) {
+func (h *Harness) ExecuteCommandWithConsole(deviceId string, cmd string) (output string, err error) {
 	out, err := h.CLI("console", fmt.Sprintf("dev/%s", deviceId), " -- ", cmd)
 	if err != nil {
 		return "", err
@@ -1553,7 +1490,7 @@ func (h Harness) ExecuteCommandWithConsole(deviceId string, cmd string) (output 
 	return out, nil
 }
 
-func (h Harness) WaitForClusterRegistered(deviceId string, timeout time.Duration) error {
+func (h *Harness) WaitForClusterRegistered(deviceId string, timeout time.Duration) error {
 	start := time.Now()
 
 	// Retry loop
@@ -1596,26 +1533,7 @@ func (h Harness) WaitForClusterRegistered(deviceId string, timeout time.Duration
 	}
 }
 
-func (h Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs ...v1alpha1.ConfigProviderSpec) (v1alpha1.DeviceSpec, error) {
-
-	var deviceSpec v1alpha1.DeviceSpec
-
-	// Set Os.Image only if deviceImageTag is provided
-	if deviceImageTag != "" {
-		deviceSpec.Os = &v1alpha1.DeviceOsSpec{
-			Image: fmt.Sprintf("%s/flightctl-device:%s", h.RegistryEndpoint(), deviceImageTag),
-		}
-	}
-
-	// Set Config only if config specs are provided
-	if len(additionalConfigs) > 0 {
-		deviceSpec.Config = &additionalConfigs
-	}
-
-	return deviceSpec, nil
-}
-
-func (h Harness) WaitForFileInDevice(filePath string, timeout string, polling string) (*bytes.Buffer, error) {
+func (h *Harness) WaitForFileInDevice(filePath string, timeout string, polling string) (*bytes.Buffer, error) {
 	readyMsg := "The file was found"
 	script := fmt.Sprintf(`
 				timeout=%s

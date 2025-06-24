@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -14,81 +15,154 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// ensurePodmanVolumes creates and populates each image-backed volume in Podman.
-func ensurePodmanVolumes(
-	ctx context.Context,
-	log *log.PrefixLogger,
-	appName string,
-	writer fileio.Writer,
-	podman *client.Podman,
-	volumes *[]v1alpha1.ApplicationVolume,
-	labels []string,
-) error {
-	if volumes == nil {
-		return nil
-	}
-
-	// ensure the volume content is pulled and available
-	for _, volume := range *volumes {
-		vType, err := volume.Type()
-		if err != nil {
-			return fmt.Errorf("getting volume type: %w", err)
-		}
-		switch vType {
-		case v1alpha1.ImageApplicationVolumeProviderType:
-			v, err := volume.AsImageVolumeProviderSpec()
-			if err != nil {
-				return fmt.Errorf("getting image volume provider spec: %w", err)
-			}
-			uniqueVolumeName := lifecycle.ComposeVolumeName(appName, volume.Name)
-			if err := ensurePodmanVolume(ctx, log, writer, podman, uniqueVolumeName, &v, labels); err != nil {
-				return fmt.Errorf("pulling image volume: %w", err)
-			}
-		default:
-			return fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, vType)
-		}
-	}
-	return nil
+type Volume struct {
+	// Name is the user defined name for the volume
+	Name string
+	// ID is a unique internal idenfier used to create the actual volume
+	ID string
+	// Reference is a the reference used to populate the volume
+	Reference string
+	// Available is true if the volume has been created
+	Available bool
 }
 
-// ensurePodmanVolume creates and populates a image-backed podman volume.
-func ensurePodmanVolume(
-	ctx context.Context,
-	log *log.PrefixLogger,
-	writer fileio.Writer,
-	podman *client.Podman,
-	name string,
-	provider *v1alpha1.ImageVolumeProviderSpec,
-	labels []string,
-) error {
-	imageRef := provider.Image.Reference
+type VolumeManager interface {
+	// Get returns the Volume by name, if it exists.
+	Get(name string) (*Volume, bool)
+	// Add adds a new Volume to the manager.
+	Add(volume *Volume)
+	// Update updates an existing Volume. Returns true if the volume existed and was updated.
+	Update(volume *Volume) bool
+	// Remove deletes the Volume by name. Returns true if the volume existed and was removed.
+	Remove(name string) bool
+	// List returns all managed Volumes.
+	List() []*Volume
+	// Status populates the given DeviceApplicationStatus with volume status information.
+	Status(status *v1alpha1.DeviceApplicationStatus)
+	// UpdateStatus processes a Podman event and updates internal volume status as needed.
+	UpdateStatus(event *client.PodmanEvent)
+}
 
-	if podman.VolumeExists(ctx, name) {
-		log.Tracef("Volume %q already exists, updating contents", name)
-		volumePath, err := podman.InspectVolumeMount(ctx, name)
+// NewVolumeManager returns a new VolumeManager.
+func NewVolumeManager(log *log.PrefixLogger, appName string, volumes *[]v1alpha1.ApplicationVolume) (VolumeManager, error) {
+	m := &volumeManager{
+		volumes: make(map[string]*Volume),
+	}
+
+	if volumes == nil {
+		return m, nil
+	}
+
+	for _, v := range *volumes {
+		// TODO: image provider assumed
+		provider, err := v.AsImageVolumeProviderSpec()
 		if err != nil {
-			return fmt.Errorf("inspect volume %q: %w", name, err)
+			return nil, err
 		}
-		if err := writer.RemoveContents(volumePath); err != nil {
-			return fmt.Errorf("removing volume content %q: %w", volumePath, err)
+		volID := client.ComposeVolumeName(appName, v.Name)
+		m.volumes[volID] = &Volume{
+			Name:      v.Name,
+			Reference: provider.Image.Reference,
+			ID:        volID,
+			Available: true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
 		}
-		if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
-			return fmt.Errorf("extract artifact: %w", err)
-		}
-		return nil
+	}
+	return m, nil
+}
+
+type volumeManager struct {
+	// volumes map is keyed from volume ID
+	volumes map[string]*Volume
+	log     *log.PrefixLogger
+}
+
+func (m *volumeManager) Get(id string) (*Volume, bool) {
+	vol, ok := m.volumes[id]
+	return vol, ok
+}
+
+func (m *volumeManager) Add(volume *Volume) {
+	_, ok := m.volumes[volume.ID]
+	if !ok {
+		m.volumes[volume.ID] = volume
+	}
+}
+
+func (m *volumeManager) Update(volume *Volume) bool {
+	_, ok := m.volumes[volume.ID]
+	if !ok {
+		return false
+	}
+	m.volumes[volume.ID] = volume
+	return true
+}
+
+func (m *volumeManager) Remove(id string) bool {
+	_, ok := m.volumes[id]
+	if !ok {
+		return false
+	}
+	delete(m.volumes, id)
+	return true
+}
+
+func (m *volumeManager) List() []*Volume {
+	result := make([]*Volume, 0, len(m.volumes))
+	for _, vol := range m.volumes {
+		result = append(result, vol)
 	}
 
-	log.Infof("Creating volume %q from image %q", name, imageRef)
+	// ensure ordering
+	sort.Slice(result, func(i, j int) bool {
+		// sort by user defined name
+		return result[i].Name < result[j].Name
+	})
 
-	volumePath, err := podman.CreateVolume(ctx, name, labels)
-	if err != nil {
-		return fmt.Errorf("creating volume %q: %w", name, err)
-	}
-	if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
-		return fmt.Errorf("copy image contents: %w", err)
+	return result
+}
+
+func (m *volumeManager) Status(status *v1alpha1.DeviceApplicationStatus) {
+	volumes := make([]v1alpha1.ApplicationVolumeStatus, 0, len(m.volumes))
+	for _, vol := range m.List() {
+		if !vol.Available {
+			// only report obsereved status
+			continue
+		}
+		volumes = append(volumes, v1alpha1.ApplicationVolumeStatus{
+			Name:      vol.Name,
+			Reference: vol.Reference,
+		})
 	}
 
-	return nil
+	if len(volumes) == 0 {
+		return
+	}
+
+	status.Volumes = &volumes
+}
+
+func (m *volumeManager) UpdateStatus(event *client.PodmanEvent) {
+	if event.Type != "volume" {
+		return
+	}
+
+	// the id of the volume is the event name
+	volID := event.Name
+	vol, ok := m.volumes[volID]
+	if !ok {
+		m.log.Warnf("Observed untracked volume: %s", volID)
+		return
+	}
+
+	// volumes are not purely observe-only, update state to reflect observation
+	switch event.Status {
+	case "create":
+		vol.Available = true
+	case "remove":
+		vol.Available = false
+	default:
+		m.log.Tracef("Unhandeled volume event status %v", event.Status)
+	}
 }
 
 // ensureVolumesContent ensures image content for each volume is present,
@@ -177,12 +251,12 @@ func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, v
 func writeComposeOverride(
 	log *log.PrefixLogger,
 	dir string,
-	appName string,
-	volumes *[]v1alpha1.ApplicationVolume,
+	volumeManager VolumeManager,
 	writer fileio.Writer,
 	overrideFilename string,
 ) error {
-	if volumes == nil || len(*volumes) == 0 {
+	volumes := volumeManager.List()
+	if len(volumes) == 0 {
 		return nil
 	}
 
@@ -191,11 +265,10 @@ func writeComposeOverride(
 	}
 
 	volMap := override["volumes"].(map[string]any)
-	for _, volume := range *volumes {
-		uniqueName := lifecycle.ComposeVolumeName(appName, volume.Name)
+	for _, volume := range volumes {
 		volMap[volume.Name] = map[string]any{
 			"external": true,
-			"name":     uniqueName,
+			"name":     volume.ID,
 		}
 	}
 
@@ -211,4 +284,16 @@ func writeComposeOverride(
 
 	log.Infof("Compose override file written: %s", path)
 	return nil
+}
+
+// ToLifecycleVolumes converts provider volumes to lifecycle volumes
+func ToLifecycleVolumes(volumes []*Volume) []lifecycle.Volume {
+	out := make([]lifecycle.Volume, len(volumes))
+	for i, vol := range volumes {
+		out[i] = lifecycle.Volume{
+			ID:        vol.ID,
+			Reference: vol.Reference,
+		}
+	}
+	return out
 }
