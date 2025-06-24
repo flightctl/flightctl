@@ -250,8 +250,10 @@ var _ = Describe("CLI - device console", Serial, func() {
 		defer out.Close()
 
 		buf := BufferReader(out)
-		Eventually(buf, 1*time.Minute, 10*time.Second).Should(Say("(?s).*Pulling image.*"))
-		Eventually(buf, 5*time.Minute, 10*time.Second).Should(Say("(?s).*[Ee]rror.*pulling.*image.*"))
+		Eventually(buf, 1*time.Minute, 10*time.Second).Should(Say(".*Pulling image.*"))
+		logrus.Infof("Waiting for image pull failure. It will take a while...")
+		_ = buf.Clear()
+		Eventually(buf, 10*time.Minute, 10*time.Second).Should(Say(".*retriable error.*pull.*image.*"))
 
 		Expect(harness.FixNetworkFailureFor(repoHost, repoPort)).To(Succeed())
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
