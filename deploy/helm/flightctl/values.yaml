@@ -146,6 +146,12 @@ alertExporter:
     image: quay.io/flightctl/flightctl-alert-exporter
     tag: ""
     pullPolicy: ""
+alertmanagerProxy:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alertmanager-proxy
+    tag: ""
+    pullPolicy: ""
 prometheus:
   enabled: false
 ui:

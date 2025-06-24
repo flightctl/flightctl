@@ -80,7 +80,8 @@ build: bin build-cli
 		./cmd/flightctl-api \
 		./cmd/flightctl-periodic \
 		./cmd/flightctl-worker \
-		./cmd/flightctl-alert-exporter
+		./cmd/flightctl-alert-exporter \
+		./cmd/flightctl-alertmanager-proxy
 
 bin/flightctl-agent: bin $(GO_FILES)
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
@@ -107,6 +108,9 @@ build-periodic: bin
 build-alert-exporter: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alert-exporter
 
+build-alertmanager-proxy: bin
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alertmanager-proxy
+
 # rebuild container only on source changes
 bin/.flightctl-api-container: bin Containerfile.api go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
@@ -132,6 +136,11 @@ bin/.flightctl-alert-exporter-container: bin Containerfile.alert-exporter go.mod
 	podman build -f Containerfile.alert-exporter $(GO_CACHE) -t flightctl-alert-exporter:latest
 	touch bin/.flightctl-alert-exporter-container
 
+bin/.flightctl-alertmanager-proxy-container: bin Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
+	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
+	podman build -f Containerfile.alertmanager-proxy $(GO_CACHE) -t flightctl-alertmanager-proxy:latest
+	touch bin/.flightctl-alertmanager-proxy-container
+
 bin/.flightctl-multiarch-cli-container: bin Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
 	podman build -f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
@@ -145,9 +154,11 @@ flightctl-periodic-container: bin/.flightctl-periodic-container
 
 flightctl-alert-exporter-container: bin/.flightctl-alert-exporter-container
 
+flightctl-alertmanager-proxy-container: bin/.flightctl-alertmanager-proxy-container
+
 flightctl-multiarch-cli-container: bin/.flightctl-multiarch-cli-container
 
-build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-multiarch-cli-container
+build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container
 
 .PHONY: build-containers build-cli build-multiarch-clis
 
@@ -162,7 +173,7 @@ bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-periodic build-worker build-alert-exporter
+.PHONY: rpm build build-api build-periodic build-worker build-alert-exporter build-alertmanager-proxy
 
 # cross-building for deb pkg
 bin/amd64:
