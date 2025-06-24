@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -16,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gbytes"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 )
@@ -32,28 +30,7 @@ var (
 	repoYAMLPath        = "repository-flightctl.yaml"
 	resourceCreated     = `(200 OK|201 Created)`
 	erYAMLPath          = "enrollmentrequest.yaml"
-	suiteCtx            context.Context
 )
-
-// _ is used as a blank identifier to ignore the return value of BeforeSuite, typically for initialization purposes.
-var _ = BeforeSuite(func() {
-	suiteCtx = util.InitSuiteTracerForGinkgo("CLI E2E Suite")
-
-	// This will be executed before all tests run.
-	var h *e2e.Harness
-
-	fmt.Println("Before all tests!")
-	h = e2e.NewTestHarness(suiteCtx)
-	login.LoginToAPIWithToken(h)
-	err := h.CleanUpAllResources()
-	Expect(err).ToNot(HaveOccurred())
-})
-
-// TestCLI initializes and runs the suite of end-to-end tests for the Command Line Interface (CLI).
-func TestCLI(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "CLI E2E Suite")
-}
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
 var _ = Describe("cli operation", func() {
@@ -96,38 +73,6 @@ var _ = Describe("cli operation", func() {
 			out, err = harness.CLIWithStdin(completeFleetYaml, "apply", "-f", "-")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).To(ContainSubstring("200 OK"))
-		})
-		It("should let you connect to a device", Label("80483", "sanity"), func() {
-			By("Connecting to a device")
-			deviceID := harness.StartVMAndEnroll()
-			logrus.Infof("Attempting console connect command to device %s", deviceID)
-			stdin, stdoutReader, err := harness.RunInteractiveCLI("console", "--tty", "device/"+deviceID)
-			Expect(err).ToNot(HaveOccurred())
-
-			stdout := BufferReader(stdoutReader)
-
-			send := func(cmd string) {
-				_, err := stdin.Write([]byte(cmd + "\n"))
-				Expect(err).ToNot(HaveOccurred())
-			}
-
-			logrus.Infof("Waiting for root prompt on device %s console", deviceID)
-			send("")
-			Eventually(stdout, TIMEOUT, POLLING).Should(Say(".*root@.*#"))
-
-			logrus.Infof("Waiting for ls output  on device %s console", deviceID)
-			send("ls")
-
-			Eventually(stdout, TIMEOUT, POLLING).Should(Say(".*bin"))
-
-			logrus.Infof("Sending exit to the remote bash on device %s console", deviceID)
-			send("exit")
-
-			stdin.Close()
-
-			// Make sure that there is no panic output from the console client
-			Consistently(stdout, "2s").ShouldNot(Say(".*panic:"))
-			stdout.Close()
 		})
 	})
 
@@ -829,8 +774,8 @@ func extractTimestamps(events []json.RawMessage) ([]time.Time, error) {
 }
 
 // TIMEOUT represents the default duration string for timeout, set to 1 minute.
-const TIMEOUT = "1m"
-const POLLING = "250ms"
+const TIMEOUT = 1 * time.Minute
+const POLLING = 250 * time.Millisecond
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.
 const completeFleetYaml = `

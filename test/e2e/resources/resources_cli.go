@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"encoding/json"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 )
@@ -18,6 +19,7 @@ const (
 	labelSelectorSwitch               = "-l"
 	apply                             = "apply"
 	wide                              = "wide"
+	jsonStr                           = "json"
 	UnknownOrUnsupportedSelectorError = "400, message: unknown or unsupported selector: unable to resolve selector name"
 	FailedToResolveOperatorError      = "400, message: failed to parse field selector: failed to resolve operation for selector"
 	InvalidFieldSelectorSyntax        = "400, message: failed to parse field selector: invalid field selector syntax"
@@ -52,6 +54,20 @@ func RepositoriesAreListed(harness *e2e.Harness, count int) error {
 
 func GetByName(harness *e2e.Harness, resourceKind string, name string) (string, error) {
 	return harness.CLI(get, fmt.Sprintf("%s/%s", resourceKind, name), "-o", wide)
+}
+
+func GetJSONByName[T any](h *e2e.Harness, resourceKind, name string) (T, error) {
+	var zero T
+
+	out, err := h.CLI(get, fmt.Sprintf("%s/%s", resourceKind, name), "-o", jsonStr)
+	if err != nil {
+		return zero, err
+	}
+	var obj T
+	if err := json.Unmarshal([]byte(out), &obj); err != nil {
+		return zero, err
+	}
+	return obj, nil
 }
 
 func ApplyFromExampleFile(harness *e2e.Harness, fileName string) (string, error) {
