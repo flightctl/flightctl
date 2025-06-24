@@ -13,6 +13,10 @@ import (
 
 type Type string
 
+// Reconciler is a function type for components that need to synchronize or validate parts of a device's spec
+// before full validation occurs.
+type Reconciler func(ctx context.Context, spec *v1alpha1.DeviceSpec) error
+
 const (
 	Current  Type = "current"
 	Desired  Type = "desired"
@@ -51,6 +55,8 @@ type Manager interface {
 	IsOSUpdate() bool
 	// CheckOsReconciliation checks if the booted OS image matches the desired OS image.
 	CheckOsReconciliation(ctx context.Context) (string, bool, error)
+	// CheckPolicy checks if a policy is ready for the given device.
+	CheckPolicy(ctx context.Context, policyType policy.Type, device *v1alpha1.Device) error
 	// IsRollingBack returns true if the device is in a rollback state.
 	IsRollingBack(ctx context.Context) (bool, error)
 	// CreateRollback creates a rollback version of the current rendered spec.
@@ -61,14 +67,15 @@ type Manager interface {
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.
 	GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error)
-	// CheckPolicy validates the update policy is ready to process.
-	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
+
 	status.Exporter
 }
 
 type PriorityQueue interface {
 	// Add adds a new spec to the scheduler
 	Add(ctx context.Context, spec *v1alpha1.Device)
+	// AddWithDelay adds a new spec to the scheduler with a specific next available time
+	AddWithDelay(ctx context.Context, spec *v1alpha1.Device, nextAvailable time.Time)
 	// Next returns the next spec to process
 	Next(ctx context.Context) (*v1alpha1.Device, bool)
 	// Remove removes a spec from the scheduler
@@ -77,8 +84,6 @@ type PriorityQueue interface {
 	SetFailed(version int64)
 	// IsFailed returns true if a version is marked as failed
 	IsFailed(version int64) bool
-	// CheckPolicy validates the update policy is ready to process.
-	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
 }
 
 type cacheData struct {

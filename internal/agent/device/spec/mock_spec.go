@@ -12,6 +12,7 @@ package spec
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	policy "github.com/flightctl/flightctl/internal/agent/device/policy"
@@ -59,17 +60,17 @@ func (mr *MockManagerMockRecorder) CheckOsReconciliation(ctx any) *gomock.Call {
 }
 
 // CheckPolicy mocks base method.
-func (m *MockManager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
+func (m *MockManager) CheckPolicy(ctx context.Context, policyType policy.Type, device *v1alpha1.Device) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckPolicy", ctx, policyType, version)
+	ret := m.ctrl.Call(m, "CheckPolicy", ctx, policyType, device)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // CheckPolicy indicates an expected call of CheckPolicy.
-func (mr *MockManagerMockRecorder) CheckPolicy(ctx, policyType, version any) *gomock.Call {
+func (mr *MockManagerMockRecorder) CheckPolicy(ctx, policyType, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckPolicy", reflect.TypeOf((*MockManager)(nil).CheckPolicy), ctx, policyType, version)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckPolicy", reflect.TypeOf((*MockManager)(nil).CheckPolicy), ctx, policyType, device)
 }
 
 // ClearRollback mocks base method.
@@ -331,18 +332,16 @@ func (mr *MockPriorityQueueMockRecorder) Add(ctx, spec any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockPriorityQueue)(nil).Add), ctx, spec)
 }
 
-// CheckPolicy mocks base method.
-func (m *MockPriorityQueue) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
+// AddWithDelay mocks base method.
+func (m *MockPriorityQueue) AddWithDelay(ctx context.Context, spec *v1alpha1.Device, nextAvailable time.Time) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckPolicy", ctx, policyType, version)
-	ret0, _ := ret[0].(error)
-	return ret0
+	m.ctrl.Call(m, "AddWithDelay", ctx, spec, nextAvailable)
 }
 
-// CheckPolicy indicates an expected call of CheckPolicy.
-func (mr *MockPriorityQueueMockRecorder) CheckPolicy(ctx, policyType, version any) *gomock.Call {
+// AddWithDelay indicates an expected call of AddWithDelay.
+func (mr *MockPriorityQueueMockRecorder) AddWithDelay(ctx, spec, nextAvailable any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckPolicy", reflect.TypeOf((*MockPriorityQueue)(nil).CheckPolicy), ctx, policyType, version)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddWithDelay", reflect.TypeOf((*MockPriorityQueue)(nil).AddWithDelay), ctx, spec, nextAvailable)
 }
 
 // IsFailed mocks base method.

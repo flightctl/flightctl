@@ -1,24 +1,21 @@
 package spec
 
 import (
-	context "context"
+	"context"
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 )
 
 func TestQueue(t *testing.T) {
 	testCases := []struct {
-		name            string
-		maxSize         int
-		items           []*Item
-		expectOrder     []string
-		expectedRequeue map[int64]int
+		name        string
+		maxSize     int
+		items       []*Item
+		expectOrder []string
 	}{
 		{
 			name:    "ensure priory ordering",
@@ -98,18 +95,12 @@ func TestRequeueThreshold(t *testing.T) {
 		renderedVersion = "1"
 	)
 	ctx := context.Background()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	mockPolicyManager := policy.NewMockManager(ctrl)
-	mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true).Times(1)
-	mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true).Times(1)
 
 	log := log.NewPrefixLogger("test")
 	maxSize := 1
 	maxRetries := 0
 	q := &queueManager{
 		queue:          newQueue(log, maxSize),
-		policyManager:  mockPolicyManager,
 		failedVersions: make(map[int64]struct{}),
 		requeueLookup:  make(map[int64]*requeueState),
 		maxRetries:     maxRetries,
@@ -159,117 +150,89 @@ func TestRequeueThreshold(t *testing.T) {
 	}, time.Second, time.Millisecond*10, "retrieval after threshold duration should succeed")
 }
 
-func TestPolicy(t *testing.T) {
-	tests := []struct {
-		name               string
-		setupMocks         func(mockPolicyManager *policy.MockManager)
-		wantNext           bool
-		wantDesiredVersion string
+func TestAddWithDelay(t *testing.T) {
+	testCases := []struct {
+		name          string
+		delayDuration time.Duration
+		expectDelay   bool
 	}{
 		{
-			name: "both policies ready on retry",
-			setupMocks: func(mockPolicyManager *policy.MockManager) {
-				// check policy during init Add
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-				// check policy during Add
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-
-				// evaluate policy first Next
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-				// evaluate policy ready on retry Next
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
-			},
-			wantNext:           true,
-			wantDesiredVersion: "2",
+			name:          "immediate availability",
+			delayDuration: 0,
+			expectDelay:   false,
 		},
 		{
-			name: "download and update not ready on retry",
-			setupMocks: func(mockPolicyManager *policy.MockManager) {
-				// check policy during init Add
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-				// check policy during Add
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-
-				// evaluate policy first Next
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-				// evaluate policy ready on retry Next
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-			},
-			wantNext: false,
-		},
-		{
-			name: "download ready update not on retry",
-			setupMocks: func(mockPolicyManager *policy.MockManager) {
-				// check policy during init Add
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-				// check policy during Add
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-
-				// evaluate policy first Next
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-				// evaluate policy ready on retry Next
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
-			},
-			wantNext:           true,
-			wantDesiredVersion: "6",
+			name:          "delayed availability",
+			delayDuration: time.Millisecond * 100,
+			expectDelay:   true,
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			ctx := context.Background()
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
-			mockPolicyManager := policy.NewMockManager(ctrl)
 
 			log := log.NewPrefixLogger("test")
-			log.SetLevel(logrus.TraceLevel)
-			maxSize := 1
-			maxRetries := 0
-			delayThreshold := 1
-			delayDuration := 1 * time.Second
-			q := &queueManager{
-				queue:          newQueue(log, maxSize),
-				policyManager:  mockPolicyManager,
-				failedVersions: make(map[int64]struct{}),
-				requeueLookup:  make(map[int64]*requeueState),
-				maxRetries:     maxRetries,
-				delayThreshold: delayThreshold,
-				delayDuration:  delayDuration,
-				log:            log,
-			}
+			q := newPriorityQueue(1, 0, 0, 0, log)
 
-			tt.setupMocks(mockPolicyManager)
+			device := newVersionedDevice("1")
+			nextAvailable := time.Now().Add(tt.delayDuration)
 
-			// init to exercise eviction
-			q.Add(ctx, newVersionedDevice("0"))
+			// Add with delay
+			q.AddWithDelay(ctx, device, nextAvailable)
 
-			// tested Add
-			q.Add(ctx, newVersionedDevice(tt.wantDesiredVersion))
+			if tt.expectDelay {
+				// Should not be available immediately
+				_, ok := q.Next(ctx)
+				require.False(ok, "device should not be available immediately when delayed")
 
-			// first call output is not validated here instead via mock.EXPECT()
-			_, _ = q.Next(ctx)
-
-			result, ok := q.Next(ctx)
-			if tt.wantNext {
-				require.Equal(tt.wantDesiredVersion, result.Version())
+				// Wait for delay to pass and try again
+				time.Sleep(tt.delayDuration + time.Millisecond*10)
+				retrieved, ok := q.Next(ctx)
+				require.True(ok, "device should be available after delay")
+				require.Equal("1", retrieved.Version())
 			} else {
-				require.False(ok)
+				// Should be available immediately
+				retrieved, ok := q.Next(ctx)
+				require.True(ok, "device should be available immediately")
+				require.Equal("1", retrieved.Version())
 			}
 		})
 	}
+}
+
+func TestAddWithDelayOrdering(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	log := log.NewPrefixLogger("test")
+	q := newPriorityQueue(10, 0, 0, 0, log)
+
+	now := time.Now()
+
+	// Add devices with different delays
+	q.AddWithDelay(ctx, newVersionedDevice("3"), now.Add(time.Millisecond*300))
+	q.AddWithDelay(ctx, newVersionedDevice("1"), now.Add(time.Millisecond*100))
+	q.AddWithDelay(ctx, newVersionedDevice("2"), now.Add(time.Millisecond*200))
+
+	// None should be available immediately
+	_, ok := q.Next(ctx)
+	require.False(ok, "no devices should be available immediately")
+
+	// Wait for all delays to pass
+	time.Sleep(time.Millisecond * 350)
+
+	// Should get devices in version order (priority queue ordering)
+	device1, ok := q.Next(ctx)
+	require.True(ok)
+	require.Equal("1", device1.Version())
+
+	device2, ok := q.Next(ctx)
+	require.True(ok)
+	require.Equal("2", device2.Version())
+
+	device3, ok := q.Next(ctx)
+	require.True(ok)
+	require.Equal("3", device3.Version())
 }

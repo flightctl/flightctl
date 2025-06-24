@@ -3,6 +3,7 @@ package spec
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -20,6 +21,91 @@ import (
 	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
+
+func TestManagerStatus(t *testing.T) {
+	ctx := context.Background()
+	log := log.NewPrefixLogger("test")
+
+	testCases := []struct {
+		name              string
+		setupManager      func(*manager)
+		expectedCondition *v1alpha1.Condition
+	}{
+		{
+			name: "no ongoing update",
+			setupManager: func(s *manager) {
+				// No additional setup needed - clean state
+			},
+			expectedCondition: nil,
+		},
+		{
+			name: "with retryable error",
+			setupManager: func(s *manager) {
+				device := newVersionedDevice("1")
+				err := fmt.Errorf("retryable error")
+				s.updating.setRetryableError(device, err)
+			},
+			expectedCondition: &v1alpha1.Condition{
+				Type:   v1alpha1.ConditionTypeDeviceUpdating,
+				Status: v1alpha1.ConditionStatusTrue,
+				Reason: string(v1alpha1.UpdateStatePreparing),
+			},
+		},
+		{
+			name: "with non-retryable error",
+			setupManager: func(s *manager) {
+				err := fmt.Errorf("non-retryable error")
+				s.updating.setNonRetryableError("1", err)
+			},
+			expectedCondition: &v1alpha1.Condition{
+				Type:   v1alpha1.ConditionTypeDeviceUpdating,
+				Status: v1alpha1.ConditionStatusTrue,
+				Reason: string(v1alpha1.UpdateStateError),
+			},
+		},
+		{
+			name: "with policy delay",
+			setupManager: func(s *manager) {
+				nextReadyTime := time.Now()
+				s.updating.setPolicyNotReady("1", &nextReadyTime)
+			},
+			expectedCondition: &v1alpha1.Condition{
+				Type:   v1alpha1.ConditionTypeDeviceUpdating,
+				Status: v1alpha1.ConditionStatusTrue,
+				Reason: string(v1alpha1.UpdateStatePreparing),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &manager{
+				cache: newCache(log),
+			}
+			// Initialize cache with default values to prevent panics
+			s.cache.update(Current, newVersionedDevice("1"))
+
+			// Apply test-specific setup
+			tc.setupManager(s)
+
+			status := &v1alpha1.DeviceStatus{}
+			err := s.Status(ctx, status)
+			require.NoError(t, err)
+			require.Equal(t, "1", status.Config.RenderedVersion)
+
+			if tc.expectedCondition == nil {
+				require.Empty(t, status.Conditions)
+			} else {
+				require.Len(t, status.Conditions, 1)
+				condition := status.Conditions[0]
+				require.Equal(t, tc.expectedCondition.Type, condition.Type)
+				require.Equal(t, tc.expectedCondition.Status, condition.Status)
+				require.Equal(t, tc.expectedCondition.Reason, condition.Reason)
+				require.NotEmpty(t, condition.Message)
+			}
+		})
+	}
+}
 
 func TestBootstrapCheckRollback(t *testing.T) {
 	require := require.New(t)
@@ -121,7 +207,6 @@ func TestInitialize(t *testing.T) {
 		defaultSpecRequeueMaxRetries,
 		defaultSpecRequeueThreshold,
 		defaultSpecRequeueDelay,
-		mockPolicyManager,
 		log,
 	)
 
@@ -129,9 +214,10 @@ func TestInitialize(t *testing.T) {
 		deviceReadWriter: mockReadWriter,
 		cache:            newCache(log),
 		queue:            queue,
+		policyManager:    mockPolicyManager,
 	}
 
-	writeErr := errors.New("write failure")
+	writeErr := fmt.Errorf("write failure")
 
 	t.Run("error writing current file", func(t *testing.T) {
 		// current
@@ -164,7 +250,7 @@ func TestInitialize(t *testing.T) {
 
 	t.Run("successful initialization", func(t *testing.T) {
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(3).Return(nil)
-		mockPolicyManager.EXPECT().IsReady(context.Background(), gomock.Any()).Return(true).Times(2)
+		mockPolicyManager.EXPECT().Sync(context.Background(), gomock.Any()).Return(nil)
 		err := s.Initialize(context.Background())
 		require.NoError(err)
 	})
@@ -186,7 +272,7 @@ func TestEnsure(t *testing.T) {
 		cache:            newCache(log),
 	}
 
-	fileErr := errors.New("invalid file")
+	fileErr := fmt.Errorf("invalid file")
 
 	t.Run("error checking if file exists", func(t *testing.T) {
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, fileErr)
@@ -238,7 +324,7 @@ func TestRead(t *testing.T) {
 	}
 
 	t.Run("ensure proper error handling on read failure", func(t *testing.T) {
-		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("read gone wrong"))
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, fmt.Errorf("read gone wrong"))
 		_, err := s.Read(Current)
 		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
 	})
@@ -271,7 +357,7 @@ func Test_readRenderedSpecFromFile(t *testing.T) {
 	})
 
 	t.Run("error reading file when it does exist", func(t *testing.T) {
-		mockReader.EXPECT().ReadFile(filePath).Return(nil, errors.New("cannot read"))
+		mockReader.EXPECT().ReadFile(filePath).Return(nil, fmt.Errorf("cannot read"))
 
 		_, err := readDeviceFromFile(mockReader, filePath)
 		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
@@ -310,7 +396,7 @@ func Test_writeRenderedToFile(t *testing.T) {
 	require.NoError(err)
 
 	t.Run("returns an error when the write fails", func(t *testing.T) {
-		writeErr := errors.New("some failure")
+		writeErr := fmt.Errorf("some failure")
 		mockWriter.EXPECT().WriteFile(filePath, marshaled, fileio.DefaultFilePermissions).Return(writeErr)
 
 		err = writeDeviceToFile(mockWriter, spec, filePath)
@@ -330,25 +416,25 @@ func TestUpgrade(t *testing.T) {
 	desiredPath := "test/desired.json"
 	currentPath := "test/current.json"
 	rollbackPath := "test/rollback.json"
-	specErr := errors.New("error with spec")
+	specErr := fmt.Errorf("error with spec")
 	emptySpec, err := createEmptyTestSpec()
 	require.NoError(err)
 
 	testCases := []struct {
 		name          string
-		setupMocks    func(mockReadWriter *fileio.MockReadWriter, mockPriorityQueue *MockPriorityQueue)
+		setupMocks    func(mockReadWriter *fileio.MockReadWriter, mockPriorityQueue *MockPriorityQueue, mockPolicyManager *policy.MockManager)
 		expectedError error
 	}{
 		{
 			name: "error reading desired spec",
-			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue) {
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue, mpm *policy.MockManager) {
 				mrw.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
 			},
 			expectedError: errors.ErrReadingRenderedSpec,
 		},
 		{
 			name: "error writing desired spec to current",
-			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue) {
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue, mpm *policy.MockManager) {
 				desiredSpec, err := createTestDeviceBytes("flightctl-device:v2")
 				require.NoError(err)
 				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
@@ -358,7 +444,7 @@ func TestUpgrade(t *testing.T) {
 		},
 		{
 			name: "error writing the rollback spec",
-			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue) {
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue, mpm *policy.MockManager) {
 				desiredSpec, err := createTestDeviceBytes("flightctl-device:v2")
 				require.NoError(err)
 				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
@@ -368,16 +454,32 @@ func TestUpgrade(t *testing.T) {
 			expectedError: errors.ErrWritingRenderedSpec,
 		},
 		{
-			name: "clears out the rollback spec",
-			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue) {
+			name: "successful upgrade calls policy manager with latest version",
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue, mpm *policy.MockManager) {
 				desiredSpec, err := createTestDeviceBytes("flightctl-device:v2")
 				require.NoError(err)
 				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
 				mrw.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
 				mrw.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(nil)
 				mpq.EXPECT().Remove(gomock.Any())
+				mpm.EXPECT().SetCurrentDevice(gomock.Any(), gomock.Any()).Do(func(ctx context.Context, device *v1alpha1.Device) {
+					require.Equal("1", device.Version(), "Policy manager should be called with the latest (desired) device version")
+				}).Return(nil)
 			},
 			expectedError: nil,
+		},
+		{
+			name: "policy manager error during upgrade",
+			setupMocks: func(mrw *fileio.MockReadWriter, mpq *MockPriorityQueue, mpm *policy.MockManager) {
+				desiredSpec, err := createTestDeviceBytes("flightctl-device:v2")
+				require.NoError(err)
+				mrw.EXPECT().ReadFile(desiredPath).Return(desiredSpec, nil)
+				mrw.EXPECT().WriteFile(currentPath, desiredSpec, gomock.Any()).Return(nil)
+				mrw.EXPECT().WriteFile(rollbackPath, emptySpec, gomock.Any()).Return(nil)
+				policyErr := fmt.Errorf("policy manager error")
+				mpm.EXPECT().SetCurrentDevice(gomock.Any(), gomock.Any()).Return(policyErr)
+			},
+			expectedError: fmt.Errorf("spec upgrade"),
 		},
 	}
 
@@ -388,6 +490,7 @@ func TestUpgrade(t *testing.T) {
 
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockPriorityQueue := NewMockPriorityQueue(ctrl)
+			mockPolicyManager := policy.NewMockManager(ctrl)
 			log := log.NewPrefixLogger("test")
 
 			s := &manager{
@@ -398,17 +501,23 @@ func TestUpgrade(t *testing.T) {
 				rollbackPath:     rollbackPath,
 				queue:            mockPriorityQueue,
 				cache:            newCache(log),
+				policyManager:    mockPolicyManager,
 			}
 
 			s.cache.current.renderedVersion = "1"
 			s.cache.desired.renderedVersion = "2"
 
-			tc.setupMocks(mockReadWriter, mockPriorityQueue)
+			tc.setupMocks(mockReadWriter, mockPriorityQueue, mockPolicyManager)
 
 			err := s.Upgrade(context.Background())
 
 			if tc.expectedError != nil {
-				require.ErrorIs(err, tc.expectedError)
+				require.Error(err)
+				if tc.expectedError.Error() != "" {
+					require.Contains(err.Error(), tc.expectedError.Error())
+				} else {
+					require.ErrorIs(err, tc.expectedError)
+				}
 				return
 			}
 			require.NoError(err)
@@ -488,7 +597,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 	require.NoError(err)
 
 	t.Run("error getting bootc status", func(t *testing.T) {
-		bootcErr := errors.New("bootc problem")
+		bootcErr := fmt.Errorf("bootc problem")
 		mockOSClient.EXPECT().Status(ctx).Return(nil, bootcErr)
 
 		_, _, err := s.CheckOsReconciliation(ctx)
@@ -500,7 +609,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 		osStatus := os.Status{BootcHost: bootcStatus}
 		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
 
-		readErr := errors.New("unable to read file")
+		readErr := fmt.Errorf("unable to read file")
 		mockReadWriter.EXPECT().ReadFile(desiredPath).Return(emptySpec, readErr)
 
 		_, _, err = s.CheckOsReconciliation(ctx)
@@ -519,7 +628,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(bootedOSImage, bootedImage)
+		require.Equal(bootedImage, bootedOSImage)
 		require.Equal(false, desiredImageIsBooted)
 	})
 
@@ -538,7 +647,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(bootedOSImage, bootedImage)
+		require.Equal(bootedImage, bootedOSImage)
 		require.Equal(false, desiredImageIsBooted)
 	})
 
@@ -556,7 +665,7 @@ func TestCheckOsReconciliation(t *testing.T) {
 
 		bootedOSImage, desiredImageIsBooted, err := s.CheckOsReconciliation(ctx)
 		require.NoError(err)
-		require.Equal(bootedOSImage, image)
+		require.Equal(image, bootedOSImage)
 		require.Equal(true, desiredImageIsBooted)
 	})
 }
@@ -587,7 +696,7 @@ func TestCreateRollback(t *testing.T) {
 	emptySpec, err := createEmptyTestSpec()
 	require.NoError(err)
 
-	specErr := errors.New("unable to use spec")
+	specErr := fmt.Errorf("unable to use spec")
 
 	t.Run("error reading current spec", func(t *testing.T) {
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(emptySpec, specErr)
@@ -694,7 +803,7 @@ func TestRollback(t *testing.T) {
 		expectedError      error
 	}{
 		{
-			name:               "rollback to previous",
+			name:               "rollback to previous no setfailed",
 			currentVersion:     "1",
 			desiredVersion:     "2",
 			wantCurrentVersion: "1",
@@ -702,8 +811,7 @@ func TestRollback(t *testing.T) {
 			wantNextVersion:    "1",
 			wantSetFailed:      false,
 			setupMocks: func(mockPolicyManager *policy.MockManager) {
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+				mockPolicyManager.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
 			},
 		},
 		{
@@ -715,8 +823,7 @@ func TestRollback(t *testing.T) {
 			wantNextVersion:    "1",
 			wantSetFailed:      true,
 			setupMocks: func(mockPolicyManager *policy.MockManager) {
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+				mockPolicyManager.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
 			},
 		},
 		{
@@ -728,8 +835,7 @@ func TestRollback(t *testing.T) {
 			wantNextVersion:    "1",
 			wantSetFailed:      true,
 			setupMocks: func(mockPolicyManager *policy.MockManager) {
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+				mockPolicyManager.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
 			},
 		},
 		{
@@ -741,8 +847,7 @@ func TestRollback(t *testing.T) {
 			wantNextVersion:    "1",
 			wantSetFailed:      false,
 			setupMocks: func(mockPolicyManager *policy.MockManager) {
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+				mockPolicyManager.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
 			},
 		},
 		{
@@ -754,8 +859,7 @@ func TestRollback(t *testing.T) {
 			wantNextVersion:    "1",
 			wantSetFailed:      false,
 			setupMocks: func(mockPolicyManager *policy.MockManager) {
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
-				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
+				mockPolicyManager.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
 			},
 		},
 	}
@@ -779,7 +883,6 @@ func TestRollback(t *testing.T) {
 				defaultSpecRequeueMaxRetries,
 				defaultSpecRequeueThreshold,
 				defaultSpecRequeueDelay,
-				mockPolicyManager,
 				log,
 			)
 			dataDir := tmpDir
@@ -793,6 +896,7 @@ func TestRollback(t *testing.T) {
 				rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
 				devicePublisher:  pub.Subscribe(),
 				cache:            newCache(log),
+				policyManager:    mockPolicyManager,
 			}
 
 			tc.setupMocks(mockPolicyManager)
@@ -802,7 +906,7 @@ func TestRollback(t *testing.T) {
 			err = s.write(Desired, newVersionedDevice(tc.desiredVersion))
 			require.NoError(err)
 
-			opts := []RollbackOption{}
+			var opts []RollbackOption
 			if tc.wantSetFailed {
 				opts = append(opts, WithSetFailed())
 			}
@@ -826,7 +930,7 @@ func TestRollback(t *testing.T) {
 			require.False(requeue)
 			require.Equal(tc.wantNextVersion, next.Version())
 
-			// ensure desired vesion is tracked as failed
+			// ensure desired version is tracked as failed
 			if tc.wantSetFailed {
 				version, err := stringToInt64(tc.desiredVersion)
 				require.NoError(err)
@@ -890,27 +994,84 @@ func TestGetDesired(t *testing.T) {
 	desiredPath := "test/desired.json"
 	rollbackPath := "test/rollback.json"
 	image := "flightctl-device:v2"
-	specErr := errors.New("problem with spec")
+	specErr := fmt.Errorf("problem with spec")
 	devicePublisher := publisher.NewSubscription()
 
 	// Define the test cases
 	testCases := []struct {
-		name           string
-		setupMocks     func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement)
-		expectedDevice *v1alpha1.Device
-		expectedError  error
+		name               string
+		lastConsumedDevice *v1alpha1.Device
+		setupMocks         func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager)
+		expectedDevice     *v1alpha1.Device
+		expectedRequeue    bool
+		expectedError      error
 	}{
 		{
 			name: "error reading desired spec",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
 				mrw.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
 			},
-			expectedDevice: nil,
-			expectedError:  errors.ErrReadingRenderedSpec,
+			expectedDevice:  nil,
+			expectedRequeue: false,
+			expectedError:   errors.ErrReadingRenderedSpec,
 		},
 		{
 			name: "desired spec is returned when management api returns no content",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
+				renderedDesiredSpec := createTestRenderedDevice(image)
+				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+				require.NoError(err)
+
+				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
+				mpm.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
+			},
+			expectedDevice:  createTestRenderedDevice(image),
+			expectedRequeue: false,
+			expectedError:   nil,
+		},
+		{
+			name: "spec from the api response has the same Version as desired",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
+				renderedDesiredSpec := createTestRenderedDevice(image)
+				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
+				require.NoError(err)
+
+				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
+				mpm.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
+				mrw.EXPECT().WriteFile(desiredPath, marshaledDesiredSpec, gomock.Any()).Return(nil)
+				mpm.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil)
+				require.NoError(devicePublisher.Push(renderedDesiredSpec))
+			},
+			expectedDevice:  createTestRenderedDevice(image),
+			expectedRequeue: false,
+			expectedError:   nil,
+		},
+		{
+			name: "error when writing the desired spec fails",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
+				device := createTestRenderedDevice(image)
+				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				mpq.EXPECT().Next(gomock.Any()).Return(device, true)
+				mpm.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
+
+				// API is returning a rendered version that is different from the read desired spec
+				apiResponse := newVersionedDevice("5")
+				mpm.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil)
+				require.NoError(devicePublisher.Push(apiResponse))
+
+				// The difference results in a write call for the desired spec
+				mrw.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
+			},
+			expectedDevice:  nil,
+			expectedRequeue: false,
+			expectedError:   errors.ErrWritingRenderedSpec,
+		},
+		{
+			name: "device requeued with delay when version not ready",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
 				renderedDesiredSpec := createTestRenderedDevice(image)
 				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
 				require.NoError(err)
@@ -919,41 +1080,56 @@ func TestGetDesired(t *testing.T) {
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
 
+				// Version is not ready, should requeue with delay
+				nextReadyTime := time.Now().Add(time.Hour)
+				mpm.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(false, &nextReadyTime, nil)
+				mpq.EXPECT().AddWithDelay(gomock.Any(), renderedDesiredSpec, nextReadyTime)
 			},
-			expectedDevice: createTestRenderedDevice(image),
-			expectedError:  nil,
+			expectedDevice:  nil,
+			expectedRequeue: true,
+			expectedError:   nil,
 		},
 		{
-			name: "spec from the api response has the same Version as desired",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
-				renderedDesiredSpec := createTestRenderedDevice(image)
-				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
-				require.NoError(err)
+			name: "successful retry of a failed device spec",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
+				device := newVersionedDevice("2")
 
-				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
-				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
-				mrw.EXPECT().WriteFile(desiredPath, marshaledDesiredSpec, gomock.Any()).Return(nil)
-				require.NoError(devicePublisher.Push(renderedDesiredSpec))
-			},
-			expectedDevice: createTestRenderedDevice(image),
-			expectedError:  nil,
-		},
-		{
-			name: "error when writing the desired spec fails",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
-				device := createTestRenderedDevice(image)
-				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				// First attempt fails with retryable error
+				mpm.EXPECT().Sync(gomock.Any(), device).Return(errors.ErrDownloadPolicyNotReady)
+				require.NoError(devicePublisher.Push(device))
+
+				// Second attempt succeeds
+				mpm.EXPECT().Sync(gomock.Any(), device).Return(nil)
+				mpq.EXPECT().Add(gomock.Any(), device)
 				mpq.EXPECT().Next(gomock.Any()).Return(device, true)
-
-				// API is returning a rendered version that is different from the read desired spec
-				apiResponse := newVersionedDevice("5")
-				require.NoError(devicePublisher.Push(apiResponse))
-
-				// The difference results in a write call for the desired spec
-				mrw.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
+				mpm.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
 			},
-			expectedDevice: nil,
-			expectedError:  errors.ErrWritingRenderedSpec,
+			expectedDevice:  newVersionedDevice("2"),
+			expectedRequeue: false,
+			expectedError:   nil,
+		},
+		{
+			name: "handling of a non-retryable error",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
+				device := newVersionedDevice("3")
+				nonRetryableErr := fmt.Errorf("dont retry me")
+
+				mpm.EXPECT().Sync(gomock.Any(), device).Return(nonRetryableErr)
+				mpq.EXPECT().SetFailed(int64(3))
+				require.NoError(devicePublisher.Push(device))
+
+				// Should not proceed, so we expect it to read from disk
+				onDiskDevice := newVersionedDevice("1")
+				onDiskDeviceBytes, err := json.Marshal(onDiskDevice)
+				require.NoError(err)
+				mrw.EXPECT().ReadFile(desiredPath).Return(onDiskDeviceBytes, nil)
+				mpq.EXPECT().Add(gomock.Any(), onDiskDevice)
+				mpq.EXPECT().Next(gomock.Any()).Return(onDiskDevice, true)
+				mpm.EXPECT().IsVersionReady(gomock.Any(), gomock.Any()).Return(true, nil, nil)
+			},
+			expectedDevice:  newVersionedDevice("1"),
+			expectedRequeue: false,
+			expectedError:   nil,
 		},
 	}
 
@@ -964,6 +1140,7 @@ func TestGetDesired(t *testing.T) {
 			mockClient := client.NewMockManagement(ctrl)
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockPriorityQueue := NewMockPriorityQueue(ctrl)
+			mockPolicyManager := policy.NewMockManager(ctrl)
 
 			log := log.NewPrefixLogger("test")
 
@@ -975,26 +1152,36 @@ func TestGetDesired(t *testing.T) {
 				queue:            mockPriorityQueue,
 				cache:            newCache(log),
 				devicePublisher:  devicePublisher,
+				policyManager:    mockPolicyManager,
 			}
 
 			s.cache.current.renderedVersion = "1"
-			s.cache.desired.renderedVersion = "2"
+			s.cache.desired.renderedVersion = "2" // Start in a steady state
+			if tc.lastConsumedDevice != nil {
+				s.lastConsumedDevice = tc.lastConsumedDevice
+			}
 
 			tc.setupMocks(
 				mockPriorityQueue,
 				mockReadWriter,
 				mockClient,
+				mockPolicyManager,
 			)
 
-			specResult, _, err := s.GetDesired(ctx)
+			specResult, requeue, err := s.GetDesired(ctx)
 			if tc.expectedError != nil {
 				require.ErrorIs(err, tc.expectedError)
 				require.Nil(specResult)
 				return
 			}
 			require.NoError(err)
-			require.NotNil(specResult)
-			require.Equal(tc.expectedDevice, specResult)
+			require.Equal(tc.expectedRequeue, requeue)
+			if tc.expectedDevice != nil {
+				require.NotNil(specResult)
+				require.Equal(tc.expectedDevice.Version(), specResult.Version())
+			} else {
+				require.Nil(specResult)
+			}
 		})
 	}
 }
@@ -1110,6 +1297,97 @@ func Test_getVersion(t *testing.T) {
 			renderedVersion, err := s.getRenderedVersion()
 			require.NoError(err)
 			require.Equal(tt.expectedVersion, renderedVersion)
+		})
+	}
+}
+
+func TestCheckPolicy(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+
+	testCases := []struct {
+		name          string
+		policyType    policy.Type
+		version       string
+		policyReady   bool
+		expectedError error
+	}{
+		{
+			name:          "download policy ready",
+			policyType:    policy.Download,
+			version:       "1",
+			policyReady:   true,
+			expectedError: nil,
+		},
+		{
+			name:          "update policy ready",
+			policyType:    policy.Update,
+			version:       "2",
+			policyReady:   true,
+			expectedError: nil,
+		},
+		{
+			name:          "download policy not ready",
+			policyType:    policy.Download,
+			version:       "3",
+			policyReady:   false,
+			expectedError: errors.ErrDownloadPolicyNotReady,
+		},
+		{
+			name:          "update policy not ready",
+			policyType:    policy.Update,
+			version:       "4",
+			policyReady:   false,
+			expectedError: errors.ErrUpdatePolicyNotReady,
+		},
+		{
+			name:          "invalid policy type",
+			policyType:    policy.Type("invalid"),
+			version:       "5",
+			policyReady:   false, // Not used for invalid types
+			expectedError: errors.ErrInvalidPolicyType,
+		},
+		{
+			name:          "empty version with download policy ready",
+			policyType:    policy.Download,
+			version:       "",
+			policyReady:   true,
+			expectedError: nil,
+		},
+		{
+			name:          "empty version with update policy not ready",
+			policyType:    policy.Update,
+			version:       "",
+			policyReady:   false,
+			expectedError: errors.ErrUpdatePolicyNotReady,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockPolicyManager := policy.NewMockManager(ctrl)
+			s := &manager{
+				log:           log,
+				policyManager: mockPolicyManager,
+			}
+
+			ctx := context.Background()
+			device := newVersionedDevice(tc.version)
+
+			mockPolicyManager.EXPECT().IsReady(ctx, tc.policyType, device).Return(tc.policyReady)
+
+			// Execute test
+			err := s.CheckPolicy(ctx, tc.policyType, device)
+
+			// Verify results
+			if tc.expectedError != nil {
+				require.ErrorIs(err, tc.expectedError)
+			} else {
+				require.NoError(err)
+			}
 		})
 	}
 }

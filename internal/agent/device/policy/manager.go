@@ -11,9 +11,21 @@ import (
 	"github.com/samber/lo"
 )
 
+// policySchedule combines a schedule with its ready state
+type policySchedule struct {
+	schedule *schedule
+	isReady  bool // defaults to false
+}
+
+// versionSchedules holds the schedules and cached results for a specific version
+type versionSchedules struct {
+	download *policySchedule
+	update   *policySchedule
+}
+
 type manager struct {
-	download *schedule
-	update   *schedule
+	// versions holds per-version schedules with automatic compaction
+	versions *OrderedCache[string, *versionSchedules]
 
 	log *log.PrefixLogger
 }
@@ -23,66 +35,201 @@ type manager struct {
 // thread-safe.
 func NewManager(log *log.PrefixLogger) Manager {
 	return &manager{
-		log: log,
+		versions: NewOrderedCache[string, *versionSchedules](),
+		log:      log,
 	}
 }
 
-func (m *manager) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+// validateDevice performs common device validation checks
+func (m *manager) validateDevice(device *v1alpha1.Device, operation string) error {
+	if device == nil {
+		return fmt.Errorf("device is required for %s", operation)
+	}
+
+	version := device.Version()
+	if version == "" {
+		return fmt.Errorf("device version is required for %s", operation)
+	}
+
+	return nil
+}
+
+// validateDeviceWithSpec performs device validation including spec check
+func (m *manager) validateDeviceWithSpec(device *v1alpha1.Device, operation string) error {
+	if err := m.validateDevice(device, operation); err != nil {
+		return err
+	}
+
+	if device.Spec == nil {
+		return fmt.Errorf("device spec is required for %s", operation)
+	}
+
+	return nil
+}
+
+func (m *manager) Sync(ctx context.Context, device *v1alpha1.Device) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	m.log.Debug("Syncing policy")
 	defer m.log.Debug("Finished syncing policy")
 
-	if desired.UpdatePolicy == nil {
-		m.log.Debugf("No update policy defined")
-		m.update = nil
-		m.download = nil
-		return nil
-	}
-	if desired.UpdatePolicy.DownloadSchedule != nil {
-		schedule := newSchedule(Download)
-		if err := schedule.Parse(m.log, desired.UpdatePolicy.DownloadSchedule); err != nil {
-			return fmt.Errorf("failed to parse download schedule: %w", err)
-		}
-		m.download = schedule
-	} else {
-		m.download = nil
+	if err := m.validateDeviceWithSpec(device, "policy sync"); err != nil {
+		return err
 	}
 
-	if desired.UpdatePolicy.UpdateSchedule != nil {
+	version := device.Version()
+
+	_, exists := m.versions.Get(version)
+	if exists {
+		return nil
+	}
+
+	vs := &versionSchedules{}
+
+	if device.Spec.UpdatePolicy == nil {
+		m.log.Debugf("No update policy defined for version %s", version)
+		vs.download = nil
+		vs.update = nil
+		m.versions.Put(version, vs)
+		return nil
+	}
+
+	if device.Spec.UpdatePolicy.DownloadSchedule != nil {
+		schedule := newSchedule(Download)
+		if err := schedule.Parse(m.log, device.Spec.UpdatePolicy.DownloadSchedule); err != nil {
+			return fmt.Errorf("failed to parse download schedule: %w", err)
+		}
+		vs.download = &policySchedule{
+			schedule: schedule,
+			isReady:  false,
+		}
+	}
+
+	if device.Spec.UpdatePolicy.UpdateSchedule != nil {
 		schedule := newSchedule(Update)
-		if err := schedule.Parse(m.log, desired.UpdatePolicy.UpdateSchedule); err != nil {
+		if err := schedule.Parse(m.log, device.Spec.UpdatePolicy.UpdateSchedule); err != nil {
 			return fmt.Errorf("failed to parse update schedule: %w", err)
 		}
-		m.update = schedule
-	} else {
-		m.update = nil
+		vs.update = &policySchedule{
+			schedule: schedule,
+			isReady:  false,
+		}
 	}
+
+	m.versions.Put(version, vs)
 
 	return nil
 }
 
-func (m *manager) IsReady(ctx context.Context, policyType Type) bool {
+func (m *manager) IsReady(ctx context.Context, policyType Type, device *v1alpha1.Device) bool {
 	if ctx.Err() != nil {
 		return false
 	}
 
-	if policyType == Download {
-		if m.download == nil {
-			return true
-		}
-		return m.download.IsReady(m.log)
+	if err := m.validateDevice(device, "policy check"); err != nil {
+		m.log.Errorf("Device validation failed: %v", err)
+		return false
 	}
 
-	if policyType == Update {
-		if m.update == nil {
-			return true
-		}
-		return m.update.IsReady(m.log)
+	version := device.Version()
+
+	vs, exists := m.versions.Get(version)
+	if !exists {
+		return false
 	}
 
-	return false
+	var policySchedule *policySchedule
+	switch policyType {
+	case Download:
+		policySchedule = vs.download
+	case Update:
+		policySchedule = vs.update
+	default:
+		return false
+	}
+
+	return m.checkPolicyReady(policySchedule)
+}
+
+// IsVersionReady checks if all policies for a version are ready.
+// Returns true if all policies are ready, false otherwise.
+// When not ready, returns the minimum next trigger time among all not-ready policies,
+// allowing the caller to retry as soon as the first policy becomes ready.
+func (m *manager) IsVersionReady(ctx context.Context, device *v1alpha1.Device) (bool, *time.Time, error) {
+	if ctx.Err() != nil {
+		return false, nil, ctx.Err()
+	}
+
+	if err := m.validateDevice(device, "version ready"); err != nil {
+		return false, nil, err
+	}
+
+	version := device.Version()
+
+	vs, exists := m.versions.Get(version)
+	if !exists {
+		return false, nil, fmt.Errorf("version ready: version %s not found", version)
+	}
+
+	allReady := true
+	var minNextTime *time.Time
+
+	if vs.download != nil && !m.checkPolicyReady(vs.download) {
+		allReady = false
+		minNextTime = lo.ToPtr(vs.download.schedule.NextTriggerTime(m.log))
+	}
+
+	if vs.update != nil && !m.checkPolicyReady(vs.update) {
+		allReady = false
+		nextTime := vs.update.schedule.NextTriggerTime(m.log)
+		if minNextTime == nil || nextTime.Before(*minNextTime) {
+			minNextTime = &nextTime
+		}
+	}
+
+	if allReady {
+		return true, nil, nil
+	}
+	return false, minNextTime, nil
+}
+
+// SetCurrentDevice compacts the cache up to the current device's version
+func (m *manager) SetCurrentDevice(ctx context.Context, device *v1alpha1.Device) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if err := m.validateDevice(device, "setting current device"); err != nil {
+		return err
+	}
+
+	version := device.Version()
+
+	// Compact up to the current version (removes all versions before it)
+	m.versions.CompactUpTo(version)
+	m.log.Debugf("Compacted policy cache up to version %s", version)
+
+	return nil
+}
+
+// checkPolicyReady evaluates if a policy schedule is ready and caches the result
+func (m *manager) checkPolicyReady(policySchedule *policySchedule) bool {
+	if policySchedule == nil {
+		return true
+	}
+
+	if policySchedule.isReady {
+		return true
+	}
+
+	ready := policySchedule.schedule.IsReady(m.log)
+
+	if ready {
+		policySchedule.isReady = true
+	}
+
+	return ready
 }
 
 type schedule struct {
@@ -124,7 +271,7 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1alpha1.UpdateS
 		return fmt.Errorf("invalid cron expression: %w", err)
 	}
 	s.cron = cronExpr
-	log.Debugf("Parsed cron expression: %s", s.cron)
+	log.Debugf("Parsed cron expression: %s", updateSchedule.At)
 
 	// calculate cron interval
 	nextRun := s.cron.Next(now)
@@ -145,21 +292,35 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1alpha1.UpdateS
 	return nil
 }
 
-// Ready returns true if the schedule is ready to run
-func (s *schedule) IsReady(log *log.PrefixLogger) bool {
+func (s *schedule) isReady(now, lastRun, graceEnd time.Time) bool {
+	return now.Equal(lastRun) || (now.After(lastRun) && !now.After(graceEnd))
+}
+
+func (s *schedule) getInfo() (time.Time, time.Time, time.Time) {
 	now := s.nowFn().In(s.location)
 	lastRun := s.cron.Next(now.Add(-s.interval))
 	graceEnd := lastRun.Add(s.startGraceDuration)
+	return now, lastRun, graceEnd
+}
+
+func (s *schedule) IsReady(log *log.PrefixLogger) bool {
+	now, lastRun, graceEnd := s.getInfo()
 	nextRun := s.cron.Next(now)
 	log.Debugf("Policy %s current time: %s, last run: %s, next run: %s, grace ends: %s", s.policyType, now, lastRun, nextRun, graceEnd)
-
-	if now.Equal(lastRun) || (now.After(lastRun) && !now.After(graceEnd)) {
+	if s.isReady(now, lastRun, graceEnd) {
 		log.Infof("Policy %s schedule is ready", s.policyType)
 		return true
 	}
-
 	log.Debugf("Policy %s schedule is not ready", s.policyType)
 	return false
+}
+
+func (s *schedule) NextTriggerTime(log *log.PrefixLogger) time.Time {
+	now, lastRun, graceEnd := s.getInfo()
+	if s.isReady(now, lastRun, graceEnd) {
+		return now
+	}
+	return s.cron.Next(now)
 }
 
 // normalizeTime ensures that DST is properly handled.
