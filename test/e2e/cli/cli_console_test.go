@@ -158,9 +158,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 		Expect(harness.GetCurrentDeviceRenderedVersion(deviceID)).To(Equal(expectedRenderedVersion))
 
 		By("returns a helpful error when the device is not found")
-		/*out, err :=*/ _, err := harness.CLI("console", "device/nonexistent")
+		out, err := harness.CLI("console", "device/nonexistent")
 		Expect(err).To(HaveOccurred())
-		//Expect(out).To(ContainSubstring("not found")) // currently fails
+		Expect(out).To(ContainSubstring("not found"))
 	})
 
 	It("allows tuning spec-fetch-interval", Label("82538", "sanity"), func() {

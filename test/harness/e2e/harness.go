@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/creack/pty"
 	"io"
 	"net"
 	"os"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/creack/pty"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
@@ -122,6 +123,7 @@ func NewTestHarness(ctx context.Context) *Harness {
 		SSHPassword:   "user",
 		SSHPort:       2233, // TODO: randomize and retry on error
 	})
+	Expect(err).ToNot(HaveOccurred())
 
 	c, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
 	Expect(err).ToNot(HaveOccurred())
@@ -416,7 +418,7 @@ func (h *Harness) ReplaceVariableInString(s string, old string, new string) stri
 }
 
 func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadCloser, error) {
-	cmd := exec.Command(flightctlPath())
+	cmd := exec.Command(flightctlPath()) //nolint:gosec // flightctlPath constructs path from project directory structure for test purposes
 	h.setArgsInCmd(cmd, args...)
 
 	// create a pty/tty pair
