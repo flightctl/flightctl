@@ -1443,9 +1443,9 @@ func conditionExists(conditions []v1alpha1.Condition, predicate func(condition *
 }
 
 // ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
-func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
+func ConditionExists(d *v1alpha1.Device, condType v1alpha1.ConditionType, condStatus v1alpha1.ConditionStatus, condReason string) bool {
 	return conditionExists(d.Status.Conditions, func(condition *v1alpha1.Condition) bool {
-		return string(condition.Type) == conditionType && condition.Reason == conditionReason && string(condition.Status) == conditionStatus
+		return condition.Type == condType && condition.Status == condStatus && condition.Reason == condReason
 	})
 }
 

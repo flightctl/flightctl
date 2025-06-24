@@ -252,8 +252,8 @@ var _ = Describe("VM Agent behavior", func() {
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s. Error", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
 					// returning true if it is reported an error status or if the device is rolled back to the previous version
-					return e2e.ConditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError)) ||
-						(e2e.ConditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateUpdated)) && (device.Status.Config.RenderedVersion == strconv.Itoa(previousRenderedVersion)))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError)) ||
+						(e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateUpdated)) && (device.Status.Config.RenderedVersion == strconv.Itoa(previousRenderedVersion)))
 				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithUpdateStatus, TIMEOUT, POLLING).WithArguments(
@@ -277,12 +277,12 @@ var _ = Describe("VM Agent behavior", func() {
 			// Check the http config error is detected.
 			harness.WaitForDeviceContents(deviceId, `Error: failed fetching specified Repository definition`,
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "SpecValid", "False", "Invalid")
+					return e2e.ConditionExists(device, v1alpha1.DeviceSpecValid, v1alpha1.ConditionStatusFalse, "Invalid")
 				}, TIMEOUT)
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError))
 				}, TIMEOUT)
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
@@ -308,12 +308,12 @@ var _ = Describe("VM Agent behavior", func() {
 			// Check the http config error is detected.
 			harness.WaitForDeviceContents(deviceId, "Error: sending HTTP Request",
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "SpecValid", "False", "Invalid")
+					return e2e.ConditionExists(device, v1alpha1.DeviceSpecValid, v1alpha1.ConditionStatusFalse, "Invalid")
 				}, TIMEOUT)
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "Updating", "False", string(v1alpha1.UpdateStateError))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError))
 				}, TIMEOUT)
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
