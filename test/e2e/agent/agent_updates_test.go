@@ -43,7 +43,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateApplyingUpdate))
 				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
@@ -51,7 +51,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateRebooting))
 				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
@@ -81,14 +81,14 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateApplyingUpdate))
 				}, TIMEOUT)
 
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateRebooting))
 				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
@@ -124,14 +124,14 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 3",
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateApplyingUpdate))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateApplyingUpdate))
 				}, TIMEOUT)
 
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "Updating", "True", string(v1alpha1.UpdateStateRebooting))
+					return e2e.ConditionExists(device, v1alpha1.DeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateRebooting))
 				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
