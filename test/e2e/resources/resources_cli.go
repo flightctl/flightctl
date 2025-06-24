@@ -1,11 +1,11 @@
 package resources
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"encoding/json"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 )
