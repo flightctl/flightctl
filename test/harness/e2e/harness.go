@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
