@@ -1448,12 +1448,18 @@ func (h Harness) ManageResource(operation, resource string, args ...string) (str
 	}
 }
 
-// ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
-func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
-	for _, condition := range d.Status.Conditions {
-		if string(condition.Type) == conditionType &&
-			condition.Reason == conditionReason &&
-			string(condition.Status) == conditionStatus {
+// ConditionExists returns true if a device already has a condition that
+// exactly matches the requested type / status / reason.
+func ConditionExists(
+	d *v1alpha1.Device,
+	condType v1alpha1.ConditionType,
+	condStatus v1alpha1.ConditionStatus,
+	condReason string,
+) bool {
+	for _, c := range d.Status.Conditions {
+		if c.Type == condType &&
+			c.Status == condStatus &&
+			c.Reason == condReason {
 			return true
 		}
 	}
