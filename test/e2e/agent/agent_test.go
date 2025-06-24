@@ -370,18 +370,13 @@ var httpRepo = v1alpha1.Repository{
 	Spec:       spec,
 }
 
-// mountPath specifies the default file system path where the configuration is expected to be mounted.
-var mountPath = "/etc/config"
-
 // gitConfigInvalidRepo defines a GitConfigProviderSpec with an invalid repository name ("not-existing-repo") for test purposes.
 var gitConfigInvalidRepo = v1alpha1.GitConfigProviderSpec{
 	GitRef: struct {
-		MountPath      *string `json:"mountPath,omitempty"`
-		Path           string  `json:"path"`
-		Repository     string  `json:"repository"`
-		TargetRevision string  `json:"targetRevision"`
+		Path           string `json:"path"`
+		Repository     string `json:"repository"`
+		TargetRevision string `json:"targetRevision"`
 	}{
-		MountPath:      &mountPath,
 		Path:           "/configs/repo/config.yaml",
 		Repository:     "not-existing-repo",
 		TargetRevision: "main",

@@ -109,7 +109,6 @@ var _ = Describe("FleetValidate", func() {
 		badGitConfig.GitRef.Path = "path"
 		badGitConfig.GitRef.Repository = "missingrepo"
 		badGitConfig.GitRef.TargetRevision = "rev"
-		goodGitConfig.GitRef.MountPath = lo.ToPtr("/")
 
 		goodInlineConfig = &api.InlineConfigProviderSpec{
 			Name: "goodInlineConfig",
