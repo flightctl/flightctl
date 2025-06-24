@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/creack/pty"
 	"io"
 	"net"
 	"os"
@@ -121,7 +122,6 @@ func NewTestHarness(ctx context.Context) *Harness {
 		SSHPassword:   "user",
 		SSHPort:       2233, // TODO: randomize and retry on error
 	})
-	Expect(err).ToNot(HaveOccurred())
 
 	c, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
 	Expect(err).ToNot(HaveOccurred())
@@ -411,25 +411,16 @@ func (h *Harness) ReplaceVariableInString(s string, old string, new string) stri
 }
 
 func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadCloser, error) {
-	// TODO pty: this is how oci does a PTY:
-	// https://github.com/cri-o/cri-o/blob/main/internal/oci/oci_unix.go
-	//
-	// set PS1 environment variable to make bash print the default prompt
-
-	cmd := exec.Command(flightctlPath()) //nolint:gosec
+	cmd := exec.Command(flightctlPath())
 	h.setArgsInCmd(cmd, args...)
 
-	logrus.Infof("running: %s", strings.Join(cmd.Args, " "))
-	stdin, err := cmd.StdinPipe()
+	// create a pty/tty pair
+	ptmx, tty, err := pty.Open()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdout pipe: %w", err)
+		return nil, nil, err
 	}
 
-	cmd.Stderr = cmd.Stdout
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
 
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("error starting interactive process: %w", err)
@@ -440,8 +431,12 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 		} else {
 			logrus.Info("interactive process exited successfully")
 		}
+		if err := tty.Close(); err != nil {
+			logrus.Errorf("error closing tty: %v", err)
+		}
 	}()
-	return stdin, stdout, nil
+
+	return ptmx, ptmx, nil
 }
 
 func (h *Harness) CLIWithStdin(stdin string, args ...string) (string, error) {
@@ -1276,8 +1271,12 @@ func (h *Harness) SimulateNetworkFailure() error {
 		return fmt.Errorf("invalid registry endpoint: %v", err)
 	}
 
+	return h.SimulateNetworkFailureFor(registryIP, registryPort)
+}
+
+func (h *Harness) SimulateNetworkFailureFor(ip, port string) error {
 	blockCommands := [][]string{
-		buildIPTablesCmd(registryIP, registryPort, false),
+		buildIPTablesCmd(ip, port, false),
 	}
 
 	for _, cmd := range blockCommands {
@@ -1321,8 +1320,12 @@ func (h *Harness) FixNetworkFailure() error {
 		return fmt.Errorf("invalid registry endpoint: %v", err)
 	}
 
+	return h.FixNetworkFailureFor(registryIP, registryPort)
+}
+
+func (h *Harness) FixNetworkFailureFor(ip, port string) error {
 	unblockCommands := [][]string{
-		buildIPTablesCmd(registryIP, registryPort, true),
+		buildIPTablesCmd(ip, port, true),
 	}
 
 	for _, cmd := range unblockCommands {
