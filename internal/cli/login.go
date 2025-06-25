@@ -91,6 +91,13 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
+	defaultConfigPath, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return fmt.Errorf("could not get user config directory: %w", err)
+	}
+	if o.ConfigFilePath != defaultConfigPath {
+		fmt.Printf("Using a non-default configuration file path: %s (Default: %s)\n", o.ConfigFilePath, defaultConfigPath)
+	}
 	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
 		return err
 	}
@@ -252,14 +259,6 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	err = o.clientConfig.Persist(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("persisting client config: %w", err)
-	}
-
-	defaultConfigPath, err := client.DefaultFlightctlClientConfigPath()
-	if err != nil {
-		return fmt.Errorf("could not get user config directory: %w", err)
-	}
-	if o.ConfigFilePath != defaultConfigPath {
-		fmt.Printf("Using a non-default configuration file path: %s (Default: %s)\n", o.ConfigFilePath, defaultConfigPath)
 	}
 
 	fmt.Println("Login successful.")
