@@ -3,8 +3,6 @@ package cli_test
 import (
 	"context"
 	"fmt"
-	"io"
-	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -19,54 +17,6 @@ import (
 	. "github.com/onsi/gomega/gbytes"
 	"github.com/sirupsen/logrus"
 )
-
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
-
-type consoleSession struct {
-	stdin  io.WriteCloser
-	stdout *Buffer
-}
-
-// newConsoleSession starts a PTY console session to the specified device.
-func newConsoleSession(h *e2e.Harness, deviceID string) *consoleSession {
-	in, out, err := h.RunInteractiveCLI("console", "--tty", "device/"+deviceID)
-	Expect(err).ToNot(HaveOccurred())
-
-	cs := &consoleSession{stdin: in, stdout: BufferReader(out)}
-
-	// Trigger prompt and wait for it.
-	cs.mustSend("")
-	cs.mustExpect(".*root@.*#")
-
-	return cs
-}
-
-func (cs *consoleSession) mustSend(cmd string) {
-	logrus.Infof("console> %s", cmd)
-	_, err := io.WriteString(cs.stdin, cmd+"\n")
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cs.stdout.Clear()).To(Succeed())
-}
-
-func (cs *consoleSession) mustExpect(pattern string) {
-	logrus.Infof("console EXPECT %q", pattern)
-	Eventually(cs.stdout, TIMEOUT, POLLING).Should(Say(pattern))
-	Expect(cs.stdout.Clear()).To(Succeed())
-}
-
-func (cs *consoleSession) close() {
-	cs.mustSend("exit")
-	Consistently(cs.stdout, 2*time.Second).ShouldNot(Say(".*panic:"))
-
-	if err := cs.stdin.Close(); err != nil {
-		logrus.WithError(err).Warn("failed to close console stdin")
-	}
-	if err := cs.stdout.Close(); err != nil {
-		logrus.WithError(err).Warn("failed to close console stdout")
-	}
-}
 
 // -----------------------------------------------------------------------------
 // Console test-suite
@@ -91,29 +41,29 @@ var _ = Describe("CLI - device console", Serial, func() {
 	AfterEach(func() { harness.Cleanup(false) })
 
 	It("connects to a device and executes a simple command", Label("80483", "sanity"), func() {
-		cs := newConsoleSession(harness, deviceID)
-		cs.mustSend("ls")
-		cs.mustExpect(".*bin")
-		cs.close()
+		cs := harness.NewConsoleSession(deviceID)
+		cs.MustSend("ls")
+		cs.MustExpect(".*bin")
+		cs.Close()
 	})
 
 	It("supports multiple simultaneous console sessions", Label("81737", "sanity"), func() {
-		cs1 := newConsoleSession(harness, deviceID)
-		cs2 := newConsoleSession(harness, deviceID)
+		cs1 := harness.NewConsoleSession(deviceID)
+		cs2 := harness.NewConsoleSession(deviceID)
 
-		cs2.mustSend("pwd")
-		cs2.mustExpect("/")
+		cs2.MustSend("pwd")
+		cs2.MustExpect("/")
 
-		cs1.mustSend("echo Session1 > /var/home/user/file.txt")
-		cs2.mustSend("cat /var/home/user/file.txt")
-		cs2.mustExpect("Session1")
+		cs1.MustSend("echo Session1 > /var/home/user/file.txt")
+		cs2.MustSend("cat /var/home/user/file.txt")
+		cs2.MustExpect("Session1")
 
-		cs2.mustSend("echo Session2 >> /var/home/user/file.txt")
-		cs1.mustSend("cat /var/home/user/file.txt")
-		cs1.mustExpect("(?s).*Session1.*Session2.*")
+		cs2.MustSend("echo Session2 >> /var/home/user/file.txt")
+		cs1.MustSend("cat /var/home/user/file.txt")
+		cs1.MustExpect("(?s).*Session1.*Session2.*")
 
-		cs1.close()
-		cs2.close()
+		cs1.Close()
+		cs2.Close()
 	})
 
 	It("keeps console sessions open during a device update", Label("81786", "sanity"), func() {
@@ -129,14 +79,14 @@ var _ = Describe("CLI - device console", Serial, func() {
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 		Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
-		sessions := make([]*consoleSession, 0, sessionsToOpen)
+		sessions := make([]*e2e.ConsoleSession, 0, sessionsToOpen)
 		for i := range sessionsToOpen {
 			By(fmt.Sprintf("opening console session %d/%d", i+1, sessionsToOpen))
-			sessions = append(sessions, newConsoleSession(harness, deviceID))
+			sessions = append(sessions, harness.NewConsoleSession(deviceID))
 		}
 		for i, cs := range sessions {
 			By(fmt.Sprintf("closing console session %d/%d", i+1, sessionsToOpen))
-			cs.close()
+			cs.Close()
 		}
 
 		By("waiting for the update to finish")
@@ -171,26 +121,26 @@ var _ = Describe("CLI - device console", Serial, func() {
 			rootPwd              = "user"
 		)
 
-		sendAsRoot := func(cs *consoleSession, cmd string) {
-			cs.mustSend(fmt.Sprintf("echo '%s' | sudo -S %s", rootPwd, cmd))
+		sendAsRoot := func(cs *e2e.ConsoleSession, cmd string) {
+			cs.MustSend(fmt.Sprintf("echo '%s' | sudo -S %s", rootPwd, cmd))
 		}
 
-		cs := newConsoleSession(harness, deviceID)
+		cs := harness.NewConsoleSession(deviceID)
 
 		// show current config & ensure the key is present
 		sendAsRoot(cs, "cat "+cfgFile)
-		cs.mustExpect(specFetchKey)
+		cs.MustExpect(specFetchKey)
 
 		// patch config
 		sedExpr := fmt.Sprintf("sed -i -E 's/%s: .+m.+s/%s: 0m%ds/g' %s && cat %s", specFetchKey, specFetchKey,
 			specFetchIntervalSec, cfgFile, cfgFile)
 		sendAsRoot(cs, sedExpr)
-		cs.mustExpect(fmt.Sprintf("%s: 0m%ds", specFetchKey, specFetchIntervalSec))
+		cs.MustExpect(fmt.Sprintf("%s: 0m%ds", specFetchKey, specFetchIntervalSec))
 		sendAsRoot(cs, fmt.Sprintf("sh -c \"echo 'log-level: debug' >> %s\" && cat %s", cfgFile, cfgFile))
-		cs.mustExpect("log-level: debug")
+		cs.MustExpect("log-level: debug")
 
 		sendAsRoot(cs, "systemctl restart flightctl-agent")
-		cs.close()
+		cs.Close()
 
 		By("waiting for publisher logs with the new interval")
 		tsRe := regexp.MustCompile(`time="([^"]+)"`)
@@ -231,24 +181,29 @@ var _ = Describe("CLI - device console", Serial, func() {
 	})
 
 	It("recovers from image pull failures", Label("82541", "sanity"), func() {
-		_, newImageRef := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		_, _ = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			WithTimeout(1 * time.Minute).WithPolling(1 * time.Second).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
-		repoHost, repoPort, err := net.SplitHostPort(strings.SplitN(newImageRef, "/", 2)[0])
-		Expect(err).ToNot(HaveOccurred())
-		fixFunc, err := harness.SimulateNetworkFailureForCLI(repoHost, repoPort)
+		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
 		in, out, err := harness.RunInteractiveCLI(
 			"console", "device/"+deviceID, "--",
 			"journalctl", "-f", "-o", "short-precise", "--no-pager", "-u", "flightctl-agent")
 		Expect(err).ToNot(HaveOccurred())
-		defer in.Close()
-		defer out.Close()
+
+		defer func() {
+			if err := in.Close(); err != nil {
+				logrus.Errorf("Failed to close stdin: %v", err)
+			}
+			if err := out.Close(); err != nil {
+				logrus.Errorf("Failed to close stdout: %v", err)
+			}
+		}()
 
 		buf := BufferReader(out)
 		Eventually(buf, 1*time.Minute, 10*time.Second).Should(Say(".*Pulling image.*"))
@@ -256,7 +211,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 		_ = buf.Clear()
 		Eventually(buf, 10*time.Minute, 10*time.Second).Should(Say(".*retriable error.*pull.*image.*"))
 
-		Expect(fixFunc()).To(Succeed())
+		err = harness.FixNetworkFailure()
+		Expect(err).ToNot(HaveOccurred())
+
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			WithTimeout(4 * time.Minute).WithPolling(10 * time.Second).
@@ -272,9 +229,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 		)
 
 		By("verifying that the ~. sequence exits the shell")
-		cs := newConsoleSession(harness, deviceID)
-		Expect(cs.stdin.Write([]byte("\n~.\n"))).To(Equal(4))
-		Eventually(cs.stdout.Closed, 1*time.Second, 100*time.Millisecond).Should(BeTrue())
+		cs := harness.NewConsoleSession(deviceID)
+		Expect(cs.Stdin.Write([]byte("\n~.\n"))).To(Equal(4))
+		Eventually(cs.Stdout.Closed, 1*time.Second, 100*time.Millisecond).Should(BeTrue())
 
 		By("running a command without opening a shell")
 		Expect(harness.CLI("console", "device/"+deviceID, "--", "flightctl-agent", "system-info")).
