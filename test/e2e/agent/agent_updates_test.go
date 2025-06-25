@@ -244,7 +244,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(func() string {
 				logrus.Infof("Checking console output for rollback logs")
-				return harness.AgentLogs(harness.VM)
+				logs, err := harness.ReadPrimaryVMAgentLogs("")
+				Expect(err).NotTo(HaveOccurred())
+				return logs
 			}).
 				WithContext(harness.Context).
 				WithTimeout(dur).

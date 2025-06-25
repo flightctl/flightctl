@@ -180,7 +180,7 @@ var _ = Describe("cli operation", func() {
 			Eventually(func() error {
 				out, err = harness.CLI("apply", "-f", repositoryFlightctlYamlPath)
 				return err
-			}, "30s", "1s").Should(BeNil(), "failed to apply Repository")
+			}).Should(BeNil(), "failed to apply Repository")
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
 
 			repo := harness.GetRepositoryByYaml(repositoryFlightctlYamlPath)
@@ -238,7 +238,7 @@ var _ = Describe("cli operation", func() {
 			Eventually(func() error {
 				out, err = harness.CLI("apply", "-f", csrYamlPath)
 				return err
-			}, "30s", "1s").Should(BeNil(), "failed to apply CSR")
+			}).Should(BeNil(), "failed to apply CSR")
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
 			csr := harness.GetCertificateSigningRequestByYaml(csrYamlPath)
 
@@ -748,10 +748,6 @@ func extractTimestamps(events []v1alpha1.Event) ([]time.Time, error) {
 
 	return timestamps, nil
 }
-
-// TIMEOUT represents the default duration string for timeout, set to 1 minute.
-const TIMEOUT = 1 * time.Minute
-const POLLING = 250 * time.Millisecond
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.
 const completeFleetYaml = `

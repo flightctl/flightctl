@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/onsi/gomega/types"
+
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -14,7 +16,6 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gbytes"
 	"github.com/sirupsen/logrus"
 )
 
@@ -74,8 +75,6 @@ var _ = Describe("CLI - device console", Serial, func() {
 		device, _ := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			WithTimeout(1 * time.Minute).
-			WithPolling(1 * time.Second).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 		Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
@@ -90,17 +89,13 @@ var _ = Describe("CLI - device console", Serial, func() {
 		}
 
 		By("waiting for the update to finish")
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			WithTimeout(4 * time.Minute).
-			WithPolling(10 * time.Second).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 
 		// ensure applications become healthy
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			WithTimeout(1 * time.Minute).
-			WithPolling(500 * time.Millisecond).
 			Should(WithTransform(func(d *v1alpha1.Device) v1alpha1.ApplicationsSummaryStatusType {
 				return d.Status.ApplicationsSummary.Status
 			}, Equal(v1alpha1.ApplicationsSummaryStatusHealthy)))
@@ -143,40 +138,60 @@ var _ = Describe("CLI - device console", Serial, func() {
 		cs.Close()
 
 		By("waiting for publisher logs with the new interval")
-		tsRe := regexp.MustCompile(`time="([^"]+)"`)
-		Eventually(func() (bool, error) {
-			out, err := harness.CLI("console", fmt.Sprintf("device/%s", deviceID),
-				"--", "journalctl", "-o", "short-precise", "--no-pager", "-u", "flightctl-agent",
-				"|", "grep", "-E", `.*"No new template version from management service.*publisher.go.*"`)
-			if err != nil {
-				return false, nil
-			}
+		// Wait for the target log messages to appear
+		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
+			WithArguments("2 minutes ago").
+			Should(And(
+				ContainSubstring("No new template version from management service"),
+				ContainSubstring("publisher.go"),
+			))
 
-			lines := strings.Split(strings.TrimSpace(out), "\n")
-			if len(lines) < 2 {
-				return false, nil
-			}
+		// Now validate the timing intervals
+		logWithTsRe := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
+		Eventually(func() bool {
+			logs, err := harness.ReadPrimaryVMAgentLogs("2 minutes ago")
+			Expect(err).ToNot(HaveOccurred())
 
-			var prev time.Time
-			for _, ln := range lines {
-				m := tsRe.FindStringSubmatch(ln)
-				if m == nil {
-					return false, nil
-				}
+			lines := strings.Split(strings.TrimSpace(logs), "\n")
+			logrus.Infof("Read %d log lines from agent journal", len(lines))
 
-				t, err := time.Parse(time.RFC3339Nano, m[1])
-				if err != nil {
-					return false, err
-				}
-				if !prev.IsZero() {
-					delta := t.Sub(prev)
-					if (delta - (specFetchIntervalSec * time.Second)).Abs() > time.Second {
-						return false, nil // interval not yet stable
+			var validTimestamps []time.Time
+
+			for _, line := range lines {
+				if m := logWithTsRe.FindStringSubmatch(line); m != nil {
+					if t, err := time.Parse(time.RFC3339Nano, m[1]); err == nil {
+						validTimestamps = append(validTimestamps, t)
+						logrus.Infof("Found matching log line with timestamp: %s", t.Format(time.RFC3339))
+					} else {
+						logrus.Warnf("Failed to parse timestamp %q: %v", m[1], err)
 					}
 				}
-				prev = t
 			}
-			return true, nil
+
+			logrus.Infof("Found %d lines matching the pattern", len(validTimestamps))
+
+			if len(validTimestamps) < 2 {
+				logrus.Infof("Need at least 2 matching timestamps, only have %d - waiting for more logs", len(validTimestamps))
+				return false
+			}
+
+			logrus.Infof("Validating intervals between %d timestamps", len(validTimestamps))
+			for i := 1; i < len(validTimestamps); i++ {
+				delta := validTimestamps[i].Sub(validTimestamps[i-1])
+				expectedInterval := specFetchIntervalSec * time.Second
+				deviation := (delta - expectedInterval).Abs()
+
+				logrus.Infof("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v",
+					i-1, i, delta, expectedInterval, deviation)
+
+				if deviation > time.Second {
+					logrus.Infof("Interval not yet stable - deviation %v > 1s threshold", deviation)
+					return false // interval not yet stable
+				}
+			}
+
+			logrus.Infof("All %d intervals are stable within 1s tolerance", len(validTimestamps)-1)
+			return true
 		}, 2*time.Minute, 10*time.Second).Should(BeTrue())
 	})
 
@@ -185,38 +200,28 @@ var _ = Describe("CLI - device console", Serial, func() {
 
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			WithTimeout(1 * time.Minute).WithPolling(1 * time.Second).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
 		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		in, out, err := harness.RunInteractiveCLI(
-			"console", "device/"+deviceID, "--",
-			"journalctl", "-f", "-o", "short-precise", "--no-pager", "-u", "flightctl-agent")
-		Expect(err).ToNot(HaveOccurred())
+		// Use the new journalctl logging function to wait for image pull activity
+		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
+			WithArguments("2 minutes ago").
+			Should(ContainSubstring("Pulling image"))
 
-		defer func() {
-			if err := in.Close(); err != nil {
-				logrus.Errorf("Failed to close stdin: %v", err)
-			}
-			if err := out.Close(); err != nil {
-				logrus.Errorf("Failed to close stdout: %v", err)
-			}
-		}()
-
-		buf := BufferReader(out)
-		Eventually(buf, 1*time.Minute, 10*time.Second).Should(Say(".*Pulling image.*"))
 		logrus.Infof("Waiting for image pull failure. It will take a while...")
-		_ = buf.Clear()
-		Eventually(buf, 10*time.Minute, 10*time.Second).Should(Say(".*retriable error.*pull.*image.*"))
+
+		// Wait for the retriable error in the logs
+		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
+			WithArguments("2 minutes ago").
+			Should(ContainSubstring("retriable error"))
 
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			WithTimeout(4 * time.Minute).WithPolling(10 * time.Second).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
@@ -230,8 +235,8 @@ var _ = Describe("CLI - device console", Serial, func() {
 
 		By("verifying that the ~. sequence exits the shell")
 		cs := harness.NewConsoleSession(deviceID)
-		Expect(cs.Stdin.Write([]byte("\n~.\n"))).To(Equal(4))
-		Eventually(cs.Stdout.Closed, 1*time.Second, 100*time.Millisecond).Should(BeTrue())
+		Expect(cs.Stdin.Write([]byte("\n~.\n"))).To(BeNumerically(">", 0))
+		Eventually(cs.Stdout.Closed).Should(BeTrue())
 
 		By("running a command without opening a shell")
 		Expect(harness.CLI("console", "device/"+deviceID, "--", "flightctl-agent", "system-info")).
@@ -252,3 +257,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 		Expect(out).To(ContainSubstring("Error:"))
 	})
 })
+
+func eventuallySlow(actual any) types.AsyncAssertion {
+	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
+}

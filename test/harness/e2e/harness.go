@@ -167,12 +167,20 @@ func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface
 	return createdVMs, nil
 }
 
-func (h *Harness) AgentLogs(agent vm.TestVMInterface) string {
-	stdout, err := agent.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
-	Expect(err).ToNot(HaveOccurred())
-	return stdout.String()
+// ReadPrimaryVMAgentLogs reads flightctl-agent journalctl logs from the primary VM
+func (h *Harness) ReadPrimaryVMAgentLogs(since string) (string, error) {
+	if h.VM == nil {
+		return "", fmt.Errorf("VM is not initialized")
+	}
+	logs, err := h.VM.JournalLogs(vm.JournalOpts{
+		Unit:  "flightctl-agent",
+		Since: since,
+	})
+
+	return logs, err
 }
 
+// ReadClientConfig returns the client config for at the specified location. The default config path is used if no path i
 // ReadClientConfig returns the client config for at the specified location. The default config path is used if no path is
 // specified
 func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
@@ -224,7 +232,7 @@ func (h *Harness) Cleanup(printConsole bool) {
 			fmt.Println("============ systemctl status flightctl-agent ============")
 			fmt.Println(stdout.String())
 			fmt.Println("=============== logs for flightctl-agent =================")
-			fmt.Println(h.AgentLogs(vm))
+			fmt.Println(h.ReadPrimaryVMAgentLogs(""))
 			if printConsole {
 				fmt.Println("======================= VM Console =======================")
 				fmt.Println(vm.GetConsoleOutput())

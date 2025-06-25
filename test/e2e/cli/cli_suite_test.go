@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
@@ -15,7 +16,17 @@ import (
 // sub-tracers to a single parent span.
 var suiteCtx context.Context
 
+const (
+	// Eventually polling timeout/interval constants
+	TIMEOUT      = time.Minute
+	LONG_TIMEOUT = 10 * time.Minute
+	POLLING      = time.Second
+	LONG_POLLING = 5 * time.Second
+)
+
 var _ = BeforeSuite(func() {
+	SetDefaultEventuallyTimeout(TIMEOUT)
+	SetDefaultEventuallyPollingInterval(POLLING)
 	suiteCtx = util.InitSuiteTracerForGinkgo("CLI E2E Suite")
 
 	// A best-effort clean-up to ensure the cluster is empty before tests start.

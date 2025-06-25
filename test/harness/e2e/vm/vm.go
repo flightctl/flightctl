@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -45,6 +46,14 @@ type TestVMInterface interface {
 	RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error)
 	Exists() (bool, error)
 	GetConsoleOutput() string
+	JournalLogs(opts JournalOpts) (string, error)
+}
+
+// JournalOpts collects optional filters.
+// Zero values mean "all units" / "start of journal".
+type JournalOpts struct {
+	Unit  string
+	Since string // time string like "20 minutes ago" or empty for all logs
 }
 
 func (v *TestVM) WaitForSSHToBeReady() error {
@@ -127,6 +136,24 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 
 	stdout, err := v.RunSSHWithUser(inputArgs, stdin, v.VMUser)
 	return stdout, err
+}
+
+func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
+	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname"}
+
+	if opts.Unit != "" {
+		args = append(args, "-u", opts.Unit)
+	}
+	if opts.Since != "" {
+		args = append(args, "--since", fmt.Sprintf("%q", opts.Since))
+	}
+
+	logrus.Debugf("Reading journal logs with command: %s", strings.Join(args, " "))
+	stdout, err := v.RunSSH(args, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to read journal logs: %w", err)
+	}
+	return stdout.String(), nil
 }
 
 func StartAndWaitForSSH(params TestVM) (vm TestVMInterface, err error) {

@@ -40,7 +40,7 @@ func (cs *ConsoleSession) MustSend(cmd string) {
 // MustExpect waits for a pattern to appear in the console output
 func (cs *ConsoleSession) MustExpect(pattern string) {
 	logrus.Infof("console EXPECT %q", pattern)
-	Eventually(cs.Stdout, TIMEOUT, POLLING).Should(Say(pattern))
+	Eventually(cs.Stdout).Should(Say(pattern))
 	Expect(cs.Stdout.Clear()).To(Succeed())
 }
 
