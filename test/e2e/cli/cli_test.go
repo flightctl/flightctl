@@ -410,7 +410,7 @@ var _ = Describe("cli operation", func() {
 				case util.ErResource:
 					name = *er.Metadata.Name
 				}
-				Expect(out).To(ContainSubstring(formatResourceEvent(r.resourceType, name, util.EventCreated)))
+				Expect(out).Should(MatchRegexp(formatResourceEvent(r.resourceType, name, util.EventCreated)))
 			}
 
 			By("Reapplying resources (updates)")
@@ -451,23 +451,23 @@ var _ = Describe("cli operation", func() {
 				case util.ErResource:
 					name = *er.Metadata.Name
 				}
-				Expect(out).To(ContainSubstring(formatResourceEvent(r.resourceType, name, util.EventUpdated)))
+				Expect(out).To(MatchRegexp(formatResourceEvent(r.resourceType, name, util.EventUpdated)))
 			}
 
 			By("Querying events with fieldSelector kind=Device")
 			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.DeviceResource))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
+			Expect(out).To(MatchRegexp(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
 
 			By("Querying events with fieldSelector kind=Fleet")
 			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.FleetResource))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(formatResourceEvent("Fleet", fleetName, util.EventCreated)))
+			Expect(out).To(MatchRegexp(formatResourceEvent("Fleet", fleetName, util.EventCreated)))
 
 			By("Querying events with fieldSelector kind=Repository")
 			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.RepoResource))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(formatResourceEvent(util.RepoResource, repoName, util.EventCreated)))
+			Expect(out).To(MatchRegexp(formatResourceEvent(util.RepoResource, repoName, util.EventCreated)))
 
 			By("Querying events with fieldSelector type=Normal")
 			out, err = harness.RunGetEvents(fieldSelector, "type=Normal")
@@ -482,7 +482,7 @@ var _ = Describe("cli operation", func() {
 			By("Querying events with a combined filter: kind=Device, type=Normal")
 			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s,type=Normal", kind, util.DeviceResource))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
+			Expect(out).To(MatchRegexp(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
 			Expect(out).To(ContainSubstring("Normal"))
 
 			By("Querying with an invalid fieldSelector key")
@@ -692,7 +692,7 @@ var _ = Describe("cli login", func() {
 
 // formatResourceEvent formats the event's message and returns it as a string
 func formatResourceEvent(resource, name, action string) string {
-	return fmt.Sprintf("%s %s %s successfully", resource, name, action)
+	return fmt.Sprintf("%s\\s+%s\\s+Normal\\s+%s\\s+successfully", resource, name, action)
 }
 
 // DeleteWithoutNameTestParams defines the parameters for delete-without-name tests.

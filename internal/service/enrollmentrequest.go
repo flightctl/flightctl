@@ -131,7 +131,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 
 	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er)
 	status := StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.EnrollmentRequestKind, *er.Metadata.Name, status, nil))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.EnrollmentRequestKind, *er.Metadata.Name, status, nil, h.log))
 	return result, status
 }
 
@@ -187,7 +187,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 
 	result, created, updateDesc, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er)
 	status := StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.EnrollmentRequestKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.EnrollmentRequestKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
@@ -227,7 +227,7 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 
 	result, updateDesc, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj)
 	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.EnrollmentRequestKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.EnrollmentRequestKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
@@ -237,7 +237,7 @@ func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name strin
 	deleted, err := h.store.EnrollmentRequest().Delete(ctx, orgId, name)
 	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 	if deleted || err != nil {
-		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.EnrollmentRequestKind, name, status))
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
 	}
 	return status
 }

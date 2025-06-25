@@ -151,6 +151,7 @@ func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.D
 			if callback != nil {
 				callback(ctx, store.NullOrgId, &oldDevice, device)
 			}
+			//device.Status.LastSeen = time.Now()
 			*s.devices = append(*s.devices, *device)
 			return device, api.ResourceUpdatedDetails{}, nil
 		}
@@ -182,6 +183,7 @@ func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, devic
 			callback(ctx, store.NullOrgId, &oldDevice, device)
 		}
 	}
+	//device.Status.LastSeen = time.Now()
 	*s.devices = append(*s.devices, *device)
 	return device, created, details, nil
 }
@@ -190,8 +192,20 @@ func (s *DummyDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.D
 	if s.devices == nil {
 		s.devices = &[]api.Device{}
 	}
+	//device.Status.LastSeen = time.Now()
 	*s.devices = append(*s.devices, *device)
 	return device, nil
+}
+
+func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error) {
+	for i, dev := range *s.devices {
+		if *device.Metadata.Name == *dev.Metadata.Name {
+			oldDevice := (*s.devices)[i]
+			oldDevice.Status = device.Status
+			return device, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
 }
 
 // --------------------------------------> Fleet

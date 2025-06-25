@@ -55,7 +55,7 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 
 		t.log.Infof("Updating %d devices to unknown status", len(batch))
 		// TODO: This is MVP and needs to be properly evaluated for performance and race conditions
-		if status := t.serviceHandler.UpdateDeviceSummaryStatusBatch(ctx, batch, api.DeviceSummaryStatusUnknown, statusInfoMessage); status.Code != http.StatusOK {
+		if status = t.serviceHandler.UpdateDeviceSummaryStatusBatch(ctx, batch, api.DeviceSummaryStatusUnknown, statusInfoMessage); status.Code != http.StatusOK {
 			t.log.WithError(service.ApiStatusToErr(status)).Error("failed to update device summary status")
 			return
 		}

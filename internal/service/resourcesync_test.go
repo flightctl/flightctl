@@ -15,6 +15,7 @@ func verifyRSPatchFailed(require *require.Assertions, status api.Status) {
 }
 
 func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) (*api.ResourceSync, api.ResourceSync, api.Status) {
+	ctx := context.Background()
 	resourceSync := api.ResourceSync{
 		ApiVersion: "v1",
 		Kind:       "ResourceSync",
@@ -30,16 +31,18 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 	serviceHandler := ServiceHandler{
 		store: &TestStore{},
 	}
-	ctx := context.Background()
 	orig, status := serviceHandler.CreateResourceSync(ctx, resourceSync)
 	require.Equal(statusCreatedCode, status.Code)
 	resp, status := serviceHandler.PatchResourceSync(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	require.NotEmpty(event.Items)
 	return resp, *orig, status
 }
 
 func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	require := require.New(t)
+	ctx := context.Background()
 
 	resourceSync := api.ResourceSync{
 		ApiVersion: "v1",
@@ -58,7 +61,6 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	serviceHandler := ServiceHandler{
 		store: &TestStore{},
 	}
-	ctx := context.Background()
 	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &resourceSync)
 	require.NoError(err)
 	_, status := serviceHandler.ReplaceResourceSync(ctx,
@@ -191,6 +193,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 
 func TestResourceSyncNonExistingResource(t *testing.T) {
 	require := require.New(t)
+	ctx := context.Background()
 	var value interface{} = "labelValue1"
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
@@ -199,11 +202,12 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 	serviceHandler := ServiceHandler{
 		store: &TestStore{},
 	}
-	ctx := context.Background()
 	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &api.ResourceSync{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 	})
 	require.NoError(err)
 	_, status := serviceHandler.PatchResourceSync(ctx, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	require.Len(event.Items, 0)
 }
