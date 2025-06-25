@@ -1242,32 +1242,39 @@ func buildIPTablesCmd(ip, port string, remove bool) []string {
 }
 
 func (h *Harness) SimulateNetworkFailure() error {
-	registryIP, registryPort, err := h.getRegistryEndpointInfo()
-
-	if err != nil {
-		return fmt.Errorf("failed to get the registry endpoint info: %w", err)
-	}
-
-	blockCommands := [][]string{
-		buildIPTablesCmd(registryIP, registryPort, false),
-	}
-
 	context, err := getContext()
 	if err != nil {
 		return fmt.Errorf("failed to get the context: %w", err)
 	}
 
-	if context == util.OCP {
+	var blockCommands [][]string
+
+	switch context {
+	case util.KIND:
+		registryIP, registryPort, err := h.getRegistryEndpointInfo()
+
+		if err != nil {
+			return fmt.Errorf("failed to get the registry endpoint info: %w", err)
+		}
+
+		blockCommands = [][]string{
+			buildIPTablesCmd(registryIP, registryPort, false),
+		}
+
+	case util.OCP:
 		args := fmt.Sprintf(`
 		 echo '1.2.3.4 %s' | sudo tee -a /etc/hosts
 	`, h.RegistryEndpoint())
-		blockCommands = append(blockCommands, []string{"sudo", "bash", "-c", args})
+		blockCommands = [][]string{{"sudo", "bash", "-c", args}}
+
+	default:
+		return fmt.Errorf("unknown context: %s", context)
 	}
 
 	for _, cmd := range blockCommands {
 		stdout, err := h.VMs[0].RunSSH(cmd, nil)
 		if err != nil {
-			return fmt.Errorf("failed to add iptables rule %v: %v, stdout: %s", cmd, err, stdout)
+			return fmt.Errorf("failed to simulate network failure %v: %v, stdout: %s", cmd, err, stdout)
 		}
 	}
 
@@ -1300,28 +1307,36 @@ func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, e
 }
 
 func (h *Harness) FixNetworkFailure() error {
-	registryIP, registryPort, err := h.getRegistryEndpointInfo()
-	if err != nil {
-		return fmt.Errorf("failed to get the registry port: %w", err)
-	}
-
-	unblockCommands := [][]string{
-		buildIPTablesCmd(registryIP, registryPort, true),
-	}
-
 	context, err := getContext()
 	if err != nil {
 		return fmt.Errorf("failed to get the context: %w", err)
 	}
 
-	if context == util.OCP {
-		unblockCommands = append(unblockCommands, []string{"bash", "-c", "head -n -1 /etc/hosts > /tmp/hosts_tmp && sudo mv /tmp/hosts_tmp /etc/hosts"})
+	var unblockCommands [][]string
+
+	switch context {
+	case util.KIND:
+		registryIP, registryPort, err := h.getRegistryEndpointInfo()
+		if err != nil {
+			return fmt.Errorf("failed to get the registry port: %w", err)
+		}
+		unblockCommands = [][]string{
+			buildIPTablesCmd(registryIP, registryPort, true),
+		}
+
+	case util.OCP:
+		unblockCommands = [][]string{
+			{"bash", "-c", "head -n -1 /etc/hosts > /tmp/hosts_tmp && sudo mv /tmp/hosts_tmp /etc/hosts"},
+		}
+
+	default:
+		return fmt.Errorf("unknown context: %s", context)
 	}
 
 	for _, cmd := range unblockCommands {
 		stdout, err := h.VMs[0].RunSSH(cmd, nil)
 		if err != nil {
-			return fmt.Errorf("failed to remove iptables rule %v: %v, stdout: %s", cmd, err, stdout)
+			return fmt.Errorf("failed to resume the network %v: %v, stdout: %s", cmd, err, stdout)
 		}
 	}
 
