@@ -74,10 +74,11 @@ const (
 	// This includes templated services (e.g., foo@.service, foo@bar.service)
 	// and glob patterns (e.g., foo*.service, foo[0-9].service)
 	SystemdNameFmt string = `[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+(@[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+)?(\.[a-zA-Z\[\]!\-\*\?]+)?`
+	SystemDNameMaxLength int = 256 // SystemD unit names are limited to 256 characters
 )
 
 var SystemdNameRegexp = regexp.MustCompile("^" + SystemdNameFmt + "$")
 
 func ValidateSystemdName(name *string, path string) []error {
-	return ValidateString(name, path, 1, dns1123LabelMaxLength, SystemdNameRegexp, SystemdNameFmt)
+	return ValidateString(name, path, 1, SystemDNameMaxLength, SystemdNameRegexp, SystemdNameFmt)
 }

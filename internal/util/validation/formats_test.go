@@ -108,6 +108,11 @@ func TestValidateSystemdUnitPattern(t *testing.T) {
 		"",
 		"@bar.service",
 		"foo;bar.service",
+		"junk!@#$%^&*()_+-=[]{}|;:',.<>?/~`1234567890" +
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" +
+		"0123456789!@#$%^&*()_+{}|:<>?~`-=[]\\;',./" +
+		"ExtraJunkCharactersToMakeThisStringLongerThanTwoHundredAndFiftySevenCharacters_1234567890" +
+		"EndOfJunkString!",
 	}
 	for _, val := range badValues {
 		assert.NotEmpty(ValidateSystemdName(&val, "bad.unit"), fmt.Sprintf("value: %q", val))
