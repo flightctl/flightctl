@@ -271,7 +271,7 @@ make in-cluster-e2e-test
 
 * Create a test vm. Note the ssh command in the cmd output.
 ```bash
-make deploy-e2e-ocp-test-vm
+KUBECONFIG_PATH=/path/to/your/kubeconfig make deploy-e2e-ocp-test-vm
 ```
 * Ssh into the vm.
 ```bash
