@@ -18,6 +18,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Test constants
+const (
+	logLookbackDuration = "2 minutes ago"
+)
+
 // -----------------------------------------------------------------------------
 // Console test-suite
 // -----------------------------------------------------------------------------
@@ -139,58 +144,20 @@ var _ = Describe("CLI - device console", Serial, func() {
 		By("waiting for publisher logs with the new interval")
 		// Wait for the target log messages to appear
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments("2 minutes ago").
+			WithArguments(logLookbackDuration).
 			Should(And(
 				ContainSubstring("No new template version from management service"),
 				ContainSubstring("publisher.go"),
 			))
 
 		// Now validate the timing intervals
-		logWithTsRe := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
+		logPattern := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
+		expectedInterval := time.Duration(specFetchIntervalSec) * time.Second
 		Eventually(func() bool {
-			logs, err := harness.ReadPrimaryVMAgentLogs("2 minutes ago")
+			logs, err := harness.ReadPrimaryVMAgentLogs(logLookbackDuration)
 			Expect(err).ToNot(HaveOccurred())
 
-			lines := strings.Split(strings.TrimSpace(logs), "\n")
-			logrus.Infof("Read %d log lines from agent journal", len(lines))
-
-			var validTimestamps []time.Time
-
-			for _, line := range lines {
-				if m := logWithTsRe.FindStringSubmatch(line); m != nil {
-					if t, err := time.Parse(time.RFC3339Nano, m[1]); err == nil {
-						validTimestamps = append(validTimestamps, t)
-						logrus.Infof("Found matching log line with timestamp: %s", t.Format(time.RFC3339))
-					} else {
-						logrus.Warnf("Failed to parse timestamp %q: %v", m[1], err)
-					}
-				}
-			}
-
-			logrus.Infof("Found %d lines matching the pattern", len(validTimestamps))
-
-			if len(validTimestamps) < 2 {
-				logrus.Infof("Need at least 2 matching timestamps, only have %d - waiting for more logs", len(validTimestamps))
-				return false
-			}
-
-			logrus.Infof("Validating intervals between %d timestamps", len(validTimestamps))
-			for i := 1; i < len(validTimestamps); i++ {
-				delta := validTimestamps[i].Sub(validTimestamps[i-1])
-				expectedInterval := specFetchIntervalSec * time.Second
-				deviation := (delta - expectedInterval).Abs()
-
-				logrus.Infof("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v",
-					i-1, i, delta, expectedInterval, deviation)
-
-				if deviation > time.Second {
-					logrus.Infof("Interval not yet stable - deviation %v > 1s threshold", deviation)
-					return false // interval not yet stable
-				}
-			}
-
-			logrus.Infof("All %d intervals are stable within 1s tolerance", len(validTimestamps)-1)
-			return true
+			return validateTimestampIntervals(logs, logPattern, expectedInterval)
 		}, 2*time.Minute, 10*time.Second).Should(BeTrue())
 	})
 
@@ -206,14 +173,14 @@ var _ = Describe("CLI - device console", Serial, func() {
 
 		// Use the new journalctl logging function to wait for image pull activity
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments("2 minutes ago").
+			WithArguments(logLookbackDuration).
 			Should(ContainSubstring("Pulling image"))
 
 		logrus.Infof("Waiting for image pull failure. It will take a while...")
 
 		// Wait for the retriable error in the logs
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments("2 minutes ago").
+			WithArguments(logLookbackDuration).
 			Should(ContainSubstring("retriable error"))
 
 		err = harness.FixNetworkFailure()
@@ -238,17 +205,14 @@ var _ = Describe("CLI - device console", Serial, func() {
 		Eventually(cs.Stdout.Closed).Should(BeTrue())
 
 		By("running a command without opening a shell")
-		Expect(harness.CLI("console", "device/"+deviceID, "--", "flightctl-agent", "system-info")).
-			To(ContainSubstring("hostname"))
+		Expect(harness.RunConsoleCommand(deviceID, nil, "flightctl-agent", "system-info")).To(ContainSubstring("hostname"))
 
 		By("running a background command without a TTY")
-		Expect(harness.CLI("console", "device/"+deviceID, "--notty", "--", "pwd")).
-			To(ContainSubstring("/"))
+		Expect(harness.RunConsoleCommand(deviceID, []string{"--notty"}, "pwd")).To(ContainSubstring("/"))
 
 		By("generating a remote sos-report")
 		// "sos: command not found" when running "console device/{device} -- sos" in a non-interactive shell. a bug?
-		Expect(harness.CLI("console", "device/"+deviceID, "--", "/usr/sbin/sos", "report", "--batch", "--quiet")).
-			To(ContainSubstring("sos report has been generated"))
+		Expect(harness.RunConsoleCommand(deviceID, nil, "/usr/sbin/sos", "report", "--batch", "--quiet")).To(ContainSubstring("sos report has been generated"))
 
 		By("failing when required command args are missing")
 		out, err := harness.CLI("console", "--tty")
@@ -259,4 +223,69 @@ var _ = Describe("CLI - device console", Serial, func() {
 
 func eventuallySlow(actual any) types.AsyncAssertion {
 	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
+}
+
+// -----------------------------------------------------------------------------
+// Helper functions
+// -----------------------------------------------------------------------------
+
+// extractTimestampsFromLogs extracts and parses timestamps from log lines that match the given regex pattern.
+// Returns a slice of valid timestamps found in the logs.
+func extractTimestampsFromLogs(logs string, logPattern *regexp.Regexp) []time.Time {
+	lines := strings.Split(strings.TrimSpace(logs), "\n")
+	logrus.Infof("Read %d log lines from agent journal", len(lines))
+
+	var validTimestamps []time.Time
+
+	for _, line := range lines {
+		if m := logPattern.FindStringSubmatch(line); m != nil {
+			if t, err := time.Parse(time.RFC3339Nano, m[1]); err == nil {
+				validTimestamps = append(validTimestamps, t)
+				logrus.Infof("Found matching log line with timestamp: %s", t.Format(time.RFC3339))
+			} else {
+				logrus.Warnf("Failed to parse timestamp %q: %v", m[1], err)
+			}
+		}
+	}
+
+	logrus.Infof("Found %d lines matching the pattern", len(validTimestamps))
+	return validTimestamps
+}
+
+// validateIntervalTiming checks if intervals between consecutive timestamps are within tolerance.
+// Returns true if all intervals are within 1 second of the expected interval.
+func validateIntervalTiming(timestamps []time.Time, expectedInterval time.Duration) bool {
+	const toleranceThreshold = time.Second
+
+	logrus.Infof("Validating intervals between %d timestamps", len(timestamps))
+
+	for i := 1; i < len(timestamps); i++ {
+		delta := timestamps[i].Sub(timestamps[i-1])
+		deviation := (delta - expectedInterval).Abs()
+
+		logrus.Infof("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v",
+			i-1, i, delta, expectedInterval, deviation)
+
+		if deviation > toleranceThreshold {
+			logrus.Infof("Interval not as expected - deviation %v > %v threshold", deviation, toleranceThreshold)
+			return false
+		}
+	}
+
+	logrus.Infof("All %d intervals are stable within %v tolerance", len(timestamps)-1, toleranceThreshold)
+	return true
+}
+
+// validateTimestampIntervals validates that the intervals between log timestamps match the expected interval.
+// It returns true if at least 2 timestamps are found and all intervals are within 1 second of the expected interval.
+func validateTimestampIntervals(logs string, logPattern *regexp.Regexp, expectedInterval time.Duration) bool {
+	timestamps := extractTimestampsFromLogs(logs, logPattern)
+
+	const minRequired = 2
+	if len(timestamps) < minRequired {
+		logrus.Infof("Need at least %d matching timestamps, only have %d - waiting for more logs", minRequired, len(timestamps))
+		return false
+	}
+
+	return validateIntervalTiming(timestamps, expectedInterval)
 }

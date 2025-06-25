@@ -1500,15 +1500,6 @@ func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alp
 	return err
 }
 
-// It executes a command without starting a console session
-func (h *Harness) ExecuteCommandWithConsole(deviceId string, cmd string) (output string, err error) {
-	out, err := h.CLI("console", fmt.Sprintf("dev/%s", deviceId), " -- ", cmd)
-	if err != nil {
-		return "", err
-	}
-	return out, nil
-}
-
 func (h *Harness) WaitForClusterRegistered(deviceId string, timeout time.Duration) error {
 	start := time.Now()
 

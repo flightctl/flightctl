@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"io"
 	"time"
 
@@ -55,4 +56,25 @@ func (cs *ConsoleSession) Close() {
 	if err := cs.Stdout.Close(); err != nil {
 		logrus.WithError(err).Warn("failed to close console stdout")
 	}
+}
+
+// RunConsoleCommand executes the flightctl console command for the given
+// device.
+//
+//	flags – optional CLI flags that go before "--" (e.g. "--notty").
+//	cmd   – remote command (and its args) to execute after "--". Must contain
+//	        at least one string; for interactive sessions use NewConsoleSession.
+func (h *Harness) RunConsoleCommand(deviceID string, flags []string, cmd ...string) (string, error) {
+	// Build the argument list. The first two elements must be the sub-command
+	// and the target device. After that we append any additional flags
+	// provided by the caller. If a command needs to be executed we append the
+	// "--" separator and finally the command with its arguments.
+	args := []string{"console", fmt.Sprintf("device/%s", deviceID)}
+	args = append(args, flags...)
+	if len(cmd) > 0 {
+		args = append(args, "--")
+		args = append(args, cmd...)
+	}
+
+	return h.CLI(args...)
 }
