@@ -123,7 +123,10 @@ func NewTestHarness(ctx context.Context) *Harness {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	c, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	Expect(err).ToNot(HaveOccurred())
+
+	c, err := client.NewFromConfigFile(baseDir)
 	Expect(err).ToNot(HaveOccurred())
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -173,7 +176,11 @@ func (h *Harness) AgentLogs(agent vm.TestVMInterface) string {
 // specified
 func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 	if filePath == "" {
-		filePath = client.DefaultFlightctlClientConfigPath()
+		defaultPath, err := client.DefaultFlightctlClientConfigPath()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default client config path: %w", err)
+		}
+		filePath = defaultPath
 	}
 	return client.ParseConfigFile(filePath)
 }
@@ -182,7 +189,11 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 // If no path is supplied, the default config path will be used
 func (h *Harness) MarkClientAccessTokenExpired(filePath string) error {
 	if filePath == "" {
-		filePath = client.DefaultFlightctlClientConfigPath()
+		defaultPath, err := client.DefaultFlightctlClientConfigPath()
+		if err != nil {
+			return fmt.Errorf("failed to get default client config path: %w", err)
+		}
+		filePath = defaultPath
 	}
 	cfg, err := client.ParseConfigFile(filePath)
 	if err != nil {
