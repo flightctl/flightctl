@@ -111,13 +111,13 @@ func (o *DenyOptions) Run(ctx context.Context, args []string) error {
 		csr := getResponse.JSON200
 
 		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
-			Type:    api.CertificateSigningRequestDenied,
+			Type:    api.ConditionTypeCertificateSigningRequestDenied,
 			Status:  api.ConditionStatusTrue,
 			Reason:  "Denied",
 			Message: "Denied",
 		})
-		api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestApproved)
-		api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestFailed)
+		api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved)
+		api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed)
 		response, err = c.UpdateCertificateSigningRequestApproval(ctx, name, *csr)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)

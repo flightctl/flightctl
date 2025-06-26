@@ -120,13 +120,13 @@ var _ = Describe("VM Agent behavior", func() {
 				fleet2Label: fleet2Value,
 			})
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be applied", func(device *v1alpha1.Device) bool {
-				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.DeviceMultipleOwners, v1alpha1.ConditionStatusTrue)
+				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners, v1alpha1.ConditionStatusTrue)
 			}, TIMEOUT)
 
 			// verify that the conflicting fleets are applied to the error message
 			device, err := harness.GetDevice(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.DeviceMultipleOwners)
+			cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).Should(And(ContainSubstring(fleet1Name), ContainSubstring(fleet2Name)))
 			// No updates from the fleet should have been applied
@@ -136,7 +136,7 @@ var _ = Describe("VM Agent behavior", func() {
 			By("resetting the labels should remove the condition from the device")
 			harness.SetLabelsForDevice(deviceId, nil)
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be removed", func(device *v1alpha1.Device) bool {
-				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.DeviceMultipleOwners, v1alpha1.ConditionStatusFalse)
+				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners, v1alpha1.ConditionStatusFalse)
 			}, TIMEOUT)
 
 			By("adding a label to a matching fleet, the device should update its rendered version")
@@ -150,7 +150,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(err).ToNot(HaveOccurred())
 			device, err = harness.GetDevice(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			cond = v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.DeviceMultipleOwners)
+			cond = v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Status).To(Equal(v1alpha1.ConditionStatusFalse))
 			Expect(device.Metadata.Owner).ToNot(BeNil())
@@ -162,25 +162,25 @@ var _ = Describe("VM Agent behavior", func() {
 				fleet2Label: fleet2Value,
 			})
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be reapplied", func(device *v1alpha1.Device) bool {
-				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.DeviceMultipleOwners, v1alpha1.ConditionStatusTrue)
+				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners, v1alpha1.ConditionStatusTrue)
 			}, TIMEOUT)
 
 			// verify that the conflicting fleets are applied to the error message
 			device, err = harness.GetDevice(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			cond = v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.DeviceMultipleOwners)
+			cond = v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).Should(And(ContainSubstring(fleet1Name), ContainSubstring(fleet2Name)))
 
 			// verify that the fleets also have a condition added to them
 			for _, fleetName := range []string{fleet1Name, fleet2Name} {
 				harness.WaitForFleetContents(fleetName, "fleet selectors overlap should be applied", func(fleet *v1alpha1.Fleet) bool {
-					return e2e.ConditionStatusExists(fleet.Status.Conditions, v1alpha1.FleetOverlappingSelectors, v1alpha1.ConditionStatusTrue)
+					return e2e.ConditionStatusExists(fleet.Status.Conditions, v1alpha1.ConditionTypeFleetOverlappingSelectors, v1alpha1.ConditionStatusTrue)
 				}, TIMEOUT)
 				fleet, err := harness.GetFleet(fleetName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(fleet).ToNot(BeNil())
-				cond = v1alpha1.FindStatusCondition(fleet.Status.Conditions, v1alpha1.FleetOverlappingSelectors)
+				cond = v1alpha1.FindStatusCondition(fleet.Status.Conditions, v1alpha1.ConditionTypeFleetOverlappingSelectors)
 				Expect(cond).ToNot(BeNil())
 				Expect(cond.Message).Should(Equal("Fleet's selector overlaps with at least one other fleet, causing ambiguous device ownership"))
 			}

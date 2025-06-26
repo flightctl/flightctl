@@ -120,7 +120,7 @@ var _ = Describe("EventStore Integration Tests", func() {
 				SortColumns: []store.SortColumn{store.SortByCreatedAt, store.SortByName},
 				SortOrder:   lo.ToPtr(store.SortDesc),
 				FieldSelector: selector.NewFieldSelectorFromMapOrDie(
-					map[string]string{"reason": string(api.ResourceDeleted)}, selector.WithPrivateSelectors()),
+					map[string]string{"reason": string(api.EventReasonResourceDeleted)}, selector.WithPrivateSelectors()),
 			}
 
 			eventList, err := storeInst.Event().List(ctx, orgId, listParams)
@@ -168,12 +168,12 @@ func createEvents(ctx context.Context, store store.Store, orgId uuid.UUID) {
 	for i := 1; i <= 6; i++ {
 		name := fmt.Sprintf("event%d", i)
 		ev := &api.Event{
-			Reason:         api.ResourceCreated,
+			Reason:         api.EventReasonResourceCreated,
 			InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: name},
 			Metadata:       api.ObjectMeta{Name: &name},
 		}
 		if i == 2 || i == 5 {
-			ev.Reason = api.ResourceDeleted
+			ev.Reason = api.EventReasonResourceDeleted
 			ev.Actor = "user:admin"
 		}
 		err := store.Event().Create(ctx, orgId, ev)

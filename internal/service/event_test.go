@@ -90,8 +90,8 @@ func TestEventDeviceReplaced(t *testing.T) {
 
 	// Create device
 	expectedEvents := []api.EventReason{
-		api.DeviceContentUpToDate,
-		api.ResourceCreated,
+		api.EventReasonDeviceContentUpToDate,
+		api.EventReasonResourceCreated,
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(int32(http.StatusCreated), retStatus.Code)
@@ -100,9 +100,9 @@ func TestEventDeviceReplaced(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 
 	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.ResourceCreated,
-		api.DeviceContentOutOfDate,
-		api.ResourceUpdated,
+		api.EventReasonResourceCreated,
+		api.EventReasonDeviceContentOutOfDate,
+		api.EventReasonResourceUpdated,
 	}...)
 	fleet := prepareFleet(newOwner1)
 	_, retStatus = serviceHandler.CreateFleet(ctx, fleet)
@@ -116,7 +116,7 @@ func TestEventDeviceReplaced(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 
 	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.ResourceUpdated,
+		api.EventReasonResourceUpdated,
 	}...)
 	fleet = prepareFleet(newOwner2)
 	_, retStatus = serviceHandler.CreateFleet(ctx, fleet)
@@ -143,8 +143,8 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 
 	// Create device
 	expectedEvents := []api.EventReason{
-		api.DeviceContentUpToDate,
-		api.ResourceCreated,
+		api.EventReasonDeviceContentUpToDate,
+		api.EventReasonResourceCreated,
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(int32(http.StatusCreated), retStatus.Code)
@@ -153,7 +153,7 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 
 	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.DeviceApplicationHealthy,
+		api.EventReasonDeviceApplicationHealthy,
 	}...)
 	device, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, *device)
 	require.Equal(int32(http.StatusOK), retStatus.Code)
@@ -225,8 +225,8 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 
 	// Create device
 	expectedEvents := []api.EventReason{
-		api.DeviceContentUpToDate,
-		api.ResourceCreated,
+		api.EventReasonDeviceContentUpToDate,
+		api.EventReasonResourceCreated,
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(int32(http.StatusCreated), retStatus.Code)
@@ -235,7 +235,7 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 
 	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.DeviceApplicationHealthy,
+		api.EventReasonDeviceApplicationHealthy,
 	}...)
 	newDevice := &api.Device{
 		ApiVersion: "",
@@ -333,8 +333,8 @@ func TestEventDevicePatchDeviceStatus(t *testing.T) {
 
 	// Create device
 	expectedEvents := []api.EventReason{
-		api.DeviceContentUpToDate,
-		api.ResourceCreated,
+		api.EventReasonDeviceContentUpToDate,
+		api.EventReasonResourceCreated,
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(int32(http.StatusCreated), retStatus.Code)
@@ -406,8 +406,8 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 
 	// Create device
 	expectedEvents := []api.EventReason{
-		api.DeviceContentUpToDate,
-		api.ResourceCreated,
+		api.EventReasonDeviceContentUpToDate,
+		api.EventReasonResourceCreated,
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(int32(http.StatusCreated), retStatus.Code)
@@ -417,8 +417,8 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 
 	// Device I-am-alive
 	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.ResourceUpdated,
-		api.DeviceApplicationHealthy,
+		api.EventReasonResourceUpdated,
+		api.EventReasonDeviceApplicationHealthy,
 	}...)
 	device.Status.LastSeen = time.Now()
 	device, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
@@ -450,8 +450,8 @@ func TestEventDeviceUpdated(t *testing.T) {
 
 	// Create device
 	expectedEvents := []api.EventReason{
-		api.DeviceContentUpToDate,
-		api.ResourceCreated,
+		api.EventReasonDeviceContentUpToDate,
+		api.EventReasonResourceCreated,
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(int32(http.StatusCreated), retStatus.Code)
@@ -460,8 +460,8 @@ func TestEventDeviceUpdated(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 
 	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.DeviceApplicationHealthy,
-		api.ResourceUpdated,
+		api.EventReasonDeviceApplicationHealthy,
+		api.EventReasonResourceUpdated,
 	}...)
 	device.Status.Resources = api.DeviceResourceStatus{
 		Cpu:    api.DeviceResourceStatusHealthy,

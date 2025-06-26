@@ -30,7 +30,7 @@ func (c *conditionEmitter) create(status api.ConditionStatus, reason, message st
 		Message: message,
 		Reason:  reason,
 		Status:  status,
-		Type:    api.FleetRolloutInProgress,
+		Type:    api.ConditionTypeFleetRolloutInProgress,
 	}
 }
 
