@@ -184,7 +184,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-          path: release
+          path: release-temp
+
+      - name: Prepare release directory
+        run: |
+          mkdir -p release
+          find release-temp -type f -exec mv {} release/ \;
+          rm -rf release-temp
 
       # if this is a push to the main branch, we update the latest release of binaries
       - name: Publish latest
@@ -192,8 +198,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OLD_RELEASE=$(gh release list --json 'tagName' --jq 'any(.[]; .tagName == "latest")')
-          if [ $OLD_RELEASE == 'true' ]; then
+          if gh release view latest >/dev/null 2>&1; then
             # if there is a release already we only update the binaries
             # otherwise a new release will trigger an rpm build from packit
             gh release upload latest --clobber release/*
