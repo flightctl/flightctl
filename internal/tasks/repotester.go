@@ -139,7 +139,7 @@ func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Rep
 	if repository.Status.Conditions == nil {
 		repository.Status.Conditions = []api.Condition{}
 	}
-	changed := api.SetStatusConditionByError(&repository.Status.Conditions, api.RepositoryAccessible, "Accessible", "Inaccessible", err)
+	changed := api.SetStatusConditionByError(&repository.Status.Conditions, api.ConditionTypeRepositoryAccessible, "Accessible", "Inaccessible", err)
 	if !changed {
 		// Nothing to do
 		return nil

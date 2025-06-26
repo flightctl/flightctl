@@ -236,7 +236,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// When that bug is fixed, the following assertions will need to change.
 
 			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1alpha1.Device) bool {
-				return e2e.ConditionExists(device, string(v1alpha1.DeviceUpdating), string(v1alpha1.ConditionStatusFalse), string(v1alpha1.UpdateStateError))
+				return e2e.ConditionExists(device, string(v1alpha1.ConditionTypeDeviceUpdating), string(v1alpha1.ConditionStatusFalse), string(v1alpha1.UpdateStateError))
 			}, LONGTIMEOUT)
 
 			// Verify that the flightctl-agent logs indicate that a rollback was attempted
@@ -259,7 +259,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// validate that the error message contains an indication of why the update failed
 			dev, err = harness.GetDevice(deviceId)
 			Expect(err).NotTo(HaveOccurred())
-			cond := v1alpha1.FindStatusCondition(dev.Status.Conditions, v1alpha1.DeviceUpdating)
+			cond := v1alpha1.FindStatusCondition(dev.Status.Conditions, v1alpha1.ConditionTypeDeviceUpdating)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).To(And(ContainSubstring("Failed to update to renderedVersion"), ContainSubstring("validating compose spec")))
 
@@ -297,7 +297,7 @@ func isDeviceUpdateObserved(device *v1alpha1.Device, expectedVersion int) bool {
 	if version == expectedVersion {
 		return true
 	}
-	cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.DeviceUpdating)
+	cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.ConditionTypeDeviceUpdating)
 	if cond == nil {
 		return false
 	}

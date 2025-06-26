@@ -21,13 +21,14 @@ const (
 
 type GlobalOptions struct {
 	ConfigFilePath string
+	ConfigDir      string
 	Context        string
 	RequestTimeout int
 }
 
 func DefaultGlobalOptions() GlobalOptions {
 	return GlobalOptions{
-		ConfigFilePath: ConfigFilePath(""),
+		ConfigFilePath: ConfigFilePath("", ""),
 		Context:        "",
 		RequestTimeout: 0,
 	}
@@ -35,11 +36,12 @@ func DefaultGlobalOptions() GlobalOptions {
 
 func (o *GlobalOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Context, "context", "c", o.Context, "Read client config from 'client_<context>.yaml' instead of 'client.yaml'.")
+	fs.StringVarP(&o.ConfigDir, "config-dir", "", o.ConfigDir, "Specify the directory for client configuration files.")
 	fs.IntVar(&o.RequestTimeout, "request-timeout", o.RequestTimeout, "Request Timeout in seconds (0 - use default OS timeout)")
 }
 
 func (o *GlobalOptions) Complete(cmd *cobra.Command, args []string) error {
-	o.ConfigFilePath = ConfigFilePath(o.Context)
+	o.ConfigFilePath = ConfigFilePath(o.Context, o.ConfigDir)
 	return nil
 }
 
@@ -47,6 +49,14 @@ func (o *GlobalOptions) Validate(args []string) error {
 	// 0 is a default value and is used as a flag to use a system-wide timeout
 	if o.RequestTimeout < 0 {
 		return fmt.Errorf("request-timeout must be greater than 0")
+	}
+
+	if o.ConfigDir != "" {
+		path := filepath.Clean(o.ConfigDir)
+		ext := filepath.Ext(path)
+		if ext != "" {
+			return fmt.Errorf("config-dir should specify a directory path")
+		}
 	}
 
 	if _, err := os.Stat(o.ConfigFilePath); errors.Is(err, os.ErrNotExist) {
@@ -70,17 +80,21 @@ func (o *GlobalOptions) WithTimeout(ctx context.Context) (context.Context, conte
 	return ctx, func() {}
 }
 
-func ConfigFilePath(context string) string {
+func ConfigFilePath(context string, configDirOverride string) string {
+	baseDir := ConfigDir(configDirOverride)
 	if len(context) > 0 && context != "default" {
-		return filepath.Join(ConfigDir(), defaultConfigFileName+"_"+context+"."+defaultConfigFileExt)
+		return filepath.Join(baseDir, defaultConfigFileName+"_"+context+"."+defaultConfigFileExt)
 	}
-	return filepath.Join(ConfigDir(), defaultConfigFileName+"."+defaultConfigFileExt)
+	return filepath.Join(baseDir, defaultConfigFileName+"."+defaultConfigFileExt)
 }
 
-func ConfigDir() string {
-	configRoot, err := os.UserConfigDir()
-	if err != nil {
-		log.Fatal("Could not find the user config directory because ", err)
+func ConfigDir(configDirOverride string) string {
+	if configDirOverride != "" {
+		return configDirOverride
 	}
-	return filepath.Join(configRoot, appName)
+	baseDir, err := os.UserConfigDir()
+	if err != nil {
+		log.Fatalf("could not get user config directory %v", err)
+	}
+	return filepath.Join(baseDir, appName)
 }

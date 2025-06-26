@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -12,7 +13,21 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
+
+type resourceEvent struct {
+	ResourceKind                 api.ResourceKind
+	ResourceName                 string
+	Prefix                       string
+	ReasonSuccess, ReasonFailure api.EventReason
+	OutcomeSuccess               string
+	OutcomeFailure               outcomeFailureFunc
+	Status                       api.Status
+	UpdateDetails                *api.ResourceUpdatedDetails
+}
+
+type outcomeFailureFunc func() string
 
 func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
 	if event == nil {
@@ -23,7 +38,7 @@ func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
 
 	err := h.store.Event().Create(ctx, orgId, event)
 	if err != nil {
-		h.log.Errorf("failed emitting resource updated %s event for %s %s/%s: %v", event.Reason, event.InvolvedObject.Kind, orgId, event.InvolvedObject.Name, err)
+		h.log.Errorf("failed emitting <%s> resource updated %s event for %s %s/%s: %v", *event.Metadata.Name, event.Reason, event.InvolvedObject.Kind, orgId, event.InvolvedObject.Name, err)
 	}
 }
 
@@ -62,52 +77,43 @@ func (h *ServiceHandler) DeleteEventsOlderThan(ctx context.Context, cutoffTime t
 	return numDeleted, StoreErrorToApiStatus(err, false, api.EventKind, nil)
 }
 
-type eventOutcome struct {
-	Reason  api.EventReason
-	Message string
-}
-
-func getBaseEvent(ctx context.Context, status api.Status, prefix string, resourceKind api.ResourceKind, resourceName string, success, failure eventOutcome) *api.Event {
+func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.FieldLogger) *api.Event {
 	var operationSucceeded bool
-	if status.Code >= 200 && status.Code < 299 {
+	if resourceEvent.Status.Code >= 200 && resourceEvent.Status.Code < 299 {
 		operationSucceeded = true
-	} else if status.Code >= 500 && status.Code < 599 {
+	} else if resourceEvent.Status.Code >= 500 && resourceEvent.Status.Code < 599 {
 		operationSucceeded = false
 	} else {
 		// If it's not one of the above cases, it's 4XX, which we don't emit events for
 		return nil
 	}
 
-	reqID := ctx.Value(middleware.RequestIDKey)
-
-	// If the requestID is nil or not set, fallback to a UUID
 	var requestIDstr string
-	if reqID == nil {
+	if reqID := ctx.Value(middleware.RequestIDKey); reqID == nil {
+		// If the requestID is nil or not set, fallback to a UUID
 		requestIDstr = uuid.New().String()
 	} else {
 		requestIDstr = reqID.(string)
 	}
 
-	actor := ctx.Value(consts.EventActorCtxKey)
 	var actorStr string
-	if actor != nil {
+	if actor := ctx.Value(consts.EventActorCtxKey); actor != nil {
 		actorStr = actor.(string)
 	}
 
-	component := ctx.Value(consts.EventSourceComponentCtxKey)
 	var componentStr string
-	if component != nil {
+	if component := ctx.Value(consts.EventSourceComponentCtxKey); component != nil {
 		componentStr = component.(string)
 	}
 
 	event := api.Event{
 		Metadata: api.ObjectMeta{
-			Name: lo.ToPtr(fmt.Sprintf("%s-%s-%s-%s", prefix, resourceKind, resourceName, requestIDstr)),
+			Name: lo.ToPtr(fmt.Sprintf("%s-%s-%s-%s", resourceEvent.Prefix, resourceEvent.ResourceKind, resourceEvent.ResourceName, requestIDstr)),
 		},
 		Type: api.Normal,
 		InvolvedObject: api.ObjectReference{
-			Kind: string(resourceKind),
-			Name: resourceName,
+			Kind: string(resourceEvent.ResourceKind),
+			Name: resourceEvent.ResourceName,
 		},
 		Source: api.EventSource{
 			Component: componentStr,
@@ -116,60 +122,112 @@ func getBaseEvent(ctx context.Context, status api.Status, prefix string, resourc
 	}
 
 	if operationSucceeded {
-		event.Reason = success.Reason
-		event.Message = success.Message
+		event.Reason = resourceEvent.ReasonSuccess
+		event.Message = resourceEvent.OutcomeSuccess
 	} else {
-		event.Reason = failure.Reason
-		event.Message = failure.Message
+		event.Reason = resourceEvent.ReasonFailure
+		if resourceEvent.OutcomeFailure != nil {
+			event.Message = resourceEvent.OutcomeFailure()
+		} else {
+			event.Message = "generic failure"
+		}
 		event.Type = api.Warning
+	}
+
+	if resourceEvent.UpdateDetails != nil {
+		details := api.EventDetails{}
+		if err := details.FromResourceUpdatedDetails(*resourceEvent.UpdateDetails); err != nil {
+			log.WithError(err).WithField("event", event).Error("Failed to serialize event details")
+			// Ignore the error and create an event, even without details
+		} else {
+			event.Details = &details
+		}
 	}
 
 	return &event
 }
 
-func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDesc *api.ResourceUpdatedDetails) *api.Event {
-	var event *api.Event
+func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDesc *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
 	if created {
-		event = getBaseEvent(ctx, status, "resource-create", resourceKind, resourceName, eventOutcome{
-			Reason:  api.ResourceCreated,
-			Message: fmt.Sprintf("%s %s created successfully", resourceKind, resourceName),
-		}, eventOutcome{
-			Reason:  api.ResourceCreationFailed,
-			Message: fmt.Sprintf("%s %s creation failed: %s", resourceKind, resourceName, status.Message),
-		})
-	} else {
-		event = getBaseEvent(ctx, status, "resource-update", resourceKind, resourceName, eventOutcome{
-			Reason:  api.ResourceUpdated,
-			Message: fmt.Sprintf("%s %s updated successfully", resourceKind, resourceName),
-		}, eventOutcome{
-			Reason:  api.ResourceUpdateFailed,
-			Message: fmt.Sprintf("%s %s update failed: %s", resourceKind, resourceName, status.Message),
-		})
-
-		if event == nil {
-			return nil
-		}
-
-		if updateDesc != nil {
-			details := api.EventDetails{}
-			err := details.FromResourceUpdatedDetails(*updateDesc)
-			if err == nil {
-				event.Details = &details
-			}
-		}
+		createFailure := func() string { return fmt.Sprintf("create failed: %s", status.Message) }
+		return getBaseEvent(ctx,
+			resourceEvent{
+				ResourceKind:   resourceKind,
+				ResourceName:   resourceName,
+				Prefix:         "resource-create",
+				ReasonSuccess:  api.EventReasonResourceCreated,
+				ReasonFailure:  api.EventReasonResourceCreationFailed,
+				OutcomeSuccess: "created successfully",
+				OutcomeFailure: createFailure,
+				Status:         status,
+			}, log)
 	}
 
-	return event
+	updateFailure := func() string { return fmt.Sprintf("update failed: %s", status.Message) }
+	return getBaseEvent(ctx,
+		resourceEvent{
+			ResourceKind:   resourceKind,
+			ResourceName:   resourceName,
+			Prefix:         "resource-update",
+			ReasonSuccess:  api.EventReasonResourceUpdated,
+			ReasonFailure:  api.EventReasonResourceUpdateFailed,
+			OutcomeSuccess: "updated successfully",
+			OutcomeFailure: updateFailure,
+			Status:         status,
+			UpdateDetails:  updateDesc,
+		}, log)
 }
 
-func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status) *api.Event {
-	event := getBaseEvent(ctx, status, "resource-delete", resourceKind, resourceName, eventOutcome{
-		Reason:  api.ResourceDeleted,
-		Message: fmt.Sprintf("%s %s deleted successfully", resourceKind, resourceName),
-	}, eventOutcome{
-		Reason:  api.ResourceDeletionFailed,
-		Message: fmt.Sprintf("%s %s deletion failed: %s", resourceKind, resourceName, status.Message),
-	})
+func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, log logrus.FieldLogger) *api.Event {
+	deleteFailure := func() string { return fmt.Sprintf("delete failed: %s", status.Message) }
+	return getBaseEvent(ctx,
+		resourceEvent{
+			ResourceKind:   resourceKind,
+			ResourceName:   resourceName,
+			Prefix:         "resource-delete",
+			ReasonSuccess:  api.EventReasonResourceDeleted,
+			ReasonFailure:  api.EventReasonResourceDeletionFailed,
+			OutcomeSuccess: "deleted successfully",
+			OutcomeFailure: deleteFailure,
+			Status:         status,
+		}, log)
+}
 
-	return event
+func GetResourceDecommissionedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDetails *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
+	decommissionFailure := func() string { return fmt.Sprintf("decommission failed: %s", status.Message) }
+	return getBaseEvent(ctx,
+		resourceEvent{
+			ResourceKind:   resourceKind,
+			ResourceName:   resourceName,
+			Prefix:         "resource-decommission",
+			ReasonSuccess:  api.EventReasonDeviceDecommissioned,
+			ReasonFailure:  api.EventReasonDeviceDecommissionFailed,
+			Status:         status,
+			OutcomeSuccess: "decommissioned successfully",
+			OutcomeFailure: decommissionFailure,
+			UpdateDetails:  updateDetails,
+		}, log)
+}
+
+func createPrefixGenerator(basePrefix string) func() string {
+	var counter int64
+	return func() string {
+		count := atomic.AddInt64(&counter, 1)
+		return fmt.Sprintf("%s_%d", basePrefix, count)
+	}
+}
+
+var generateUpdateDetailsPrefix = createPrefixGenerator("from-update-details")
+
+func GetResourceEventFromUpdateDetails(ctx context.Context, resourceKind api.ResourceKind, resourceName string, reasonSuccess api.EventReason, updateDetails string, log logrus.FieldLogger) *api.Event {
+	return getBaseEvent(ctx,
+		resourceEvent{
+			ResourceKind:   resourceKind,
+			ResourceName:   resourceName,
+			Prefix:         generateUpdateDetailsPrefix(),
+			ReasonSuccess:  reasonSuccess,
+			Status:         api.StatusOK(),
+			OutcomeSuccess: updateDetails,
+			OutcomeFailure: nil,
+		}, log)
 }

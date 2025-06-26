@@ -465,7 +465,7 @@ var _ = Describe("cli operation", func() {
 				case util.ErResource:
 					name = *er.Metadata.Name
 				}
-				Expect(out).To(ContainSubstring(formatResourceEvent(r.resourceType, name, util.EventCreated)))
+				Expect(out).Should(MatchRegexp(formatResourceEvent(r.resourceType, name, util.EventCreated)))
 			}
 
 			By("Reapplying resources (updates)")
@@ -506,23 +506,23 @@ var _ = Describe("cli operation", func() {
 				case util.ErResource:
 					name = *er.Metadata.Name
 				}
-				Expect(out).To(ContainSubstring(formatResourceEvent(r.resourceType, name, util.EventUpdated)))
+				Expect(out).To(MatchRegexp(formatResourceEvent(r.resourceType, name, util.EventUpdated)))
 			}
 
 			By("Querying events with fieldSelector kind=Device")
 			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.DeviceResource))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
+			Expect(out).To(MatchRegexp(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
 
 			By("Querying events with fieldSelector kind=Fleet")
 			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.FleetResource))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(formatResourceEvent("Fleet", fleetName, util.EventCreated)))
+			Expect(out).To(MatchRegexp(formatResourceEvent("Fleet", fleetName, util.EventCreated)))
 
 			By("Querying events with fieldSelector kind=Repository")
 			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.RepoResource))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(formatResourceEvent(util.RepoResource, repoName, util.EventCreated)))
+			Expect(out).To(MatchRegexp(formatResourceEvent(util.RepoResource, repoName, util.EventCreated)))
 
 			By("Querying events with fieldSelector type=Normal")
 			out, err = harness.RunGetEvents(fieldSelector, "type=Normal")
@@ -537,7 +537,7 @@ var _ = Describe("cli operation", func() {
 			By("Querying events with a combined filter: kind=Device, type=Normal")
 			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s,type=Normal", kind, util.DeviceResource))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
+			Expect(out).To(MatchRegexp(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
 			Expect(out).To(ContainSubstring("Normal"))
 
 			By("Querying with an invalid fieldSelector key")
@@ -594,9 +594,9 @@ var _ = Describe("cli operation", func() {
 				page, err := getEventsPage(harness, limit, "1", jsonFlag)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(page.Items).To(HaveLen(1))
-				Expect(page.Metadata.Continue).ToNot(BeEmpty())
+				Expect(page.Metadata.Continue).ToNot(BeNil(), "expected non-nil continue token")
 
-				nextPage, err := getEventsPage(harness, "--continue", page.Metadata.Continue, jsonFlag)
+				nextPage, err := getEventsPage(harness, "--continue", *page.Metadata.Continue, jsonFlag)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(nextPage.Items).ToNot(BeEmpty())
 			})
@@ -747,7 +747,7 @@ var _ = Describe("cli login", func() {
 
 // formatResourceEvent formats the event's message and returns it as a string
 func formatResourceEvent(resource, name, action string) string {
-	return fmt.Sprintf("%s %s %s successfully", resource, name, action)
+	return fmt.Sprintf("%s\\s+%s\\s+Normal\\s+%s\\s+successfully", resource, name, action)
 }
 
 // DeleteWithoutNameTestParams defines the parameters for delete-without-name tests.
@@ -776,53 +776,29 @@ func GetVersionByPrefix(output, prefix string) string {
 	return ""
 }
 
-type EventsPage struct {
-	Items    []json.RawMessage `json:"items"`
-	Metadata struct {
-		Continue string `json:"continue"`
-	} `json:"metadata"`
-}
-
-type EventWithTimestamp struct {
-	Metadata struct {
-		CreationTimestamp string `json:"creationTimestamp"`
-	} `json:"metadata"`
-}
-
-func getEventsPage(harness *e2e.Harness, args ...string) (EventsPage, error) {
-	var page EventsPage
-
+func getEventsPage(harness *e2e.Harness, args ...string) (v1alpha1.EventList, error) {
 	out, err := harness.RunGetEvents(args...)
 	if err != nil {
-		return page, err
+		return v1alpha1.EventList{}, err
 	}
 
+	var page v1alpha1.EventList
 	err = json.Unmarshal([]byte(out), &page)
 	if err != nil {
-		return page, err
+		return v1alpha1.EventList{}, err
 	}
 
 	return page, nil
 }
 
-func extractTimestamps(events []json.RawMessage) ([]time.Time, error) {
+func extractTimestamps(events []v1alpha1.Event) ([]time.Time, error) {
 	var timestamps []time.Time
 
-	for _, raw := range events {
-		var event EventWithTimestamp
-		if err := json.Unmarshal(raw, &event); err != nil {
-			return nil, err
+	for _, event := range events {
+		if event.Metadata.CreationTimestamp == nil {
+			return nil, fmt.Errorf("event missing CreationTimestamp")
 		}
-
-		ts, err := time.Parse(time.RFC3339Nano, event.Metadata.CreationTimestamp)
-		if err != nil {
-			ts, err = time.Parse(time.RFC3339, event.Metadata.CreationTimestamp)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		timestamps = append(timestamps, ts)
+		timestamps = append(timestamps, *event.Metadata.CreationTimestamp)
 	}
 
 	return timestamps, nil

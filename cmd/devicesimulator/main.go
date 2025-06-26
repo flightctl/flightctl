@@ -121,7 +121,11 @@ func main() {
 	log.Infoln("setting up metrics endpoint")
 	setupMetricsEndpoint(*metricsAddr)
 
-	serviceClient, err := client.NewFromConfigFile(client.DefaultFlightctlClientConfigPath())
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		log.Fatalf("could not get user config directory: %v", err)
+	}
+	serviceClient, err := client.NewFromConfigFile(baseDir)
 	if err != nil {
 		log.Fatalf("Error creating service client: %v", err)
 	}

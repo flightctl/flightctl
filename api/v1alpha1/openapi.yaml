@@ -5099,6 +5099,8 @@ components:
             - DeviceContentUpToDate
             - DeviceContentOutOfDate
             - DeviceContentUpdating
+            - EnrollmentRequestApproved
+            - EnrollmentRequestApprovalFailed
         message:
           type: string
           description: A human-readable description of the status of this operation.
