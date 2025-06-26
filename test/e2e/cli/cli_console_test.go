@@ -161,31 +161,69 @@ var _ = Describe("CLI - device console", Serial, func() {
 		}, 2*time.Minute, 10*time.Second).Should(BeTrue())
 	})
 
-	It("recovers from image pull failures", Label("82541", "sanity"), func() {
+	It("recovers from image pull network disruption", Label("82541", "sanity"), func() {
+		const disruptionTime = 1 * time.Minute
 		_, _ = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
+		logrus.Infof("Simulating network failure")
 		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		// Use the new journalctl logging function to wait for image pull activity
+		logrus.Infof("Waiting for image pull activity")
+		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
+			WithArguments(logLookbackDuration).
+			Should(ContainSubstring("Pulling image"))
+
+		logrus.Infof("Simulating network disruption for %s", disruptionTime)
+		Consistently(resources.GetJSONByName[*v1alpha1.Device]).
+			WithTimeout(disruptionTime).
+			WithPolling(disruptionTime/10).
+			WithArguments(harness, resources.Devices, deviceID).
+			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
+
+		err = harness.FixNetworkFailure()
+		Expect(err).ToNot(HaveOccurred())
+
+		logrus.Infof("Network disruption fixed. Waiting for the device to finish updating")
+		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+			WithArguments(harness, resources.Devices, deviceID).
+			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+	})
+
+	It("recovers from image pull network connection error", Label("83029", "sanity"), func() {
+		logrus.Infof("Simulating network failure")
+		err := harness.SimulateNetworkFailure()
+		Expect(err).ToNot(HaveOccurred())
+
+		_, _ = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+
+		logrus.Infof("Waiting for image pull activity")
+		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+			WithArguments(harness, resources.Devices, deviceID).
+			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
+
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration).
 			Should(ContainSubstring("Pulling image"))
 
 		logrus.Infof("Waiting for image pull failure. It will take a while...")
-
-		// Wait for the retriable error in the logs
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration).
-			Should(ContainSubstring("retriable error"))
+			Should(And(
+				ContainSubstring("Error"),
+				ContainSubstring("i/o timeout"),
+			),
+			)
 
+		logrus.Infof("Image pull failure detected!")
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
+		logrus.Infof("Waiting for the device to finish updating")
 		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
