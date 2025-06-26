@@ -32,10 +32,10 @@ func (h *Harness) NewConsoleSession(deviceID string) *ConsoleSession {
 
 // MustSend sends a command to the console session
 func (cs *ConsoleSession) MustSend(cmd string) {
+	Expect(cs.Stdout.Clear()).To(Succeed())
 	logrus.Infof("console> %s", cmd)
 	_, err := io.WriteString(cs.Stdin, cmd+"\n")
 	Expect(err).NotTo(HaveOccurred())
-	Expect(cs.Stdout.Clear()).To(Succeed())
 }
 
 // MustExpect waits for a pattern to appear in the console output
