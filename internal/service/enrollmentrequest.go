@@ -11,6 +11,7 @@ import (
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -83,7 +84,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api
 	return nil
 }
 
-func AddStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
+func addStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
 	if enrollmentRequest.Status == nil {
 		enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 			Certificate: nil,
@@ -93,13 +94,13 @@ func AddStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
 }
 
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
-	status := api.NewDeviceStatus()
-	status.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
+	deviceStatus := api.NewDeviceStatus()
+	deviceStatus.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
 	apiResource := &api.Device{
 		Metadata: api.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
 		},
-		Status: &status,
+		Status: &deviceStatus,
 	}
 	if errs := apiResource.Validate(); len(errs) > 0 {
 		return fmt.Errorf("failed validating new device: %w", errors.Join(errs...))
@@ -107,7 +108,14 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
+	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
+		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *apiResource.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
+	}
+	common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+
 	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback)
+	status := StoreErrorToApiStatus(err, err == nil, api.DeviceKind, enrollmentRequest.Metadata.Name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.DeviceKind, *enrollmentRequest.Metadata.Name, status, nil, h.log))
 	return err
 }
 
@@ -127,7 +135,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	AddStatusIfNeeded(&er)
+	addStatusIfNeeded(&er)
 
 	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er)
 	status := StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
@@ -183,7 +191,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	AddStatusIfNeeded(&er)
+	addStatusIfNeeded(&er)
 
 	result, created, updateDesc, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er)
 	status := StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
@@ -296,16 +304,20 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 	}
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
-	return approvalStatusToReturn, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
+	return approvalStatusToReturn, status
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := store.NullOrgId
 
-	AddStatusIfNeeded(&er)
+	addStatusIfNeeded(&er)
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er)
-	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.EnrollmentRequestKind, name, status, nil, h.log))
+	return result, status
 }
 
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {

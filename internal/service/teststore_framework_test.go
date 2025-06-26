@@ -340,6 +340,17 @@ func (s *DummyEnrollmentRequest) Create(ctx context.Context, orgId uuid.UUID, rs
 	return rs, nil
 }
 
+func (s *DummyEnrollmentRequest) UpdateStatus(ctx context.Context, orgId uuid.UUID, er *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
+	for i, dev := range *s.enrollmentRequests {
+		if *er.Metadata.Name == *dev.Metadata.Name {
+			oldEr := (*s.enrollmentRequests)[i]
+			oldEr.Status = er.Status
+			return er, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
 // --------------------------------------> CallbackManager
 
 type dummyPublisher struct{}
