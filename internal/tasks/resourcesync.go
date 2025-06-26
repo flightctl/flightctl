@@ -82,7 +82,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *api.
 	reponame := rs.Spec.Repository
 	repo, status := r.serviceHandler.GetRepository(ctx, reponame)
 	err := service.ApiStatusToErr(status)
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ResourceSyncAccessible, "accessible", "repository resource not found", err)
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncAccessible, "accessible", "repository resource not found", err)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *api.
 
 	owner := util.SetResourceOwner(api.ResourceSyncKind, *rs.Metadata.Name)
 	fleets, err := r.parseFleets(resources, owner)
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ResourceSyncResourceParsed, "success", "fail", err)
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
 	if err != nil {
 		err = fmt.Errorf("resourcesync/%s: error: %w", *rs.Metadata.Name, err)
 		log.Errorf("%e", err)
@@ -142,7 +142,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *api.
 			}
 		}
 	}
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ResourceSyncSynced, "success", "fail", createUpdateErr)
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", createUpdateErr)
 	if createUpdateErr != nil {
 		log.Errorf("resourcesync/%s: failed to apply resource. error: %s", *rs.Metadata.Name, err.Error())
 		return createUpdateErr
@@ -193,7 +193,7 @@ func NeedsSyncToHash(rs *api.ResourceSync, hash string) bool {
 		return true
 	}
 
-	if api.IsStatusConditionFalse(rs.Status.Conditions, api.ResourceSyncSynced) {
+	if api.IsStatusConditionFalse(rs.Status.Conditions, api.ConditionTypeResourceSyncSynced) {
 		return true
 	}
 
@@ -209,7 +209,7 @@ func (r *ResourceSync) parseAndValidateResources(rs *api.ResourceSync, repo *api
 	path := rs.Spec.Path
 	revision := rs.Spec.TargetRevision
 	mfs, hash, err := gitCloneRepo(repo, &revision, lo.ToPtr(1))
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ResourceSyncAccessible, "accessible", "failed to clone repository", err)
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncAccessible, "accessible", "failed to clone repository", err)
 	if err != nil {
 		return nil, err
 	}
@@ -219,13 +219,13 @@ func (r *ResourceSync) parseAndValidateResources(rs *api.ResourceSync, repo *api
 		r.log.Infof("resourcesync/%s: No new commits or path. skipping", *rs.Metadata.Name)
 		return nil, nil
 	}
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ResourceSyncSynced, "success", "fail", fmt.Errorf("out of sync"))
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", fmt.Errorf("out of sync"))
 
 	rs.Status.ObservedCommit = lo.ToPtr(hash)
 
 	// Open files
 	fileInfo, err := mfs.Stat(path)
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ResourceSyncAccessible, "accessible", "path not found in repository", err)
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncAccessible, "accessible", "path not found in repository", err)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (r *ResourceSync) parseAndValidateResources(rs *api.ResourceSync, repo *api
 	} else {
 		resources, err = r.extractResourcesFromFile(mfs, path)
 	}
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ResourceSyncResourceParsed, "success", "fail", err)
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
 	if err != nil {
 		return nil, err
 

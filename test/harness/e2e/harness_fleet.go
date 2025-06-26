@@ -114,7 +114,7 @@ func (h *Harness) WaitForFleetUpdateToFail(fleetName string) error {
 			return false, err
 		}
 
-		if rolloutStatus.Type == v1alpha1.FleetRolloutInProgress &&
+		if rolloutStatus.Type == v1alpha1.ConditionTypeFleetRolloutInProgress &&
 			rolloutStatus.Status == v1alpha1.ConditionStatusFalse &&
 			rolloutStatus.Reason == v1alpha1.RolloutSuspendedReason {
 			logrus.Infof("Fleet update failed for fleet %s: status=%s, reason=%s",
@@ -180,7 +180,7 @@ func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error)
 	}
 
 	for _, condition := range fleet.Status.Conditions {
-		if condition.Type == v1alpha1.FleetRolloutInProgress {
+		if condition.Type == v1alpha1.ConditionTypeFleetRolloutInProgress {
 			return condition, nil
 		}
 	}

@@ -253,7 +253,7 @@ func (f FleetSelectorMatchingLogic) handleOwningFleetChanged(ctx context.Context
 
 	// The device matches more than one fleet
 	condition := api.Condition{
-		Type:    api.DeviceMultipleOwners,
+		Type:    api.ConditionTypeDeviceMultipleOwners,
 		Status:  api.ConditionStatusTrue,
 		Reason:  "MultipleOwners",
 		Message: fmt.Sprintf("%s,%s", currentOwnerFleetName, *fleet.Metadata.Name),
@@ -426,7 +426,7 @@ func (f FleetSelectorMatchingLogic) HandleOrgwideUpdate(ctx context.Context) err
 	for _, fleet := range fleets {
 		_, ok := overlappingFleets[*fleet.Metadata.Name]
 		if ok {
-			if api.IsStatusConditionFalse(fleet.Status.Conditions, api.FleetOverlappingSelectors) {
+			if api.IsStatusConditionFalse(fleet.Status.Conditions, api.ConditionTypeFleetOverlappingSelectors) {
 				condErr := f.setOverlappingFleetConditionTrue(ctx, *fleet.Metadata.Name)
 				if condErr != nil {
 					f.log.Errorf("failed setting overlapping selector condition on fleet %s/%s: %v", f.resourceRef.OrgID, *fleet.Metadata.Name, condErr)
@@ -434,7 +434,7 @@ func (f FleetSelectorMatchingLogic) HandleOrgwideUpdate(ctx context.Context) err
 				}
 			}
 		} else {
-			if api.IsStatusConditionTrue(fleet.Status.Conditions, api.FleetOverlappingSelectors) {
+			if api.IsStatusConditionTrue(fleet.Status.Conditions, api.ConditionTypeFleetOverlappingSelectors) {
 				condErr := f.setOverlappingFleetConditionFalse(ctx, *fleet.Metadata.Name)
 				if condErr != nil {
 					f.log.Errorf("failed unsetting overlapping selector condition on fleet %s/%s: %v", f.resourceRef.OrgID, *fleet.Metadata.Name, condErr)
@@ -467,9 +467,9 @@ func (f FleetSelectorMatchingLogic) handleDeviceWithPotentialOverlap(ctx context
 				return nil, err
 			}
 		}
-		if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
+		if api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners) {
 			condition := api.Condition{
-				Type:   api.DeviceMultipleOwners,
+				Type:   api.ConditionTypeDeviceMultipleOwners,
 				Status: api.ConditionStatusFalse,
 			}
 			status := f.serviceHandler.SetDeviceServiceConditions(ctx, *device.Metadata.Name, []api.Condition{condition})
@@ -503,12 +503,12 @@ func (f FleetSelectorMatchingLogic) setDeviceMultipleOwnersCondition(ctx context
 	newConditionMessage := createOverlappingConditionMessage(matchingFleets)
 	currentConditionMessage := ""
 	if device.Status != nil {
-		if cond := api.FindStatusCondition(device.Status.Conditions, api.DeviceMultipleOwners); cond != nil {
+		if cond := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners); cond != nil {
 			currentConditionMessage = cond.Message
 		}
 	}
 	if currentConditionMessage != newConditionMessage {
-		condition := api.Condition{Type: api.DeviceMultipleOwners, Status: api.ConditionStatusFalse}
+		condition := api.Condition{Type: api.ConditionTypeDeviceMultipleOwners, Status: api.ConditionStatusFalse}
 		if len(matchingFleets) > 1 {
 			condition.Status = api.ConditionStatusTrue
 			condition.Reason = "MultipleOwners"
@@ -549,7 +549,7 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllDevices(ctx context.Context) 
 	errors := 0
 
 	condition := api.Condition{
-		Type:   api.FleetOverlappingSelectors,
+		Type:   api.ConditionTypeFleetOverlappingSelectors,
 		Status: api.ConditionStatusFalse,
 	}
 
@@ -606,8 +606,8 @@ func (f FleetSelectorMatchingLogic) HandleDeleteAllFleets(ctx context.Context) e
 					continue
 				}
 			}
-			if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
-				condition := api.Condition{Type: api.DeviceMultipleOwners, Status: api.ConditionStatusFalse}
+			if api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners) {
+				condition := api.Condition{Type: api.ConditionTypeDeviceMultipleOwners, Status: api.ConditionStatusFalse}
 				status = f.serviceHandler.SetDeviceServiceConditions(ctx, *device.Metadata.Name, []api.Condition{condition})
 				if status.Code != http.StatusOK {
 					f.log.Errorf("failed updating conditions of device %s/%s: %s", f.resourceRef.OrgID, *device.Metadata.Name, status.Message)
@@ -672,7 +672,7 @@ func (f FleetSelectorMatchingLogic) setOverlappingFleetConditions(ctx context.Co
 
 func (f FleetSelectorMatchingLogic) setOverlappingFleetConditionTrue(ctx context.Context, fleetName string) error {
 	condition := api.Condition{
-		Type:    api.FleetOverlappingSelectors,
+		Type:    api.ConditionTypeFleetOverlappingSelectors,
 		Status:  api.ConditionStatusTrue,
 		Reason:  "Overlapping selectors",
 		Message: "Fleet's selector overlaps with at least one other fleet, causing ambiguous device ownership",
@@ -683,7 +683,7 @@ func (f FleetSelectorMatchingLogic) setOverlappingFleetConditionTrue(ctx context
 
 func (f FleetSelectorMatchingLogic) setOverlappingFleetConditionFalse(ctx context.Context, fleetName string) error {
 	condition := api.Condition{
-		Type:   api.FleetOverlappingSelectors,
+		Type:   api.ConditionTypeFleetOverlappingSelectors,
 		Status: api.ConditionStatusFalse,
 	}
 	status := f.serviceHandler.UpdateFleetConditions(ctx, fleetName, []api.Condition{condition})
