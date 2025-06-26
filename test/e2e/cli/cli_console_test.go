@@ -239,11 +239,11 @@ func extractTimestampsFromLogs(logs string, logPattern *regexp.Regexp) []time.Ti
 
 	for _, line := range lines {
 		if m := logPattern.FindStringSubmatch(line); m != nil {
-			if t, err := time.Parse(time.RFC3339Nano, m[1]); err == nil {
+			if t, err := time.Parse(time.RFC3339Nano, m[1]); err != nil {
+				logrus.Warnf("Failed to parse timestamp %q: %v", m[1], err)
+			} else {
 				validTimestamps = append(validTimestamps, t)
 				logrus.Infof("Found matching log line with timestamp: %s", t.Format(time.RFC3339))
-			} else {
-				logrus.Warnf("Failed to parse timestamp %q: %v", m[1], err)
 			}
 		}
 	}
