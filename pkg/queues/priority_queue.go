@@ -37,7 +37,7 @@ type Option[T any, P comparable] func(*IndexedPriorityQueue[T, P])
 // If size is 0 or less, the queue is considered unbounded.
 func WithMaxSize[T any, P comparable](size int) Option[T, P] {
 	return func(q *IndexedPriorityQueue[T, P]) {
-		if size > 0 {
+		if size > UnboundedSize {
 			q.maxSize = size
 		}
 	}
@@ -83,7 +83,9 @@ func (h *itemHeap[T, P]) Pop() any {
 	return item
 }
 
-// IndexedPriorityQueue is a generic, thread-unsafe priority queue.
+// IndexedPriorityQueue is a generic priority queue with O(1) access by priority.
+// Note: This implementation is NOT thread-safe. Concurrent access must be
+// synchronized externally.
 type IndexedPriorityQueue[T any, P comparable] struct {
 	heap      *itemHeap[T, P]
 	items     map[P]*Item[T, P] // The key is now the generic, comparable priority type P
@@ -97,7 +99,6 @@ func NewIndexedPriorityQueue[T any, P comparable](
 	extractor Extractor[T, P],
 	opts ...Option[T, P], // Variadic options
 ) *IndexedPriorityQueue[T, P] {
-	// Create the queue with default values.
 	q := &IndexedPriorityQueue[T, P]{
 		heap: &itemHeap[T, P]{
 			items:      make([]*Item[T, P], 0),
@@ -107,8 +108,6 @@ func NewIndexedPriorityQueue[T any, P comparable](
 		maxSize:   UnboundedSize,
 		extractor: extractor,
 	}
-
-	// Apply all the provided options.
 	for _, opt := range opts {
 		opt(q)
 	}
@@ -118,6 +117,8 @@ func NewIndexedPriorityQueue[T any, P comparable](
 
 // Add is the new, simplified public method.
 // It takes the raw value, extracts its priority, and adds it to the queue.
+// If the new value added would cause the size to exceed the configured max size,
+// the highest priority item will be evicted. For a min-heap, this is the smallest value
 func (q *IndexedPriorityQueue[T, P]) Add(value T) {
 	priority := q.extractor(value)
 	item := &Item[T, P]{
@@ -127,8 +128,6 @@ func (q *IndexedPriorityQueue[T, P]) Add(value T) {
 	q.addItem(item)
 }
 
-// addItem is the internal logic, renamed from the old Add method.
-// It handles the core queue operations (checking existence, eviction, etc.).
 func (q *IndexedPriorityQueue[T, P]) addItem(item *Item[T, P]) {
 	if _, exists := q.items[item.Priority]; exists {
 		return
@@ -143,7 +142,7 @@ func (q *IndexedPriorityQueue[T, P]) addItem(item *Item[T, P]) {
 	heap.Push(q.heap, item)
 }
 
-// Pop now needs to return the raw value T, not the internal Item.
+// Pop returns and removes the highest-priority item from the queue.
 func (q *IndexedPriorityQueue[T, P]) Pop() (T, bool) {
 	if len(q.heap.items) == 0 {
 		var zero T // The zero value for type T
