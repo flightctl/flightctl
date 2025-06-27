@@ -24,7 +24,7 @@ RestartSec=5
 RestartSteps=20
 
 # send the kill signal SIGINT only to the main process and let subprocesses be handled independently
-KillMode=process 
+KillMode=process
 KillSignal=SIGINT
 
 ExecReload=/bin/kill -HUP $MAINPID
