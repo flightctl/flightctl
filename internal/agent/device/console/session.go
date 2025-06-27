@@ -37,20 +37,17 @@ func (s *session) close() error {
 }
 
 func (s *session) buildBashCommand(ctx context.Context, metadata *api.DeviceConsoleSessionMetadata) *exec.Cmd {
+	// TODO: add conditional logic for non-bootc devices
 	args := []string{
-		"--ro-bind", "/usr", "/usr", // Bind /usr read-only
-		"--ro-bind", "/bin", "/bin", // Required for /bin/bash or POSIX tools
-		"--ro-bind", "/lib", "/lib", // Required for dynamic linker and libc
-		"--ro-bind", "/lib64", "/lib64", // Required for 64-bit libraries
+		"--ro-bind", "/", "/", // Mount root filesystem read-only (required for bootc)
 		"--bind", "/etc", "/etc", // Provide read/write access to system config files
 		"--bind", "/var", "/var", // Provide read/write access to system state, logs, DBs
 		"--bind", "/sys", "/sys", // Required for block/network interface introspection
-		"--bind", "/run", "/run", // Needed for runtime sockets (D-Bus, systemd)
-		"--bind", "/var/tmp", "/var/tmp", // For sos report and other tools using /var/tmp
+		"--bind", "/run", "/run", // Needed for runtime sockets (D-Bus, systemd, podman)
+		"--bind", "/tmp", "/tmp", // Provide read/write access to /tmp
 		"--bind", "/root", "/root", // Access to root user's home
 		"--dev-bind", "/dev", "/dev", // Provide /dev access: required for journalctl, interactive tty, and system diagnostics
 		"--proc", "/proc", // Mount /proc for ps, top, etc.
-		"--tmpfs", "/tmp", // Provide isolated writable /tmp
 		"--setenv", "SYSTEMD_IGNORE_CHROOT", "1", // Disable chroot detection to enable full systemctl functionality
 		"/bin/bash",
 	}
