@@ -1289,11 +1289,7 @@ func Test_getVersion(t *testing.T) {
 			s.cache.current.renderedVersion = tt.currentVersion
 			s.cache.desired.renderedVersion = tt.desiredVersion
 
-			var isFailed bool
-			if tt.desiredIsFailed {
-				isFailed = true
-			}
-			mockPriorityQueue.EXPECT().IsFailed(gomock.Any()).Return(isFailed)
+			mockPriorityQueue.EXPECT().IsFailed(gomock.Any()).Return(tt.desiredIsFailed)
 			renderedVersion, err := s.getRenderedVersion()
 			require.NoError(err)
 			require.Equal(tt.expectedVersion, renderedVersion)

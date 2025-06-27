@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -23,6 +24,13 @@ func createTestDevice(version string, spec *v1alpha1.DeviceSpec) *v1alpha1.Devic
 		},
 		Spec: spec,
 	}
+}
+
+// Helper function to parse version string to int64 for tests
+func parseVersionForTest(t *testing.T, versionStr string) int64 {
+	version, err := strconv.ParseInt(versionStr, 10, 64)
+	require.NoError(t, err, "Failed to parse version %s", versionStr)
+	return version
 }
 
 func TestIsReady(t *testing.T) {
@@ -263,7 +271,7 @@ func TestIsVersionReady(t *testing.T) {
 		require.NoError(err)
 
 		// Override nowFn to make schedule ready
-		vs, _ := manager.versions.Get("4")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "4"))
 		vs.download.schedule.nowFn = func() time.Time { return now }
 
 		ready, nextTime, err := manager.IsVersionReady(ctx, device)
@@ -291,7 +299,7 @@ func TestIsVersionReady(t *testing.T) {
 		require.NoError(err)
 
 		// Override nowFn to make schedule ready
-		vs, _ := manager.versions.Get("5")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "5"))
 		vs.update.schedule.nowFn = func() time.Time { return now }
 
 		ready, nextTime, err := manager.IsVersionReady(ctx, device)
@@ -323,7 +331,7 @@ func TestIsVersionReady(t *testing.T) {
 		require.NoError(err)
 
 		// Override nowFn to make both schedules ready
-		vs, _ := manager.versions.Get("6")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "6"))
 		vs.download.schedule.nowFn = func() time.Time { return now }
 		vs.update.schedule.nowFn = func() time.Time { return now }
 
@@ -355,7 +363,7 @@ func TestIsVersionReady(t *testing.T) {
 		require.NoError(err)
 
 		// Override nowFn to make schedule not ready
-		vs, _ := manager.versions.Get("7")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "7"))
 		vs.download.schedule.nowFn = func() time.Time { return now }
 
 		ready, nextTime, err := manager.IsVersionReady(ctx, device)
@@ -386,7 +394,7 @@ func TestIsVersionReady(t *testing.T) {
 		require.NoError(err)
 
 		// Override nowFn to make schedule not ready
-		vs, _ := manager.versions.Get("8")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "8"))
 		vs.update.schedule.nowFn = func() time.Time { return now }
 
 		ready, nextTime, err := manager.IsVersionReady(ctx, device)
@@ -421,7 +429,7 @@ func TestIsVersionReady(t *testing.T) {
 		require.NoError(err)
 
 		// Override nowFn - download ready, update not ready
-		vs, _ := manager.versions.Get("9")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "9"))
 		vs.download.schedule.nowFn = func() time.Time { return now }
 		vs.update.schedule.nowFn = func() time.Time { return now }
 
@@ -457,7 +465,7 @@ func TestIsVersionReady(t *testing.T) {
 		require.NoError(err)
 
 		// Override nowFn - download not ready, update ready
-		vs, _ := manager.versions.Get("10")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "10"))
 		vs.download.schedule.nowFn = func() time.Time { return now }
 		vs.update.schedule.nowFn = func() time.Time { return now }
 
@@ -494,7 +502,7 @@ func TestIsVersionReady(t *testing.T) {
 		require.NoError(err)
 
 		// Override nowFn to make both schedules not ready
-		vs, _ := manager.versions.Get("11")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "11"))
 		vs.download.schedule.nowFn = func() time.Time { return now }
 		vs.update.schedule.nowFn = func() time.Time { return now }
 
@@ -522,7 +530,7 @@ func TestIsVersionReady(t *testing.T) {
 		err := manager.Sync(ctx, device)
 		require.NoError(err)
 
-		vs, _ := manager.versions.Get("13")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "13"))
 		vs.download.schedule.nowFn = func() time.Time { return now }
 
 		// First call should compute and cache result
@@ -565,7 +573,7 @@ func TestIsVersionReady(t *testing.T) {
 		err = manager.Sync(ctx, device)
 		require.NoError(err)
 
-		vs, _ := manager.versions.Get("14")
+		vs, _ := manager.versions.PeekAt(parseVersionForTest(t, "14"))
 		vs.download.schedule.nowFn = func() time.Time { return now }
 
 		ready, _, err := manager.IsVersionReady(ctx, device)

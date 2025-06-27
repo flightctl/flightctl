@@ -1,7 +1,6 @@
 package spec
 
 import (
-	"container/heap"
 	"context"
 	"fmt"
 	"strconv"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 )
 
 // requeueState represents the state of a queued template version.
@@ -21,8 +21,14 @@ type requeueState struct {
 	tries int
 }
 
+// queueItem represents an item in the priority queue
+type queueItem struct {
+	Device  *v1alpha1.Device
+	Version int64
+}
+
 type queueManager struct {
-	queue          *queue
+	queue          *queues.IndexedPriorityQueue[*queueItem, int64]
 	failedVersions map[int64]struct{}
 	requeueLookup  map[int64]*requeueState
 	// maxRetries is the number of times a template version can be requeued before being removed.
@@ -34,6 +40,7 @@ type queueManager struct {
 	// delayDuration is the duration to wait before the item is
 	// available to be retrieved form the queue.
 	delayDuration time.Duration
+	maxSize       int
 
 	log *log.PrefixLogger
 }
@@ -46,13 +53,24 @@ func newPriorityQueue(
 	delayDuration time.Duration,
 	log *log.PrefixLogger,
 ) PriorityQueue {
+	extractor := func(item *queueItem) int64 {
+		return item.Version
+	}
+	comparator := queues.Min[int64]
+	underlying := queues.NewIndexedPriorityQueue[*queueItem, int64](
+		comparator,
+		extractor,
+		queues.WithMaxSize[*queueItem, int64](maxSize),
+	)
+
 	return &queueManager{
-		queue:          newQueue(log, maxSize),
+		queue:          underlying,
 		failedVersions: make(map[int64]struct{}),
 		requeueLookup:  make(map[int64]*requeueState),
 		maxRetries:     maxRetries,
 		delayThreshold: delayThreshold,
 		delayDuration:  delayDuration,
+		maxSize:        maxSize,
 		log:            log,
 	}
 }
@@ -75,18 +93,23 @@ func (m *queueManager) addInternal(ctx context.Context, device *v1alpha1.Device,
 		return
 	}
 
-	item, err := newItem(device)
+	version, err := stringToInt64(device.Version())
 	if err != nil {
-		m.log.Errorf("Failed to create queue item: %v", err)
+		m.log.Errorf("Failed to parse device version: %v", err)
 		return
 	}
-	version := item.Version
+
 	if _, failed := m.failedVersions[version]; failed {
 		m.log.Debugf("Skipping adding failed template version: %d", version)
 		return
 	}
 
 	m.pruneRequeueStatus()
+
+	item := &queueItem{
+		Device:  device,
+		Version: version,
+	}
 
 	state := m.getOrCreateRequeueState(ctx, item)
 
@@ -130,11 +153,11 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 		return nil, false
 	}
 
-	if item.Spec != nil {
+	if item.Device != nil {
 		m.log.Debugf("Retrieved template version from the queue: %d", version)
 		requeue.nextAvailable = time.Time{}
 		requeue.tries++
-		return item.Spec, true
+		return item.Device, true
 	}
 
 	m.log.Errorf("Dropping template version %d from queue: missing or invalid spec", version)
@@ -156,7 +179,7 @@ func (m *queueManager) IsFailed(version int64) bool {
 	return ok
 }
 
-func (m *queueManager) getOrCreateRequeueState(ctx context.Context, item *Item) *requeueState {
+func (m *queueManager) getOrCreateRequeueState(ctx context.Context, item *queueItem) *requeueState {
 	version := item.Version
 	state, exists := m.requeueLookup[version]
 	if !exists {
@@ -191,8 +214,8 @@ func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64)
 }
 
 func (m *queueManager) pruneRequeueStatus() {
-	maxRequeueSize := 5 * m.queue.maxSize
-	if m.queue.maxSize == 0 {
+	maxRequeueSize := 5 * m.maxSize
+	if m.maxSize == 0 {
 		return
 	}
 
@@ -211,126 +234,6 @@ func (m *queueManager) pruneRequeueStatus() {
 			m.log.Debugf("Evicted lowest template version: %d", minVersion)
 		}
 	}
-}
-
-type queue struct {
-	heap    ItemHeap
-	items   map[int64]*Item
-	maxSize int
-	log     *log.PrefixLogger
-}
-
-// newQueue creates a new queue that orders items by version.
-// If maxSize is exceeded, the lowest version is removed.
-func newQueue(log *log.PrefixLogger, maxSize int) *queue {
-	return &queue{
-		heap:    make(ItemHeap, 0),
-		items:   make(map[int64]*Item),
-		maxSize: maxSize,
-		log:     log,
-	}
-}
-
-func (q *queue) Add(item *Item) {
-	version := item.Version
-	if _, exists := q.items[version]; exists {
-		q.log.Tracef("Skipping item with version %d already in queue", version)
-		return
-	}
-
-	// enforce max size
-	if q.maxSize > 0 && q.heap.Len() > 0 && len(q.items) >= q.maxSize {
-		// evict the lowest version from the queue
-		removed := heap.Pop(&q.heap).(*Item)
-		delete(q.items, removed.Version)
-		q.log.Debugf("Queue exceeded max size, evicted version: %d", removed.Version)
-	}
-
-	q.items[version] = item
-	heap.Push(&q.heap, item)
-	q.log.Tracef("Added item version %d, heap size now %d", version, q.heap.Len())
-}
-
-func (q *queue) Pop() (*Item, bool) {
-	if q.heap.Len() == 0 {
-		return nil, false
-	}
-	item := heap.Pop(&q.heap).(*Item)
-	delete(q.items, item.Version)
-	q.log.Tracef("Popped item version %d, heap size now %d", item.Version, q.heap.Len())
-	return item, true
-}
-
-func (q *queue) Size() int {
-	return len(q.items)
-}
-
-// IsEmpty returns true if the queue is empty.
-func (q *queue) IsEmpty() bool {
-	return q.Size() == 0
-}
-
-func (q *queue) Clear() {
-	q.items = make(map[int64]*Item)
-	q.heap = make(ItemHeap, 0)
-}
-
-func (q *queue) Remove(version int64) {
-	q.log.Tracef("Removing item version: %d", version)
-	delete(q.items, version)
-
-	// ensure heap removal
-	for i, heapItem := range q.heap {
-		if heapItem.Version == version {
-			q.log.Tracef("Removing item version from heap: %d", version)
-			heap.Remove(&q.heap, i)
-			break
-		}
-	}
-}
-
-type Item struct {
-	Version int64
-	Spec    *v1alpha1.Device
-}
-
-// newItem creates a new queue item.
-func newItem(data *v1alpha1.Device) (*Item, error) {
-	version, err := stringToInt64(data.Version())
-	if err != nil {
-		return nil, err
-	}
-	return &Item{
-		Spec:    data,
-		Version: version,
-	}, nil
-}
-
-// ItemHeap is a priority queue that orders items by version.
-type ItemHeap []*Item
-
-func (h ItemHeap) Len() int {
-	return len(h)
-}
-
-func (h ItemHeap) Less(i, j int) bool {
-	return h[i].Version < h[j].Version
-}
-
-func (h ItemHeap) Swap(i, j int) {
-	h[i], h[j] = h[j], h[i]
-}
-
-func (h *ItemHeap) Push(x interface{}) {
-	*h = append(*h, x.(*Item))
-}
-
-func (h *ItemHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	*h = old[0 : n-1]
-	return item
 }
 
 func stringToInt64(s string) (int64, error) {
