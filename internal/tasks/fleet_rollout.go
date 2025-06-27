@@ -147,7 +147,8 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	}
 
 	if api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners) {
-		f.log.Warnf("Device has multiple owners, skipping rollout")
+		f.log.Errorf("Device %s has multiple owners, skipping rollout", f.resourceRef.Name)
+		return nil
 	}
 
 	ownerName, isFleetOwner, err := getOwnerFleet(device)
