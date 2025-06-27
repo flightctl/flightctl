@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -11,7 +13,6 @@ import (
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -194,16 +195,10 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			for i, factory := range configFactories {
 				specVersion := i + 1
 				By(fmt.Sprintf("Applying spec: %d", specVersion))
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-					var configProviderSpec v1alpha1.ConfigProviderSpec
-					err := factory(&configProviderSpec)
-					Expect(err).ToNot(HaveOccurred())
-					// append, not overwrite, new specs
-					specs := lo.FromPtr(device.Spec.Config)
-					specs = append(specs, configProviderSpec)
-					device.Spec.Config = &specs
-					logrus.Infof("Updating %s with config %+v", deviceId, *device.Spec.Config)
-				})
+				var configProviderSpec v1alpha1.ConfigProviderSpec
+				err := factory(&configProviderSpec)
+				Expect(err).ToNot(HaveOccurred())
+				harness.AddConfigToDeviceWithRetries(deviceId, configProviderSpec)
 				expectedVersion := currentVersion + 1
 				desc := fmt.Sprintf("Updating to desired renderedVersion: %d", expectedVersion)
 				By(fmt.Sprintf("Waiting for update %d to be picked up", specVersion))
@@ -270,6 +265,96 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 			*/
 		})
+		It("Should respect the spec's update schedule", Label("79220", "sanity"), func() {
+			startGracePeriod := "1m"
+
+			// cron is time based and since we can't control when this specific test will run, we do our best to ensure
+			// that this test will always succeed whenever it is run.
+			yesterday := time.Now().AddDate(0, 0, -1)
+			// To ensure an update won't ever occur, we set the update time to midnight yesterday.
+			wontUpdatePolicy := fmt.Sprintf("0 0 %d * *", yesterday.Day())
+			deviceIsApplying := func(device *v1alpha1.Device) bool {
+				return e2e.ConditionExists(device, string(v1alpha1.DeviceUpdating), string(v1alpha1.ConditionStatusTrue), string(v1alpha1.UpdateStateApplyingUpdate))
+			}
+			deviceIsApplyingForVersion := func(device *v1alpha1.Device, version int) bool {
+				if !deviceIsApplying(device) {
+					return false
+				}
+				cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.DeviceUpdating)
+				Expect(cond).ToNot(BeNil())
+				return strings.Contains(cond.Message, fmt.Sprintf("renderedVersion: %d", version))
+			}
+			currentVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+			configVersion := currentVersion
+			expectedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Updating the device with a policy that won't trigger should prevent an update from occurring")
+			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.UpdatePolicy = &v1alpha1.DeviceUpdatePolicySpec{
+					UpdateSchedule: &v1alpha1.UpdateSchedule{
+						At:                 wontUpdatePolicy,
+						StartGraceDuration: &startGracePeriod,
+					},
+				}
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(configVersion)}
+			})
+			configVersion++
+			harness.WaitForDeviceContents(deviceId, "the update should be registered but not applied", func(device *v1alpha1.Device) bool {
+				// We want the device to be preparing, but if it updates to the next version we should break now and fail at the next check
+				return deviceIsApplyingForVersion(device, expectedVersion)
+			}, TIMEOUT)
+
+			By("applying a new spec quickly, the policy should ensure the update does not occur")
+			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(configVersion)}
+			})
+			configVersion++
+			expectedVersion++
+			harness.WaitForDeviceContents(deviceId, "the update should be registered but not applied", func(device *v1alpha1.Device) bool {
+				// We want the device to be preparing, but if it updates to the next version we should break now and fail at the next check
+				return deviceIsApplyingForVersion(device, expectedVersion)
+			}, TIMEOUT)
+
+			// A reasonable amount of time spent polling to ensure the spec doesn't change
+			harness.EnsureDeviceContents(deviceId, "the spec contents should not apply", func(device *v1alpha1.Device) bool {
+				return device.Status.Config.RenderedVersion == strconv.Itoa(currentVersion)
+			}, "1m30s")
+
+			harness.WaitForDeviceContents(deviceId, "the device should indicate that it didn't update because the update policy isn't ready", func(device *v1alpha1.Device) bool {
+				cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.DeviceUpdating)
+				Expect(cond).ToNot(BeNil())
+				return strings.Contains(cond.Message, "update policy not ready")
+			}, TIMEOUT)
+
+			By("Reducing the update policy, the spec should be applied")
+			// pick a time two minutes in the future so that we can confirm that we wait at least some time before applying the update
+			now := time.Now()
+			inTwoMinutes := fmt.Sprintf("%d * * * *", now.Minute()+2)
+			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
+			})
+			expectedVersion++
+			harness.WaitForDeviceContents(deviceId, "the spec contents should be updated", func(device *v1alpha1.Device) bool {
+				return e2e.ConditionExists(device, string(v1alpha1.DeviceUpdating), string(v1alpha1.ConditionStatusFalse), string(v1alpha1.UpdateStateUpdated))
+			}, TIMEOUT)
+			currentVersion, err = harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(currentVersion).To(Equal(expectedVersion))
+			expectedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying another spec, the update should be applied eventually")
+			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				// change the spec to update every minute so that we don't have to wait as long
+				device.Spec.UpdatePolicy.UpdateSchedule.At = "* * * * *"
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+			})
+			// eventually the next update should be applied
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
+			Expect(err).NotTo(HaveOccurred())
+		})
 	})
 })
 
@@ -308,4 +393,17 @@ func isDeviceUpdateObserved(device *v1alpha1.Device, expectedVersion int) bool {
 		v1alpha1.UpdateStateApplyingUpdate,
 	}
 	return slices.Contains(validReasons, v1alpha1.UpdateState(cond.Reason))
+}
+
+func newInlineConfigVersion(version int) v1alpha1.ConfigProviderSpec {
+	configCopy := inlineConfig
+	configCopy.Content = fmt.Sprintf("%s %d", configCopy.Content, version)
+	cfg := v1alpha1.InlineConfigProviderSpec{
+		Inline: []v1alpha1.FileSpec{configCopy},
+		Name:   validInlineConfig.Name,
+	}
+	var provider v1alpha1.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(cfg)
+	Expect(err).NotTo(HaveOccurred())
+	return provider
 }
