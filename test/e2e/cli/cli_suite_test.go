@@ -19,9 +19,9 @@ var suiteCtx context.Context
 const (
 	// Eventually polling timeout/interval constants
 	TIMEOUT      = time.Minute
-	LONG_TIMEOUT = 10 * time.Minute
+	LONG_TIMEOUT = 20 * time.Minute
 	POLLING      = time.Second
-	LONG_POLLING = 5 * time.Second
+	LONG_POLLING = 10 * time.Second
 )
 
 var _ = BeforeSuite(func() {

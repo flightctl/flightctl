@@ -139,7 +139,7 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 }
 
 func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
-	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname"}
+	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname", "--boot=all"}
 
 	if opts.Unit != "" {
 		args = append(args, "-u", opts.Unit)
