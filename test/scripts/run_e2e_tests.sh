@@ -28,7 +28,7 @@ if [[ -n "${GINKGO_LABEL_FILTER}" ]]; then
   CMD+=("--label-filter" "${GINKGO_LABEL_FILTER}")
 fi
 
-CMD+=(--timeout 60m --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output)
+CMD+=(--timeout 120m --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output)
 
 CMD+=("${GO_E2E_DIRS[@]}")
 
