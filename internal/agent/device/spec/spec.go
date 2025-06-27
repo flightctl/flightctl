@@ -71,6 +71,7 @@ type Manager interface {
 	status.Exporter
 }
 
+// PriorityQueue interface for managing device specs in priority order
 type PriorityQueue interface {
 	// Add adds a new spec to the scheduler
 	Add(ctx context.Context, spec *v1alpha1.Device)

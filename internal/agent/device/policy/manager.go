@@ -3,10 +3,12 @@ package policy
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
 )
@@ -19,13 +21,14 @@ type policySchedule struct {
 
 // versionSchedules holds the schedules and cached results for a specific version
 type versionSchedules struct {
+	version  int64 // Store version as int64 for extractor
 	download *policySchedule
 	update   *policySchedule
 }
 
 type manager struct {
 	// versions holds per-version schedules with automatic compaction
-	versions *OrderedCache[string, *versionSchedules]
+	versions *queues.IndexedPriorityQueue[*versionSchedules, int64]
 
 	log *log.PrefixLogger
 }
@@ -34,37 +37,55 @@ type manager struct {
 // Note: This manager is designed for sequential operations only and is not
 // thread-safe.
 func NewManager(log *log.PrefixLogger) Manager {
+	extractor := func(vs *versionSchedules) int64 {
+		return vs.version
+	}
+
+	comparator := queues.Min[int64] // Min-heap for version numbers
+
+	pq := queues.NewIndexedPriorityQueue[*versionSchedules, int64](
+		comparator,
+		extractor,
+	)
+
 	return &manager{
-		versions: NewOrderedCache[string, *versionSchedules](),
+		versions: pq,
 		log:      log,
 	}
 }
 
-// validateDevice performs common device validation checks
-func (m *manager) validateDevice(device *v1alpha1.Device, operation string) error {
+// validateDevice performs common device validation checks and returns the parsed version
+func (m *manager) validateDevice(device *v1alpha1.Device, operation string) (int64, error) {
 	if device == nil {
-		return fmt.Errorf("device is required for %s", operation)
+		return 0, fmt.Errorf("device is required for %s", operation)
 	}
 
-	version := device.Version()
-	if version == "" {
-		return fmt.Errorf("device version is required for %s", operation)
+	versionStr := device.Version()
+	if versionStr == "" {
+		return 0, fmt.Errorf("device version is required for %s", operation)
 	}
 
-	return nil
+	// Validate that version can be parsed as int64
+	version, err := strconv.ParseInt(versionStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("device version must be a valid integer for %s: %w", operation, err)
+	}
+
+	return version, nil
 }
 
-// validateDeviceWithSpec performs device validation including spec check
-func (m *manager) validateDeviceWithSpec(device *v1alpha1.Device, operation string) error {
-	if err := m.validateDevice(device, operation); err != nil {
-		return err
+// validateDeviceWithSpec performs device validation including spec check and returns the parsed version
+func (m *manager) validateDeviceWithSpec(device *v1alpha1.Device, operation string) (int64, error) {
+	version, err := m.validateDevice(device, operation)
+	if err != nil {
+		return 0, err
 	}
 
 	if device.Spec == nil {
-		return fmt.Errorf("device spec is required for %s", operation)
+		return 0, fmt.Errorf("device spec is required for %s", operation)
 	}
 
-	return nil
+	return version, nil
 }
 
 func (m *manager) Sync(ctx context.Context, device *v1alpha1.Device) error {
@@ -74,24 +95,25 @@ func (m *manager) Sync(ctx context.Context, device *v1alpha1.Device) error {
 	m.log.Debug("Syncing policy")
 	defer m.log.Debug("Finished syncing policy")
 
-	if err := m.validateDeviceWithSpec(device, "policy sync"); err != nil {
+	version, err := m.validateDeviceWithSpec(device, "policy sync")
+	if err != nil {
 		return err
 	}
 
-	version := device.Version()
-
-	_, exists := m.versions.Get(version)
+	_, exists := m.versions.PeekAt(version)
 	if exists {
 		return nil
 	}
 
-	vs := &versionSchedules{}
+	vs := &versionSchedules{
+		version: version,
+	}
 
 	if device.Spec.UpdatePolicy == nil {
-		m.log.Debugf("No update policy defined for version %s", version)
+		m.log.Debugf("No update policy defined for version %s", device.Version())
 		vs.download = nil
 		vs.update = nil
-		m.versions.Put(version, vs)
+		m.versions.Add(vs)
 		return nil
 	}
 
@@ -117,7 +139,7 @@ func (m *manager) Sync(ctx context.Context, device *v1alpha1.Device) error {
 		}
 	}
 
-	m.versions.Put(version, vs)
+	m.versions.Add(vs)
 
 	return nil
 }
@@ -127,14 +149,13 @@ func (m *manager) IsReady(ctx context.Context, policyType Type, device *v1alpha1
 		return false
 	}
 
-	if err := m.validateDevice(device, "policy check"); err != nil {
+	version, err := m.validateDevice(device, "policy check")
+	if err != nil {
 		m.log.Errorf("Device validation failed: %v", err)
 		return false
 	}
 
-	version := device.Version()
-
-	vs, exists := m.versions.Get(version)
+	vs, exists := m.versions.PeekAt(version)
 	if !exists {
 		return false
 	}
@@ -161,15 +182,14 @@ func (m *manager) IsVersionReady(ctx context.Context, device *v1alpha1.Device) (
 		return false, nil, ctx.Err()
 	}
 
-	if err := m.validateDevice(device, "version ready"); err != nil {
+	version, err := m.validateDevice(device, "version ready")
+	if err != nil {
 		return false, nil, err
 	}
 
-	version := device.Version()
-
-	vs, exists := m.versions.Get(version)
+	vs, exists := m.versions.PeekAt(version)
 	if !exists {
-		return false, nil, fmt.Errorf("version ready: version %s not found", version)
+		return false, nil, fmt.Errorf("version ready: version %s not found", device.Version())
 	}
 
 	allReady := true
@@ -200,15 +220,14 @@ func (m *manager) SetCurrentDevice(ctx context.Context, device *v1alpha1.Device)
 		return ctx.Err()
 	}
 
-	if err := m.validateDevice(device, "setting current device"); err != nil {
+	version, err := m.validateDevice(device, "setting current device")
+	if err != nil {
 		return err
 	}
 
-	version := device.Version()
-
 	// Compact up to the current version (removes all versions before it)
-	m.versions.CompactUpTo(version)
-	m.log.Debugf("Compacted policy cache up to version %s", version)
+	m.versions.RemoveUpTo(version)
+	m.log.Debugf("Compacted policy cache up to version %s", device.Version())
 
 	return nil
 }
