@@ -176,6 +176,10 @@ func (h *Harness) ReadPrimaryVMAgentLogs(since string) (string, error) {
 		Unit:  "flightctl-agent",
 		Since: since,
 	})
+	logrus.Infof("Reading agent VM logs")
+	fmt.Println("==========================================================")
+	fmt.Println(logs)
+	fmt.Println("==========================================================")
 
 	return logs, err
 }

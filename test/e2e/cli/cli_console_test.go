@@ -20,7 +20,7 @@ import (
 
 // Test constants
 const (
-	logLookbackDuration = "2 minutes ago"
+	logLookbackDuration = "10 minutes ago"
 )
 
 // -----------------------------------------------------------------------------
