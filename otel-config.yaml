@@ -1,0 +1,27 @@
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'node'
+          static_configs:
+            - targets: ['localhost:9100']
+
+processors:
+  batch:
+
+exporters:
+  otlphttp:
+    endpoint: https://metrics.example.com:4318
+    tls:
+      cert_file: /etc/otel3/cert.pem
+      key_file: /etc/otel3/key.pem
+      insecure: false
+      insecure_skip_verify: false  # set to true if the server uses self-signed certs and you don't have a CA
+      ca_file: /etc/otel3/ca.crt     # optional: if you have a CA root to trust the server
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [otlphttp]

@@ -1,0 +1,29 @@
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'node'
+          scrape_interval: 2s
+          scrape_timeout: 1s
+          static_configs:
+            - targets: ['localhost:9100']
+
+processors:
+  batch: {}
+
+exporters:
+  otlp:
+    endpoint: localhost:4317  # gRPC endpoint
+    tls:
+      cert_file: /etc/otel3/cert.pem
+      key_file: /etc/otel3/key.pem
+      ca_file: /etc/otel3/ca.crt
+      insecure: false
+      insecure_skip_verify: true  # only if using self-signed certs
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [otlp]

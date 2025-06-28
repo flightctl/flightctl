@@ -10,6 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
+	cryptoUtils "github.com/flightctl/flightctl/internal/crypto/utils"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -28,7 +29,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api
 		return fmt.Errorf("approveAndSignEnrollmentRequest: enrollment request is missing metadata.name")
 	}
 
-	csr, err := crypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
+	csr, err := cryptoUtils.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
 	}

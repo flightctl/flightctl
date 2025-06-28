@@ -1,0 +1,36 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: /root/.flightctl/certs/server.crt
+          key_file: /root/.flightctl/certs/server.key
+          client_ca_file: /root/.flightctl/certs/ca.crt
+        auth:
+          authenticator: cnauthenticator
+
+processors:
+  deviceid: {}
+  transform:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["device_id"], resource.attributes["device_id"])
+
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+
+extensions:
+  cnauthenticator:
+    print_cn: true
+    log_level: info
+
+service:
+  extensions: [cnauthenticator]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [deviceid, transform]
+      exporters: [prometheus]

@@ -28,6 +28,8 @@ type Config struct {
 	InternalConfig                  *InternalCfg `json:"internalConfig,omitempty"`
 	ServerCertValidityDays          int          `json:"serverCertValidityDays,omitempty"`
 	ExtraAllowedPrefixes            []string     `json:"extraAllowedPrefixes,omitempty"`
+
+	DeviceSvcClientSignerName string `json:"deviceSvcClientSignerName,omitempty"`
 }
 
 func NewDefault(tempDir string) *Config {
@@ -36,7 +38,7 @@ func NewDefault(tempDir string) *Config {
 		AdminCommonName:                 "flightctl-admin",
 		ClientBootstrapCertName:         "client-enrollment",
 		ClientBootstrapCommonName:       "client-enrollment",
-		ClientBootstrapSignerName:       "enrollment",
+		ClientBootstrapSignerName:       "flightctl.io/enrollment",
 		ClientBootstrapCommonNamePrefix: "client-enrollment-",
 		ClientBootstrapValidityDays:     365,
 		ServerCertValidityDays:          365,
@@ -48,6 +50,7 @@ func NewDefault(tempDir string) *Config {
 			SignerCertName:   "ca",
 			CertStore:        tempDir,
 		},
+		DeviceSvcClientSignerName: "flightctl.io/device-svc-client",
 	}
 	return c
 }

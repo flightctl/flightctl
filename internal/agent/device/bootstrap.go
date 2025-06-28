@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/cert"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -32,6 +33,7 @@ type Bootstrap struct {
 	specManager       spec.Manager
 	devicePublisher   publisher.Publisher
 	statusManager     status.Manager
+	certManager       cert.Manager
 	hookManager       hook.Manager
 	systemInfoManager systeminfo.Manager
 	podmanClient      *client.Podman
@@ -51,6 +53,7 @@ func NewBootstrap(
 	specManager spec.Manager,
 	devicePublisher publisher.Publisher,
 	statusManager status.Manager,
+	certManager cert.Manager,
 	hookManager hook.Manager,
 	lifecycleInitializer lifecycle.Initializer,
 	managementServiceConfig *baseclient.Config,
@@ -65,6 +68,7 @@ func NewBootstrap(
 		specManager:             specManager,
 		devicePublisher:         devicePublisher,
 		statusManager:           statusManager,
+		certManager:             certManager,
 		hookManager:             hookManager,
 		lifecycle:               lifecycleInitializer,
 		managementServiceConfig: managementServiceConfig,
@@ -294,8 +298,10 @@ func (b *Bootstrap) setManagementClient() error {
 	b.managementClient = client.NewManagement(managementHTTPClient)
 
 	// initialize the management client for spec and status managers
+
 	b.statusManager.SetClient(b.managementClient)
 	b.devicePublisher.SetClient(b.managementClient)
+	b.certManager.SetClient(b.managementClient)
 	b.log.Info("Management client set")
 	return nil
 }

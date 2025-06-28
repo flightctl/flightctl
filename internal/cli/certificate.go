@@ -26,7 +26,7 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
-	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	fccrypto "github.com/flightctl/flightctl/internal/crypto/utils"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -123,7 +123,7 @@ func (o *CertificateOptions) Validate(args []string) error {
 	}
 
 	if errs := validation.ValidateSignerName(o.SignerName); len(errs) > 0 {
-		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca'")
+		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca', 'assaf")
 	}
 
 	// check if user updated output format while requesting a cert that is not an enrollment cert -

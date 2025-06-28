@@ -37,6 +37,8 @@ type Management interface {
 	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
 	GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error)
 	PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error
+	CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, error)
+	GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, error)
 }
 
 // Enrollment is client the interface for managing device enrollment.

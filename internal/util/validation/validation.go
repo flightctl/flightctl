@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/crypto"
+	crypto "github.com/flightctl/flightctl/internal/crypto/utils"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	k8sapivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -291,8 +291,10 @@ func ValidateSignerName(s string) []error {
 	errs := field.ErrorList{}
 
 	validSigners := map[string]struct{}{
-		"ca":         {}, // general signer
-		"enrollment": {}, // special logic for enrollment certs, but afterwards fwds to same 'ca' signer internally
+		"ca":                             {}, // general signer
+		"enrollment":                     {}, // special logic for enrollment certs, but afterwards fwds to same 'ca' signer internally
+		"flightctl.io/device-svc-client": {},
+		"flightctl.io/enrollment":        {},
 	}
 
 	if _, exists := validSigners[s]; exists {

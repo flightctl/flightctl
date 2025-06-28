@@ -69,6 +69,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		Spec: api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
 		Status: &api.TemplateVersionStatus{
 			Applications: fleet.Spec.Template.Spec.Applications,
+			Certs:        fleet.Spec.Template.Spec.Certs,
 			Config:       fleet.Spec.Template.Spec.Config,
 			Os:           fleet.Spec.Template.Spec.Os,
 			Resources:    fleet.Spec.Template.Spec.Resources,
