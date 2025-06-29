@@ -60,9 +60,6 @@ func GetJSONByName[T any](h *e2e.Harness, resourceKind, name string) (T, error) 
 	var zero T
 
 	out, err := h.CLI(get, fmt.Sprintf("%s/%s", resourceKind, name), "-o", jsonStr)
-	fmt.Println("==========================================================")
-	fmt.Println(out)
-	fmt.Println("==========================================================")
 	if err != nil {
 		return zero, err
 	}

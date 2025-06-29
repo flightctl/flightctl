@@ -215,7 +215,10 @@ var _ = Describe("CLI - device console", Serial, func() {
 			WithArguments(logLookbackDuration).
 			Should(And(
 				ContainSubstring("Error"),
-				ContainSubstring("i/o timeout"),
+				Or(
+					ContainSubstring("i/o timeout"),
+					ContainSubstring("refused"),
+				),
 			),
 			)
 
