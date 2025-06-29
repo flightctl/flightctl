@@ -1,0 +1,15 @@
+database:
+  hostname: localhost
+  type: pgsql
+  port: 5432
+  name: flightctl
+
+service: {}
+
+kv:
+  hostname: localhost
+  port: 6379
+
+alertmanager:
+  hostname: localhost
+  port: 9093

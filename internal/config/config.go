@@ -17,13 +17,14 @@ const (
 )
 
 type Config struct {
-	Database   *dbConfig         `json:"database,omitempty"`
-	Service    *svcConfig        `json:"service,omitempty"`
-	KV         *kvConfig         `json:"kv,omitempty"`
-	Auth       *authConfig       `json:"auth,omitempty"`
-	Prometheus *prometheusConfig `json:"prometheus,omitempty"`
-	CA         *ca.Config        `json:"ca,omitempty"`
-	Tracing    *tracingConfig    `json:"tracing,omitempty"`
+	Database     *dbConfig           `json:"database,omitempty"`
+	Service      *svcConfig          `json:"service,omitempty"`
+	KV           *kvConfig           `json:"kv,omitempty"`
+	Alertmanager *alertmanagerConfig `json:"alertmanager,omitempty"`
+	Auth         *authConfig         `json:"auth,omitempty"`
+	Prometheus   *prometheusConfig   `json:"prometheus,omitempty"`
+	CA           *ca.Config          `json:"ca,omitempty"`
+	Tracing      *tracingConfig      `json:"tracing,omitempty"`
 }
 
 type dbConfig struct {
@@ -57,12 +58,21 @@ type svcConfig struct {
 	HttpMaxUrlLength       int           `json:"httpMaxUrlLength,omitempty"`
 	HttpMaxRequestSize     int           `json:"httpMaxRequestSize,omitempty"`
 	EventRetentionPeriod   util.Duration `json:"eventRetentionPeriod,omitempty"`
+	AlertPollingInterval   util.Duration `json:"alertPollingInterval,omitempty"`
 }
 
 type kvConfig struct {
 	Hostname string `json:"hostname,omitempty"`
 	Port     uint   `json:"port,omitempty"`
 	Password string `json:"password,omitempty"`
+}
+
+type alertmanagerConfig struct {
+	Hostname   string `json:"hostname,omitempty"`
+	Port       uint   `json:"port,omitempty"`
+	MaxRetries int    `json:"maxRetries,omitempty"`
+	BaseDelay  string `json:"baseDelay,omitempty"`
+	MaxDelay   string `json:"maxDelay,omitempty"`
 }
 
 type authConfig struct {
@@ -155,11 +165,19 @@ func NewDefault(opts ...ConfigOption) *Config {
 			HttpMaxUrlLength:       2000,
 			HttpMaxRequestSize:     50 * 1024 * 1024,                  // 50MB
 			EventRetentionPeriod:   util.Duration(7 * 24 * time.Hour), // 1 week
+			AlertPollingInterval:   util.Duration(1 * time.Minute),
 		},
 		KV: &kvConfig{
 			Hostname: "localhost",
 			Port:     6379,
 			Password: "adminpass",
+		},
+		Alertmanager: &alertmanagerConfig{
+			Hostname:   "localhost",
+			Port:       9093,
+			MaxRetries: 3,
+			BaseDelay:  "500ms",
+			MaxDelay:   "10s",
 		},
 		Prometheus: &prometheusConfig{
 			Address:        ":15690",

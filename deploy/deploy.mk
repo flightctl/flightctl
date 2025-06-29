@@ -28,7 +28,13 @@ redeploy-worker: flightctl-worker-container
 redeploy-periodic: flightctl-periodic-container
 	test/scripts/redeploy.sh periodic
 
-deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-multiarch-cli-container
+redeploy-alert-exporter: flightctl-alert-exporter-container
+	test/scripts/redeploy.sh alert-exporter
+
+redeploy-alertmanager-proxy: flightctl-alertmanager-proxy-container
+	test/scripts/redeploy.sh alertmanager-proxy
+
+deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
@@ -45,6 +51,12 @@ deploy-db:
 deploy-kv:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh kv
 
+deploy-alertmanager:
+	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager
+
+deploy-alertmanager-proxy:
+	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager-proxy
+
 deploy-quadlets:
 	sudo -E deploy/scripts/deploy_quadlets.sh
 
@@ -53,6 +65,12 @@ kill-db:
 
 kill-kv:
 	sudo systemctl stop flightctl-kv.service
+
+kill-alertmanager:
+	sudo systemctl stop flightctl-alertmanager.service
+
+kill-alertmanager-proxy:
+	sudo systemctl stop flightctl-alertmanager-proxy.service
 
 show-podman-secret:
 	sudo podman secret inspect $(SECRET_NAME) --showsecret | jq '.[] | .SecretData'
