@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -451,8 +452,19 @@ var _ = Describe("cli operation", func() {
 			}
 
 			By("Verifying Created events")
+
 			out, err := harness.RunGetEvents()
 			Expect(err).ToNot(HaveOccurred())
+
+			// Filter only "created successfully" events
+			createdEvents := []string{}
+			for _, line := range strings.Split(out, "\n") {
+				if strings.Contains(line, "created successfully") {
+					createdEvents = append(createdEvents, line)
+				}
+			}
+
+			// Check that each expected resource has a corresponding "created successfully" event
 			for _, r := range resources {
 				var name string
 				switch r.resourceType {
@@ -465,7 +477,24 @@ var _ = Describe("cli operation", func() {
 				case util.ErResource:
 					name = *er.Metadata.Name
 				}
-				Expect(out).Should(MatchRegexp(formatResourceEvent(r.resourceType, name, util.EventCreated)))
+
+				pattern := fmt.Sprintf(`(?m)^.*\b%s\b\s+\b%s\b\s+Normal\s+created successfully$`, r.resourceType, name)
+
+				matched := false
+				for _, line := range createdEvents {
+					if ok, _ := regexp.MatchString(pattern, line); ok {
+						matched = true
+						break
+					}
+				}
+
+				if !matched {
+					fmt.Fprintf(GinkgoWriter,
+						"\n[DEBUG] No matching 'created successfully' event found for %s %s\nAvailable 'created' events:\n%s\n\n",
+						r.resourceType, name, strings.Join(createdEvents, "\n"))
+				}
+
+				Expect(matched).To(BeTrue(), fmt.Sprintf("Expected 'created successfully' event for %s %s", r.resourceType, name))
 			}
 
 			By("Reapplying resources (updates)")
