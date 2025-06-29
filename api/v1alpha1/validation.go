@@ -73,9 +73,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, resource.Validate()...)
 		}
 	}
-	if r.Systemd != nil {
+	if r.Systemd != nil && r.Systemd.MatchPatterns != nil {
 		for i, matchPattern := range *r.Systemd.MatchPatterns {
-			allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i), 1, 256, nil, "")...)
+			allErrs = append(allErrs, validation.ValidateSystemdName(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i))...)
 		}
 	}
 	return allErrs
