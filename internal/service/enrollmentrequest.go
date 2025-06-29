@@ -278,7 +278,9 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 
 		identity, err := authcommon.GetIdentity(ctx)
 		if err != nil {
-			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
+			status := api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
+			h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
+			return nil, status
 		}
 
 		approvedBy := "unknown"
@@ -295,12 +297,16 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		approvalStatusToReturn = &approvalStatus
 
 		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
+			status := api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
+			h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
+			return nil, status
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			return nil, api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
+			status := api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
+			h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
+			return nil, status
 		}
 	}
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
@@ -316,7 +322,6 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er)
 	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.EnrollmentRequestKind, name, status, nil, h.log))
 	return result, status
 }
 

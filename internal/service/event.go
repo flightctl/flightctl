@@ -206,8 +206,8 @@ func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind,
 func GetResourceApprovedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, log logrus.FieldLogger) *api.Event {
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
 		Prefix:          "resource-approval",
-		ReasonSuccess:   api.EventReasonDeviceApproved,
-		ReasonFailure:   api.EventReasonDeviceApprovalFailed,
+		ReasonSuccess:   api.EventReasonEnrollmentRequestApproved,
+		ReasonFailure:   api.EventReasonEnrollmentRequestApprovalFailed,
 		SuccessMessage:  "approved successfully",
 		FailureTemplate: "approval failed: %s",
 	}, log)

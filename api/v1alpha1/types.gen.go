@@ -129,8 +129,6 @@ const (
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
 	EventReasonDeviceApplicationError          EventReason = "DeviceApplicationError"
 	EventReasonDeviceApplicationHealthy        EventReason = "DeviceApplicationHealthy"
-	EventReasonDeviceApprovalFailed            EventReason = "DeviceApprovalFailed"
-	EventReasonDeviceApproved                  EventReason = "DeviceApproved"
 	EventReasonDeviceCPUCritical               EventReason = "DeviceCPUCritical"
 	EventReasonDeviceCPUNormal                 EventReason = "DeviceCPUNormal"
 	EventReasonDeviceCPUWarning                EventReason = "DeviceCPUWarning"

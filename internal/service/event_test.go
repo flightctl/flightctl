@@ -519,7 +519,7 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 	expectedEvents := []api.EventReason{
 		api.EventReasonDeviceContentUpToDate,
 		api.EventReasonResourceCreated,
-		api.EventReasonDeviceApproved,
+		api.EventReasonEnrollmentRequestApproved,
 	}
 	require.Equal(statusSuccessCode, stat.Code)
 	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})

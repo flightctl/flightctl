@@ -5082,8 +5082,6 @@ components:
             - ResourceDeletionFailed
             - DeviceDecommissioned
             - DeviceDecommissionFailed
-            - DeviceApproved
-            - DeviceApprovalFailed
             - DeviceCPUCritical
             - DeviceCPUWarning
             - DeviceCPUNormal
