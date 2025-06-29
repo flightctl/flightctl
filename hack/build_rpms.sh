@@ -12,6 +12,7 @@ fi
 # our RPM build process works in rpm bases systems so we wrap it if necessary
 if ! command -v packit >/dev/null 2>&1; then
     echo "Building RPMs on a system without packit, using container"
+    mkdir -p bin
     cat >bin/build_rpms.sh <<EOF
 if ! dnf install -y go-rpm-macros; then
     echo "Failed to install go-rpm-macros package"

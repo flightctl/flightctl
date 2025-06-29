@@ -168,11 +168,111 @@ jobs:
             exit 1
           fi
 
+  download-copr-rpms:
+    name: Download RPMs from COPR
+    if: ${{ github.event_name != 'pull_request' && github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    needs: [ verify, verify-windows ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install COPR CLI and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl jq python3-pip
+          pip3 install copr-cli
+
+      - name: Wait for COPR build completion
+        run: |
+          echo "Looking for COPR builds to download"
+
+          # For PR testing, use a recent successful build instead of waiting for a specific version
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "PR testing mode - using most recent successful build"
+            builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
+            completed_build=$(echo "$builds" | jq -r '.[] | select(.state == "succeeded") | .id' | head -1)
+
+            if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
+              echo "Found recent completed COPR build for testing: $completed_build"
+              echo "build_id=$completed_build" >> $GITHUB_ENV
+            else
+              echo "No recent successful builds found"
+              exit 1
+            fi
+          else
+            echo "Waiting for COPR builds to complete for tag ${{ github.ref_name }}"
+
+            # Wait up to 45 minutes for builds to complete
+            max_attempts=90
+            attempt=0
+
+            while [ $attempt -lt $max_attempts ]; do
+              # Get recent builds for the flightctl project
+              builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
+
+              # Check if we have a successful build for this tag/version
+              version="${{ github.ref_name }}"
+              version=${version#v}  # Remove 'v' prefix
+
+              completed_build=$(echo "$builds" | jq -r --arg version "$version" '.[] | select(.source_package.version == $version and .state == "succeeded") | .id' | head -1)
+
+            if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
+              echo "Found completed COPR build: $completed_build"
+              echo "build_id=$completed_build" >> $GITHUB_ENV
+              break
+            fi
+
+              echo "Waiting for COPR build to complete... (attempt $((attempt + 1))/$max_attempts)"
+              sleep 30
+              attempt=$((attempt + 1))
+            done
+
+            if [ $attempt -eq $max_attempts ]; then
+              echo "Timeout waiting for COPR build to complete"
+              exit 1
+            fi
+          fi
+
+      - name: Download RPMs from COPR
+        run: |
+          build_id="${{ env.build_id }}"
+          mkdir -p copr-rpms-final
+          
+          # Use download-build command to get the RPMs directly
+          echo "Downloading build $build_id from COPR..."
+          copr-cli download-build $build_id --dest copr-rpms-temp
+          
+          # Remove debuginfo, debugsource, and source RPMs
+          find copr-rpms-temp -name "*debuginfo*.rpm" -delete
+          find copr-rpms-temp -name "*debugsource*.rpm" -delete
+          find copr-rpms-temp -name "*.src.rpm" -delete
+          
+          # Rename RPMs to include directory name to avoid conflicts
+          echo "Renaming and organizing RPMs:"
+          find copr-rpms-temp -name "*.rpm" | while read rpm_path; do
+            dir_name=$(basename "$(dirname "$rpm_path")")
+            rpm_name=$(basename "$rpm_path")
+            new_name="${dir_name}-${rpm_name}"
+            echo "  $rpm_name -> $new_name"
+            cp "$rpm_path" "copr-rpms-final/$new_name"
+          done
+          
+          # List final RPMs
+          echo "Final RPMs for upload:"
+          ls -la copr-rpms-final/
+
+      - name: Save RPMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-rpms
+          path: copr-rpms-final/*.rpm
+
   publish:
     name: Publish Binaries
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [ verify, verify-windows, download-copr-rpms ]
     permissions:
       contents: write
 
@@ -185,6 +285,12 @@ jobs:
         with:
           merge-multiple: true
           path: release
+
+      - name: Load RPMs
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-rpms
+          path: release/rpms
 
       # if this is a push to the main branch, we update the latest release of binaries
       - name: Publish latest
