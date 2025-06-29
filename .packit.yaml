@@ -12,7 +12,7 @@ packages:
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
 actions:
   get-current-version:
-    - bash -c 'git describe --tags | sed "s/^v//; s/-/~/g"'
+    - bash -c 'echo ${PACKIT_CURRENT_VERSION:-$(git describe --tags | sed "s/^v//; s/-/~/g")}'
 jobs:
   - job: copr_build
     trigger: pull_request
