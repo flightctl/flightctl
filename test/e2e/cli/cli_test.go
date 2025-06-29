@@ -396,22 +396,10 @@ var _ = Describe("cli operation", func() {
 			}
 
 			By("Verifying Created events")
-			out, err := harness.RunGetEvents()
+			createdEvents, err := verifyEventsByReason(harness, resources, deviceName, fleetName, repoName, er, "ResourceCreated")
+
 			Expect(err).ToNot(HaveOccurred())
-			for _, r := range resources {
-				var name string
-				switch r.resourceType {
-				case util.DeviceResource:
-					name = deviceName
-				case util.FleetResource:
-					name = fleetName
-				case util.RepoResource:
-					name = repoName
-				case util.ErResource:
-					name = *er.Metadata.Name
-				}
-				Expect(out).Should(MatchRegexp(formatResourceEvent(r.resourceType, name, util.EventCreated)))
-			}
+			Expect(len(createdEvents)).To(BeZero(), fmt.Sprintf("Missing created events for: %v", createdEvents))
 
 			By("Reapplying resources (updates)")
 			for _, r := range resources {
@@ -436,26 +424,13 @@ var _ = Describe("cli operation", func() {
 				}
 			}
 
-			By("Verifying Updated events")
-			out, err = harness.RunGetEvents()
+			By("Verifying updated events")
+			updatedEvents, err := verifyEventsByReason(harness, resources, deviceName, fleetName, repoName, er, "ResourceUpdated")
 			Expect(err).ToNot(HaveOccurred())
-			for _, r := range resources {
-				var name string
-				switch r.resourceType {
-				case util.DeviceResource:
-					name = deviceName
-				case util.FleetResource:
-					name = fleetName
-				case util.RepoResource:
-					name = repoName
-				case util.ErResource:
-					name = *er.Metadata.Name
-				}
-				Expect(out).To(MatchRegexp(formatResourceEvent(r.resourceType, name, util.EventUpdated)))
-			}
+			Expect(len(updatedEvents)).To(BeZero(), fmt.Sprintf("Missing updated events for: %v", updatedEvents))
 
 			By("Querying events with fieldSelector kind=Device")
-			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.DeviceResource))
+			out, err := harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.DeviceResource))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
 
@@ -747,6 +722,50 @@ func extractTimestamps(events []v1alpha1.Event) ([]time.Time, error) {
 	}
 
 	return timestamps, nil
+}
+
+func verifyEventsByReason(harness *e2e.Harness, resources []struct {
+	resourceType string
+	yamlPath     string
+}, deviceName, fleetName, repoName string, er *v1alpha1.EnrollmentRequest, eventReason string) ([]string /* missingEvents */, error) {
+	out, err := harness.RunGetEvents(fmt.Sprintf("--field-selector=reason=%s", eventReason))
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(out, "\n")
+	missingEvents := []string{}
+
+	for _, r := range resources {
+		var name string
+		switch r.resourceType {
+		case util.DeviceResource:
+			name = deviceName
+		case util.FleetResource:
+			name = fleetName
+		case util.RepoResource:
+			name = repoName
+		case util.ErResource:
+			name = *er.Metadata.Name
+		}
+
+		matched := false
+		for _, line := range lines {
+			if strings.Contains(line, r.resourceType) && strings.Contains(line, name) {
+				matched = true
+				break
+			}
+		}
+
+		if !matched {
+			missingEvents = append(missingEvents, fmt.Sprintf("%s %s", r.resourceType, name))
+			fmt.Fprintf(GinkgoWriter,
+				"\n[DEBUG] No event with reason='%s' found for %s %s\nEvent output:\n%s\n\n",
+				eventReason, r.resourceType, name, out)
+		}
+	}
+
+	return missingEvents, nil
 }
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.
