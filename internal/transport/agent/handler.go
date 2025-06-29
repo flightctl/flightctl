@@ -130,7 +130,7 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 }
 
 // (GET /api/v1/enrollmentrequests/{name})
-func (s *AgentTransportHandler) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+func (s *AgentTransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 
 	if err := ValidateEnrollmentAccessFromContext(r.Context(), s.ca, s.log); err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))

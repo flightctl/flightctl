@@ -109,8 +109,8 @@ type ClientInterface interface {
 
 	CreateEnrollmentRequest(ctx context.Context, body CreateEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadEnrollmentRequest request
-	ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetEnrollmentRequest request
+	GetEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -197,8 +197,8 @@ func (c *Client) CreateEnrollmentRequest(ctx context.Context, body CreateEnrollm
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadEnrollmentRequestRequest(c.Server, name)
+func (c *Client) GetEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentRequestRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -399,8 +399,8 @@ func NewCreateEnrollmentRequestRequestWithBody(server string, contentType string
 	return req, nil
 }
 
-// NewReadEnrollmentRequestRequest generates requests for ReadEnrollmentRequest
-func NewReadEnrollmentRequestRequest(server string, name string) (*http.Request, error) {
+// NewGetEnrollmentRequestRequest generates requests for GetEnrollmentRequest
+func NewGetEnrollmentRequestRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -494,8 +494,8 @@ type ClientWithResponsesInterface interface {
 
 	CreateEnrollmentRequestWithResponse(ctx context.Context, body CreateEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestResponse, error)
 
-	// ReadEnrollmentRequestWithResponse request
-	ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error)
+	// GetEnrollmentRequestWithResponse request
+	GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestResponse, error)
 }
 
 type GetRenderedDeviceResponse struct {
@@ -602,7 +602,7 @@ func (r CreateEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadEnrollmentRequestResponse struct {
+type GetEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.EnrollmentRequest
@@ -613,7 +613,7 @@ type ReadEnrollmentRequestResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadEnrollmentRequestResponse) Status() string {
+func (r GetEnrollmentRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -621,7 +621,7 @@ func (r ReadEnrollmentRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadEnrollmentRequestResponse) StatusCode() int {
+func (r GetEnrollmentRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -688,13 +688,13 @@ func (c *ClientWithResponses) CreateEnrollmentRequestWithResponse(ctx context.Co
 	return ParseCreateEnrollmentRequestResponse(rsp)
 }
 
-// ReadEnrollmentRequestWithResponse request returning *ReadEnrollmentRequestResponse
-func (c *ClientWithResponses) ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error) {
-	rsp, err := c.ReadEnrollmentRequest(ctx, name, reqEditors...)
+// GetEnrollmentRequestWithResponse request returning *GetEnrollmentRequestResponse
+func (c *ClientWithResponses) GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestResponse, error) {
+	rsp, err := c.GetEnrollmentRequest(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadEnrollmentRequestResponse(rsp)
+	return ParseGetEnrollmentRequestResponse(rsp)
 }
 
 // ParseGetRenderedDeviceResponse parses an HTTP response from a GetRenderedDeviceWithResponse call
@@ -913,15 +913,15 @@ func ParseCreateEnrollmentRequestResponse(rsp *http.Response) (*CreateEnrollment
 	return response, nil
 }
 
-// ParseReadEnrollmentRequestResponse parses an HTTP response from a ReadEnrollmentRequestWithResponse call
-func ParseReadEnrollmentRequestResponse(rsp *http.Response) (*ReadEnrollmentRequestResponse, error) {
+// ParseGetEnrollmentRequestResponse parses an HTTP response from a GetEnrollmentRequestWithResponse call
+func ParseGetEnrollmentRequestResponse(rsp *http.Response) (*GetEnrollmentRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadEnrollmentRequestResponse{
+	response := &GetEnrollmentRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
