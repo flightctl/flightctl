@@ -41,7 +41,7 @@ func (o *GlobalOptions) Bind(fs *pflag.FlagSet) {
 }
 
 func (o *GlobalOptions) Complete(cmd *cobra.Command, args []string) error {
-	o.ConfigFilePath = ConfigFilePath(o.Context, o.ConfigDir)
+	o.ConfigFilePath = filepath.Clean(ConfigFilePath(o.Context, o.ConfigDir))
 	return nil
 }
 
@@ -49,14 +49,6 @@ func (o *GlobalOptions) Validate(args []string) error {
 	// 0 is a default value and is used as a flag to use a system-wide timeout
 	if o.RequestTimeout < 0 {
 		return fmt.Errorf("request-timeout must be greater than 0")
-	}
-
-	if o.ConfigDir != "" {
-		path := filepath.Clean(o.ConfigDir)
-		ext := filepath.Ext(path)
-		if ext != "" {
-			return fmt.Errorf("config-dir should specify a directory path")
-		}
 	}
 
 	if _, err := os.Stat(o.ConfigFilePath); errors.Is(err, os.ErrNotExist) {
