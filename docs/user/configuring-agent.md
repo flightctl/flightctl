@@ -154,3 +154,61 @@ It prints a JSON summary of the device’s hardware and OS, including:
 
 > [!NOTE]
 > This command is local-only and does not affect device state or communicate with the Flight Control service.
+
+### GPU Hardware Mapping via hardware-map.yaml
+
+The agent supports enriching GPU details using a PCI vendor and model mapping file. This optional file allows human-readable names, memory sizes, architecture, and feature tags to be associated with specific GPU devices.
+
+Example hardware-map.yaml
+```yaml
+- vendorID: "0x10de"
+  vendorName: "NVIDIA Corporation"
+  models:
+    - pciID: "0x1b80"
+      pciName: "GeForce GTX 1080"
+      memoryBytes: 8589934592  # 8 GiB
+      architecture: "Pascal"
+      features: ["cuda", "tensor-core"]
+```
+Usage
+Save the file as /etc/flightctl/hardware-map.yaml (default) or another accessible path.
+
+Pass alternative path for `hardware-map` if desired:
+```sh
+flightctl-agent system-info --hardware-map /alt/path/hardware-map.yaml
+```
+The GPU section in the system info will be enriched:
+
+```json
+"gpu": [
+  {
+    "index": 0,
+    "vendor": "NVIDIA Corporation",
+    "model": "GeForce GTX 1080",
+    "vendorId": "0x10de",
+    "deviceId": "0x1b80",
+    "memoryBytes": 8589934592,
+    "architecture": "Pascal",
+    "features": ["cuda", "tensor-core"]
+  }
+]
+```
+>[!NOTE]
+>If no mapping file is provided, the agent uses only sysfs to gather GPU data, which may yield less detail.
+
+Finding PCI Vendor and Device IDs
+To look up vendor and device IDs for your GPU:
+
+Run the following to list PCI devices with vendor and device IDs:
+
+```sh
+lspci -nn | grep -i vga
+```
+Example output:
+
+```yaml
+01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP104 [GeForce GTX 1080] [10de:1b80]
+```
+Here, `10de` is the Vendor ID, and `1b80` is the Device ID.
+
+You can look up IDs and names online at the canonical [PCI ID database](https://pci-ids.ucw.cz/read/PC).
