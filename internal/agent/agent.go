@@ -73,23 +73,56 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
-	// ensure the agent key exists if not create it.
-	if !a.config.ManagementService.Config.HasCredentials() {
-		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
-		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
-	}
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
-	if err != nil {
-		return err
-	}
+	// generate tpm client only if experimental features are enabled
+	experimentalFeatures := experimental.NewFeatures()
+	var tpmClient *lifecycle.TpmClient
+	var publicKeyHash []byte
+	var signer crypto.Signer
+	tpmSuccess := false
 
-	publicKeyHash, err := fcrypto.HashPublicKey(publicKey)
-	if err != nil {
-		return err
+	if experimentalFeatures.IsEnabled() {
+		a.log.Warn("Experimental features enabled: creating TPM client")
+		tc, err := lifecycle.NewTpmClient(a.log)
+		if err != nil {
+			a.log.Warnf("Experimental feature: tpm is not available: %v", err)
+		} else {
+			a.log.Warnf("Experimental feature: creating TPM keys for device identity")
+			tpmClient = tc
+			// note: the signer does not reveal the tpm's private key
+			tpmSigner := tpmClient.GetLDevIDSigner()
+			publicKey := tpmClient.GetLDevIDPublic()
+			hash, err := fcrypto.HashPublicKey(publicKey)
+			if err != nil {
+				a.log.Errorf("Experimental feature: Unable to create public key hash for TPM key: %v", err)
+			} else {
+				a.log.Warnf("Experimental feature: TPM-based keys successfully created")
+				signer = tpmSigner
+				publicKeyHash = hash
+				tpmSuccess = true
+			}
+		}
+	}
+	if !experimentalFeatures.IsEnabled() || !tpmSuccess {
+		a.log.Warnf("Experimental features are not enabled, or TPM setup did not succeed: proceeding with software keys")
+		// ensure the agent key exists if not create it.
+		if !a.config.ManagementService.Config.HasCredentials() {
+			a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
+			a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
+		}
+		publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
+		if err != nil {
+			return err
+		}
+		signer = privateKey.(crypto.Signer)
+		hash, err := fcrypto.HashPublicKey(publicKey)
+		if err != nil {
+			return err
+		}
+		publicKeyHash = hash
 	}
 
 	deviceName := strings.ToLower(base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(publicKeyHash))
-	csr, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), deviceName)
+	csr, err := fcrypto.MakeCSR(signer, deviceName)
 	if err != nil {
 		return err
 	}
@@ -133,24 +166,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// generate tpm client only if experimental features are enabled
-	experimentalFeatures := experimental.NewFeatures()
-	if experimentalFeatures.IsEnabled() {
-		a.log.Warn("Experimental features enabled: creating TPM client")
-		tpmClient, err := lifecycle.NewTpmClient(a.log)
+	// register tpm info collectors if experimental features are enabled
+	if experimentalFeatures.IsEnabled() && tpmClient != nil {
+		a.log.Warn("Experimental features enabled: registering TPM info collection functions")
+		err := tpmClient.UpdateNonce(make([]byte, 8))
 		if err != nil {
-			a.log.Warnf("Experimental feature: tpm is not available: %v", err)
-		} else {
-			a.log.Warn("Experimental features enabled: registering TPM info collection functions")
-			err := tpmClient.UpdateNonce(make([]byte, 8))
-			if err != nil {
-				a.log.Errorf("Unable to update nonce in tpm client: %v", err)
-			}
-			systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
-			systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
+			a.log.Errorf("Unable to update nonce in tpm client: %v", err)
 		}
+		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
+		systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
 	} else {
-		a.log.Debug("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
+		a.log.Debug("Experimental features are not enabled: skipping registration of TPM collection functions")
 	}
 
 	// create shutdown manager

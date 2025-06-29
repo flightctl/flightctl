@@ -40,6 +40,24 @@ func NewTpmClient(log *log.PrefixLogger) (*TpmClient, error) {
 	}
 	tc.lak = lak
 
+	srk, err := tc.tpm.GenerateSRKPrimary()
+	if err != nil {
+		_ = tc.CloseTPM()
+		return nil, err
+	}
+
+	_, err = tc.tpm.CreateLDevID(*srk)
+	if err != nil {
+		_ = tc.CloseTPM()
+		return nil, err
+	}
+
+	_, err = tc.tpm.GetLDevIDPubKey()
+	if err != nil {
+		_ = tc.CloseTPM()
+		return nil, err
+	}
+
 	return &tc, nil
 }
 
@@ -51,8 +69,12 @@ func (tc *TpmClient) GetLocalAttestationPubKey() crypto.PublicKey {
 	return tc.lak.PublicKey()
 }
 
-func (tc *TpmClient) GetSigner() (crypto.Signer, error) {
-	return tc.lak.GetSigner()
+func (tc *TpmClient) GetLDevIDSigner() crypto.Signer {
+	return tc.tpm.GetSigner()
+}
+
+func (tc *TpmClient) GetLDevIDPublic() crypto.PublicKey {
+	return tc.tpm.Public()
 }
 
 func (tc *TpmClient) OpenTPM() error {
