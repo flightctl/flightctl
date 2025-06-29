@@ -58,7 +58,7 @@ paths:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
-          description: NotFound
+          description: Not Found
           content:
             application/json:
               schema:
@@ -107,13 +107,13 @@ paths:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
-          description: NotFound
+          description: Not Found
           content:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
-          description: ServiceUnavailable
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -148,7 +148,7 @@ paths:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Device'
         "204":
-          description: No content
+          description: No Content
           content: {}
         "401":
           description: Unauthorized
@@ -157,13 +157,13 @@ paths:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
-          description: NotFound
+          description: Not Found
           content:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
-          description: StatusConflict
+          description: Conflict
           content:
             application/json:
               schema:
@@ -174,7 +174,7 @@ paths:
       tags:
         - enrollmentrequest
       description: Get an EnrollmentRequest resource.
-      operationId: readEnrollmentRequest
+      operationId: getEnrollmentRequest
       parameters:
         - name: name
           in: path
@@ -202,13 +202,13 @@ paths:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
-          description: NotFound
+          description: Not Found
           content:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
-          description: ServiceUnavailable
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -251,13 +251,13 @@ paths:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
-          description: StatusConflict
+          description: Conflict
           content:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
-          description: ServiceUnavailable
+          description: Service Unavailable
           content:
             application/json:
               schema:
