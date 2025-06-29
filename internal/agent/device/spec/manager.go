@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -29,9 +30,15 @@ type manager struct {
 	devicePublisher  publisher.Subscription
 	cache            *cache
 	queue            PriorityQueue
+	policyManager    policy.Manager
 
 	lastConsumedDevice *v1alpha1.Device
-	log                *log.PrefixLogger
+	retryableDevice    *v1alpha1.Device
+
+	// State tracking for status conditions
+	updating updatingState
+
+	log *log.PrefixLogger
 }
 
 // NewManager creates a new device spec manager.
@@ -51,7 +58,6 @@ func NewManager(
 		defaultSpecRequeueMaxRetries,
 		defaultSpecRequeueThreshold,
 		defaultSpecRequeueDelay,
-		policyManager,
 		log,
 	)
 	return &manager{
@@ -63,6 +69,7 @@ func NewManager(
 		cache:            newCache(log),
 		devicePublisher:  devicePublisher,
 		queue:            queue,
+		policyManager:    policyManager,
 		log:              log,
 	}
 }
@@ -80,8 +87,11 @@ func (s *manager) Initialize(ctx context.Context) error {
 	if err := s.write(Rollback, newVersionedDevice("0")); err != nil {
 		return err
 	}
+	device := newVersionedDevice("0")
+	// Ignore errors on initialize
+	_ = s.onNewVersionConsumed(ctx, device)
 	// reconcile the initial spec even though its empty
-	s.queue.Add(ctx, newVersionedDevice("0"))
+	s.queue.Add(ctx, device)
 	return nil
 }
 
@@ -185,6 +195,9 @@ func (s *manager) Upgrade(ctx context.Context) error {
 			return err
 		}
 
+		if err := s.policyManager.SetCurrentDevice(ctx, desired); err != nil {
+			return fmt.Errorf("spec upgrade: %w ", err)
+		}
 		s.log.Infof("Spec reconciliation complete: current version %s", desired.Version())
 	}
 
@@ -305,37 +318,93 @@ func (s *manager) OSVersion(specType Type) string {
 	return s.cache.getOSVersion(specType)
 }
 
+func (s *manager) handleNewVersionConsumedErr(err error, dev *v1alpha1.Device) error {
+	if errors.IsRetryable(err) {
+		s.log.Debugf("Newly consumed version %q encountered retryable error: %s", dev.Version(), err)
+		s.retryableDevice = dev
+		s.updating.setRetryableError(dev, err)
+	} else {
+		s.log.Errorf("Newly consumed version %q encountered unrecoverable error: %s", dev.Version(), err)
+		s.retryableDevice = nil
+		s.updating.setNonRetryableError(dev.Version(), err)
+		ver, err := stringToInt64(dev.Version())
+		if err != nil {
+			return err
+		}
+		s.queue.SetFailed(ver)
+	}
+	return nil
+}
+
+func (s *manager) consumeDevice(ctx context.Context, dev *v1alpha1.Device) {
+	s.queue.Add(ctx, dev)
+	s.lastConsumedDevice = dev
+	s.retryableDevice = nil
+	s.updating.clear()
+}
+
+// tryConsumeDevice attempts to process and consume a device spec.
+// It returns true if the spec was successfully added to the queue for reconciliation.
+// It returns a fatal error if one occurs during processing.
+func (s *manager) tryConsumeDevice(ctx context.Context, device *v1alpha1.Device) (bool, error) {
+	err := s.onNewVersionConsumed(ctx, device)
+	if err != nil {
+		if err = s.handleNewVersionConsumedErr(err, device); err != nil {
+			return false, err // Fatal error
+		}
+		return false, nil // Non-fatal, retryable error
+	}
+	s.consumeDevice(ctx, device)
+	return true, nil
+}
+
 // consumeLatest consumes the latest device spec from the device publisher channel.
 // it will consume all available messages until the channel is empty.
 func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 	var consumed bool
 
-	// consume all available messages from the device publisher and add them to the local queue
+	// 1. Consume all available new specs from the publisher
 	for {
 		newDesired, popped, err := s.devicePublisher.TryPop()
 		if err != nil {
 			return false, err
 		}
 		if !popped {
-			break
+			break // No more new specs
 		}
 		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
-		s.queue.Add(ctx, newDesired)
-		s.lastConsumedDevice = newDesired
-		consumed = true
+
+		if ok, err := s.tryConsumeDevice(ctx, newDesired); err != nil {
+			return false, err
+		} else if ok {
+			consumed = true
+		}
 	}
+
+	// 2. If no new spec was consumed, attempt to retry a previously failed one
+	if !consumed && s.retryableDevice != nil {
+		s.log.Debugf("Attempting to retry device spec version %s", s.retryableDevice.Version())
+		if ok, err := s.tryConsumeDevice(ctx, s.retryableDevice); err != nil {
+			return false, err
+		} else if ok {
+			consumed = true
+		}
+	}
+
+	// 3. If still nothing consumed, check if we need to re-queue the last spec (e.g., after a rollback)
 	if !consumed && s.lastConsumedDevice != nil {
 		version, err := s.getRenderedVersion()
 		if err != nil {
 			return false, fmt.Errorf("getting rendered version: %w", err)
 		}
 		if s.lastConsumedDevice.Version() != version {
-			// In case of rollback we would like to consume again the last device
-			s.log.Debugf("Requeuing last consumed device. version: %s", s.lastConsumedDevice.Version())
+			// This handles re-queueing a spec after a rollback, allowing the agent to retry an update.
+			s.log.Debugf("Requeuing last consumed device version %s after state change (e.g. rollback)", s.lastConsumedDevice.Version())
 			s.queue.Add(ctx, s.lastConsumedDevice)
 			consumed = true
 		}
 	}
+
 	return consumed, nil
 }
 
@@ -368,6 +437,21 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 		// no spec available, signal to requeue
 		return nil, true, nil
 	}
+
+	ready, nextReadyTime, err := s.policyManager.IsVersionReady(ctx, desired)
+	if err != nil {
+		return nil, false, fmt.Errorf("device from queue:checking version readiness: %w", err)
+	}
+	if !ready {
+		s.log.Debugf("Version %s not ready, requeuing with delay until: %s", desired.Version(), nextReadyTime.Format(time.RFC3339))
+		// Set policy not ready state for status condition
+		s.updating.setPolicyNotReady(desired.Version(), nextReadyTime)
+		s.queue.AddWithDelay(ctx, desired, *nextReadyTime)
+		return nil, true, nil
+	}
+
+	// Clear policy not ready state since version is now ready
+	s.updating.clear()
 
 	// if this is a new version ensure we persist it to disk
 	if desired.Version() != s.cache.getRenderedVersion(Desired) {
@@ -403,13 +487,31 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 	return bootedOSImage, desired.Spec.Os.Image == osStatus.GetBootedImage(), nil
 }
 
-func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
-	status.Config.RenderedVersion = s.cache.getRenderedVersion(Current)
-	return nil
+func (s *manager) CheckPolicy(ctx context.Context, policyType policy.Type, device *v1alpha1.Device) error {
+	if s.policyManager.IsReady(ctx, policyType, device) {
+		return nil
+	}
+
+	switch policyType {
+	case policy.Download:
+		return errors.ErrDownloadPolicyNotReady
+	case policy.Update:
+		return errors.ErrUpdatePolicyNotReady
+	default:
+		return errors.ErrInvalidPolicyType
+	}
 }
 
-func (s *manager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
-	return s.queue.CheckPolicy(ctx, policyType, version)
+func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
+	status.Config.RenderedVersion = s.cache.getRenderedVersion(Current)
+
+	// Apply DeviceUpdating condition based on current state
+	condition := s.updating.getCondition()
+	if condition != nil {
+		v1alpha1.SetStatusCondition(&status.Conditions, *condition)
+	}
+
+	return nil
 }
 
 func (s *manager) write(specType Type, device *v1alpha1.Device) error {
@@ -490,6 +592,13 @@ func readDeviceFromFile(
 	}
 
 	return &current, nil
+}
+
+func (s *manager) onNewVersionConsumed(ctx context.Context, device *v1alpha1.Device) error {
+	if err := s.policyManager.Sync(ctx, device); err != nil {
+		return fmt.Errorf("new version consumed: %w", err)
+	}
+	return nil
 }
 
 func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath string) error {
