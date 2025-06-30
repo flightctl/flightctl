@@ -845,11 +845,12 @@ Each schedule supports:
 | `startGraceDuration`   | (Optional) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
 
 The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed.
-While the device waits for the update window the device status will read `Pending` and indicate the next time at which it will re-evaluate its update conditions.
+While waiting for the update window to trigger, the device will have an `Updating` condition containing a message that indicates at what time reevaluation of the condition will occur
+(`device.status.conditions.Updating.Reason` will be `Preparing`).
 For more details please see [Device API Statuses](device-api-statuses.md#device-api-statuses).
 
 Only once all defined policies have passed their schedule conditions will the update begin.
-As an example, if updating is scheduled for the 17th of a month, and downloading the 19th, then a spec will not be applied until the 19th.
+As an example, if updating is scheduled for the 17th of a month, and downloading for the 19th, then a spec will not be applied until the 19th.
 
 >[!TIP]
 > Use [crontab guru](https://crontab.guru/) to create and test cron expressions interactively.
