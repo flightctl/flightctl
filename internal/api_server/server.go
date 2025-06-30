@@ -43,6 +43,11 @@ type Server struct {
 	listener           net.Listener
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
+	httpCollector      HTTPCollector
+}
+
+type HTTPCollector interface {
+	APIServerMiddleware(next http.Handler) http.Handler
 }
 
 // New returns a new instance of a flightctl server.
@@ -54,6 +59,7 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	consoleEndpointReg console.InternalSessionRegistration,
+	httpCollector HTTPCollector,
 ) *Server {
 	return &Server{
 		log:                log,
@@ -63,6 +69,7 @@ func New(
 		listener:           listener,
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
+		httpCollector:      httpCollector,
 	}
 }
 
@@ -163,14 +170,21 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// general middleware stack for all route groups
 	// request size limits should come before logging to prevent DoS attacks from filling logs
-	router.Use(
+	middlewares := []func(http.Handler) http.Handler{
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
 		middleware.Logger,
 		middleware.Recoverer,
-	)
+	}
+
+	// Add HTTP metrics middleware if available
+	if s.httpCollector != nil {
+		middlewares = append(middlewares, s.httpCollector.APIServerMiddleware)
+	}
+
+	router.Use(middlewares...)
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
 		s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))

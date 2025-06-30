@@ -42,6 +42,11 @@ type AgentServer struct {
 	queuesProvider queues.Provider
 	tlsConfig      *tls.Config
 	grpcServer     *AgentGrpcServer
+	httpCollector  HTTPCollector
+}
+
+type HTTPCollector interface {
+	AgentServerMiddleware(next http.Handler) http.Handler
 }
 
 // New returns a new instance of a flightctl server.
@@ -53,6 +58,7 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
+	httpCollector HTTPCollector,
 ) *AgentServer {
 	return &AgentServer{
 		log:            log,
@@ -63,6 +69,7 @@ func New(
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
 		grpcServer:     NewAgentGrpcServer(log, cfg),
+		httpCollector:  httpCollector,
 	}
 }
 
@@ -137,8 +144,14 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
-		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	}
+
+	// Add HTTP metrics middleware if available
+	if s.httpCollector != nil {
+		middlewares = append(middlewares, s.httpCollector.AgentServerMiddleware)
+	}
+
+	middlewares = append(middlewares, oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
 	router := chi.NewRouter()
 	router.Use(middlewares...)

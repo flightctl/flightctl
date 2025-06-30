@@ -144,13 +144,19 @@ func main() {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}
 
+	// Initialize HTTP collector for metrics
+	var httpCollector *metrics.HTTPCollector
+	if cfg.Prometheus != nil {
+		httpCollector = metrics.NewHTTPCollector(cfg)
+	}
+
 	// create the agent service listener as tcp (combined HTTP+gRPC)
 	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
 	if err != nil {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig)
+	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig, httpCollector)
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
@@ -158,7 +164,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, agentserver.GetGRPCServer())
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentserver.GetGRPCServer(), httpCollector)
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -173,8 +179,14 @@ func main() {
 	}()
 
 	if cfg.Prometheus != nil {
+		var collectors []metrics.NamedCollector
+		collectors = append(collectors, metrics.NewSystemCollector(ctx))
+		if httpCollector != nil {
+			collectors = append(collectors, httpCollector)
+		}
+
 		go func() {
-			metricsServer := instrumentation.NewMetricsServer(log, cfg, metrics.NewSystemCollector(ctx))
+			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
 			if err := metricsServer.Run(ctx); err != nil {
 				log.Fatalf("Error running server: %s", err)
 			}
