@@ -106,37 +106,37 @@ func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest ap
 	return decoder.Decode(&newObj)
 }
 
+var badRequestErrors = map[error]bool{
+	flterrors.ErrResourceIsNil:                 true,
+	flterrors.ErrResourceNameIsNil:             true,
+	flterrors.ErrIllegalResourceVersionFormat:  true,
+	flterrors.ErrFieldSelectorSyntax:           true,
+	flterrors.ErrFieldSelectorParseFailed:      true,
+	flterrors.ErrFieldSelectorUnknownSelector:  true,
+	flterrors.ErrLabelSelectorSyntax:           true,
+	flterrors.ErrLabelSelectorParseFailed:      true,
+	flterrors.ErrAnnotationSelectorSyntax:      true,
+	flterrors.ErrAnnotationSelectorParseFailed: true,
+}
+
+var conflictErrors = map[error]bool{
+	flterrors.ErrUpdatingResourceWithOwnerNotAllowed: true,
+	flterrors.ErrDuplicateName:                       true,
+	flterrors.ErrNoRowsUpdated:                       true,
+	flterrors.ErrResourceVersionConflict:             true,
+	flterrors.ErrResourceOwnerIsNil:                  true,
+	flterrors.ErrTemplateVersionIsNil:                true,
+	flterrors.ErrInvalidTemplateVersion:              true,
+	flterrors.ErrNoRenderedVersion:                   true,
+	flterrors.ErrDecommission:                        true,
+}
+
 func StoreErrorToApiStatus(err error, created bool, kind string, name *string) api.Status {
 	if err == nil {
 		if created {
 			return api.StatusCreated()
 		}
 		return api.StatusOK()
-	}
-
-	badRequestErrors := map[error]bool{
-		flterrors.ErrResourceIsNil:                 true,
-		flterrors.ErrResourceNameIsNil:             true,
-		flterrors.ErrIllegalResourceVersionFormat:  true,
-		flterrors.ErrFieldSelectorSyntax:           true,
-		flterrors.ErrFieldSelectorParseFailed:      true,
-		flterrors.ErrFieldSelectorUnknownSelector:  true,
-		flterrors.ErrLabelSelectorSyntax:           true,
-		flterrors.ErrLabelSelectorParseFailed:      true,
-		flterrors.ErrAnnotationSelectorSyntax:      true,
-		flterrors.ErrAnnotationSelectorParseFailed: true,
-	}
-
-	conflictErrors := map[error]bool{
-		flterrors.ErrUpdatingResourceWithOwnerNotAllowed: true,
-		flterrors.ErrDuplicateName:                       true,
-		flterrors.ErrNoRowsUpdated:                       true,
-		flterrors.ErrResourceVersionConflict:             true,
-		flterrors.ErrResourceOwnerIsNil:                  true,
-		flterrors.ErrTemplateVersionIsNil:                true,
-		flterrors.ErrInvalidTemplateVersion:              true,
-		flterrors.ErrNoRenderedVersion:                   true,
-		flterrors.ErrDecommission:                        true,
 	}
 
 	switch {

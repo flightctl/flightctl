@@ -28,7 +28,7 @@ type ServerInterface interface {
 	CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request)
 
 	// (GET /api/v1/enrollmentrequests/{name})
-	ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
+	GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -56,7 +56,7 @@ func (_ Unimplemented) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Re
 }
 
 // (GET /api/v1/enrollmentrequests/{name})
-func (_ Unimplemented) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+func (_ Unimplemented) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -173,8 +173,8 @@ func (siw *ServerInterfaceWrapper) CreateEnrollmentRequest(w http.ResponseWriter
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// ReadEnrollmentRequest operation middleware
-func (siw *ServerInterfaceWrapper) ReadEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+// GetEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var err error
@@ -189,7 +189,7 @@ func (siw *ServerInterfaceWrapper) ReadEnrollmentRequest(w http.ResponseWriter, 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadEnrollmentRequest(w, r, name)
+		siw.Handler.GetEnrollmentRequest(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -325,7 +325,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.CreateEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReadEnrollmentRequest)
+		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.GetEnrollmentRequest)
 	})
 
 	return r
