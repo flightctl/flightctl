@@ -73,8 +73,8 @@ const (
 	// SystemD unit pattern supports all allowed formats for unit files and glob searches
 	// This includes templated services (e.g., foo@.service, foo@bar.service)
 	// and glob patterns (e.g., foo*.service, foo[0-9].service)
-	SystemdNameFmt string = `[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+(@[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+)?(\.[a-zA-Z\[\]!\-\*\?]+)?`
-	SystemDNameMaxLength int = 256 // SystemD unit names are limited to 256 characters
+	SystemdNameFmt       string = `[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+(@[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+)?(\.[a-zA-Z\[\]!\-\*\?]+)?`
+	SystemDNameMaxLength int    = 256 // SystemD unit names are limited to 256 characters
 )
 
 var SystemdNameRegexp = regexp.MustCompile("^" + SystemdNameFmt + "$")
