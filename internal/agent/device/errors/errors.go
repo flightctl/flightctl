@@ -159,6 +159,7 @@ func FromStderr(stderr string, exitCode int) error {
 		"connection refused":     ErrNetwork,
 		"unable to resolve host": ErrNetwork,
 		"network is unreachable": ErrNetwork,
+		"i/o timeout":            ErrNetwork,
 		// context
 		"context canceled":          context.Canceled,
 		"context deadline exceeded": context.DeadlineExceeded,
