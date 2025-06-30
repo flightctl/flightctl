@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
@@ -166,12 +167,20 @@ func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface
 	return createdVMs, nil
 }
 
-func (h *Harness) AgentLogs(agent vm.TestVMInterface) string {
-	stdout, err := agent.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
-	Expect(err).ToNot(HaveOccurred())
-	return stdout.String()
+// ReadPrimaryVMAgentLogs reads flightctl-agent journalctl logs from the primary VM
+func (h *Harness) ReadPrimaryVMAgentLogs(since string) (string, error) {
+	if h.VM == nil {
+		return "", fmt.Errorf("VM is not initialized")
+	}
+	logs, err := h.VM.JournalLogs(vm.JournalOpts{
+		Unit:  "flightctl-agent",
+		Since: since,
+	})
+
+	return logs, err
 }
 
+// ReadClientConfig returns the client config for at the specified location. The default config path is used if no path i
 // ReadClientConfig returns the client config for at the specified location. The default config path is used if no path is
 // specified
 func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
@@ -223,7 +232,7 @@ func (h *Harness) Cleanup(printConsole bool) {
 			fmt.Println("============ systemctl status flightctl-agent ============")
 			fmt.Println(stdout.String())
 			fmt.Println("=============== logs for flightctl-agent =================")
-			fmt.Println(h.AgentLogs(vm))
+			fmt.Println(h.ReadPrimaryVMAgentLogs(""))
 			if printConsole {
 				fmt.Println("======================= VM Console =======================")
 				fmt.Println(vm.GetConsoleOutput())
@@ -427,25 +436,16 @@ func (h *Harness) ReplaceVariableInString(s string, old string, new string) stri
 }
 
 func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadCloser, error) {
-	// TODO pty: this is how oci does a PTY:
-	// https://github.com/cri-o/cri-o/blob/main/internal/oci/oci_unix.go
-	//
-	// set PS1 environment variable to make bash print the default prompt
-
-	cmd := exec.Command(flightctlPath()) //nolint:gosec
+	cmd := exec.Command(flightctlPath()) //nolint:gosec // flightctlPath constructs path from project directory structure for test purposes
 	h.setArgsInCmd(cmd, args...)
 
-	logrus.Infof("running: %s", strings.Join(cmd.Args, " "))
-	stdin, err := cmd.StdinPipe()
+	// create a pty/tty pair
+	ptmx, tty, err := pty.Open()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdout pipe: %w", err)
+		return nil, nil, err
 	}
 
-	cmd.Stderr = cmd.Stdout
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
 
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("error starting interactive process: %w", err)
@@ -456,8 +456,12 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 		} else {
 			logrus.Info("interactive process exited successfully")
 		}
+		if err := tty.Close(); err != nil {
+			logrus.Errorf("error closing tty: %v", err)
+		}
 	}()
-	return stdin, stdout, nil
+
+	return ptmx, ptmx, nil
 }
 
 func (h *Harness) CLIWithStdin(stdin string, args ...string) (string, error) {
@@ -1469,9 +1473,9 @@ func conditionExists(conditions []v1alpha1.Condition, predicate func(condition *
 }
 
 // ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
-func ConditionExists(d *v1alpha1.Device, conditionType, conditionStatus, conditionReason string) bool {
+func ConditionExists(d *v1alpha1.Device, condType v1alpha1.ConditionType, condStatus v1alpha1.ConditionStatus, condReason string) bool {
 	return conditionExists(d.Status.Conditions, func(condition *v1alpha1.Condition) bool {
-		return string(condition.Type) == conditionType && condition.Reason == conditionReason && string(condition.Status) == conditionStatus
+		return condition.Type == condType && condition.Status == condStatus && condition.Reason == condReason
 	})
 }
 
@@ -1494,15 +1498,6 @@ func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alp
 	})
 	err := h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 	return err
-}
-
-// It executes a command without starting a console session
-func (h *Harness) ExecuteCommandWithConsole(deviceId string, cmd string) (output string, err error) {
-	out, err := h.CLI("console", fmt.Sprintf("dev/%s", deviceId), " -- ", cmd)
-	if err != nil {
-		return "", err
-	}
-	return out, nil
 }
 
 func (h *Harness) WaitForClusterRegistered(deviceId string, timeout time.Duration) error {
