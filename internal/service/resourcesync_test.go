@@ -6,12 +6,13 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/testutils"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
 func verifyRSPatchFailed(require *require.Assertions, status api.Status) {
-	require.Equal(statusBadRequestCode, status.Code)
+	require.Equal(testutils.StatusBadRequestCode, status.Code)
 }
 
 func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) (*api.ResourceSync, api.ResourceSync, api.Status) {
@@ -29,12 +30,12 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 		},
 	}
 	serviceHandler := ServiceHandler{
-		store: &TestStore{},
+		store: &testutils.TestStore{},
 	}
 	orig, status := serviceHandler.CreateResourceSync(ctx, resourceSync)
-	require.Equal(statusCreatedCode, status.Code)
+	require.Equal(testutils.StatusCreatedCode, status.Code)
 	resp, status := serviceHandler.PatchResourceSync(ctx, "foo", patch)
-	require.NotEqual(statusFailedCode, status.Code)
+	require.NotEqual(testutils.StatusFailedCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.NotEmpty(event.Items)
 	return resp, *orig, status
@@ -59,7 +60,7 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &TestStore{},
+		store: &testutils.TestStore{},
 	}
 	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &resourceSync)
 	require.NoError(err)
@@ -67,7 +68,7 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 		"01234567890123456789012345678901234567890123456789012345678901234567890123456789",
 		resourceSync,
 	)
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 }
 
 func TestResourceSyncPatchName(t *testing.T) {
@@ -132,7 +133,7 @@ func TestResourceSyncPatchSpec(t *testing.T) {
 	}
 	resp, orig, status := testResourceSyncPatch(require, pr)
 	orig.Spec.Repository = "bar"
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 }
 
@@ -178,7 +179,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 
 	resp, orig, status := testResourceSyncPatch(require, pr)
 	orig.Metadata.Labels = &addLabels
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	pr = api.PatchRequest{
@@ -187,7 +188,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 
 	resp, orig, status = testResourceSyncPatch(require, pr)
 	orig.Metadata.Labels = &map[string]string{}
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 }
 
@@ -200,14 +201,14 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &TestStore{},
+		store: &testutils.TestStore{},
 	}
 	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &api.ResourceSync{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 	})
 	require.NoError(err)
 	_, status := serviceHandler.PatchResourceSync(ctx, "bar", pr)
-	require.Equal(statusNotFoundCode, status.Code)
+	require.Equal(testutils.StatusNotFoundCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.Len(event.Items, 0)
 }

@@ -90,14 +90,14 @@ func (s *Server) Run(ctx context.Context) error {
 	// Rollout device selection
 	rolloutDeviceSelection := device_selection.NewReconciler(serviceHandler, callbackManager, s.log)
 	rolloutDeviceSelectionThread := thread.New(ctx,
-		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
+		s.log.WithField("pkg", device_selection.RolloutTask), device_selection.RolloutName, device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
 	rolloutDeviceSelectionThread.Start()
 	defer rolloutDeviceSelectionThread.Stop()
 
 	// Rollout disruption budget
 	disruptionBudget := disruption_budget.NewReconciler(serviceHandler, callbackManager, s.log)
 	disruptionBudgetThread := thread.New(ctx,
-		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, disruptionBudget.Reconcile)
+		s.log.WithField("pkg", disruption_budget.DisruptionBudgetName), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, disruptionBudget.Reconcile)
 	disruptionBudgetThread.Start()
 	defer disruptionBudgetThread.Stop()
 
