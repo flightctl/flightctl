@@ -9,11 +9,14 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -40,6 +43,9 @@ type groupCounts struct {
 	busyConnectedCount int64
 	key                map[string]any
 }
+
+const DisruptionBudgetName = "disruption-budget"
+const DisruptionBudgetTask = "task:" + DisruptionBudgetName
 
 func NewReconciler(serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
@@ -153,7 +159,7 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 	}
 	remaining := lo.Ternary(numToRender > 0, numToRender, math.MaxInt)
 	for {
-		listParams.Limit = lo.ToPtr(int32(math.Min(float64(remaining), float64(maxItemsToRender))))
+		listParams.Limit = lo.ToPtr(int32(lo.Min([]int{remaining, maxItemsToRender})))
 		devices, status := r.serviceHandler.ListDevices(ctx, listParams, annotationSelector)
 		if status.Code != http.StatusOK {
 			return service.ApiStatusToErr(status)
@@ -206,10 +212,20 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 			}
 		}
 	}
+	r.serviceHandler.CreateEvent(ctx,
+		r.serviceHandler.CreateGenericEvent(ctx, api.FleetKind, DisruptionBudgetName, DisruptionBudgetTask, api.StatusOK(),
+			fmt.Sprintf("%v/%s: Reconciled for Disruption Budget", orgId, *fleet.Metadata.Name), "",
+			api.EventReasonFleetReconciled, api.EventReasonFleetReconcileFailed,
+			nil))
 	return nil
 }
 
 func (r *reconciler) Reconcile(ctx context.Context) {
+	reqid.OverridePrefix(DisruptionBudgetName)
+	requestID := reqid.NextRequestID()
+	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, consts.EventActorCtxKey, DisruptionBudgetName)
+
 	// Get all relevant fleets
 	orgId := store.NullOrgId
 

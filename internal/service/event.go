@@ -22,7 +22,7 @@ type resourceEvent struct {
 	Prefix                       string
 	ReasonSuccess, ReasonFailure api.EventReason
 	OutcomeSuccess               string
-	OutcomeFailure               outcomeFailureFunc
+	OutcomeFailure               OutcomeFailureFunc
 	Status                       api.Status
 	UpdateDetails                *api.ResourceUpdatedDetails
 }
@@ -36,7 +36,7 @@ type eventConfig struct {
 	UpdateDetails   *api.ResourceUpdatedDetails
 }
 
-type outcomeFailureFunc func() string
+type OutcomeFailureFunc func() string
 
 func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
 	if event == nil {
@@ -84,6 +84,26 @@ func (h *ServiceHandler) ListEvents(ctx context.Context, params api.ListEventsPa
 func (h *ServiceHandler) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status) {
 	numDeleted, err := h.store.Event().DeleteOlderThan(ctx, cutoffTime)
 	return numDeleted, StoreErrorToApiStatus(err, false, api.EventKind, nil)
+}
+
+func (h *ServiceHandler) CreateGenericEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName, prefix string, status api.Status,
+	successMessage, failureMessage string, reasonSuccess, reasonFailure api.EventReason,
+	updateDetails *api.ResourceUpdatedDetails) *api.Event {
+	failureFunc := func() string {
+		return failureMessage
+	}
+	return getBaseEvent(ctx,
+		resourceEvent{
+			ResourceKind:   resourceKind,
+			ResourceName:   resourceName,
+			Prefix:         prefix,
+			ReasonSuccess:  reasonSuccess,
+			ReasonFailure:  reasonFailure,
+			Status:         status,
+			OutcomeSuccess: successMessage,
+			OutcomeFailure: failureFunc,
+			UpdateDetails:  updateDetails,
+		}, h.log)
 }
 
 func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.FieldLogger) *api.Event {

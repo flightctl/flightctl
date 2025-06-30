@@ -147,11 +147,17 @@ const (
 	EventReasonDeviceMemoryWarning             EventReason = "DeviceMemoryWarning"
 	EventReasonEnrollmentRequestApprovalFailed EventReason = "EnrollmentRequestApprovalFailed"
 	EventReasonEnrollmentRequestApproved       EventReason = "EnrollmentRequestApproved"
+	EventReasonFleetReconcileFailed            EventReason = "FleetReconcileFailed"
+	EventReasonFleetReconciled                 EventReason = "FleetReconciled"
+	EventReasonRepositoryAccessible            EventReason = "RepositoryAccessible"
+	EventReasonRepositoryInaccessible          EventReason = "RepositoryInaccessible"
 	EventReasonResourceCreated                 EventReason = "ResourceCreated"
 	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
 	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
 	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
 	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
+	EventReasonResourceUpdateFound             EventReason = "ResourceUpdateFound"
+	EventReasonResourceUpdateNotFound          EventReason = "ResourceUpdateNotFound"
 	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
 )
 

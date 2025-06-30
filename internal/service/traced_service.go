@@ -546,3 +546,11 @@ func (t *TracedService) DeleteEventsOlderThan(ctx context.Context, cutoffTime ti
 	endSpan(span, st)
 	return resp, st
 }
+
+func (t *TracedService) CreateGenericEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName, prefix string, status api.Status,
+	successMessage, failureMessage string, reasonSuccess, reasonFailure api.EventReason, updateDetails *api.ResourceUpdatedDetails) *api.Event {
+	ctx, span := startSpan(ctx, "CreateGenericEvent")
+	resp := t.inner.CreateGenericEvent(ctx, resourceKind, resourceName, prefix, status, successMessage, failureMessage, reasonSuccess, reasonFailure, updateDetails)
+	endSpan(span, status)
+	return resp
+}

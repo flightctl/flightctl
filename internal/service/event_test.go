@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func serviceHandler() *ServiceHandler {
+func getServiceHandler() *ServiceHandler {
 	return &ServiceHandler{
 		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
@@ -92,7 +92,7 @@ func TestEventDeviceReplaced(t *testing.T) {
 	const newOwner1 = "new.owner1"
 	const newOwner2 = "new.owner2"
 
-	serviceHandler := serviceHandler()
+	serviceHandler := getServiceHandler()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	device := prepareDevice()
@@ -142,7 +142,7 @@ func TestEventDeviceReplaced(t *testing.T) {
 func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 	require := require.New(t)
 
-	serviceHandler := serviceHandler()
+	serviceHandler := getServiceHandler()
 	ctx := context.Background()
 	device := prepareDevice()
 
@@ -177,7 +177,7 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	require := require.New(t)
 
-	serviceHandler := serviceHandler()
+	serviceHandler := getServiceHandler()
 	ctx := context.Background()
 	device := &api.Device{
 		ApiVersion: "flightctl.io/v1alpha1",
@@ -323,7 +323,7 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 func TestEventDevicePatchDeviceStatus(t *testing.T) {
 	require := require.New(t)
 
-	serviceHandler := serviceHandler()
+	serviceHandler := getServiceHandler()
 	ctx := context.Background()
 	device := prepareDevice()
 
@@ -391,7 +391,7 @@ eventsLoop:
 func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 	require := require.New(t)
 
-	serviceHandler := serviceHandler()
+	serviceHandler := getServiceHandler()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	device := prepareDevice()
@@ -431,7 +431,7 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 func TestEventDeviceUpdated(t *testing.T) {
 	require := require.New(t)
 
-	serviceHandler := serviceHandler()
+	serviceHandler := getServiceHandler()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	device := prepareDevice()
@@ -475,7 +475,7 @@ func TestEventDeviceUpdated(t *testing.T) {
 func TestEventEnrollmentRequestApproved(t *testing.T) {
 	require := require.New(t)
 
-	serviceHandler := serviceHandler()
+	serviceHandler := getServiceHandler()
 	testDirPath := t.TempDir()
 	cfg := ca.NewDefault(testDirPath)
 	ca, _, err := fcrypto.EnsureCA(cfg)

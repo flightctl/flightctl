@@ -107,6 +107,8 @@ type Service interface {
 
 	// Event
 	CreateEvent(ctx context.Context, event *api.Event)
+	CreateGenericEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName, prefix string, status api.Status,
+		successMessage, failureMessage string, reasonSuccess, reasonFailure api.EventReason, updateDetails *api.ResourceUpdatedDetails) *api.Event
 	ListEvents(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status)
 	DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status)
 }
