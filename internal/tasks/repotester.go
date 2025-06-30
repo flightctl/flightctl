@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -25,6 +27,8 @@ type RepoTester struct {
 	TypeSpecificRepoTester TypeSpecificRepoTester
 }
 
+const repotesterName = "repotester"
+
 func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *RepoTester {
 	return &RepoTester{
 		log:            log,
@@ -33,9 +37,10 @@ func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *Repo
 }
 
 func (r *RepoTester) TestRepositories(ctx context.Context) {
-	reqid.OverridePrefix("repotester")
+	reqid.OverridePrefix(repotesterName)
 	requestID := reqid.NextRequestID()
 	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, consts.EventActorCtxKey, repotesterName)
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running RepoTester")
@@ -68,7 +73,10 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 				log.Errorf("unsupported repository type: %s", repoSpec.Type)
 			}
 
-			accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
+			var accessErr error
+			if r.TypeSpecificRepoTester != nil {
+				accessErr = r.TypeSpecificRepoTester.TestAccess(&repository)
+			}
 
 			err := r.SetAccessCondition(ctx, &repository, accessErr)
 			if err != nil {
@@ -144,6 +152,15 @@ func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Rep
 		// Nothing to do
 		return nil
 	}
-	_, status := r.serviceHandler.ReplaceRepositoryStatus(ctx, *repository.Metadata.Name, *repository)
+
+	repoName := lo.FromPtr(repository.Metadata.Name)
+	_, status := r.serviceHandler.ReplaceRepositoryStatus(ctx, repoName, *repository)
+
+	// This event is about the error that was transferred as a parameter to SetAccessCondition,
+	// not about success or failure to access database.
+	// It should be emitted only in a case that Condition was changed.
+	event := service.GetReporterTaskEvent(ctx, repoName, err)
+	r.serviceHandler.CreateEvent(ctx, event)
+
 	return service.ApiStatusToErr(status)
 }

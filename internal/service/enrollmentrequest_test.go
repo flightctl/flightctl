@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/testutils"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
@@ -37,14 +38,14 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 		Status: &status,
 	}
 	serviceHandler := ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store:           &testutils.TestStore{},
+		callbackManager: testutils.DummyCallbackManager(),
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &device)
 	require.NoError(err)
 	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, "foo", approval)
-	require.Equal(statusBadRequestCode, stat.Code)
+	require.Equal(testutils.StatusBadRequestCode, stat.Code)
 	require.Equal("Enrollment request is already approved", stat.Message)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.Len(event.Items, 0)

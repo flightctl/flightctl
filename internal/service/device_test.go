@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/testutils"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -19,13 +20,13 @@ import (
 )
 
 func verifyDevicePatchSucceeded(require *require.Assertions, expectedDevice api.Device, resp *api.Device, status api.Status) {
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.True(api.DeviceSpecsAreEqual(*expectedDevice.Spec, *resp.Spec))
 	require.Equal(expectedDevice.Metadata, resp.Metadata)
 }
 
 func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
-	require.Equal(statusBadRequestCode, status.Code)
+	require.Equal(testutils.StatusBadRequestCode, status.Code)
 }
 
 func testDevicePatch(require *require.Assertions, patch api.PatchRequest, expectEvents int) (*api.Device, api.Device, api.Status) {
@@ -45,14 +46,14 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest, expect
 		Status: &status,
 	}
 	serviceHandler := ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store:           &testutils.TestStore{},
+		callbackManager: testutils.DummyCallbackManager(),
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDevice(ctx, "foo", patch)
-	require.NotEqual(statusFailedCode, retStatus.Code)
+	require.NotEqual(testutils.StatusFailedCode, retStatus.Code)
 	if retStatus.Code == http.StatusOK || retStatus.Code == http.StatusCreated {
 		event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 		require.Len(event.Items, expectEvents)
@@ -64,14 +65,14 @@ func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch a
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
 	_ = auth.InitAuth(nil, log.InitLogs())
 	serviceHandler := &ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store:           &testutils.TestStore{},
+		callbackManager: testutils.DummyCallbackManager(),
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDeviceStatus(ctx, "foo", patch)
-	require.NotEqual(statusFailedCode, retStatus.Code)
+	require.NotEqual(testutils.StatusFailedCode, retStatus.Code)
 	if retStatus.Code == http.StatusOK || retStatus.Code == http.StatusCreated {
 		event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 		if expectEvents {
@@ -351,8 +352,8 @@ func TestDeviceNonExistingResource(t *testing.T) {
 	}
 
 	serviceHandler := ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store:           &testutils.TestStore{},
+		callbackManager: testutils.DummyCallbackManager(),
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &api.Device{
@@ -360,7 +361,7 @@ func TestDeviceNonExistingResource(t *testing.T) {
 	}, nil)
 	require.NoError(err)
 	_, retStatus := serviceHandler.PatchDevice(ctx, "bar", pr)
-	require.Equal(statusNotFoundCode, retStatus.Code)
+	require.Equal(testutils.StatusNotFoundCode, retStatus.Code)
 	require.Equal(api.StatusResourceNotFound("Device", "bar"), retStatus)
 }
 
@@ -368,8 +369,8 @@ func TestDeviceDisconnected(t *testing.T) {
 	require := require.New(t)
 
 	serviceHandler := &ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store:           &testutils.TestStore{},
+		callbackManager: testutils.DummyCallbackManager(),
 		log:             logrus.New(),
 	}
 	ctx := context.Background()

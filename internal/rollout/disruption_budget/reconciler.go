@@ -9,11 +9,14 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -40,6 +43,8 @@ type groupCounts struct {
 	busyConnectedCount int64
 	key                map[string]any
 }
+
+const DisruptionBudgetName = "disruption-budget"
 
 func NewReconciler(serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
@@ -153,7 +158,16 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 	}
 	remaining := lo.Ternary(numToRender > 0, numToRender, math.MaxInt)
 	for {
-		listParams.Limit = lo.ToPtr(int32(math.Min(float64(remaining), float64(maxItemsToRender))))
+		minVal := lo.Min([]int{remaining, maxItemsToRender})
+		var safeLimit int32
+		if minVal > math.MaxInt32 {
+			safeLimit = math.MaxInt32
+		} else if minVal < math.MinInt32 {
+			safeLimit = math.MinInt32
+		} else {
+			safeLimit = int32(minVal) // #nosec G115 -- bounds checked above
+		}
+		listParams.Limit = lo.ToPtr(safeLimit)
 		devices, status := r.serviceHandler.ListDevices(ctx, listParams, annotationSelector)
 		if status.Code != http.StatusOK {
 			return service.ApiStatusToErr(status)
@@ -172,19 +186,22 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 }
 
 func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) error {
-	r.log.Infof("disruption budget: starting reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
-	defer r.log.Infof("disruption budget: finished reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
+	fleetName := lo.FromPtr(fleet.Metadata.Name)
+	r.log.Infof("disruption budget: starting reconciling fleet %v/%s", orgId, fleetName)
+	defer r.log.Infof("disruption budget: finished reconciling fleet %v/%s", orgId, fleetName)
 
 	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DisruptionBudget == nil {
 		if err := r.reconcileSelectionDevices(ctx, orgId, fleet, nil, 0); err != nil {
+			r.sendEvent(ctx, fleetName, err)
 			return fmt.Errorf("reconcileSelectionDevices: %w", err)
 		}
+		r.sendEvent(ctx, fleetName, nil)
 		return nil
 	}
 	maxUnavailable := fleet.Spec.RolloutPolicy.DisruptionBudget.MaxUnavailable
 	minAvailable := fleet.Spec.RolloutPolicy.DisruptionBudget.MinAvailable
 	if maxUnavailable == nil && minAvailable == nil {
-		return fmt.Errorf("both maxUnavailable and minAvailable for fleet %s are nil", lo.FromPtr(fleet.Metadata.Name))
+		return fmt.Errorf("both maxUnavailable and minAvailable for fleet %s are nil", fleetName)
 	}
 	counts, err := r.getFleetCounts(ctx, orgId, fleet)
 	if err != nil {
@@ -202,14 +219,27 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		}
 		if numToRender > 0 {
 			if err = r.reconcileSelectionDevices(ctx, orgId, fleet, count.key, numToRender); err != nil {
+				r.sendEvent(ctx, fleetName, err)
 				return fmt.Errorf("reconcileSelectionDevices: %w", err)
 			}
+			r.sendEvent(ctx, fleetName, nil)
 		}
 	}
 	return nil
 }
 
+func (r *reconciler) sendEvent(ctx context.Context, fleetName string, err error) {
+	r.serviceHandler.CreateEvent(ctx,
+		service.GetDisruptionBudgetReconcilerTaskEvent(ctx, fleetName, err, r.log),
+	)
+}
+
 func (r *reconciler) Reconcile(ctx context.Context) {
+	reqid.OverridePrefix(DisruptionBudgetName)
+	requestID := reqid.NextRequestID()
+	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, consts.EventActorCtxKey, DisruptionBudgetName)
+
 	// Get all relevant fleets
 	orgId := store.NullOrgId
 

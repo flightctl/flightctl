@@ -6,12 +6,13 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/testutils"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
 func verifyFleetPatchFailed(require *require.Assertions, status api.Status) {
-	require.Equal(statusBadRequestCode, status.Code)
+	require.Equal(testutils.StatusBadRequestCode, status.Code)
 }
 
 func testFleetPatch(require *require.Assertions, patch api.PatchRequest, expectEvents bool) (*api.Fleet, api.Fleet, api.Status) {
@@ -48,14 +49,14 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest, expectE
 	}
 
 	serviceHandler := &ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store:           &testutils.TestStore{},
+		callbackManager: testutils.DummyCallbackManager(),
 	}
 	ctx := context.Background()
 	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil)
 	require.NoError(err)
 	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
-	require.NotEqual(statusFailedCode, status.Code)
+	require.NotEqual(testutils.StatusFailedCode, status.Code)
 	event, err := serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
 	require.NoError(err)
 	if expectEvents {
@@ -134,7 +135,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	}
 	resp, orig, status := testFleetPatch(require, pr, true)
 	orig.Spec.Template.Spec.Os.Image = "newimg"
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	pr = api.PatchRequest{
@@ -142,7 +143,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	}
 	resp, orig, status = testFleetPatch(require, pr, true)
 	orig.Spec.Template.Spec.Os = nil
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	value = "foo"
@@ -188,7 +189,7 @@ func TestFleetPatchLabels(t *testing.T) {
 
 	resp, orig, status := testFleetPatch(require, pr, true)
 	orig.Metadata.Labels = &addLabels
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	pr = api.PatchRequest{
@@ -197,7 +198,7 @@ func TestFleetPatchLabels(t *testing.T) {
 
 	resp, orig, status = testFleetPatch(require, pr, true)
 	orig.Metadata.Labels = &map[string]string{}
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 }
 
@@ -209,8 +210,8 @@ func TestFleetNonExistingResource(t *testing.T) {
 	}
 
 	serviceHandler := &ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store:           &testutils.TestStore{},
+		callbackManager: testutils.DummyCallbackManager(),
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &api.Fleet{
@@ -218,7 +219,7 @@ func TestFleetNonExistingResource(t *testing.T) {
 	}, nil)
 	require.NoError(err)
 	_, status := serviceHandler.PatchFleet(ctx, "bar", pr)
-	require.Equal(statusNotFoundCode, status.Code)
+	require.Equal(testutils.StatusNotFoundCode, status.Code)
 	event, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.NoError(err)
 	require.Empty(event.Items)
