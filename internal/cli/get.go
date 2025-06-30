@@ -470,11 +470,11 @@ func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) 
 		valid := "Unknown"
 		if f.Status != nil {
 
-			condition := api.FindStatusCondition(f.Status.Conditions, api.FleetValid)
+			condition := api.FindStatusCondition(f.Status.Conditions, api.ConditionTypeFleetValid)
 			if condition != nil {
 				valid = string(condition.Status)
 			}
-			condition = api.FindStatusCondition(f.Status.Conditions, api.FleetOverlappingSelectors)
+			condition = api.FindStatusCondition(f.Status.Conditions, api.ConditionTypeFleetOverlappingSelectors)
 			if condition != nil && condition.Status == api.ConditionStatusTrue {
 				valid = string(api.ConditionStatusFalse)
 			}
@@ -511,7 +511,7 @@ func (o *GetOptions) printRepositoriesTable(w *tabwriter.Writer, repos ...api.Re
 	for _, r := range repos {
 		accessible := "Unknown"
 		if r.Status != nil {
-			condition := api.FindStatusCondition(r.Status.Conditions, api.RepositoryAccessible)
+			condition := api.FindStatusCondition(r.Status.Conditions, api.ConditionTypeRepositoryAccessible)
 			if condition != nil {
 				accessible = string(condition.Status)
 			}
@@ -535,11 +535,11 @@ func (o *GetOptions) printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs 
 	for _, rs := range resourcesyncs {
 		accessible, synced, lastSynced := "Unknown", "Unknown", "Unknown"
 		if rs.Status != nil {
-			condition := api.FindStatusCondition(rs.Status.Conditions, api.ResourceSyncAccessible)
+			condition := api.FindStatusCondition(rs.Status.Conditions, api.ConditionTypeResourceSyncAccessible)
 			if condition != nil {
 				accessible = string(condition.Status)
 			}
-			condition = api.FindStatusCondition(rs.Status.Conditions, api.ResourceSyncSynced)
+			condition = api.FindStatusCondition(rs.Status.Conditions, api.ConditionTypeResourceSyncSynced)
 			if condition != nil {
 				synced = string(condition.Status)
 				lastSynced = humanize.Time(condition.LastTransitionTime)
@@ -572,11 +572,11 @@ func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateS
 		}
 
 		condition := "Pending"
-		if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
+		if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) {
 			condition = "Approved"
-		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestDenied) {
+		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied) {
 			condition = "Denied"
-		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestFailed) {
+		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed) {
 			condition = "Failed"
 		}
 		if csr.Status != nil && csr.Status.Certificate != nil {

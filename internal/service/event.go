@@ -27,6 +27,15 @@ type resourceEvent struct {
 	UpdateDetails                *api.ResourceUpdatedDetails
 }
 
+type eventConfig struct {
+	Prefix          string
+	ReasonSuccess   api.EventReason
+	ReasonFailure   api.EventReason
+	SuccessMessage  string
+	FailureTemplate string
+	UpdateDetails   *api.ResourceUpdatedDetails
+}
+
 type outcomeFailureFunc func() string
 
 func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
@@ -147,66 +156,72 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 	return &event
 }
 
-func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDesc *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
-	if created {
-		createFailure := func() string { return fmt.Sprintf("create failed: %s", status.Message) }
-		return getBaseEvent(ctx,
-			resourceEvent{
-				ResourceKind:   resourceKind,
-				ResourceName:   resourceName,
-				Prefix:         "resource-create",
-				ReasonSuccess:  api.ResourceCreated,
-				ReasonFailure:  api.ResourceCreationFailed,
-				OutcomeSuccess: "created successfully",
-				OutcomeFailure: createFailure,
-				Status:         status,
-			}, log)
-	}
-
-	updateFailure := func() string { return fmt.Sprintf("update failed: %s", status.Message) }
+func buildResourceEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, config eventConfig, log logrus.FieldLogger) *api.Event {
+	failureFunc := func() string { return fmt.Sprintf(config.FailureTemplate, status.Message) }
 	return getBaseEvent(ctx,
 		resourceEvent{
 			ResourceKind:   resourceKind,
 			ResourceName:   resourceName,
-			Prefix:         "resource-update",
-			ReasonSuccess:  api.ResourceUpdated,
-			ReasonFailure:  api.ResourceUpdateFailed,
-			OutcomeSuccess: "updated successfully",
-			OutcomeFailure: updateFailure,
+			Prefix:         config.Prefix,
+			ReasonSuccess:  config.ReasonSuccess,
+			ReasonFailure:  config.ReasonFailure,
+			OutcomeSuccess: config.SuccessMessage,
+			OutcomeFailure: failureFunc,
 			Status:         status,
-			UpdateDetails:  updateDesc,
+			UpdateDetails:  config.UpdateDetails,
 		}, log)
+}
+
+func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDesc *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
+	if created {
+		return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
+			Prefix:          "resource-create",
+			ReasonSuccess:   api.EventReasonResourceCreated,
+			ReasonFailure:   api.EventReasonResourceCreationFailed,
+			SuccessMessage:  "created successfully",
+			FailureTemplate: "create failed: %s",
+		}, log)
+	}
+
+	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
+		Prefix:          "resource-update",
+		ReasonSuccess:   api.EventReasonResourceUpdated,
+		ReasonFailure:   api.EventReasonResourceUpdateFailed,
+		SuccessMessage:  "updated successfully",
+		FailureTemplate: "update failed: %s",
+		UpdateDetails:   updateDesc,
+	}, log)
 }
 
 func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, log logrus.FieldLogger) *api.Event {
-	deleteFailure := func() string { return fmt.Sprintf("delete failed: %s", status.Message) }
-	return getBaseEvent(ctx,
-		resourceEvent{
-			ResourceKind:   resourceKind,
-			ResourceName:   resourceName,
-			Prefix:         "resource-delete",
-			ReasonSuccess:  api.ResourceDeleted,
-			ReasonFailure:  api.ResourceDeletionFailed,
-			OutcomeSuccess: "deleted successfully",
-			OutcomeFailure: deleteFailure,
-			Status:         status,
-		}, log)
+	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
+		Prefix:          "resource-delete",
+		ReasonSuccess:   api.EventReasonResourceDeleted,
+		ReasonFailure:   api.EventReasonResourceDeletionFailed,
+		SuccessMessage:  "deleted successfully",
+		FailureTemplate: "delete failed: %s",
+	}, log)
+}
+
+func GetResourceApprovedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, log logrus.FieldLogger) *api.Event {
+	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
+		Prefix:          "resource-approval",
+		ReasonSuccess:   api.EventReasonEnrollmentRequestApproved,
+		ReasonFailure:   api.EventReasonEnrollmentRequestApprovalFailed,
+		SuccessMessage:  "approved successfully",
+		FailureTemplate: "approval failed: %s",
+	}, log)
 }
 
 func GetResourceDecommissionedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDetails *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
-	decommissionFailure := func() string { return fmt.Sprintf("decommission failed: %s", status.Message) }
-	return getBaseEvent(ctx,
-		resourceEvent{
-			ResourceKind:   resourceKind,
-			ResourceName:   resourceName,
-			Prefix:         "resource-decommission",
-			ReasonSuccess:  api.DeviceDecommissioned,
-			ReasonFailure:  api.DeviceDecommissionFailed,
-			Status:         status,
-			OutcomeSuccess: "decommissioned successfully",
-			OutcomeFailure: decommissionFailure,
-			UpdateDetails:  updateDetails,
-		}, log)
+	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
+		Prefix:          "resource-decommission",
+		ReasonSuccess:   api.EventReasonDeviceDecommissioned,
+		ReasonFailure:   api.EventReasonDeviceDecommissionFailed,
+		SuccessMessage:  "decommissioned successfully",
+		FailureTemplate: "decommission failed: %s",
+		UpdateDetails:   updateDetails,
+	}, log)
 }
 
 func createPrefixGenerator(basePrefix string) func() string {
