@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/flightctl/flightctl/internal/util"
 )
 
 type DeviceCompletionCount struct {
@@ -168,130 +169,13 @@ func PercentageAsInt(p Percentage) (int, error) {
 }
 
 func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
-	return deepEqualWithSpecialHandling(reflect.ValueOf(d1), reflect.ValueOf(d2))
-}
-
-// deepEqualWithSpecialHandling performs deep comparison with special handling for union types
-func deepEqualWithSpecialHandling(v1, v2 reflect.Value) bool {
-	if v1.Type() != v2.Type() {
-		return false
-	}
-
-	switch v1.Kind() {
-	case reflect.Ptr:
-		if v1.IsNil() && v2.IsNil() {
-			return true
-		}
-		if v1.IsNil() || v2.IsNil() {
-			return false
-		}
-		return deepEqualWithSpecialHandling(v1.Elem(), v2.Elem())
-
-	case reflect.Slice:
-		if v1.IsNil() && v2.IsNil() {
-			return true
-		}
-		if v1.IsNil() || v2.IsNil() {
-			return false
-		}
-		if v1.Len() != v2.Len() {
-			return false
-		}
-		for i := 0; i < v1.Len(); i++ {
-			if !deepEqualWithSpecialHandling(v1.Index(i), v2.Index(i)) {
-				return false
-			}
-		}
-		return true
-
-	case reflect.Struct:
-		// Special handling for union types that contain json.RawMessage
-		if isUnionType(v1.Type()) {
-			return compareUnionTypeAsJSON(v1, v2)
-		}
-
-		// Regular struct comparison
-		for i := 0; i < v1.NumField(); i++ {
-			if !deepEqualWithSpecialHandling(v1.Field(i), v2.Field(i)) {
-				return false
-			}
-		}
-		return true
-
-	case reflect.Map:
-		if v1.IsNil() && v2.IsNil() {
-			return true
-		}
-		if v1.IsNil() || v2.IsNil() {
-			return false
-		}
-		if v1.Len() != v2.Len() {
-			return false
-		}
-		for _, key := range v1.MapKeys() {
-			val1 := v1.MapIndex(key)
-			val2 := v2.MapIndex(key)
-			if !val2.IsValid() || !deepEqualWithSpecialHandling(val1, val2) {
-				return false
-			}
-		}
-		return true
-
-	default:
-		// For basic types, use reflect.DeepEqual
-		return reflect.DeepEqual(v1.Interface(), v2.Interface())
-	}
-}
-
-// isUnionType checks if a type is one of our known union types that contain json.RawMessage
-func isUnionType(t reflect.Type) bool {
-	if t.Kind() != reflect.Struct {
-		return false
-	}
-
-	// Check if struct contains a json.RawMessage field named "union"
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		if field.Name == "union" && field.Type == reflect.TypeOf(json.RawMessage{}) {
-			return true
-		}
-	}
-	return false
-}
-
-// compareUnionTypeAsJSON compares union types using normalized JSON serialization
-func compareUnionTypeAsJSON(v1, v2 reflect.Value) bool {
-	json1, err1 := json.Marshal(v1.Interface())
-	json2, err2 := json.Marshal(v2.Interface())
-
-	if err1 != nil || err2 != nil {
-		return false
-	}
-
-	// Normalize JSON by unmarshaling and remarshaling to ensure consistent formatting
-	var obj1, obj2 interface{}
-	if err := json.Unmarshal(json1, &obj1); err != nil {
-		return false
-	}
-	if err := json.Unmarshal(json2, &obj2); err != nil {
-		return false
-	}
-
-	// Use reflect.DeepEqual on the unmarshaled objects for semantic comparison
-	return reflect.DeepEqual(obj1, obj2)
+	// Use optimized deep equality with special handling for union types
+	return util.DeepEqual(d1, d2)
 }
 
 func FleetSpecsAreEqual(f1, f2 FleetSpec) bool {
-	// Use JSON comparison for consistent, automatic handling of all fields
-	json1, err := json.Marshal(f1)
-	if err != nil {
-		return false
-	}
-	json2, err := json.Marshal(f2)
-	if err != nil {
-		return false
-	}
-	return bytes.Equal(json1, json2)
+	// Use optimized deep equality with special handling for union types
+	return util.DeepEqual(f1, f2)
 }
 
 // Some functions that we provide to users.  In case of a missing label,

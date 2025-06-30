@@ -675,3 +675,410 @@ func TestDeviceSpecsAreEqual_AllUnionTypes(t *testing.T) {
 	require.True(t, DeviceSpecsAreEqual(spec4, spec5),
 		"DeviceSpec should be equal after JSON round-trip")
 }
+
+func TestDeviceSpecsAreEqual_EdgeCases(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("nil vs empty slice applications", func(t *testing.T) {
+		spec1 := DeviceSpec{Applications: nil}
+		spec2 := DeviceSpec{Applications: &[]ApplicationProviderSpec{}}
+
+		// nil vs empty slice should be different
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("nil vs empty slice config", func(t *testing.T) {
+		spec1 := DeviceSpec{Config: nil}
+		spec2 := DeviceSpec{Config: &[]ConfigProviderSpec{}}
+
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("nil vs empty slice resources", func(t *testing.T) {
+		spec1 := DeviceSpec{Resources: nil}
+		spec2 := DeviceSpec{Resources: &[]ResourceMonitor{}}
+
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("map with different key ordering", func(t *testing.T) {
+		// Environment variables with different ordering should be equal
+		envVars1 := &map[string]string{
+			"KEY1": "value1",
+			"KEY2": "value2",
+			"KEY3": "value3",
+		}
+
+		envVars2 := &map[string]string{
+			"KEY3": "value3",
+			"KEY1": "value1",
+			"KEY2": "value2",
+		}
+
+		app1 := ApplicationProviderSpec{EnvVars: envVars1}
+		app2 := ApplicationProviderSpec{EnvVars: envVars2}
+
+		spec1 := DeviceSpec{Applications: &[]ApplicationProviderSpec{app1}}
+		spec2 := DeviceSpec{Applications: &[]ApplicationProviderSpec{app2}}
+
+		// Maps with same content but different ordering should be equal
+		require.True(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("slice with different ordering", func(t *testing.T) {
+		// Create configs with different file ordering
+		config1 := createInlineConfigWithFiles(t, "config1", []FileSpec{
+			{Path: "/file1", Content: "content1"},
+			{Path: "/file2", Content: "content2"},
+		})
+
+		config2 := createInlineConfigWithFiles(t, "config1", []FileSpec{
+			{Path: "/file2", Content: "content2"},
+			{Path: "/file1", Content: "content1"},
+		})
+
+		spec1 := DeviceSpec{Config: &[]ConfigProviderSpec{config1}}
+		spec2 := DeviceSpec{Config: &[]ConfigProviderSpec{config2}}
+
+		// Slices with different ordering should be different (order matters)
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("same slice ordering", func(t *testing.T) {
+		config1 := createInlineConfigWithFiles(t, "config1", []FileSpec{
+			{Path: "/file1", Content: "content1"},
+			{Path: "/file2", Content: "content2"},
+		})
+
+		config2 := createInlineConfigWithFiles(t, "config1", []FileSpec{
+			{Path: "/file1", Content: "content1"},
+			{Path: "/file2", Content: "content2"},
+		})
+
+		spec1 := DeviceSpec{Config: &[]ConfigProviderSpec{config1}}
+		spec2 := DeviceSpec{Config: &[]ConfigProviderSpec{config2}}
+
+		require.True(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("partial vs full spec", func(t *testing.T) {
+		// Spec with only OS vs spec with OS + applications
+		spec1 := DeviceSpec{
+			Os: &DeviceOsSpec{Image: "test-image"},
+		}
+
+		spec2 := DeviceSpec{
+			Os:           &DeviceOsSpec{Image: "test-image"},
+			Applications: &[]ApplicationProviderSpec{},
+		}
+
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("nil vs zero values", func(t *testing.T) {
+		spec1 := DeviceSpec{
+			UpdatePolicy: nil,
+		}
+
+		spec2 := DeviceSpec{
+			UpdatePolicy: &DeviceUpdatePolicySpec{},
+		}
+
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("nested optional fields", func(t *testing.T) {
+		spec1 := DeviceSpec{
+			UpdatePolicy: &DeviceUpdatePolicySpec{
+				DownloadSchedule: &UpdateSchedule{
+					At:                 "*/10 * * * *",
+					StartGraceDuration: nil, // nil optional field
+					TimeZone:           nil, // nil optional field
+				},
+			},
+		}
+
+		spec2 := DeviceSpec{
+			UpdatePolicy: &DeviceUpdatePolicySpec{
+				DownloadSchedule: &UpdateSchedule{
+					At:                 "*/10 * * * *",
+					StartGraceDuration: lo.ToPtr("5m"), // non-nil optional field
+					TimeZone:           nil,
+				},
+			},
+		}
+
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("complex union types with different content", func(t *testing.T) {
+		// Git config vs inline config
+		gitConfig := ConfigProviderSpec{}
+		err := gitConfig.FromGitConfigProviderSpec(GitConfigProviderSpec{
+			Name: "test-config",
+			GitRef: struct {
+				Path           string `json:"path"`
+				Repository     string `json:"repository"`
+				TargetRevision string `json:"targetRevision"`
+			}{
+				Path:           "/configs",
+				Repository:     "test-repo",
+				TargetRevision: "main",
+			},
+		})
+		require.NoError(err)
+
+		inlineConfig := createInlineConfigWithFiles(t, "test-config", []FileSpec{
+			{Path: "/config.yaml", Content: "test: value"},
+		})
+
+		spec1 := DeviceSpec{Config: &[]ConfigProviderSpec{gitConfig}}
+		spec2 := DeviceSpec{Config: &[]ConfigProviderSpec{inlineConfig}}
+
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("identical union types", func(t *testing.T) {
+		config1 := createInlineConfigWithFiles(t, "test-config", []FileSpec{
+			{Path: "/config.yaml", Content: "test: value"},
+		})
+
+		config2 := createInlineConfigWithFiles(t, "test-config", []FileSpec{
+			{Path: "/config.yaml", Content: "test: value"},
+		})
+
+		spec1 := DeviceSpec{Config: &[]ConfigProviderSpec{config1}}
+		spec2 := DeviceSpec{Config: &[]ConfigProviderSpec{config2}}
+
+		require.True(DeviceSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("empty vs missing map", func(t *testing.T) {
+		app1 := ApplicationProviderSpec{
+			EnvVars: &map[string]string{}, // empty map
+		}
+
+		app2 := ApplicationProviderSpec{
+			EnvVars: nil, // nil map
+		}
+
+		spec1 := DeviceSpec{Applications: &[]ApplicationProviderSpec{app1}}
+		spec2 := DeviceSpec{Applications: &[]ApplicationProviderSpec{app2}}
+
+		require.False(DeviceSpecsAreEqual(spec1, spec2))
+	})
+}
+
+func createInlineConfigWithFiles(t testing.TB, name string, files []FileSpec) ConfigProviderSpec {
+	require := require.New(t)
+
+	config := ConfigProviderSpec{}
+	err := config.FromInlineConfigProviderSpec(InlineConfigProviderSpec{
+		Name:   name,
+		Inline: files,
+	})
+	require.NoError(err)
+
+	return config
+}
+
+func TestFleetSpecsAreEqual_EdgeCases(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("map key ordering should not matter", func(t *testing.T) {
+		// Create two FleetSpecs with identical content but different map key ordering
+		fleetSpec1 := FleetSpec{
+			Selector: &LabelSelector{
+				MatchLabels: &map[string]string{
+					"zone":        "us-east-1",
+					"environment": "production",
+					"team":        "backend",
+				},
+			},
+			Template: struct {
+				Metadata *ObjectMeta `json:"metadata,omitempty"`
+				Spec     DeviceSpec  `json:"spec"`
+			}{
+				Metadata: &ObjectMeta{
+					Labels: &map[string]string{
+						"fleet":   "web-servers",
+						"version": "v1.0.0",
+						"tier":    "production",
+					},
+				},
+				Spec: DeviceSpec{
+					Os: &DeviceOsSpec{
+						Image: "quay.io/test/image:v1.0.0",
+					},
+				},
+			},
+		}
+
+		fleetSpec2 := FleetSpec{
+			Selector: &LabelSelector{
+				MatchLabels: &map[string]string{
+					"team":        "backend", // Different order
+					"zone":        "us-east-1",
+					"environment": "production",
+				},
+			},
+			Template: struct {
+				Metadata *ObjectMeta `json:"metadata,omitempty"`
+				Spec     DeviceSpec  `json:"spec"`
+			}{
+				Metadata: &ObjectMeta{
+					Labels: &map[string]string{
+						"tier":    "production", // Different order
+						"fleet":   "web-servers",
+						"version": "v1.0.0",
+					},
+				},
+				Spec: DeviceSpec{
+					Os: &DeviceOsSpec{
+						Image: "quay.io/test/image:v1.0.0",
+					},
+				},
+			},
+		}
+
+		// Should be true regardless of map ordering (this was the bug!)
+		require.True(FleetSpecsAreEqual(fleetSpec1, fleetSpec2),
+			"Semantically identical FleetSpecs should be equal regardless of map key ordering")
+	})
+
+	t.Run("nil vs empty label maps", func(t *testing.T) {
+		spec1 := FleetSpec{
+			Selector: &LabelSelector{
+				MatchLabels: nil,
+			},
+		}
+
+		spec2 := FleetSpec{
+			Selector: &LabelSelector{
+				MatchLabels: &map[string]string{},
+			},
+		}
+
+		require.False(FleetSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("nil vs empty selector", func(t *testing.T) {
+		spec1 := FleetSpec{Selector: nil}
+		spec2 := FleetSpec{Selector: &LabelSelector{}}
+
+		require.False(FleetSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("complex nested DeviceSpec with union types", func(t *testing.T) {
+		// Create inline config
+		config := createInlineConfigWithFiles(t, "test-config", []FileSpec{
+			{Path: "/config.yaml", Content: "test: value"},
+		})
+
+		spec1 := FleetSpec{
+			Template: struct {
+				Metadata *ObjectMeta `json:"metadata,omitempty"`
+				Spec     DeviceSpec  `json:"spec"`
+			}{
+				Spec: DeviceSpec{
+					Os:     &DeviceOsSpec{Image: "test-image"},
+					Config: &[]ConfigProviderSpec{config},
+				},
+			},
+		}
+
+		spec2 := FleetSpec{
+			Template: struct {
+				Metadata *ObjectMeta `json:"metadata,omitempty"`
+				Spec     DeviceSpec  `json:"spec"`
+			}{
+				Spec: DeviceSpec{
+					Os:     &DeviceOsSpec{Image: "test-image"},
+					Config: &[]ConfigProviderSpec{config},
+				},
+			},
+		}
+
+		require.True(FleetSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("rollout policy differences", func(t *testing.T) {
+		spec1 := FleetSpec{
+			RolloutPolicy: &RolloutPolicy{
+				DisruptionBudget: &DisruptionBudget{
+					MaxUnavailable: lo.ToPtr(1),
+				},
+			},
+		}
+
+		spec2 := FleetSpec{
+			RolloutPolicy: &RolloutPolicy{
+				DisruptionBudget: &DisruptionBudget{
+					MaxUnavailable: lo.ToPtr(2), // Different value
+				},
+			},
+		}
+
+		require.False(FleetSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("match expressions with different content", func(t *testing.T) {
+		spec1 := FleetSpec{
+			Selector: &LabelSelector{
+				MatchExpressions: &[]MatchExpression{
+					{
+						Key:      "environment",
+						Operator: In,
+						Values:   &[]string{"prod", "staging"},
+					},
+				},
+			},
+		}
+
+		spec2 := FleetSpec{
+			Selector: &LabelSelector{
+				MatchExpressions: &[]MatchExpression{
+					{
+						Key:      "environment",
+						Operator: In,
+						Values:   &[]string{"prod", "staging", "dev"}, // Different values
+					},
+				},
+			},
+		}
+
+		require.False(FleetSpecsAreEqual(spec1, spec2))
+	})
+
+	t.Run("empty specs", func(t *testing.T) {
+		emptySpec1 := FleetSpec{}
+		emptySpec2 := FleetSpec{}
+		require.True(FleetSpecsAreEqual(emptySpec1, emptySpec2))
+	})
+
+	t.Run("different template specs", func(t *testing.T) {
+		spec1 := FleetSpec{
+			Template: struct {
+				Metadata *ObjectMeta `json:"metadata,omitempty"`
+				Spec     DeviceSpec  `json:"spec"`
+			}{
+				Spec: DeviceSpec{
+					Os: &DeviceOsSpec{Image: "image-v1"},
+				},
+			},
+		}
+
+		spec2 := FleetSpec{
+			Template: struct {
+				Metadata *ObjectMeta `json:"metadata,omitempty"`
+				Spec     DeviceSpec  `json:"spec"`
+			}{
+				Spec: DeviceSpec{
+					Os: &DeviceOsSpec{Image: "image-v2"}, // Different image
+				},
+			},
+		}
+
+		require.False(FleetSpecsAreEqual(spec1, spec2))
+	})
+}
