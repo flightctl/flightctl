@@ -606,6 +606,7 @@ func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff wait.B
 				log.Error(err)
 				return false, err
 			}
+			log.Warnf("A retriable error occurred: %s", err)
 			return false, nil
 		}
 		return true, nil
