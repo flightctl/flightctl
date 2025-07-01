@@ -33,7 +33,7 @@ type Manager interface {
 }
 
 // NewManager creates a new os manager.
-func NewManager(log *log.PrefixLogger, client Client, reader fileio.Reader, podmanClient *client.Podman) Manager {
+func NewManager(log *log.PrefixLogger, client Client, reader fileio.ReadWriter, podmanClient *client.Podman) Manager {
 	return &manager{
 		client:       client,
 		podmanClient: podmanClient,
@@ -45,7 +45,7 @@ func NewManager(log *log.PrefixLogger, client Client, reader fileio.Reader, podm
 type manager struct {
 	client       Client
 	podmanClient *client.Podman
-	reader       fileio.Reader
+	reader       fileio.ReadWriter
 	log          *log.PrefixLogger
 }
 
@@ -94,13 +94,14 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.D
 	m.log.Infof("Fetching OS image: %s", osImage)
 
 	// auth
-	exists, err := m.reader.PathExists(authPath)
+	secret, exists, err := client.ResolvePullSecret(m.log, m.reader, desired, authPath)
 	if err != nil {
 		return err
 	}
 	if exists {
-		m.log.Infof("Using pull secret: %s", authPath)
-		opts = append(opts, client.WithPullSecret(authPath))
+		defer secret.Cleanup()
+		m.log.Infof("Using pull secret: %s", secret.Path)
+		opts = append(opts, client.WithPullSecret(secret.Path))
 	}
 
 	_, err = m.podmanClient.Pull(ctx, osImage, opts...)
