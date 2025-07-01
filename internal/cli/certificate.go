@@ -26,8 +26,8 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
-	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -59,7 +59,7 @@ func DefaultCertificateOptions() *CertificateOptions {
 		Output:        "embedded",
 		OutputDir:     ".",
 		EncryptKey:    false,
-		SignerName:    "enrollment",
+		SignerName:    "flightctl.io/enrollment",
 	}
 }
 
@@ -94,7 +94,7 @@ func (o *CertificateOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Expiration, "expiration", "x", o.Expiration, "Specify desired certificate expiration in days, example: 7d.")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, "Specify desired output format for an enrollment cert: either 'reference' to have the config file reference key and cert file paths, or 'embedded' to have the key and cert embedded in the config file.")
 	fs.StringVarP(&o.OutputDir, "output-dir", "d", o.OutputDir, "Specify desired output directory for key, cert, and ca files.")
-	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of certificate requested: 'enrollment' or 'ca'.")
+	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of certificate requested: 'flightctl.io/enrollment'")
 	fs.BoolVarP(&o.EncryptKey, "encrypt", "e", o.EncryptKey, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime.")
 }
 
@@ -104,7 +104,7 @@ func (o *CertificateOptions) Complete(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(o.Name) == 0 {
-		if o.SignerName == "enrollment" {
+		if o.SignerName == "flightctl.io/enrollment" {
 			o.Name = "client-enrollment"
 		} else {
 			o.Name = "cert"
@@ -123,12 +123,12 @@ func (o *CertificateOptions) Validate(args []string) error {
 	}
 
 	if errs := validation.ValidateSignerName(o.SignerName); len(errs) > 0 {
-		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca'")
+		return fmt.Errorf("invalid certificate type. current certificate types supported: 'flightctl.io/enrollment'")
 	}
 
 	// check if user updated output format while requesting a cert that is not an enrollment cert -
 	// output format is only relevant for enrollment certs
-	if o.SignerName != "enrollment" && len(o.Output) > 0 {
+	if o.SignerName != "flightctl.io/enrollment" && len(o.Output) > 0 {
 		return fmt.Errorf("output format cannot be set for certificate types other than 'enrollment'")
 	}
 
@@ -144,7 +144,7 @@ func (o *CertificateOptions) Validate(args []string) error {
 func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	keypath := filepath.Join(o.OutputDir, o.Name+".key")
 	fmt.Fprintf(os.Stderr, "Creating new ECDSA key pair and writing to %q.\n", keypath)
-	_, priv, err := fccrypto.NewKeyPair()
+	_, priv, err := fcrypto.NewKeyPair()
 	if err != nil {
 		return fmt.Errorf("creating new key pair: %w", err)
 	}
@@ -152,7 +152,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	// write out the key asap - in case process is interrupted, key is needed to access
 	// status of CSR via enrollmentconfig API
 	if !o.EncryptKey {
-		err = fccrypto.WriteKey(keypath, priv)
+		err = fcrypto.WriteKey(keypath, priv)
 		if err != nil {
 			return fmt.Errorf("writing private key to %s: %w", keypath, err)
 		}
@@ -161,7 +161,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		if err != nil {
 			return fmt.Errorf("getting password: %w", err)
 		}
-		err = fccrypto.WritePasswordEncryptedKey(keypath, priv, pw)
+		err = fcrypto.WritePasswordEncryptedKey(keypath, priv, pw)
 		if err != nil {
 			return fmt.Errorf("writing encrypted private key to %s: %w", keypath, err)
 		}
@@ -179,7 +179,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 
 	// if this isn't an enrollment cert, approval may take arbitrary time, so don't poll for
 	// the cert here - we're done!
-	if o.SignerName != "enrollment" {
+	if o.SignerName != "flightctl.io/enrollment" {
 		return nil
 	}
 
@@ -349,7 +349,7 @@ func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) 
 }
 
 func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto.PrivateKey, response *apiclient.GetEnrollmentConfigResponse) error {
-	pemPriv, err := fccrypto.PEMEncodeKey(priv)
+	pemPriv, err := fcrypto.PEMEncodeKey(priv)
 	if err != nil {
 		return fmt.Errorf("PEM encoding private key: %w", err)
 	}

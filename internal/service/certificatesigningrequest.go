@@ -8,9 +8,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api_server/middleware"
-	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -45,7 +42,9 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
-	signedCert, err := signApprovedCertificateSigningRequest(h.ca, *csr)
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+
+	signedCert, err := signer.Sign(ctx, *csr)
 	if err != nil {
 		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
 			Type:    api.CertificateSigningRequestFailed,
@@ -63,45 +62,6 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	if _, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
 	}
-}
-
-func signApprovedCertificateSigningRequest(ca *crypto.CAClient, request api.CertificateSigningRequest) ([]byte, error) {
-
-	csr, err := crypto.ParseCSR(request.Spec.Request)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := csr.CheckSignature(); err != nil {
-		return nil, fmt.Errorf("%w: %s", flterrors.ErrSignature, err)
-	}
-
-	// the CN will need the enrollment prefix applied;
-	// if the certificate is being renewed, the name will have an existing prefix.
-	// we do not touch in this case.
-
-	u := csr.Subject.CommonName
-
-	// Once we move all prefixes/name formation to the client this can become a simple
-	// comparison of u and *request.Metadata.Name
-
-	if ca.BootstrapCNFromName(u) != ca.BootstrapCNFromName(*request.Metadata.Name) {
-		return nil, fmt.Errorf("%w - CN %s Metadata %s mismatch", flterrors.ErrSignCert, u, *request.Metadata.Name)
-	}
-
-	csr.Subject.CommonName = ca.BootstrapCNFromName(u)
-
-	expiry := DefaultEnrollmentCertExpirySeconds
-	if request.Spec.ExpirationSeconds != nil {
-		expiry = *request.Spec.ExpirationSeconds
-	}
-
-	certData, err := ca.IssueRequestedClientCertificate(csr, int(expiry))
-	if err != nil {
-		return nil, err
-	}
-
-	return certData, nil
 }
 
 func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, params api.ListCertificateSigningRequestsParams) (*api.CertificateSigningRequestList, api.Status) {
@@ -127,41 +87,26 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, par
 	}
 }
 
-func (h *ServiceHandler) verifyCSRParameters(ctx context.Context, csr api.CertificateSigningRequest) error {
-
-	// Crypto validation
-	cn, ok := ctx.Value(middleware.TLSCommonNameContextKey).(string)
-
-	// Note - if auth is disabled and there is no mTLS handshake we get ok == False.
-	// We cannot check anything in that case.
-
-	if ok {
-		if csr.Spec.SignerName != h.ca.Cfg.ClientBootstrapSignerName {
-			if csr.Metadata.Name == nil {
-				return errors.New("invalid csr record - no name in metadata")
-			}
-			if cn != h.ca.BootstrapCNFromName(*csr.Metadata.Name) {
-				return errors.New("denied attempt to renew other entity certificate")
-			}
-		}
-	}
-	return nil
-}
-
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
 	orgId := store.NullOrgId
 
-	// don't set fields that are managed by the service
-	csr.Status = nil
-	NilOutManagedObjectMetaProperties(&csr.Metadata)
+	// don't set fields that are managed by the service for external requests
+	if !IsInternalRequest(ctx) {
+		csr.Status = nil
+		NilOutManagedObjectMetaProperties(&csr.Metadata)
+	}
 
 	if errs := csr.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	err := h.verifyCSRParameters(ctx, csr)
-	if err != nil {
-		return nil, api.StatusUnauthorized(err.Error())
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("singer %q not found", csr.Spec.SignerName))
+	}
+
+	if err := signer.Verify(ctx, csr); err != nil {
+		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, &csr)
@@ -263,9 +208,13 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	err := h.verifyCSRParameters(ctx, csr)
-	if err != nil {
-		return nil, api.StatusUnauthorized(err.Error())
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("singer %q not found", csr.Spec.SignerName))
+	}
+
+	if err := signer.Verify(ctx, csr); err != nil {
+		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	result, created, updatedDesc, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, &csr)

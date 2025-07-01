@@ -341,6 +341,36 @@ type BatchSequence struct {
 	Strategy RolloutStrategy `json:"strategy"`
 }
 
+// CSRProvisioner CSR-based certificate provisioning via the API server.
+type CSRProvisioner struct {
+	// Csr Parameters for CSR-based provisioning.
+	Csr struct {
+		// ExpirationSeconds Optional requested duration in seconds for the issued certificate.
+		ExpirationSeconds *int32 `json:"expirationSeconds,omitempty"`
+
+		// Signer The signer name or CA profile to use when signing the CSR.
+		Signer string `json:"signer"`
+	} `json:"csr"`
+}
+
+// CertProviderSpec A certificate to be generated and provisioned on the device.
+type CertProviderSpec struct {
+	// Name Logical name of the certificate (e.g., "otel", "metrics").
+	Name        string                       `json:"name"`
+	Provisioner CertProviderSpec_Provisioner `json:"provisioner"`
+	Storage     CertProviderSpec_Storage     `json:"storage"`
+}
+
+// CertProviderSpec_Provisioner defines model for CertProviderSpec.Provisioner.
+type CertProviderSpec_Provisioner struct {
+	union json.RawMessage
+}
+
+// CertProviderSpec_Storage defines model for CertProviderSpec.Storage.
+type CertProviderSpec_Storage struct {
+	union json.RawMessage
+}
+
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
 type CertificateSigningRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -608,6 +638,9 @@ type DeviceResourceStatusType string
 type DeviceSpec struct {
 	// Applications List of application providers.
 	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
+
+	// Certs List of certificates to provision on the device.
+	Certs *[]CertProviderSpec `json:"certs,omitempty"`
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
@@ -998,6 +1031,21 @@ type FileSpec struct {
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
 	User *string `json:"user,omitempty"`
+}
+
+// FileSystemCertStorage Certificate and key will be stored on the device’s file system.
+type FileSystemCertStorage struct {
+	// CertPath Absolute path to write the signed certificate (e.g., "/etc/otel/cert.pem").
+	CertPath string `json:"certPath"`
+
+	// KeyPath Absolute path to write the private key (e.g., "/etc/otel/key.pem").
+	KeyPath string `json:"keyPath"`
+}
+
+// FileSystemCertStorageProvider defines model for FileSystemCertStorageProvider.
+type FileSystemCertStorageProvider struct {
+	// FileSystem Certificate and key will be stored on the device’s file system.
+	FileSystem FileSystemCertStorage `json:"FileSystem"`
 }
 
 // Fleet Fleet represents a set of devices.
@@ -1631,6 +1679,9 @@ type TemplateVersionSpec struct {
 type TemplateVersionStatus struct {
 	// Applications List of application providers.
 	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
+
+	// Certs List of certificates to provision on the device.
+	Certs *[]CertProviderSpec `json:"certs,omitempty"`
 
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
@@ -2310,6 +2361,78 @@ func (t Batch_Limit) MarshalJSON() ([]byte, error) {
 }
 
 func (t *Batch_Limit) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsCSRProvisioner returns the union data inside the CertProviderSpec_Provisioner as a CSRProvisioner
+func (t CertProviderSpec_Provisioner) AsCSRProvisioner() (CSRProvisioner, error) {
+	var body CSRProvisioner
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCSRProvisioner overwrites any union data inside the CertProviderSpec_Provisioner as the provided CSRProvisioner
+func (t *CertProviderSpec_Provisioner) FromCSRProvisioner(v CSRProvisioner) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCSRProvisioner performs a merge with any union data inside the CertProviderSpec_Provisioner, using the provided CSRProvisioner
+func (t *CertProviderSpec_Provisioner) MergeCSRProvisioner(v CSRProvisioner) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t CertProviderSpec_Provisioner) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *CertProviderSpec_Provisioner) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsFileSystemCertStorageProvider returns the union data inside the CertProviderSpec_Storage as a FileSystemCertStorageProvider
+func (t CertProviderSpec_Storage) AsFileSystemCertStorageProvider() (FileSystemCertStorageProvider, error) {
+	var body FileSystemCertStorageProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFileSystemCertStorageProvider overwrites any union data inside the CertProviderSpec_Storage as the provided FileSystemCertStorageProvider
+func (t *CertProviderSpec_Storage) FromFileSystemCertStorageProvider(v FileSystemCertStorageProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFileSystemCertStorageProvider performs a merge with any union data inside the CertProviderSpec_Storage, using the provided FileSystemCertStorageProvider
+func (t *CertProviderSpec_Storage) MergeFileSystemCertStorageProvider(v FileSystemCertStorageProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t CertProviderSpec_Storage) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *CertProviderSpec_Storage) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

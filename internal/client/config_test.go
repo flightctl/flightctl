@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"crypto/x509"
 	"net/http"
 	"os"
@@ -111,6 +112,8 @@ func TestClientConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
 			testDirPath := t.TempDir()
 			configFile := filepath.Join(testDirPath, "client.yaml")
 
@@ -118,7 +121,7 @@ func TestClientConfig(t *testing.T) {
 			cfg := ca.NewDefault(testDirPath)
 			ca, _, err := crypto.EnsureCA(cfg)
 			require.NoError(err)
-			clientCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), cfg.ClientBootstrapCertName, cfg.ClientBootstrapValidityDays)
+			clientCert, _, err := ca.EnsureClientCertificate(ctx, filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), cfg.ClientBootstrapCertName, cfg.ClientBootstrapValidityDays)
 			require.NoError(err)
 
 			// write client config to disk

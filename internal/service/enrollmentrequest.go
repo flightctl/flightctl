@@ -7,19 +7,36 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
-const ClientCertExpiryDays = 365
+const ClientCertExpiryDays int32 = 365
 
-func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
+func makeCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {
+	return api.CertificateSigningRequest{
+		ApiVersion: api.CertificateSigningRequestAPIVersion,
+		Kind:       api.CertificateSigningRequestKind,
+		Metadata: api.ObjectMeta{
+			Name: enrollmentRequest.Metadata.Name,
+		},
+		Spec: v1alpha1.CertificateSigningRequestSpec{
+			Request:    []byte(enrollmentRequest.Spec.Csr),
+			SignerName: ca.Cfg.DeviceEnrollmentSignerName,
+			Usages:     &[]string{"clientAuth", "CA:false"},
+		},
+	}
+}
+
+func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
@@ -28,7 +45,7 @@ func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api
 		return fmt.Errorf("approveAndSignEnrollmentRequest: enrollment request is missing metadata.name")
 	}
 
-	csr, err := crypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
+	csr, err := fcrypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
 	}
@@ -48,15 +65,23 @@ func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api
 	}
 	csr.Subject.CommonName = desired
 
-	if err := csr.CheckSignature(); err != nil {
-		return fmt.Errorf("failed to verify signature of CSR: %w", err)
+	signer := ca.GetSigner(ca.Cfg.DeviceEnrollmentSignerName)
+	if signer == nil {
+		return fmt.Errorf("singer %q not found", ca.Cfg.DeviceEnrollmentSignerName)
 	}
 
-	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
-	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
+	req := makeCSR(ca, enrollmentRequest)
+	req.Spec.ExpirationSeconds = lo.ToPtr(ClientCertExpiryDays * 24 * 60 * 60)
+
+	if err := signer.Verify(ctx, req); err != nil {
+		return err
+	}
+
+	certData, err := signer.Sign(ctx, req)
 	if err != nil {
 		return err
 	}
+
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 		Certificate: lo.ToPtr(string(certData)),
 		Conditions:  []api.Condition{},
@@ -286,7 +311,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 		approvalStatusToReturn = &approvalStatus
 
-		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
+		if err := approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus); err != nil {
 			return nil, api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
 		}
 

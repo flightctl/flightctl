@@ -8,16 +8,14 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
-
-type contextKey string
-
-const TLSCommonNameContextKey contextKey = "tls-cn"
 
 func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string, cfg *config.Config) *http.Server {
 	return &http.Server{
@@ -52,7 +50,12 @@ func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, ad
 			return ctx
 		}
 		peerCertificate := cs.PeerCertificates[0]
-		return context.WithValue(ctx, TLSCommonNameContextKey, peerCertificate.Subject.CommonName)
+
+		ctx = context.WithValue(ctx, consts.TLSCommonNameCtxKey, peerCertificate.Subject.CommonName)
+		if s, err := signer.GetSignerNameExtension(peerCertificate); err == nil && s != "" {
+			ctx = context.WithValue(ctx, consts.TLSSignerNameCtxKey, s)
+		}
+		return ctx
 	}
 	return server
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/cert"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -36,6 +37,7 @@ type Agent struct {
 	statusManager          status.Manager
 	specManager            spec.Manager
 	devicePublisher        publisher.Publisher
+	certManager            cert.Manager
 	hookManager            hook.Manager
 	appManager             applications.Manager
 	systemdManager         systemd.Manager
@@ -69,6 +71,7 @@ func NewAgent(
 	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
 	statusUpdateInterval util.Duration,
+	certManager cert.Manager,
 	hookManager hook.Manager,
 	osManager os.Manager,
 	policyManager policy.Manager,
@@ -88,6 +91,7 @@ func NewAgent(
 		statusManager:          statusManager,
 		specManager:            specManager,
 		devicePublisher:        devicePublisher,
+		certManager:            certManager,
 		hookManager:            hookManager,
 		osManager:              osManager,
 		policyManager:          policyManager,
@@ -373,6 +377,10 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Devic
 
 	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("applications: %w", err)
+	}
+
+	if err := a.certManager.Sync(ctx, current.Spec, desired.Spec); err != nil {
+		return fmt.Errorf("certs: %w", err)
 	}
 
 	if err := a.hookManager.Sync(current.Spec, desired.Spec); err != nil {

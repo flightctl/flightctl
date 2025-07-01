@@ -262,3 +262,100 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/certificatesigningrequests:
+    post:
+      tags:
+        - certificatesigningrequest
+      description: Create a CertificateSigningRequest resource.
+      operationId: createCertificateSigningRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "409":
+          description: StatusConflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+
+  /api/v1/certificatesigningrequests/{name}:
+    get:
+      tags:
+        - certificatesigningrequest
+      description: Read the specified CertificateSigningRequest.
+      operationId: getCertificateSigningRequest
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the CertificateSigningRequest resource to get.
+          schema:
+            type: string
+            uniqueItems: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+
+

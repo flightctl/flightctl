@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -11,19 +12,29 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+type CertOption = func(*x509.Certificate) error
+
 type CABackend interface {
-	IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error)
+	IssueRequestedCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage, opts ...CertOption) (*x509.Certificate, error)
 	GetCABundleX509() []*x509.Certificate
 }
 
 type CAClient struct {
 	caBackend CABackend
 	Cfg       *ca.Config
+	signers   *signer.CASigners
+}
+
+func (caClient *CAClient) Config() *ca.Config {
+	return caClient.Cfg
 }
 
 // EnsureCA() tries to load or generate a CA and connect to it.
@@ -35,11 +46,25 @@ func EnsureCA(cfg *ca.Config) (*CAClient, bool, error) {
 	if err != nil {
 		return nil, fresh, err
 	}
-	ret := &CAClient{
+	ca := &CAClient{
 		caBackend: caBackend,
 		Cfg:       cfg,
 	}
-	return ret, fresh, nil
+
+	ca.signers = signer.NewCASigners(ca)
+	return ca, fresh, nil
+}
+
+func (caClient *CAClient) GetSigner(name string) signer.Signer {
+	return caClient.signers.GetSigner(name)
+}
+
+func (caClient *CAClient) GetSignerFromCtx(ctx context.Context) signer.Signer {
+	name, ok := ctx.Value(consts.TLSSignerNameCtxKey).(string)
+	if ok {
+		return caClient.GetSigner(name)
+	}
+	return nil
 }
 
 func CertStorePath(fileName string, store string) string {
@@ -68,12 +93,28 @@ func (caClient *CAClient) CNFromDeviceFingerprint(fingerprint string) (string, e
 	return caClient.Cfg.DeviceCommonNamePrefix + fingerprint, nil
 }
 
+// TODO
+func (caClient *CAClient) DeviceFingerprintFromCN(commonName string) (string, error) {
+	prefix := caClient.Cfg.DeviceCommonNamePrefix
+
+	if !strings.HasPrefix(commonName, prefix) {
+		return "", fmt.Errorf("common name %q missing expected prefix %q", commonName, prefix)
+	}
+
+	fingerprint := strings.TrimPrefix(commonName, prefix)
+	if len(fingerprint) < 16 {
+		return "", fmt.Errorf("fingerprint extracted from CN must be at least %d characters: got %q", 16, fingerprint)
+	}
+
+	return fingerprint, nil
+}
+
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
 
-func (caClient *CAClient) EnsureServerCertificate(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error) {
+func (caClient *CAClient) EnsureServerCertificate(ctx context.Context, certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error) {
 	certConfig, err := GetServerCertificate(certFile, keyFile, hostnames)
 	if err != nil {
-		certConfig, err = caClient.MakeAndWriteServerCertificate(certFile, keyFile, hostnames, expireDays)
+		certConfig, err = caClient.MakeAndWriteServerCertificate(ctx, certFile, keyFile, hostnames, expireDays)
 		return certConfig, true, err
 	}
 
@@ -89,8 +130,8 @@ func GetServerCertificate(certFile, keyFile string, hostnames []string) (*TLSCer
 	return &server, nil
 }
 
-func (caClient *CAClient) MakeAndWriteServerCertificate(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, error) {
-	server, err := caClient.MakeServerCertificate(hostnames, expireDays)
+func (caClient *CAClient) MakeAndWriteServerCertificate(ctx context.Context, certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, error) {
+	server, err := caClient.MakeServerCertificate(ctx, hostnames, expireDays)
 	if err != nil {
 		return nil, err
 	}
@@ -100,12 +141,12 @@ func (caClient *CAClient) MakeAndWriteServerCertificate(certFile, keyFile string
 	return server, nil
 }
 
-func (caClient *CAClient) MakeServerCertificate(hostnames []string, expiryDays int) (*TLSCertificateConfig, error) {
+func (caClient *CAClient) MakeServerCertificate(ctx context.Context, hostnames []string, expiryDays int) (*TLSCertificateConfig, error) {
 	if len(hostnames) < 1 {
 		return nil, fmt.Errorf("at least one hostname must be provided")
 	}
 
-	_, serverPrivateKey, _ := NewKeyPair()
+	_, serverPrivateKey, _ := fcrypto.NewKeyPair()
 
 	serverTemplate := &x509.CertificateRequest{
 		Subject: pkix.Name{CommonName: hostnames[0]},
@@ -120,7 +161,7 @@ func (caClient *CAClient) MakeServerCertificate(hostnames []string, expiryDays i
 	if err != nil {
 		return nil, err
 	}
-	serverCrt, err := caClient.IssueRequestedServerCertificateAsX509(csr, expiryDays*86400)
+	serverCrt, err := caClient.IssueRequestedServerCertificateAsX509(ctx, csr, expiryDays*86400)
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +172,8 @@ func (caClient *CAClient) MakeServerCertificate(hostnames []string, expiryDays i
 	return server, nil
 }
 
-func (caClient *CAClient) EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
-	certConfig, err := caClient.MakeClientCertificate(certFile, keyFile, subjectName, expireDays)
+func (caClient *CAClient) EnsureClientCertificate(ctx context.Context, certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
+	certConfig, err := caClient.MakeClientCertificate(ctx, certFile, keyFile, subjectName, expireDays)
 	if err != nil {
 		return nil, false, err
 	}
@@ -155,9 +196,9 @@ func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCer
 	return &client, nil
 }
 
-func (caClient *CAClient) MakeClientCertificate(certFile, keyFile string, subjectName string, expiryDays int) (*TLSCertificateConfig, error) {
+func (caClient *CAClient) MakeClientCertificate(ctx context.Context, certFile, keyFile string, subjectName string, expiryDays int) (*TLSCertificateConfig, error) {
 
-	_, clientPrivateKey, _ := NewKeyPair()
+	_, clientPrivateKey, _ := fcrypto.NewKeyPair()
 
 	clientTemplate := &x509.CertificateRequest{
 		Subject: pkix.Name{CommonName: subjectName},
@@ -171,7 +212,7 @@ func (caClient *CAClient) MakeClientCertificate(certFile, keyFile string, subjec
 		return nil, err
 	}
 
-	clientCrt, err := caClient.IssueRequestedClientCertificateAsX509(csr, expiryDays*24*3600)
+	clientCrt, err := caClient.IssueRequestedClientCertificateAsX509(ctx, csr, expiryDays*24*3600)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +242,7 @@ func (c *TLSCertificateConfig) GetPEMBytes() ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	keyBytes, err := PEMEncodeKey(c.Key)
+	keyBytes, err := fcrypto.PEMEncodeKey(c.Key)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -209,12 +250,12 @@ func (c *TLSCertificateConfig) GetPEMBytes() ([]byte, []byte, error) {
 	return certBytes, keyBytes, nil
 }
 
-func (caClient *CAClient) IssueRequestedClientCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
-	return caClient.caBackend.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+func (caClient *CAClient) IssueRequestedClientCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...CertOption) (*x509.Certificate, error) {
+	return caClient.caBackend.IssueRequestedCertificateAsX509(ctx, csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, opts...)
 }
 
-func (caClient *CAClient) IssueRequestedClientCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
-	cert, err := caClient.IssueRequestedClientCertificateAsX509(csr, expirySeconds)
+func (caClient *CAClient) IssueRequestedClientCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...CertOption) ([]byte, error) {
+	cert, err := caClient.IssueRequestedClientCertificateAsX509(ctx, csr, expirySeconds, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", flterrors.ErrSignCert, err)
 	}
@@ -226,11 +267,11 @@ func (caClient *CAClient) IssueRequestedClientCertificate(csr *x509.CertificateR
 	return certData, nil
 }
 
-func (caClient *CAClient) IssueRequestedServerCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int) (*x509.Certificate, error) {
-	return caClient.caBackend.IssueRequestedCertificateAsX509(csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth})
+func (caClient *CAClient) IssueRequestedServerCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...CertOption) (*x509.Certificate, error) {
+	return caClient.caBackend.IssueRequestedCertificateAsX509(ctx, csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}, opts...)
 }
-func (caClient *CAClient) IssueRequestedServerCertificate(csr *x509.CertificateRequest, expirySeconds int) ([]byte, error) {
-	cert, err := caClient.IssueRequestedServerCertificateAsX509(csr, expirySeconds)
+func (caClient *CAClient) IssueRequestedServerCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...CertOption) ([]byte, error) {
+	cert, err := caClient.IssueRequestedServerCertificateAsX509(ctx, csr, expirySeconds, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", flterrors.ErrSignCert, err)
 	}

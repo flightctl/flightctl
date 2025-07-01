@@ -1,0 +1,69 @@
+<domain type='kvm'>
+  <name>flightctl-device-default</name>
+  <memory unit='KiB'>4194304</memory>
+  <currentMemory unit='KiB'>4194304</currentMemory>
+  <vcpu placement='static'>2</vcpu>
+  <os>
+    <type arch='x86_64' machine='pc-q35-8.2'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+    <vmport state='off'/>
+  </features>
+  <cpu mode='host-passthrough' check='none' migratable='on'/>
+  <clock offset='utc'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='pit' tickpolicy='delay'/>
+    <timer name='hpet' present='no'/>
+  </clock>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='/var/lib/libvirt/images/flightctl-device-default.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <controller type='usb' index='0' model='qemu-xhci'/>
+    <controller type='pci' index='0' model='pcie-root'/>
+    <controller type='virtio-serial' index='0'/>
+    <serial type='pty'>
+      <target type='isa-serial' port='0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <input type='tablet' bus='usb'/>
+    <input type='mouse' bus='ps2'/>
+    <input type='keyboard' bus='ps2'/>
+    <tpm model='tpm-tis'>
+      <backend type='emulator' version='2.0'/>
+    </tpm>
+    <graphics type='spice' autoport='yes' listen='127.0.0.1'>
+      <listen type='address' address='127.0.0.1'/>
+      <image compression='off'/>
+    </graphics>
+    <sound model='ich9'/>
+    <video>
+      <model type='virtio' heads='1' primary='yes'/>
+    </video>
+    <memballoon model='virtio'/>
+    <rng model='virtio'>
+      <backend model='random'>/dev/urandom</backend>
+    </rng>
+  </devices>
+  <qemu:commandline xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
+    <qemu:arg value='-netdev'/>
+    <qemu:arg value='user,id=n0,hostfwd=tcp::9000-:9000'/>
+    <qemu:arg value='-device'/>
+    <qemu:arg value='virtio-net-pci,netdev=n0,bus=pcie.0,addr=0x10'/>
+  </qemu:commandline>
+  <seclabel type='dynamic' model='selinux' relabel='yes'>
+    <label>system_u:system_r:svirt_t:s0</label>
+    <imagelabel>system_u:object_r:svirt_image_t:s0</imagelabel>
+  </seclabel>
+</domain>

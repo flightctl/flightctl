@@ -1,0 +1,7 @@
+apiVersion: flightctl.io/v1alpha1
+kind: Device
+metadata:
+  labels:
+    fleet: default
+  name: 6a3grfff8a6rprbcs7njqtgqu4bcbktc9e5fbkj6056rn0kfckcg
+spec: {}

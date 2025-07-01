@@ -204,6 +204,9 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	deviceConfig, configErrs := f.getDeviceConfig(device, templateVersion)
 	errs = append(errs, configErrs...)
 
+	deviceCerts, appErrs := f.getDeviceCerts(device, templateVersion)
+	errs = append(errs, appErrs...)
+
 	deviceApps, appErrs := f.getDeviceApps(device, templateVersion)
 	errs = append(errs, appErrs...)
 
@@ -223,6 +226,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		Os:           osSpec,
 		Systemd:      templateVersion.Status.Systemd,
 		Resources:    templateVersion.Status.Resources,
+		Certs:        deviceCerts,
 		Applications: deviceApps,
 		UpdatePolicy: templateVersion.Status.UpdatePolicy,
 	}
@@ -252,6 +256,14 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	return err
+}
+
+func (f FleetRolloutsLogic) getDeviceCerts(_ *api.Device, templateVersion *api.TemplateVersion) (*[]api.CertProviderSpec, []error) {
+	if templateVersion.Status.Certs == nil {
+		return nil, nil
+	}
+
+	return templateVersion.Status.Certs, nil
 }
 
 func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationProviderSpec, []error) {

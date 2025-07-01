@@ -15,6 +15,12 @@ import (
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
+	// (POST /api/v1/certificatesigningrequests)
+	CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/certificatesigningrequests/{name})
+	GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
@@ -34,6 +40,16 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// (POST /api/v1/certificatesigningrequests)
+func (_ Unimplemented) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/certificatesigningrequests/{name})
+func (_ Unimplemented) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // (GET /api/v1/devices/{name}/rendered)
 func (_ Unimplemented) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
@@ -68,6 +84,47 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// CreateCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCertificateSigningRequest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// GetCertificateSigningRequest operation middleware
+func (siw *ServerInterfaceWrapper) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
 
 // GetRenderedDevice operation middleware
 func (siw *ServerInterfaceWrapper) GetRenderedDevice(w http.ResponseWriter, r *http.Request) {
@@ -312,6 +369,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.CreateCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.GetCertificateSigningRequest)
+	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
 	})

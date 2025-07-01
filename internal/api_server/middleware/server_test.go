@@ -12,6 +12,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -57,7 +58,7 @@ var _ = Describe("Low level server behavior", func() {
 		ca, serverCerts, enrollmentCert, err = testutil.NewTestCerts(config)
 		Expect(err).ToNot(HaveOccurred())
 
-		noSubjectCert, _, err = ca.EnsureClientCertificate(filepath.Join(tempDir, "no-subject.crt"), filepath.Join(tempDir, "no-subject.key"), "", 365)
+		noSubjectCert, _, err = ca.EnsureClientCertificate(ctx, filepath.Join(tempDir, "no-subject.crt"), filepath.Join(tempDir, "no-subject.key"), "", 365)
 		Expect(err).NotTo(HaveOccurred())
 
 		_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
@@ -117,7 +118,7 @@ type testTLSCNServer struct {
 }
 
 func (s testTLSCNServer) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	tlsCN := request.Context().Value(middleware.TLSCommonNameContextKey)
+	tlsCN := request.Context().Value(consts.TLSCommonNameCtxKey)
 	if tlsCN == nil {
 		// this should not really happen, this will make the tests fail
 		response.WriteHeader(http.StatusInternalServerError)

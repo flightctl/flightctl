@@ -9,7 +9,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
-	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
@@ -101,7 +101,7 @@ func (o *EnrollmentConfigOptions) Run(ctx context.Context, args []string) error 
 			return err
 		}
 
-		encrypted, err := fccrypto.IsEncryptedPEMKey(privKey)
+		encrypted, err := fcrypto.IsEncryptedPEMKey(privKey)
 		if err != nil {
 			return fmt.Errorf("invalid key specified: path: %s, error %w", o.PrivateKey, err)
 		}
@@ -110,7 +110,7 @@ func (o *EnrollmentConfigOptions) Run(ctx context.Context, args []string) error 
 			if err != nil {
 				return fmt.Errorf("getting password for encrypted key: %w", err)
 			}
-			privKey, err = fccrypto.DecryptKeyBytes(privKey, pw)
+			privKey, err = fcrypto.DecryptKeyBytes(privKey, pw)
 			if err != nil {
 				return fmt.Errorf("unable to decrypt key: %w", err)
 			}

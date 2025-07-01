@@ -13,6 +13,9 @@ type GetRenderedDeviceParams struct {
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
 
+// CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
+type CreateCertificateSigningRequestJSONRequestBody = externalRef0.CertificateSigningRequest
+
 // PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchDeviceStatus for application/json-patch+json ContentType.
 type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = externalRef0.PatchRequest
 

@@ -14,6 +14,7 @@ import (
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/cert"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -30,8 +31,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
-	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/experimental"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -206,6 +207,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	certManager := cert.NewManager(deviceName, a.config, deviceReadWriter, a.log)
+
 	// create lifecycle manager
 	lifecycleManager := lifecycle.NewManager(
 		deviceName,
@@ -243,6 +246,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		specManager,
 		devicePublisher,
 		statusManager,
+		certManager,
 		hookManager,
 		lifecycleManager,
 		&a.config.ManagementService.Config,
@@ -295,6 +299,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		systemdManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
+		certManager,
 		hookManager,
 		osManager,
 		policyManager,
