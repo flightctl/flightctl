@@ -6,7 +6,7 @@ on:
     types: [published]  # Trigger when a new release is created
   push:
     branches:
-      - main
+      - 'release-*'  # Match your existing release workflow pattern
     tags:
       - '*'
 
@@ -17,10 +17,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout main branch
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: main
 
       - name: Install COPR CLI and dependencies
         run: |
