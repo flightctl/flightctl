@@ -6,6 +6,21 @@
         body { font-family: Arial, sans-serif; margin: 40px; }
         .code { background: #f4f4f4; padding: 10px; border-radius: 5px; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+    // Convert markdown links to work with raw content
+    function fixDocsLinks() {
+        const links = document.querySelectorAll('a[href$=".md"]');
+        links.forEach(link => {
+            link.onclick = function(e) {
+                e.preventDefault();
+                // Could fetch and render markdown here
+                window.open('https://github.com/flightctl/flightctl/blob/main/docs/' + this.getAttribute('href'));
+            };
+        });
+    }
+    window.onload = fixDocsLinks;
+    </script>
 </head>
 <body>
 
