@@ -62,12 +62,6 @@ func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error)
 	}, nil
 }
 
-func hideValue(value *string) {
-	if value != nil {
-		*value = *lo.ToPtr("*****")
-	}
-}
-
 func RepositoryAPIVersion() string {
 	return fmt.Sprintf("%s/%s", api.APIGroup, api.RepositoryAPIVersion)
 }
@@ -85,29 +79,6 @@ func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, 
 	status := api.RepositoryStatus{Conditions: []api.Condition{}}
 	if r.Status != nil {
 		status = r.Status.Data
-	}
-
-	_, err := spec.GetGenericRepoSpec()
-	if err != nil {
-		gitHttpSpec, err := spec.GetHttpRepoSpec()
-		if err == nil {
-			hideValue(gitHttpSpec.HttpConfig.Password)
-			hideValue(gitHttpSpec.HttpConfig.TlsKey)
-			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
-			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
-				return &api.Repository{}, err
-			}
-
-		} else {
-			gitSshRepoSpec, err := spec.GetSshRepoSpec()
-			if err == nil {
-				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
-				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
-				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
-					return &api.Repository{}, err
-				}
-			}
-		}
 	}
 
 	return &api.Repository{
