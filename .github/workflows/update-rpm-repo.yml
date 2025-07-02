@@ -270,7 +270,7 @@ jobs:
   gpgcheck=0
   repo_gpgcheck=0
   type=rpm
-          EOF
+  EOF
           echo "Created .repo file:"
           cat rpm-repo/flightctl.repo
           echo "=============================="
