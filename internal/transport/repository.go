@@ -25,12 +25,6 @@ func (h *TransportHandler) ListRepositories(w http.ResponseWriter, r *http.Reque
 	SetResponse(w, body, status)
 }
 
-// (DELETE /api/v1/repositories)
-func (h *TransportHandler) DeleteRepositories(w http.ResponseWriter, r *http.Request) {
-	status := h.serviceHandler.DeleteRepositories(r.Context())
-	SetResponse(w, nil, status)
-}
-
 // (GET /api/v1/repositories/{name})
 func (h *TransportHandler) GetRepository(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetRepository(r.Context(), name)

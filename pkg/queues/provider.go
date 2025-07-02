@@ -21,6 +21,6 @@ type Consumer interface {
 }
 
 type Publisher interface {
-	Publish(payload []byte) error
+	Publish(ctx context.Context, payload []byte) error
 	Close()
 }

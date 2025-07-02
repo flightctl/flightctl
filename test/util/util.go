@@ -26,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	. "github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -75,7 +76,7 @@ func (t *testProvider) Wait() {
 	t.wg.Wait()
 }
 
-func (t *testProvider) Publish(b []byte) error {
+func (t *testProvider) Publish(_ context.Context, b []byte) error {
 	t.queue <- b
 	return nil
 }
@@ -144,7 +145,7 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
-func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
+func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
 	// cfg.Database.Name = ""
 	dbTemp, err := store.InitDB(&cfg, log)
 	if err != nil {
@@ -154,7 +155,7 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)
-	dbTemp = dbTemp.Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
+	dbTemp = dbTemp.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
 	if dbTemp.Error != nil {
 		return nil, "", fmt.Errorf("NewTestStore: creating test db %s: %w", randomDBName, dbTemp.Error)
 	}
@@ -166,7 +167,7 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 	}
 
 	dbStore := store.NewStore(db, log.WithField("pkg", "store"))
-	err = dbStore.InitialMigration()
+	err = dbStore.InitialMigration(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: performing initial migration: %w", err)
 	}
@@ -286,4 +287,23 @@ func GetCurrentYearBounds() (string, string) {
 	endOfYear := time.Date(now.Year()+1, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	return startOfYear.Format(time.RFC3339), endOfYear.Format(time.RFC3339)
+}
+
+// RunTable runs a table of test cases with the given run function.
+// Each test case has a description and parameters of type T.
+type TestCase[T any] struct {
+	Description string
+	Params      T
+}
+
+func Cases[T any](items ...TestCase[T]) []TestCase[T] {
+	return items
+}
+
+// RunTable executes the provided run function for each test case in the cases slice.
+func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
+	for _, tc := range cases {
+		By("Case: " + tc.Description)
+		runFunc(tc.Params)
+	}
 }

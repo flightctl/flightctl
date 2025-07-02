@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
+	"sync/atomic"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -16,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	api_remotecommand "k8s.io/apimachinery/pkg/util/remotecommand"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -138,7 +141,7 @@ func (o *ConsoleOptions) Run(ctx context.Context, flagArgs, passThroughArgs []st
 		return err
 	}
 
-	o.analyzeResponseAndExit(o.connectViaWS(ctx, config, name, client.GetAccessToken(config, o.ConfigFilePath), passThroughArgs))
+	o.analyzeResponseAndExit(ctx, name, o.connectViaWS(ctx, config, name, client.GetAccessToken(config, o.ConfigFilePath), passThroughArgs))
 
 	// unreachable
 	return nil
@@ -222,27 +225,42 @@ const (
 	disconnected
 )
 
-type closeOnTildeDotReader struct {
-	r      io.Reader
-	state  disconnectionState
-	cancel context.CancelFunc
+type rawReader struct {
+	state     disconnectionState
+	cancel    context.CancelFunc
+	termState **term.State
+	onetime   atomic.Bool
 }
 
-func newCloseOnTildeDotReader(inner io.Reader, cancel context.CancelFunc) *closeOnTildeDotReader {
-	return &closeOnTildeDotReader{
-		r:      inner,
-		cancel: cancel,
-		state:  normal,
+func newRawReader(cancel context.CancelFunc, termState **term.State) *rawReader {
+	return &rawReader{
+		cancel:    cancel,
+		state:     normal,
+		termState: termState,
 	}
 }
 
-func (e *closeOnTildeDotReader) Read(p []byte) (int, error) {
+func (e *rawReader) Read(p []byte) (int, error) {
+	// Ensure the terminal is set to raw mode only when Read function is called for the first time.
+	// This is to allow the user to use ctrl+C to stop the console before the terminal is connected
+	// to the remote.
+	if e.onetime.CompareAndSwap(false, true) {
+		if e.termState != nil {
+			oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error making terminal raw: %s\n", err)
+				e.cancel()
+				return 0, err
+			}
+			*e.termState = oldState
+		}
+	}
 	if e.state == disconnected {
 		e.cancel()
 		return 0, io.EOF
 	}
 
-	n, err := e.r.Read(p)
+	n, err := os.Stdin.Read(p)
 	for i := 0; i < n; i++ {
 		switch p[i] {
 		case '\n', '\r':
@@ -278,8 +296,9 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 		Stdout: os.Stdout,
 		Tty:    o.remoteTTY,
 	}
+	var oldState *term.State
 	if t.Raw {
-		options.Stdin = newCloseOnTildeDotReader(os.Stdin, cancel)
+		options.Stdin = newRawReader(cancel, &oldState)
 	} else if !t.IsTerminalIn() {
 		options.Stdin = os.Stdin
 	}
@@ -293,17 +312,13 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 	}
 
 	if t.Raw {
-
-		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error making terminal raw: %s\n", err)
-			return err
-		}
 		defer func() {
-			err := term.Restore(int(os.Stdin.Fd()), oldState)
-			// reset terminal and clear screen
-			if err != nil {
-				fmt.Printf("error restoring terminal: %v", err)
+			if oldState != nil {
+				err := term.Restore(int(os.Stdin.Fd()), oldState)
+				// reset terminal and clear screen
+				if err != nil {
+					fmt.Printf("error restoring terminal: %v", err)
+				}
 			}
 		}()
 	}
@@ -329,15 +344,52 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 	return wsClient.StreamWithContext(ctx, options)
 }
 
-func (o *ConsoleOptions) analyzeResponseAndExit(err error) {
+func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name string, origErr error) {
+	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating client: %v\n", err)
+		return
+	}
+	response, err := c.GetDeviceWithResponse(ctx, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting device %s: %v\n", name, err)
+		return
+	}
+	if response != nil && response.StatusCode() != http.StatusOK {
+		var status *api.Status
+		switch {
+		case response.JSON401 != nil:
+			status = response.JSON401
+		case response.JSON403 != nil:
+			status = response.JSON403
+		case response.JSON404 != nil:
+			status = response.JSON404
+		case response.JSON503 != nil:
+			status = response.JSON503
+		}
+		if status != nil {
+			fmt.Fprintf(os.Stderr, "Error for device %s: %s\n", name, status.Message)
+			return
+		}
+	}
+	fmt.Fprintf(os.Stderr, "Unexpected error for device %s: %v\n", name, origErr)
+}
+
+func (o *ConsoleOptions) analyzeResponseAndExit(ctx context.Context, name string, err error) {
 	var exitCode int
-	switch concreteErr := err.(type) {
-	case nil:
-	case exec.CodeExitError:
-		exitCode = concreteErr.Code
-	default:
-		exitCode = 255
-		if !errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) {
+		// If the context was canceled, we exit with code 130 (SIGINT)
+		exitCode = 130
+	} else {
+		switch concreteErr := err.(type) {
+		case nil:
+		case exec.CodeExitError:
+			exitCode = concreteErr.Code
+		case *httpstream.UpgradeFailureError:
+			exitCode = 255
+			o.emitUpgradeFailureError(ctx, name, err)
+		default:
+			exitCode = 255
 			fmt.Fprintf(os.Stderr, "Unexpected error type %T: %+v\n", err, err)
 		}
 	}

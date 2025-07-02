@@ -1,21 +1,27 @@
 package rollout_test
 
 import (
+	"context"
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 )
 
 var _ = Describe("Rollout Policies", func() {
-	var tc *TestContext
+	var (
+		ctx context.Context
+		tc  *TestContext
+	)
 
 	BeforeEach(func() {
 		// Initialize the test context
-		tc = setupTestContext()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		tc = setupTestContext(ctx)
 	})
 
 	AfterEach(func() {
@@ -199,11 +205,11 @@ var _ = Describe("Rollout Policies", func() {
 				Expect(err).ToNot(HaveOccurred())
 			}
 
-			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
-			Expect(err).ToNot(HaveOccurred())
-
 			By("Simulating a failure in the first batch")
 			err = tc.harness.SimulateNetworkFailure()
+			Expect(err).ToNot(HaveOccurred())
+
+			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
 			tc.harness.WaitForBatchStart(fleetName, 0)
@@ -226,11 +232,13 @@ var _ = Describe("Rollout Policies", func() {
 			err = tc.harness.WaitForDeviceNewRenderedVersion(tc.deviceIDs[0], deviceVersions[tc.deviceIDs[0]])
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify that all devices are eventually updated
+			By("Verifying the first device is updated")
+			// Verify that the first device is updated
 			updatedDevices, err := tc.harness.GetUpdatedDevices(fleetName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(updatedDevices)).To(Equal(1), "Only One device should be updated")
 
+			By("Verifying a new rollout can be triggered")
 			deviceVersions[tc.deviceIDs[0]], err = tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
 			Expect(err).ToNot(HaveOccurred())
 
@@ -494,8 +502,8 @@ type TestContext struct {
 	sleepAppImage     string
 }
 
-func setupTestContext() *TestContext {
-	harness := e2e.NewTestHarness()
+func setupTestContext(ctx context.Context) *TestContext {
+	harness := e2e.NewTestHarness(ctx)
 	extIP := harness.RegistryEndpoint()
 	sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
 

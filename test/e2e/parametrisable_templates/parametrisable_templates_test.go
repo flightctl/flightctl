@@ -1,10 +1,12 @@
 package parametrisabletemplates
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -12,12 +14,14 @@ import (
 
 var _ = Describe("Template variables in the device configuraion", func() {
 	var (
+		ctx      context.Context
 		harness  *e2e.Harness
 		deviceId string
 	)
 
 	BeforeEach(func() {
-		harness = e2e.NewTestHarness()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		harness = e2e.NewTestHarness(ctx)
 		deviceId = harness.StartVMAndEnroll()
 	})
 
@@ -108,7 +112,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				harness.WaitForDeviceContents(deviceId, `The device could not be updated to the fleet`,
 					func(device *v1alpha1.Device) bool {
 						return device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusOutOfDate
-					}, "2m")
+					}, testutil.TIMEOUT)
 				resp, err := harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device := resp.JSON200
@@ -223,10 +227,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 
 				gitConfigResponse, err := harness.GetDeviceGitConfig(device, gitConfigName)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(gitConfigResponse.GitRef.Path).To(ContainSubstring(configLabelValue))
-				Expect(*gitConfigResponse.GitRef.MountPath).To(ContainSubstring(teamLabelValue))
 				Expect(gitConfigResponse.GitRef.TargetRevision).To(ContainSubstring(revisionLabelValue))
-
 				httpConfigResponse, err := harness.GetDeviceHttpConfig(device, httpConfigName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(httpConfigResponse.HttpRef.FilePath).To(ContainSubstring(configLabelValue))
@@ -323,10 +324,9 @@ var (
 	repoTestName          = "git-repo"
 	repoTestUrl           = "https://github.com/flightctl/flightctl-demos"
 	deviceAlias           = "base"
-	mountPath             = "/var/home/user/{{ .metadata.labels.team }}/file.txt"
 	branchTargetRevision  = "demo"
 	httpRepoName          = "http-repo"
-	gitRepoConfigPath     = "/{{ .metadata.labels.config }}/bootc/Containerfile.arm64"
+	gitRepoConfigPath     = "/demos/basic-nginx-demo/configuration"
 	httpConfigPath        = "/var/home/user/{{ .metadata.labels.config }}"
 	configLabelKey        = "config"
 	configLabelValue      = "fedora-bootc"
@@ -399,12 +399,10 @@ var httpRepoMetadata = v1alpha1.ObjectMeta{
 
 var gitConfigvalid = v1alpha1.GitConfigProviderSpec{
 	GitRef: struct {
-		MountPath      *string `json:"mountPath,omitempty"`
-		Path           string  `json:"path"`
-		Repository     string  `json:"repository"`
-		TargetRevision string  `json:"targetRevision"`
+		Path           string `json:"path"`
+		Repository     string `json:"repository"`
+		TargetRevision string `json:"targetRevision"`
 	}{
-		MountPath:      &mountPath,
 		Path:           gitRepoConfigPath,
 		Repository:     repoTestName,
 		TargetRevision: revision,

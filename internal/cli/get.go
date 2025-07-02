@@ -8,28 +8,19 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"text/tabwriter"
-	"time"
 
-	"github.com/dustin/go-humanize"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"sigs.k8s.io/yaml"
-)
-
-const (
-	jsonFormat = "json"
-	yamlFormat = "yaml"
-	wideFormat = "wide"
 )
 
 var (
-	legalOutputTypes = []string{jsonFormat, yamlFormat, wideFormat}
+	legalOutputTypes = []string{string(display.JSONFormat), string(display.YAMLFormat), string(display.NameFormat), string(display.WideFormat)}
 )
 
 type GetOptions struct {
@@ -155,24 +146,59 @@ func (o *GetOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:gocyclo
+func (o *GetOptions) Run(ctx context.Context, args []string) error {
 	c, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	var response interface{}
-
 	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
 	}
-	switch {
-	case kind == DeviceKind && len(name) > 0 && !o.Rendered:
-		response, err = c.GetDeviceWithResponse(ctx, name)
-	case kind == DeviceKind && len(name) > 0 && o.Rendered:
-		response, err = c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
-	case kind == DeviceKind && len(name) == 0:
+
+	var response interface{}
+	if len(name) == 0 {
+		// List resources (no name given)
+		response, err = o.getResourceList(ctx, c, kind)
+	} else {
+		// Get a single resource by name
+		response, err = o.getSingleResource(ctx, c, kind, name)
+	}
+
+	return o.processResponse(response, err, kind, name)
+}
+
+func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind, name string) (interface{}, error) {
+	switch kind {
+	case DeviceKind:
+		if o.Rendered {
+			return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
+		}
+		return c.GetDeviceWithResponse(ctx, name)
+	case EnrollmentRequestKind:
+		return c.GetEnrollmentRequestWithResponse(ctx, name)
+	case FleetKind:
+		params := api.GetFleetParams{
+			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
+		}
+		return c.GetFleetWithResponse(ctx, name, &params)
+	case TemplateVersionKind:
+		return c.GetTemplateVersionWithResponse(ctx, o.FleetName, name)
+	case RepositoryKind:
+		return c.GetRepositoryWithResponse(ctx, name)
+	case ResourceSyncKind:
+		return c.GetResourceSyncWithResponse(ctx, name)
+	case CertificateSigningRequestKind:
+		return c.GetCertificateSigningRequestWithResponse(ctx, name)
+	default:
+		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
+	}
+}
+
+func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWithResponses, kind string) (interface{}, error) {
+	switch kind {
+	case DeviceKind:
 		params := api.ListDevicesParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
@@ -180,23 +206,16 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 			SummaryOnly:   lo.ToPtr(o.SummaryOnly),
 		}
-		response, err = c.ListDevicesWithResponse(ctx, &params)
-	case kind == EnrollmentRequestKind && len(name) > 0:
-		response, err = c.GetEnrollmentRequestWithResponse(ctx, name)
-	case kind == EnrollmentRequestKind && len(name) == 0:
+		return c.ListDevicesWithResponse(ctx, &params)
+	case EnrollmentRequestKind:
 		params := api.ListEnrollmentRequestsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListEnrollmentRequestsWithResponse(ctx, &params)
-	case kind == FleetKind && len(name) > 0:
-		params := api.GetFleetParams{
-			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
-		}
-		response, err = c.GetFleetWithResponse(ctx, name, &params)
-	case kind == FleetKind && len(name) == 0:
+		return c.ListEnrollmentRequestsWithResponse(ctx, &params)
+	case FleetKind:
 		params := api.ListFleetsParams{
 			LabelSelector:     util.ToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector:     util.ToPtrWithNilDefault(o.FieldSelector),
@@ -204,58 +223,49 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error { //nolint:go
 			Continue:          util.ToPtrWithNilDefault(o.Continue),
 			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
 		}
-		response, err = c.ListFleetsWithResponse(ctx, &params)
-	case kind == TemplateVersionKind && len(name) > 0:
-		response, err = c.GetTemplateVersionWithResponse(ctx, o.FleetName, name)
-	case kind == TemplateVersionKind && len(name) == 0:
+		return c.ListFleetsWithResponse(ctx, &params)
+	case TemplateVersionKind:
 		params := api.ListTemplateVersionsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListTemplateVersionsWithResponse(ctx, o.FleetName, &params)
-	case kind == RepositoryKind && len(name) > 0:
-		response, err = c.GetRepositoryWithResponse(ctx, name)
-	case kind == RepositoryKind && len(name) == 0:
+		return c.ListTemplateVersionsWithResponse(ctx, o.FleetName, &params)
+	case RepositoryKind:
 		params := api.ListRepositoriesParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListRepositoriesWithResponse(ctx, &params)
-	case kind == ResourceSyncKind && len(name) > 0:
-		response, err = c.GetResourceSyncWithResponse(ctx, name)
-	case kind == ResourceSyncKind && len(name) == 0:
+		return c.ListRepositoriesWithResponse(ctx, &params)
+	case ResourceSyncKind:
 		params := api.ListResourceSyncsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListResourceSyncsWithResponse(ctx, &params)
-	case kind == CertificateSigningRequestKind && len(name) > 0:
-		response, err = c.GetCertificateSigningRequestWithResponse(ctx, name)
-	case kind == CertificateSigningRequestKind && len(name) == 0:
+		return c.ListResourceSyncsWithResponse(ctx, &params)
+	case CertificateSigningRequestKind:
 		params := api.ListCertificateSigningRequestsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
 			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListCertificateSigningRequestsWithResponse(ctx, &params)
-	case kind == EventKind:
+		return c.ListCertificateSigningRequestsWithResponse(ctx, &params)
+	case EventKind:
 		params := api.ListEventsParams{
 			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
-		response, err = c.ListEventsWithResponse(ctx, &params)
+		return c.ListEventsWithResponse(ctx, &params)
 	default:
-		return fmt.Errorf("unsupported resource kind: %s", kind)
+		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}
-	return o.processResponse(response, err, kind, name)
 }
 
 func (o *GetOptions) processResponse(response interface{}, err error, kind string, name string) error {
@@ -289,309 +299,25 @@ func (o *GetOptions) processResponse(response interface{}, err error, kind strin
 		return fmt.Errorf(errorPrefix+": %d", httpResponse.StatusCode)
 	}
 
-	json200, err := responseField[interface{}](response, "JSON200")
-	if err != nil {
-		return err
+	formatter := display.NewFormatter(display.OutputFormat(o.Output))
+	options := display.FormatOptions{
+		Kind:        kind,
+		Name:        name,
+		Summary:     o.Summary,
+		SummaryOnly: o.SummaryOnly,
+		Wide:        o.Output == string(display.WideFormat),
+		Writer:      os.Stdout,
 	}
 
-	switch o.Output {
-	case jsonFormat:
-		marshalled, err := json.Marshal(json200)
+	// For structured formats, use JSON200 data
+	if o.Output == string(display.JSONFormat) || o.Output == string(display.YAMLFormat) || o.Output == string(display.NameFormat) {
+		json200, err := responseField[interface{}](response, "JSON200")
 		if err != nil {
-			return fmt.Errorf("marshalling resource: %w", err)
+			return err
 		}
-		fmt.Printf("%s\n", string(marshalled))
-		return nil
-	case yamlFormat:
-		marshalled, err := yaml.Marshal(json200)
-		if err != nil {
-			return fmt.Errorf("marshalling resource: %w", err)
-		}
-		fmt.Printf("%s\n", string(marshalled))
-		return nil
-	default:
-		return o.printTable(response, kind, name)
-	}
-}
-
-//nolint:gocyclo
-func (o *GetOptions) printTable(response interface{}, kind string, name string) error {
-	w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-	switch {
-	case kind == DeviceKind && len(name) == 0:
-		if o.SummaryOnly {
-			o.printDevicesSummaryTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Summary)
-			break
-		}
-
-		o.printDevicesTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Items...)
-		if o.Summary {
-			o.printNewLine(w)
-			o.printDevicesSummaryTable(w, response.(*apiclient.ListDevicesResponse).JSON200.Summary)
-		}
-	case kind == DeviceKind && len(name) > 0:
-		var device api.Device
-		if o.Rendered {
-			device = *(response.(*apiclient.GetRenderedDeviceResponse).JSON200)
-		} else {
-			device = *(response.(*apiclient.GetDeviceResponse).JSON200)
-		}
-		o.printDevicesTable(w, device)
-	case kind == EnrollmentRequestKind && len(name) == 0:
-		o.printEnrollmentRequestsTable(w, response.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items...)
-	case kind == EnrollmentRequestKind && len(name) > 0:
-		o.printEnrollmentRequestsTable(w, *(response.(*apiclient.GetEnrollmentRequestResponse).JSON200))
-	case kind == FleetKind && len(name) == 0:
-		o.printFleetsTable(w, response.(*apiclient.ListFleetsResponse).JSON200.Items...)
-	case kind == FleetKind && len(name) > 0:
-		o.printFleetsTable(w, *(response.(*apiclient.GetFleetResponse).JSON200))
-	case kind == TemplateVersionKind && len(name) == 0:
-		o.printTemplateVersionsTable(w, response.(*apiclient.ListTemplateVersionsResponse).JSON200.Items...)
-	case kind == TemplateVersionKind && len(name) > 0:
-		o.printTemplateVersionsTable(w, *(response.(*apiclient.GetTemplateVersionResponse).JSON200))
-	case kind == RepositoryKind && len(name) == 0:
-		o.printRepositoriesTable(w, response.(*apiclient.ListRepositoriesResponse).JSON200.Items...)
-	case kind == RepositoryKind && len(name) > 0:
-		o.printRepositoriesTable(w, *(response.(*apiclient.GetRepositoryResponse).JSON200))
-	case kind == ResourceSyncKind && len(name) == 0:
-		o.printResourceSyncsTable(w, response.(*apiclient.ListResourceSyncsResponse).JSON200.Items...)
-	case kind == ResourceSyncKind && len(name) > 0:
-		o.printResourceSyncsTable(w, *(response.(*apiclient.GetResourceSyncResponse).JSON200))
-	case kind == CertificateSigningRequestKind && len(name) == 0:
-		o.printCSRTable(w, response.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
-	case kind == CertificateSigningRequestKind && len(name) > 0:
-		o.printCSRTable(w, *(response.(*apiclient.GetCertificateSigningRequestResponse).JSON200))
-	case kind == EventKind:
-		o.printEventsTable(w, response.(*apiclient.ListEventsResponse).JSON200.Items...)
-	default:
-		return fmt.Errorf("unknown resource type %s", kind)
-	}
-	w.Flush()
-	return nil
-}
-
-// Helper function to print a new line
-func (o *GetOptions) printNewLine(w *tabwriter.Writer) {
-	fmt.Fprintln(w)
-}
-
-func (o *GetOptions) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.DevicesSummary) {
-	fmt.Fprintln(w, "DEVICES")
-	fmt.Fprintf(w, "%s\n", fmt.Sprintf("%d", summary.Total))
-
-	fmt.Fprintln(w, "\nSTATUS TYPE\tSTATUS\tCOUNT")
-
-	for k, v := range summary.SummaryStatus {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", "SYSTEM", k, fmt.Sprintf("%d", v))
+		return formatter.Format(json200, options)
 	}
 
-	for k, v := range summary.UpdateStatus {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", "UPDATED", k, fmt.Sprintf("%d", v))
-	}
-
-	for k, v := range summary.ApplicationStatus {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", "APPLICATIONS", k, fmt.Sprintf("%d", v))
-	}
-}
-
-func (o *GetOptions) printDevicesTable(w *tabwriter.Writer, devices ...api.Device) {
-	if o.Output == wideFormat {
-		_, _ = fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN\tLABELS")
-	} else {
-		_, _ = fmt.Fprintln(w, "NAME\tALIAS\tOWNER\tSYSTEM\tUPDATED\tAPPLICATIONS\tLAST SEEN")
-	}
-	for _, d := range devices {
-		lastSeen := "<never>"
-		if !d.Status.LastSeen.IsZero() {
-			lastSeen = humanize.Time(d.Status.LastSeen)
-		}
-		alias := ""
-		if d.Metadata.Labels != nil {
-			alias = (*d.Metadata.Labels)["alias"]
-		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s",
-			*d.Metadata.Name,
-			alias,
-			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
-			d.Status.Summary.Status,
-			d.Status.Updated.Status,
-			d.Status.ApplicationsSummary.Status,
-			lastSeen,
-		)
-		if o.Output == wideFormat {
-			_, _ = fmt.Fprintf(w, "\t%s\n", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
-		} else {
-			_, _ = fmt.Fprintln(w)
-		}
-	}
-}
-
-func (o *GetOptions) printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...api.EnrollmentRequest) {
-	fmt.Fprintln(w, "NAME\tAPPROVAL\tAPPROVER\tAPPROVED LABELS")
-	for _, e := range ers {
-		approval, approver, approvedLabels := "Pending", "<none>", ""
-		if e.Status.Approval != nil {
-			approval = util.BoolToStr(e.Status.Approval.Approved, "Approved", "Denied")
-			approver = e.Status.Approval.ApprovedBy
-			approvedLabels = strings.Join(util.LabelMapToArray(e.Status.Approval.Labels), ",")
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-			*e.Metadata.Name,
-			approval,
-			approver,
-			approvedLabels,
-		)
-	}
-}
-
-func (o *GetOptions) printFleetsTable(w *tabwriter.Writer, fleets ...api.Fleet) {
-	header := "NAME\tOWNER\tSELECTOR\tVALID"
-	if o.Summary {
-		header += "\tDEVICES"
-	}
-	fmt.Fprintln(w, header)
-	for i := range fleets {
-		f := fleets[i]
-		selector := "<none>"
-		if f.Spec.Selector != nil {
-			selector = strings.Join(util.LabelMapToArray(f.Spec.Selector.MatchLabels), ",")
-		}
-		valid := "Unknown"
-		if f.Status != nil {
-
-			condition := api.FindStatusCondition(f.Status.Conditions, api.FleetValid)
-			if condition != nil {
-				valid = string(condition.Status)
-			}
-			condition = api.FindStatusCondition(f.Status.Conditions, api.FleetOverlappingSelectors)
-			if condition != nil && condition.Status == api.ConditionStatusTrue {
-				valid = string(api.ConditionStatusFalse)
-			}
-		}
-
-		numDevices := "Unknown"
-		if o.Summary && f.Status.DevicesSummary != nil {
-			numDevices = fmt.Sprintf("%d", f.Status.DevicesSummary.Total)
-		}
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s",
-			*f.Metadata.Name,
-			util.DefaultIfNil(f.Metadata.Owner, "<none>"),
-			selector,
-			valid,
-		)
-
-		if o.Summary {
-			fmt.Fprintf(w, "\t%s", numDevices)
-		}
-		fmt.Fprintln(w)
-	}
-}
-
-func (o *GetOptions) printTemplateVersionsTable(w *tabwriter.Writer, tvs ...api.TemplateVersion) {
-	fmt.Fprintln(w, "FLEET\tNAME")
-	for _, tv := range tvs {
-		fmt.Fprintf(w, "%s\t%s\n", tv.Spec.Fleet, *tv.Metadata.Name)
-	}
-}
-
-func (o *GetOptions) printRepositoriesTable(w *tabwriter.Writer, repos ...api.Repository) {
-	fmt.Fprintln(w, "NAME\tTYPE\tREPOSITORY URL\tACCESSIBLE")
-	for _, r := range repos {
-		accessible := "Unknown"
-		if r.Status != nil {
-			condition := api.FindStatusCondition(r.Status.Conditions, api.RepositoryAccessible)
-			if condition != nil {
-				accessible = string(condition.Status)
-			}
-		}
-
-		repoSpec, _ := r.Spec.GetGenericRepoSpec()
-		repoType := repoSpec.Type
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-			*r.Metadata.Name,
-			fmt.Sprintf("%v", repoType),
-			util.DefaultIfError(r.Spec.GetRepoURL, ""),
-			accessible,
-		)
-	}
-}
-
-func (o *GetOptions) printResourceSyncsTable(w *tabwriter.Writer, resourcesyncs ...api.ResourceSync) {
-	fmt.Fprintln(w, "NAME\tREPOSITORY\tPATH\tREVISION\tACCESSIBLE\tSYNCED\tLAST SYNC")
-
-	for _, rs := range resourcesyncs {
-		accessible, synced, lastSynced := "Unknown", "Unknown", "Unknown"
-		if rs.Status != nil {
-			condition := api.FindStatusCondition(rs.Status.Conditions, api.ResourceSyncAccessible)
-			if condition != nil {
-				accessible = string(condition.Status)
-			}
-			condition = api.FindStatusCondition(rs.Status.Conditions, api.ResourceSyncSynced)
-			if condition != nil {
-				synced = string(condition.Status)
-				lastSynced = humanize.Time(condition.LastTransitionTime)
-			}
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			*rs.Metadata.Name,
-			rs.Spec.Repository,
-			rs.Spec.Path,
-			rs.Spec.TargetRevision,
-			accessible,
-			synced,
-			lastSynced,
-		)
-	}
-}
-
-func (o *GetOptions) printCSRTable(w *tabwriter.Writer, csrs ...api.CertificateSigningRequest) {
-	fmt.Fprintln(w, "NAME\tAGE\tSIGNERNAME\tREQUESTOR\tREQUESTEDDURATION\tCONDITION")
-
-	for _, csr := range csrs {
-		age := NoneString
-		if csr.Metadata.CreationTimestamp != nil {
-			age = time.Since(*csr.Metadata.CreationTimestamp).Round(time.Second).String()
-		}
-
-		duration := NoneString
-		if csr.Spec.ExpirationSeconds != nil {
-			duration = time.Duration(int64(*csr.Spec.ExpirationSeconds) * int64(time.Second)).String()
-		}
-
-		condition := "Pending"
-		if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestApproved) {
-			condition = "Approved"
-		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestDenied) {
-			condition = "Denied"
-		} else if api.IsStatusConditionTrue(csr.Status.Conditions, api.CertificateSigningRequestFailed) {
-			condition = "Failed"
-		}
-		if csr.Status != nil && csr.Status.Certificate != nil {
-			condition += ",Issued"
-		}
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			*csr.Metadata.Name,
-			age,
-			csr.Spec.SignerName,
-			util.DefaultIfNil(csr.Spec.Username, NoneString),
-			duration,
-			condition,
-		)
-	}
-}
-
-func (o *GetOptions) printEventsTable(w *tabwriter.Writer, events ...api.Event) {
-	fmt.Fprintln(w, "AGE\tKIND\tNAME\tTYPE\tMESSAGE")
-	for _, e := range events {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			humanize.Time(*e.Metadata.CreationTimestamp),
-			e.InvolvedObject.Kind,
-			e.InvolvedObject.Name,
-			e.Type,
-			e.Message,
-		)
-	}
+	// For table format, pass the full response
+	return formatter.Format(response, options)
 }

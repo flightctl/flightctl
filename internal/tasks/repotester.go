@@ -21,21 +21,21 @@ type API interface {
 
 type RepoTester struct {
 	log                    logrus.FieldLogger
-	serviceHandler         *service.ServiceHandler
+	serviceHandler         service.Service
 	TypeSpecificRepoTester TypeSpecificRepoTester
 }
 
-func NewRepoTester(log logrus.FieldLogger, serviceHandler *service.ServiceHandler) *RepoTester {
+func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *RepoTester {
 	return &RepoTester{
 		log:            log,
 		serviceHandler: serviceHandler,
 	}
 }
 
-func (r *RepoTester) TestRepositories() {
+func (r *RepoTester) TestRepositories(ctx context.Context) {
 	reqid.OverridePrefix("repotester")
 	requestID := reqid.NextRequestID()
-	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running RepoTester")
@@ -139,7 +139,7 @@ func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Rep
 	if repository.Status.Conditions == nil {
 		repository.Status.Conditions = []api.Condition{}
 	}
-	changed := api.SetStatusConditionByError(&repository.Status.Conditions, api.RepositoryAccessible, "Accessible", "Inaccessible", err)
+	changed := api.SetStatusConditionByError(&repository.Status.Conditions, api.ConditionTypeRepositoryAccessible, "Accessible", "Inaccessible", err)
 	if !changed {
 		// Nothing to do
 		return nil

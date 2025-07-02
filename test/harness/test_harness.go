@@ -60,7 +60,7 @@ type TestHarness struct {
 // The test harness can be used from testing code to interact with a
 // set of agent/server/store instances.
 // It provides the necessary elements to perform tests against the agent and server.
-func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*TestHarness, error) {
+func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error)) (*TestHarness, error) {
 
 	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/"})
 	if err != nil {
@@ -73,7 +73,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	serverLog.SetOutput(os.Stdout)
 
 	// create store
-	store, dbName, err := testutil.NewTestStore(serverCfg, serverLog)
+	store, dbName, err := testutil.NewTestStore(ctx, serverCfg, serverLog)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
@@ -107,7 +107,7 @@ func NewTestHarness(testDirPath string, goRoutineErrorHandler func(error)) (*Tes
 	serverCfg.Service.Address = listener.Addr().String()
 	serverCfg.Service.AgentEndpointAddress = agentListener.Addr().String()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 
 	// start main api server
 	go func() {

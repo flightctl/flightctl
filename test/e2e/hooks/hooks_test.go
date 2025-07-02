@@ -1,10 +1,12 @@
 package hooks
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -12,12 +14,14 @@ import (
 
 var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	var (
+		ctx      context.Context
 		harness  *e2e.Harness
 		deviceId string
 	)
 
 	BeforeEach(func() {
-		harness = e2e.NewTestHarness()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		harness = e2e.NewTestHarness(ctx)
 		deviceId = harness.StartVMAndEnroll()
 	})
 
@@ -163,12 +167,12 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that in the device logs the hooks were triggered")
-			logs, err := harness.VM.RunSSH([]string{"sudo", "journalctl", "--no-hostname", "-u", "flightctl-agent"}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(logs.String()).To(ContainSubstring("this is a test message from afterupdating hook"))
-			Expect(logs.String()).To(ContainSubstring("this is a test message from afterrebooting hook"))
-			Expect(logs.String()).To(ContainSubstring("this is a test message from beforerebooting hook"))
-			Expect(logs.String()).To(ContainSubstring("this is a test message from beforeupdating hook"))
+			logs, err := harness.ReadPrimaryVMAgentLogs("")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(logs).To(ContainSubstring("this is a test message from afterupdating hook"))
+			Expect(logs).To(ContainSubstring("this is a test message from afterrebooting hook"))
+			Expect(logs).To(ContainSubstring("this is a test message from beforerebooting hook"))
+			Expect(logs).To(ContainSubstring("this is a test message from beforeupdating hook"))
 		})
 	})
 })

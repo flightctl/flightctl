@@ -72,15 +72,36 @@ func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...F
 
 func (w *writer) RemoveFile(file string) error {
 	if err := os.Remove(filepath.Join(w.rootDir, file)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove file %q: %w", file, err)
+		return fmt.Errorf("remove file %q: %w", file, err)
 	}
 	return nil
 }
 
 func (w *writer) RemoveAll(path string) error {
 	if err := os.RemoveAll(filepath.Join(w.rootDir, path)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove path %q: %w", path, err)
+		return fmt.Errorf("remove path %q: %w", path, err)
 	}
+	return nil
+}
+
+func (w *writer) RemoveContents(path string) error {
+	fullPath := filepath.Join(w.rootDir, path)
+	entries, err := os.ReadDir(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// nothing to do
+			return nil
+		}
+		return fmt.Errorf("read contents of %q: %w", fullPath, err)
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(fullPath, entry.Name())
+		if err := os.RemoveAll(entryPath); err != nil {
+			return fmt.Errorf("remove entry %q: %w", entryPath, err)
+		}
+	}
+
 	return nil
 }
 

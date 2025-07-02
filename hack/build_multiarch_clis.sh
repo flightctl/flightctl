@@ -97,19 +97,11 @@ build() {
 
 for GOARCH in amd64 arm64; do
   for GOOS in linux darwin windows; do
-    (
-      echo -e "\033[0;37m>>>> Start building cli for GOARCH=${GOARCH} GOOS=${GOOS}\033[0m"
-      build "$GOARCH" "$GOOS"
-      echo -e "\033[0;37m>>>> Finish building cli for GOARCH=${GOARCH} GOOS=${GOOS}\033[0m"
-    ) &> "build_${GOOS}_${GOARCH}.log" &
+    echo -e "\033[0;37m>>>> Start building cli for GOARCH=${GOARCH} GOOS=${GOOS}\033[0m"
+    build "$GOARCH" "$GOOS"
+    echo -e "\033[0;37m>>>> Finish building cli for GOARCH=${GOARCH} GOOS=${GOOS}\033[0m"
   done
 done
-
-# Wait for all parallel jobs to complete
-wait
-cat build_*.log
-rm -f build_*.log
-
 
 echo -e "\033[0;37m>>>> building index.json\033[0m"
 

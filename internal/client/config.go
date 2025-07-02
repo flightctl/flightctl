@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/keepalive"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	certutil "k8s.io/client-go/util/cert"
-	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/yaml"
 )
 
@@ -350,8 +349,13 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 }
 
 // DefaultFlightctlClientConfigPath returns the default path to the Flight Control client config file.
-func DefaultFlightctlClientConfigPath() string {
-	return filepath.Join(homedir.HomeDir(), ".config", "flightctl", "client.yaml")
+func DefaultFlightctlClientConfigPath() (string, error) {
+	baseDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(baseDir, "flightctl", "client.yaml"), nil
 }
 
 func ParseConfigFile(filename string) (*Config, error) {

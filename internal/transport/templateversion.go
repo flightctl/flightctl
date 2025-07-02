@@ -12,12 +12,6 @@ func (h *TransportHandler) ListTemplateVersions(w http.ResponseWriter, r *http.R
 	SetResponse(w, body, status)
 }
 
-// (DELETE api/v1/fleets/{fleet}/templateVersions)
-func (h *TransportHandler) DeleteTemplateVersions(w http.ResponseWriter, r *http.Request, fleet string) {
-	status := h.serviceHandler.DeleteTemplateVersions(r.Context(), fleet)
-	SetResponse(w, nil, status)
-}
-
 // (GET /api/v1/fleets/{fleet}/templateVersions/{name})
 func (h *TransportHandler) GetTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
 	body, status := h.serviceHandler.GetTemplateVersion(r.Context(), fleet, name)

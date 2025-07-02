@@ -5,52 +5,17 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
-type ResourceSyncStore struct {
-	store.Store
-	ResourceSyncVal api.ResourceSync
-	EventVal        api.Event
-}
-
-func (s *ResourceSyncStore) ResourceSync() store.ResourceSync {
-	return &DummyResourceSync{ResourceSyncVal: s.ResourceSyncVal}
-}
-
-func (s *ResourceSyncStore) Event() store.Event {
-	return &DummyEvent{EventVal: s.EventVal}
-}
-
-type DummyResourceSync struct {
-	store.ResourceSync
-	ResourceSyncVal api.ResourceSync
-}
-
-func (s *DummyResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
-	if name == *s.ResourceSyncVal.Metadata.Name {
-		return &s.ResourceSyncVal, nil
-	}
-	return nil, flterrors.ErrResourceNotFound
-}
-
-func (s *DummyResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, api.ResourceUpdatedDetails, error) {
-	return resourceSync, api.ResourceUpdatedDetails{}, nil
-}
-
-func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, bool, api.ResourceUpdatedDetails, error) {
-	return resourceSync, false, api.ResourceUpdatedDetails{}, nil
-}
-
 func verifyRSPatchFailed(require *require.Assertions, status api.Status) {
-	require.Equal(int32(400), status.Code)
+	require.Equal(statusBadRequestCode, status.Code)
 }
 
 func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) (*api.ResourceSync, api.ResourceSync, api.Status) {
+	ctx := context.Background()
 	resourceSync := api.ResourceSync{
 		ApiVersion: "v1",
 		Kind:       "ResourceSync",
@@ -64,15 +29,20 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 		},
 	}
 	serviceHandler := ServiceHandler{
-		store: &ResourceSyncStore{ResourceSyncVal: resourceSync},
+		store: &TestStore{},
 	}
-	resp, status := serviceHandler.PatchResourceSync(context.Background(), "foo", patch)
-	require.NotEqual(int32(500), status.Code)
-	return resp, resourceSync, status
+	orig, status := serviceHandler.CreateResourceSync(ctx, resourceSync)
+	require.Equal(statusCreatedCode, status.Code)
+	resp, status := serviceHandler.PatchResourceSync(ctx, "foo", patch)
+	require.NotEqual(statusFailedCode, status.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	require.NotEmpty(event.Items)
+	return resp, *orig, status
 }
 
 func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	require := require.New(t)
+	ctx := context.Background()
 
 	resourceSync := api.ResourceSync{
 		ApiVersion: "v1",
@@ -89,13 +59,15 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &ResourceSyncStore{ResourceSyncVal: resourceSync},
+		store: &TestStore{},
 	}
-	_, status := serviceHandler.ReplaceResourceSync(context.Background(),
+	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &resourceSync)
+	require.NoError(err)
+	_, status := serviceHandler.ReplaceResourceSync(ctx,
 		"01234567890123456789012345678901234567890123456789012345678901234567890123456789",
 		resourceSync,
 	)
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 }
 
 func TestResourceSyncPatchName(t *testing.T) {
@@ -160,7 +132,7 @@ func TestResourceSyncPatchSpec(t *testing.T) {
 	}
 	resp, orig, status := testResourceSyncPatch(require, pr)
 	orig.Spec.Repository = "bar"
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 }
 
@@ -206,7 +178,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 
 	resp, orig, status := testResourceSyncPatch(require, pr)
 	orig.Metadata.Labels = &addLabels
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	pr = api.PatchRequest{
@@ -215,22 +187,27 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 
 	resp, orig, status = testResourceSyncPatch(require, pr)
 	orig.Metadata.Labels = &map[string]string{}
-	require.Equal(int32(200), status.Code)
+	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 }
 
 func TestResourceSyncNonExistingResource(t *testing.T) {
 	require := require.New(t)
+	ctx := context.Background()
 	var value interface{} = "labelValue1"
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &ResourceSyncStore{ResourceSyncVal: api.ResourceSync{
-			Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
-		}},
+		store: &TestStore{},
 	}
-	_, status := serviceHandler.PatchResourceSync(context.Background(), "bar", pr)
-	require.Equal(int32(404), status.Code)
+	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &api.ResourceSync{
+		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
+	})
+	require.NoError(err)
+	_, status := serviceHandler.PatchResourceSync(ctx, "bar", pr)
+	require.Equal(statusNotFoundCode, status.Code)
+	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	require.Len(event.Items, 0)
 }

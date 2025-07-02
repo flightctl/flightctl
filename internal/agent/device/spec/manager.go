@@ -30,7 +30,8 @@ type manager struct {
 	cache            *cache
 	queue            PriorityQueue
 
-	log *log.PrefixLogger
+	lastConsumedDevice *v1alpha1.Device
+	log                *log.PrefixLogger
 }
 
 // NewManager creates a new device spec manager.
@@ -260,26 +261,24 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 			return err
 		}
 		// set the desired spec as failed
-
 		s.queue.SetFailed(version)
 	}
 
-	// copy the current rendered spec to the desired rendered spec
-	// this will reconcile the device with the desired "rollback" state
+	// rollback on disk state current == desired
 	if err := s.deviceReadWriter.CopyFile(s.currentPath, s.desiredPath); err != nil {
 		return fmt.Errorf("%w: copy %q to %q: %w", errors.ErrCopySpec, s.currentPath, s.desiredPath, err)
 	}
 
-	// update cache
-	desired, err := s.Read(Desired)
+	current, err := s.Read(Current)
 	if err != nil {
 		return err
 	}
 
-	// add the desired spec back to the queue to ensure reconciliation
-	s.queue.Add(ctx, desired)
+	// add the current spec back to the priority queue to ensure future resync
+	s.queue.Add(ctx, current)
 
-	s.cache.update(Desired, desired)
+	// rollback in-memory cache current == desired
+	s.cache.update(Desired, current)
 	return nil
 }
 
@@ -322,7 +321,20 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 		}
 		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
 		s.queue.Add(ctx, newDesired)
+		s.lastConsumedDevice = newDesired
 		consumed = true
+	}
+	if !consumed && s.lastConsumedDevice != nil {
+		version, err := s.getRenderedVersion()
+		if err != nil {
+			return false, fmt.Errorf("getting rendered version: %w", err)
+		}
+		if s.lastConsumedDevice.Version() != version {
+			// In case of rollback we would like to consume again the last device
+			s.log.Debugf("Requeuing last consumed device. version: %s", s.lastConsumedDevice.Version())
+			s.queue.Add(ctx, s.lastConsumedDevice)
+			consumed = true
+		}
 	}
 	return consumed, nil
 }
@@ -493,6 +505,19 @@ func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath s
 
 func IsUpgrading(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 	return current.Version() != desired.Version()
+}
+
+// IsRollback returns true if the version of the current spec is greater than the desired.
+func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+	currentVersion, err := stringToInt64(current.Version())
+	if err != nil {
+		return false
+	}
+	desiredVersion, err := stringToInt64(desired.Version())
+	if err != nil {
+		return false
+	}
+	return currentVersion > desiredVersion
 }
 
 type rollbackConfig struct {

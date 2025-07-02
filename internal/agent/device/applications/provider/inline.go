@@ -7,7 +7,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -27,16 +26,23 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 		return nil, fmt.Errorf("getting provider spec:%w", err)
 	}
 
+	appName := lo.FromPtr(spec.Name)
+	volumeManager, err := NewVolumeManager(log, appName, provider.Volumes)
+	if err != nil {
+		return nil, err
+	}
+
 	p := &inlineProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
 		spec: &ApplicationSpec{
-			Name:           lo.FromPtr(spec.Name),
+			Name:           appName,
 			AppType:        lo.FromPtr(spec.AppType),
 			EnvVars:        lo.FromPtr(spec.EnvVars),
 			Embedded:       false,
 			InlineProvider: &provider,
+			Volume:         volumeManager,
 		},
 	}
 
@@ -46,7 +52,7 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 	}
 
 	p.spec.Path = path
-	p.spec.ID = lifecycle.NewComposeID(p.spec.Name)
+	p.spec.ID = client.NewComposeID(p.spec.Name)
 
 	return p, nil
 
@@ -56,9 +62,14 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
-	if err := ensureDependenciesFromType(p.spec.AppType); err != nil {
-		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
+		return fmt.Errorf("%w: ensuring app dependencies: %w", errors.ErrNoRetry, err)
 	}
+
+	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.InlineProvider.Volumes); err != nil {
+		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
+	}
+
 	// create a temporary directory to copy the image contents
 	tmpAppPath, err := p.readWriter.MkdirTemp("app_temp")
 	if err != nil {
@@ -82,6 +93,9 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
+		if err := ensureVolumesContent(ctx, p.log, p.podman, p.spec.InlineProvider.Volumes); err != nil {
+			return fmt.Errorf("ensuring volumes: %w", err)
+		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
@@ -95,6 +109,10 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 
 	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
 		return fmt.Errorf("writing env file: %w", err)
+	}
+
+	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
+		return fmt.Errorf("writing override file %w", err)
 	}
 
 	return nil

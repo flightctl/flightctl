@@ -10,7 +10,7 @@ import (
 )
 
 type TransportHandler struct {
-	serviceHandler *service.ServiceHandler
+	serviceHandler service.Service
 }
 
 type WebsocketHandler struct {
@@ -22,7 +22,7 @@ type WebsocketHandler struct {
 // Make sure we conform to servers Transport interface
 var _ server.Transport = (*TransportHandler)(nil)
 
-func NewTransportHandler(serviceHandler *service.ServiceHandler) *TransportHandler {
+func NewTransportHandler(serviceHandler service.Service) *TransportHandler {
 
 	return &TransportHandler{serviceHandler: serviceHandler}
 }

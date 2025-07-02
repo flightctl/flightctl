@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -42,7 +43,9 @@ func NewAgentGrpcServer(
 }
 
 func (s *AgentGrpcServer) PrepareGRPCService() *grpc.Server {
-	server := grpc.NewServer(grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)),
+	server := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()), // enables tracing
+		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle: 15 * time.Minute, // Close idle connections after 15 minutes
 			Time:              2 * time.Minute,  // Send keepalive ping every 2 minutes

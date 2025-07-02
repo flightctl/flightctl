@@ -52,7 +52,7 @@ func getUpdateTimeout(defaultUpdateTimeoutStr *api.Duration) (time.Duration, err
 	return timeout, nil
 }
 
-func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defaultUpdateTimeoutStr *api.Duration, serviceHandler *service.ServiceHandler, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) (RolloutDeviceSelector, error) {
+func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defaultUpdateTimeoutStr *api.Duration, serviceHandler service.Service, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) (RolloutDeviceSelector, error) {
 
 	updateTimeout, err := getUpdateTimeout(defaultUpdateTimeoutStr)
 	if err != nil {
@@ -70,7 +70,7 @@ func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defau
 	}
 }
 
-func cleanupRollout(ctx context.Context, fleet *api.Fleet, serviceHandler *service.ServiceHandler) (bool, error) {
+func cleanupRollout(ctx context.Context, fleet *api.Fleet, serviceHandler service.Service) (bool, error) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 	annotationsToDelete := []string{
 		api.FleetAnnotationBatchNumber,

@@ -2,8 +2,6 @@ package store_test
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -13,38 +11,14 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
-
-func createEnrollmentRequests(numEnrollmentRequests int, ctx context.Context, store store.Store, orgId uuid.UUID) {
-	for i := 1; i <= numEnrollmentRequests; i++ {
-		resource := api.EnrollmentRequest{
-			Metadata: api.ObjectMeta{
-				Name:   lo.ToPtr(fmt.Sprintf("myenrollmentrequest-%d", i)),
-				Labels: &map[string]string{"key": fmt.Sprintf("value-%d", i)},
-			},
-			Spec: api.EnrollmentRequestSpec{
-				Csr: "csr string",
-			},
-			Status: &api.EnrollmentRequestStatus{
-				Certificate: lo.ToPtr("cert"),
-			},
-		}
-
-		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("creating enrollmentrequest: %v", err)
-		}
-		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource)
-		if err != nil {
-			log.Fatalf("updating enrollmentrequest status: %v", err)
-		}
-	}
-}
 
 var _ = Describe("enrollmentRequestStore create", func() {
 	var (
@@ -58,17 +32,17 @@ var _ = Describe("enrollmentRequestStore create", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numEnrollmentRequests = 3
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
-		createEnrollmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
+		util.CreateTestEnrolmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	Context("EnrollmentRequest store", func() {
@@ -92,31 +66,15 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		})
 
 		It("Delete enrollmentrequest success", func() {
-			err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "myenrollmentrequest-1")
+			deleted, err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeTrue())
 		})
 
 		It("Delete enrollmentrequest success when not found", func() {
-			err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "nonexistent")
+			deleted, err := storeInst.EnrollmentRequest().Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("Delete all enrollmentrequests in org", func() {
-			otherOrgId, _ := uuid.NewUUID()
-			err := storeInst.EnrollmentRequest().DeleteAll(ctx, otherOrgId)
-			Expect(err).ToNot(HaveOccurred())
-
-			listParams := store.ListParams{Limit: 1000}
-			enrollmentrequests, err := storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(enrollmentrequests.Items)).To(Equal(numEnrollmentRequests))
-
-			err = storeInst.EnrollmentRequest().DeleteAll(ctx, orgId)
-			Expect(err).ToNot(HaveOccurred())
-
-			enrollmentrequests, err = storeInst.EnrollmentRequest().List(ctx, orgId, listParams)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(enrollmentrequests.Items)).To(Equal(0))
+			Expect(deleted).To(BeFalse())
 		})
 
 		It("List with paging", func() {
@@ -221,7 +179,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 
 		It("UpdateEnrollmentRequestStatus", func() {
 			condition := api.Condition{
-				Type:               api.EnrollmentRequestApproved,
+				Type:               api.ConditionTypeEnrollmentRequestApproved,
 				LastTransitionTime: time.Now(),
 				Status:             api.ConditionStatusFalse,
 				Reason:             "reason",
@@ -247,7 +205,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(dev.Spec.Csr).To(Equal("csr string"))
 			Expect(dev.Status.Conditions).ToNot(BeNil())
 			Expect(dev.Status.Conditions).ToNot(BeEmpty())
-			Expect(dev.Status.Conditions[0].Type).To(Equal(api.EnrollmentRequestApproved))
+			Expect(dev.Status.Conditions[0].Type).To(Equal(api.ConditionTypeEnrollmentRequestApproved))
 		})
 	})
 })

@@ -20,7 +20,28 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func fleetRollout(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler *service.ServiceHandler, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
+// The fleet rollout task updates all devices in a fleet to match the latest template
+// version.
+//
+// Behavior:
+// - Iterates over devices that belong to the fleet.
+// - Skips devices that:
+//     - Have no owner
+//     - Have multiple owners
+//     - Are already being rolled out
+// - For each eligible device:
+//     - Compares the device spec and template version with the latest desired version.
+//     - Updates the device spec and annotation only if necessary.
+//
+// Idempotency:
+// - The task checks whether the device is already up to date.
+// - No updates are made if the spec and version match.
+// - Retries on conflict (409) to safely handle concurrent updates.
+// - Skips devices not eligible for rollout, avoiding partial or duplicate writes.
+//
+// This design ensures the task can be run repeatedly without side effects.
+
+func fleetRollout(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	if resourceRef.Op != tasks_client.FleetRolloutOpUpdate {
 		log.Errorf("received unknown op %s", resourceRef.Op)
 		return nil
@@ -47,13 +68,13 @@ func fleetRollout(ctx context.Context, resourceRef *tasks_client.ResourceReferen
 type FleetRolloutsLogic struct {
 	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
-	serviceHandler  *service.ServiceHandler
+	serviceHandler  service.Service
 	resourceRef     tasks_client.ResourceReference
 	itemsPerPage    int
 	owner           string
 }
 
-func NewFleetRolloutsLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler *service.ServiceHandler, resourceRef tasks_client.ResourceReference) FleetRolloutsLogic {
+func NewFleetRolloutsLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, resourceRef tasks_client.ResourceReference) FleetRolloutsLogic {
 	return FleetRolloutsLogic{
 		callbackManager: callbackManager,
 		log:             log,
@@ -146,8 +167,9 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return nil
 	}
 
-	if api.IsStatusConditionTrue(device.Status.Conditions, api.DeviceMultipleOwners) {
-		f.log.Warnf("Device has multiple owners, skipping rollout")
+	if api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners) {
+		f.log.Errorf("Device %s has multiple owners, skipping rollout", f.resourceRef.Name)
+		return nil
 	}
 
 	ownerName, isFleetOwner, err := getOwnerFleet(device)
@@ -376,14 +398,6 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *api.Device, confi
 	gitSpec.GitRef.Path, err = replaceParametersInString(gitSpec.GitRef.Path, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in path in git config %s: %w", gitSpec.Name, err))
-	}
-
-	if gitSpec.GitRef.MountPath != nil {
-		mountPath, err := replaceParametersInString(*gitSpec.GitRef.MountPath, device)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed replacing parameters in mountPath in git config %s: %w", gitSpec.Name, err))
-		}
-		gitSpec.GitRef.MountPath = &mountPath
 	}
 
 	if len(errs) > 0 {

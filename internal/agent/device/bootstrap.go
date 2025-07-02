@@ -34,6 +34,7 @@ type Bootstrap struct {
 	statusManager     status.Manager
 	hookManager       hook.Manager
 	systemInfoManager systeminfo.Manager
+	podmanClient      *client.Podman
 
 	lifecycle lifecycle.Initializer
 
@@ -56,6 +57,7 @@ func NewBootstrap(
 	managementServiceConfig *baseclient.Config,
 	systemInfoManager systeminfo.Manager,
 	managementMetricsCallback client.RPCMetricsCallback,
+  podmanClient *client.Podman,
 	log *log.PrefixLogger,
 ) *Bootstrap {
 	return &Bootstrap{
@@ -70,18 +72,29 @@ func NewBootstrap(
 		managementServiceConfig:   managementServiceConfig,
 		systemInfoManager:         systemInfoManager,
 		managementMetricsCallback: managementMetricsCallback,
+    podmanClient:            podmanClient,
 		log:                       log,
 	}
 }
 
 func (b *Bootstrap) Initialize(ctx context.Context) error {
 	b.log.Infof("Bootstrapping device: %s", b.deviceName)
+
+	var podmanStr string
+	podmanVersion, err := b.podmanClient.Version(ctx)
+	if err != nil {
+		b.log.Error(err)
+	} else {
+		podmanStr = fmt.Sprintf(", podman-version=%d.%d", podmanVersion.Major, podmanVersion.Minor)
+	}
+
 	versionInfo := version.Get()
-	b.log.Infof("System information: version=%s, go-version=%s, platform=%s, git-commit=%s",
+	b.log.Infof("System information: version=%s, go-version=%s, platform=%s, git-commit=%s%s",
 		versionInfo.String(),
 		versionInfo.GoVersion,
 		versionInfo.Platform,
 		versionInfo.GitCommit,
+		podmanStr,
 	)
 
 	if err := b.ensureSpecFiles(ctx); err != nil {
@@ -148,7 +161,7 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 	}
 
 	updatingCondition := v1alpha1.Condition{
-		Type: v1alpha1.DeviceUpdating,
+		Type: v1alpha1.ConditionTypeDeviceUpdating,
 	}
 
 	if b.specManager.IsUpgrading() {
@@ -253,7 +266,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	b.log.Info("Spec rollback complete, resuming bootstrap")
 
 	updateErr = b.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceUpdating,
+		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.UpdateStateRollingBack),
 		Message: fmt.Sprintf("The device is rolling back to template version: %s", b.specManager.RenderedVersion(spec.Desired)),

@@ -30,6 +30,7 @@ services:
 				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx"},
 				},
+				Volumes: map[string]common.ComposeVolume{},
 			},
 		},
 		{
@@ -50,6 +51,7 @@ services:
 				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx:latest"},
 				},
+				Volumes: map[string]common.ComposeVolume{},
 			},
 		},
 		{
@@ -70,6 +72,7 @@ services:
 				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx"},
 				},
+				Volumes: map[string]common.ComposeVolume{},
 			},
 		},
 		{

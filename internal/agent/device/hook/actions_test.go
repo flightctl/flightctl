@@ -11,6 +11,121 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSplitCommandAndArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantCmd  string
+		wantArgs []string
+	}{
+		{
+			name:     "simple command",
+			input:    "echo hello world",
+			wantCmd:  "echo",
+			wantArgs: []string{"hello", "world"},
+		},
+		{
+			name:     "command with -c and quoted script",
+			input:    `/usr/bin/bash -c "echo hello world"`,
+			wantCmd:  "/usr/bin/bash",
+			wantArgs: []string{"-c", "echo hello world"},
+		},
+		{
+			name:     "quoted with inner env var",
+			input:    `/usr/bin/bash -c "until [ -f $KUBECONFIG ]; do sleep 1; done"`,
+			wantCmd:  "/usr/bin/bash",
+			wantArgs: []string{"-c", "until [ -f $KUBECONFIG ]; do sleep 1; done"},
+		},
+		{
+			name:     "quoted no inner var",
+			input:    `/usr/bin/bash -c "until [ -f /path ]; do sleep 1; done"`,
+			wantCmd:  "/usr/bin/bash",
+			wantArgs: []string{"-c", "until [ -f /path ]; do sleep 1; done"},
+		},
+
+		{
+			name:     "unmatched quote",
+			input:    `/usr/bin/bash -c "unmatched`,
+			wantCmd:  "/usr/bin/bash",
+			wantArgs: []string{"-c", `"unmatched`},
+		},
+		{
+			name:     "single-word command",
+			input:    "uptime",
+			wantCmd:  "uptime",
+			wantArgs: []string{},
+		},
+		{
+			name:     "empty input",
+			input:    "",
+			wantCmd:  "",
+			wantArgs: []string{},
+		},
+		{
+			name:     "tab delimited arguments",
+			input:    "echo\tfoo\tbar",
+			wantCmd:  "echo",
+			wantArgs: []string{"foo", "bar"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			cmd, args := splitCommandAndArgs(tt.input)
+			require.Equal(tt.wantCmd, cmd, "unexpected command")
+			require.Equal(tt.wantArgs, args, "unexpected args")
+		})
+	}
+}
+
+func TestSplitWithQuotes(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "simple split",
+			input:    "/usr/bin/bash -c echo hello",
+			expected: []string{"/usr/bin/bash", "-c", "echo", "hello"},
+		},
+		{
+			name:     "quoted argument with spaces",
+			input:    `/usr/bin/bash -c "echo hello world"`,
+			expected: []string{"/usr/bin/bash", "-c", "echo hello world"},
+		},
+		{
+			name:     "single quotes preserved",
+			input:    `/usr/bin/bash -c 'until [ -f /path ]; do sleep 1; done'`,
+			expected: []string{"/usr/bin/bash", "-c", "until [ -f /path ]; do sleep 1; done"},
+		},
+		{
+			name:     "escaped internal quotes",
+			input:    `/usr/bin/bash -c "until [ -f /path ]; do echo \"waiting\"; sleep 1; done"`,
+			expected: []string{"/usr/bin/bash", "-c", "until [ -f /path ]; do echo \"waiting\"; sleep 1; done"},
+		},
+		{
+			name:     "empty input",
+			input:    "",
+			expected: []string{},
+		},
+		{
+			name:     "unmatched double quote",
+			input:    `/usr/bin/bash -c "unterminated quote`,
+			expected: []string{"/usr/bin/bash", "-c", `"unterminated quote`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			actual := splitWithQuotes(tt.input)
+			require.Equal(tt.expected, actual, "input: %q", tt.input)
+		})
+	}
+}
+
 func TestCheckRunActionDependency(t *testing.T) {
 	require := require.New(t)
 	tempDir := t.TempDir()

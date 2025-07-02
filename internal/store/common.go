@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -64,16 +65,9 @@ func WithSelectorResolver(resolver selector.Resolver) ListQueryOption {
 	}
 }
 
-func WithSortDirective(sortDirective *string) ListQueryOption {
-	return func(q *listQuery) {
-		q.sortDirective = sortDirective
-	}
-}
-
 type listQuery struct {
-	dest          any
-	resolver      selector.Resolver
-	sortDirective *string
+	dest     any
+	resolver selector.Resolver
 }
 
 func ListQuery(dest any, opts ...ListQueryOption) *listQuery {
@@ -131,16 +125,33 @@ func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.U
 	return query, nil
 }
 
+func getSortColumns(listParams ListParams) ([]SortColumn, SortOrder, string) {
+	order := SortAsc
+	if listParams.SortOrder != nil {
+		order = *listParams.SortOrder
+	}
+	op := map[SortOrder]string{SortAsc: ">=", SortDesc: "<="}[order]
+
+	columns := listParams.SortColumns
+	if len(columns) == 0 {
+		columns = []SortColumn{SortByName}
+	}
+
+	return columns, order, op
+}
+
 func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
 	query, err := lq.BuildNoOrder(ctx, db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
-	sortDirective := "name"
-	if lq.sortDirective != nil {
-		sortDirective = *lq.sortDirective
-	}
-	return query.Order(sortDirective), nil
+
+	columns, order, _ := getSortColumns(listParams)
+	orderExprs := lo.Map(columns, func(col SortColumn, _ int) string {
+		return fmt.Sprintf("%s %s", col, order)
+	})
+
+	return query.Order(strings.Join(orderExprs, ", ")), nil
 }
 
 func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string {
@@ -154,21 +165,55 @@ func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string
 	return d
 }
 
-func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
+func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue, listParams ListParams) *gorm.DB {
 	if limit == 0 {
 		return query
 	}
+
 	query = query.Limit(limit)
-	if cont != nil {
-		query = query.Where("name >= ?", cont.Name)
+	if cont == nil {
+		return query
 	}
 
-	return query
+	columns, _, op := getSortColumns(listParams)
+	if len(columns) == 1 {
+		return query.Where(
+			fmt.Sprintf("%s %s ?", columns[0], op),
+			cont.Names[0],
+		)
+	}
+
+	// Multi-column tuple comparison
+	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(col SortColumn, _ int) string {
+		return string(col)
+	}), ", "))
+
+	placeholderExpr := strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ")
+	return query.Where(
+		fmt.Sprintf("%s %s (%s)", columnExpr, op, placeholderExpr),
+		lo.ToAnySlice(cont.Names)...,
+	)
 }
 
-func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
+func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListParams) int64 {
 	var count int64
-	query.Where("name >= ?", lastItemName).Count(&count)
+
+	columns, _, op := getSortColumns(listParams)
+	if len(columns) != len(nextValues) {
+		return 0
+	}
+
+	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(c SortColumn, _ int) string {
+		return string(c)
+	}), ", "))
+
+	placeholderExpr := strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ")
+	query = query.Where(
+		fmt.Sprintf("%s %s (%s)", columnExpr, op, placeholderExpr),
+		lo.ToAnySlice(nextValues)...,
+	)
+
+	query.Count(&count)
 	return count
 }
 

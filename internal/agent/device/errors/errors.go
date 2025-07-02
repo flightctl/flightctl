@@ -23,6 +23,7 @@ var (
 	ErrAppNameRequired        = errors.New("application name is required")
 	ErrAppNotFound            = errors.New("application not found")
 	ErrUnsupportedAppType     = errors.New("unsupported application type")
+	ErrUnsupportedVolumeType  = errors.New("unsupported volume type")
 	ErrParseAppType           = errors.New("failed to parse application type")
 	ErrAppDependency          = errors.New("failed to resolve application dependency")
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")
@@ -158,6 +159,7 @@ func FromStderr(stderr string, exitCode int) error {
 		"connection refused":     ErrNetwork,
 		"unable to resolve host": ErrNetwork,
 		"network is unreachable": ErrNetwork,
+		"i/o timeout":            ErrNetwork,
 		// context
 		"context canceled":          context.Canceled,
 		"context deadline exceeded": context.DeadlineExceeded,

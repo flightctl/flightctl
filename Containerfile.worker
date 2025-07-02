@@ -20,6 +20,13 @@ RUN microdnf update --nodocs -y  && microdnf install ca-certificates --nodocs -y
 
 FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
+LABEL \
+  com.redhat.component="flightctl-worker-container" \
+  description="Flight Control Edge management service, async job worker" \
+  io.k8s.description="Flight Control Edge management service, async job worker" \
+  io.k8s.display-name="Flight Control Asynchronous Job Worker" \
+  name="flightctl-worker" \
+  summary="Flight Control Edge management service, async job worker"
 COPY --from=build /app/bin/flightctl-worker .
 COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
 CMD ./flightctl-worker

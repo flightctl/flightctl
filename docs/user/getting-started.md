@@ -1,6 +1,6 @@
 # Getting Started
 
-The following is an opinionated way of getting started with Flight Control on a local Kind cluster. Please refer to [Installing the Flight Control Service](installing-service.md) and [Installing the Flight Control CLI](installing-cli.md) for the full documentation including other installation options.
+The following are the recommended ways of getting started with Flight Control. Choose the method that best matches your environment and additional requirements. Please refer to [Installing the Flight Control CLI](install-cli.md) for other installation options.
 
 ## Deploying a Local Kind Cluster
 

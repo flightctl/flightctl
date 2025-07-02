@@ -77,6 +77,14 @@ spec:
         inline:
         - path: "/etc/flightctl/hooks.d/afterupdating/50-acm-registration.yaml"
           content: |
+            - run: /usr/bin/bash -c "until [ -f $KUBECONFIG ]; do sleep 1; done"
+              timeout: 5m
+              envVars:
+                KUBECONFIG: /var/lib/microshift/resources/kubeadmin/kubeconfig
+            - run: kubectl wait --for=condition=Ready pods --all --all-namespaces --timeout=300s
+              timeout: 5m
+              envVars:
+                KUBECONFIG: /var/lib/microshift/resources/kubeadmin/kubeconfig
             - if:
               - path: /var/local/acm-import/crd.yaml
                 op: [created]

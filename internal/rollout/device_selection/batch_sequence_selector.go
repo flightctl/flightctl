@@ -91,7 +91,7 @@ func (q *querySelectorParts) withoutDisconnected() *querySelectorParts {
 	return q
 }
 
-func newBatchSequenceSelector(sequence api.BatchSequence, updateTimeout time.Duration, serviceHandler *service.ServiceHandler, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) RolloutDeviceSelector {
+func newBatchSequenceSelector(sequence api.BatchSequence, updateTimeout time.Duration, serviceHandler service.Service, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) RolloutDeviceSelector {
 	return &batchSequenceSelector{
 		BatchSequence:       sequence,
 		serviceHandler:      serviceHandler,
@@ -106,7 +106,7 @@ func newBatchSequenceSelector(sequence api.BatchSequence, updateTimeout time.Dur
 
 type batchSequenceSelector struct {
 	api.BatchSequence
-	serviceHandler      *service.ServiceHandler
+	serviceHandler      service.Service
 	orgId               uuid.UUID
 	fleet               *api.Fleet
 	fleetName           string
@@ -336,7 +336,7 @@ type batchSelection struct {
 	batch               *api.Batch
 	batchNum            int
 	batchName           string
-	serviceHandler      *service.ServiceHandler
+	serviceHandler      service.Service
 	orgId               uuid.UUID
 	fleetName           string
 	templateVersionName string

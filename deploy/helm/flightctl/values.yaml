@@ -93,7 +93,7 @@ db:
     requests:
       cpu: "512m"
       memory: "512Mi"
-
+  fsGroup: ""
 kv:
   enabled: true
   image:
@@ -104,6 +104,10 @@ kv:
   # Save if at least 1 key changed in 5 minutes
   save: 300 1
   loglevel: warning
+  fsGroup: ""
+keycloak:
+  db:
+    fsGroup: ""
 api:
   enabled: true
   image:

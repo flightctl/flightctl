@@ -78,6 +78,8 @@ type Application interface {
 	RemoveWorkload(name string) bool
 	// IsEmbedded returns true if the application is embedded.
 	IsEmbedded() bool
+	// Volume is a volume manager.
+	Volume() provider.VolumeManager
 	// Status reports the status of an application using the name as defined by
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
@@ -98,6 +100,7 @@ type application struct {
 	appType   v1alpha1.AppType
 	path      string
 	workloads []Workload
+	volume    provider.VolumeManager
 	status    *v1alpha1.DeviceApplicationStatus
 	embedded  bool
 }
@@ -114,6 +117,7 @@ func NewApplication(provider provider.Provider) *application {
 			Name:   spec.Name,
 			Status: v1alpha1.ApplicationStatusUnknown,
 		},
+		volume: spec.Volume,
 	}
 }
 
@@ -158,6 +162,10 @@ func (a *application) Path() string {
 
 func (a *application) IsEmbedded() bool {
 	return a.embedded
+}
+
+func (a *application) Volume() provider.VolumeManager {
+	return a.volume
 }
 
 func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
@@ -221,6 +229,9 @@ func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.Devi
 	if a.status.Restarts != restarts {
 		a.status.Restarts = restarts
 	}
+
+	// update volume status
+	a.volume.Status(a.status)
 
 	return a.status, summary, nil
 }

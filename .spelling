@@ -147,7 +147,10 @@ DMI
 UUID
 cron
 IANA
+OpenTelemetry
+OTLP
 crontab
+datasets
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -190,6 +193,7 @@ undeploy
 unpackaged
 v3.4
 WorkDir
+10s
  - docs/user/managing-fleets.md
 OverlappingSelectors
 factory-berlinsite

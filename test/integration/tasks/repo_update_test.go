@@ -60,7 +60,7 @@ var _ = Describe("RepoUpdate", func() {
 		ctx             context.Context
 		orgId           uuid.UUID
 		storeInst       store.Store
-		serviceHandler  *service.ServiceHandler
+		serviceHandler  service.Service
 		cfg             *config.Config
 		dbName          string
 		callbackManager tasks_client.CallbackManager
@@ -69,10 +69,11 @@ var _ = Describe("RepoUpdate", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
@@ -90,7 +91,6 @@ var _ = Describe("RepoUpdate", func() {
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-1"
 		gitConfig1.GitRef.TargetRevision = "rev"
-		gitConfig1.GitRef.MountPath = lo.ToPtr("/")
 		gitItem1 := api.ConfigProviderSpec{}
 		err = gitItem1.FromGitConfigProviderSpec(*gitConfig1)
 		Expect(err).ToNot(HaveOccurred())
@@ -101,7 +101,6 @@ var _ = Describe("RepoUpdate", func() {
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-2"
 		gitConfig1.GitRef.TargetRevision = "rev"
-		gitConfig1.GitRef.MountPath = lo.ToPtr("/")
 		gitItem2 := api.ConfigProviderSpec{}
 		err = gitItem2.FromGitConfigProviderSpec(*gitConfig2)
 		Expect(err).ToNot(HaveOccurred())
@@ -134,7 +133,7 @@ var _ = Describe("RepoUpdate", func() {
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
-		fleetCallback := store.FleetStoreCallback(func(uuid.UUID, *api.Fleet, *api.Fleet) {})
+		fleetCallback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
 		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, fleetCallback)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "fleet1", "myrepository-1")
@@ -159,7 +158,7 @@ var _ = Describe("RepoUpdate", func() {
 			},
 		}
 
-		devCallback := store.DeviceStoreCallback(func(uuid.UUID, *api.Device, *api.Device) {})
+		devCallback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
 		_, err = storeInst.Device().Create(ctx, orgId, &device1, devCallback)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "device1", "myrepository-1")
@@ -172,28 +171,16 @@ var _ = Describe("RepoUpdate", func() {
 
 	AfterEach(func() {
 		ctrl.Finish()
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 	})
 
 	When("a Repository definition is updated", func() {
 		It("refreshes relevant fleets and devices", func() {
 			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: api.RepositoryKind}
 			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, resourceRef)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.FleetValidateTask, "fleet1")).Times(1)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "device1")).Times(1)
+			mockPublisher.EXPECT().Publish(gomock.Any(), newResourceReferenceMatcher(tasks_client.FleetValidateTask, "fleet1")).Times(1)
+			mockPublisher.EXPECT().Publish(gomock.Any(), newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "device1")).Times(1)
 			err := logic.HandleRepositoryUpdate(ctx)
-			Expect(err).ToNot(HaveOccurred())
-
-		})
-	})
-
-	When("all Repository definitions are deleted", func() {
-		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}
-			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, resourceRef)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.FleetValidateTask, "")).Times(2)
-			mockPublisher.EXPECT().Publish(newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "")).Times(2)
-			err := logic.HandleAllRepositoriesDeleted(ctx, log)
 			Expect(err).ToNot(HaveOccurred())
 
 		})

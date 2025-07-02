@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"text/template"
 
-	"github.com/samber/lo"
+	"github.com/flightctl/flightctl/internal/util"
 )
 
 type DeviceCompletionCount struct {
@@ -48,6 +47,12 @@ type ApplicationProviderType string
 const (
 	ImageApplicationProviderType  ApplicationProviderType = "image"
 	InlineApplicationProviderType ApplicationProviderType = "inline"
+)
+
+type ApplicationVolumeProviderType string
+
+const (
+	ImageApplicationVolumeProviderType ApplicationVolumeProviderType = "image"
 )
 
 // Type returns the type of the action.
@@ -136,6 +141,19 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
 }
 
+func (c ApplicationVolume) Type() (ApplicationVolumeProviderType, error) {
+	var data map[ApplicationVolumeProviderType]interface{}
+	if err := json.Unmarshal(c.union, &data); err != nil {
+		return "", err
+	}
+
+	if _, exists := data[ImageApplicationVolumeProviderType]; exists {
+		return ImageApplicationVolumeProviderType, nil
+	}
+
+	return "", fmt.Errorf("unable to determine application volume type: %+v", data)
+}
+
 func PercentageAsInt(p Percentage) (int, error) {
 	index := strings.Index(p, "%")
 	if index <= 0 || index != len(p)-1 {
@@ -151,166 +169,12 @@ func PercentageAsInt(p Percentage) (int, error) {
 	return int(percentage), nil
 }
 
-func configsAreEqual(c1, c2 *[]ConfigProviderSpec) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ConfigProviderSpec, item2 ConfigProviderSpec) bool {
-		type1, err := item1.Type()
-		if err != nil {
-			return false
-		}
-		type2, err := item2.Type()
-		if err != nil {
-			return false
-		}
-		if type1 != type2 {
-			return false
-		}
-
-		switch type1 {
-		case GitConfigProviderType:
-			c1, err := item1.AsGitConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsGitConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case HttpConfigProviderType:
-			c1, err := item1.AsHttpConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsHttpConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case InlineConfigProviderType:
-			c1, err := item1.AsInlineConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsInlineConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case KubernetesSecretProviderType:
-			c1, err := item1.AsKubernetesSecretProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsKubernetesSecretProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		default:
-			return false
-		}
-	})
-}
-
-func applicationsAreEqual(c1, c2 *[]ApplicationProviderSpec) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ApplicationProviderSpec, item2 ApplicationProviderSpec) bool {
-		type1, err := item1.Type()
-		if err != nil {
-			return false
-		}
-		type2, err := item2.Type()
-		if err != nil {
-			return false
-		}
-		if type1 != type2 {
-			return false
-		}
-
-		switch type1 {
-		case ImageApplicationProviderType:
-			imageSpec1, err := item1.AsImageApplicationProviderSpec()
-			if err != nil {
-				return false
-			}
-			imageSpec2, err := item2.AsImageApplicationProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(imageSpec1, imageSpec2)
-		case InlineApplicationProviderType:
-			inlineSpec1, err := item1.AsInlineApplicationProviderSpec()
-			if err != nil {
-				return false
-			}
-			inlineSpec2, err := item2.AsInlineApplicationProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(inlineSpec1, inlineSpec2)
-		default:
-			return false
-		}
-	})
-}
-
-func resourcesAreEqual(c1, c2 *[]ResourceMonitor) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ResourceMonitor, item2 ResourceMonitor) bool {
-		value1, err := item1.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		value2, err := item2.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		return reflect.DeepEqual(value1, value2)
-	})
-}
-
 func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
-	// Check OS
-	if !reflect.DeepEqual(d1.Os, d2.Os) {
-		return false
-	}
-
-	// Check Config
-	if !configsAreEqual(d1.Config, d2.Config) {
-		return false
-	}
-
-	// Check Applications
-	if !applicationsAreEqual(d1.Applications, d2.Applications) {
-		return false
-	}
-
-	// Check Systemd
-	if !reflect.DeepEqual(d1.Systemd, d2.Systemd) {
-		return false
-	}
-
-	// Check Resources
-	if !resourcesAreEqual(d1.Resources, d2.Resources) {
-		return false
-	}
-
-	// Check Decommission
-	if !reflect.DeepEqual(d1.Decommissioning, d2.Decommissioning) {
-		return false
-	}
-
-	return true
+	return util.DeepEqualWithUnionHandling(reflect.ValueOf(d1), reflect.ValueOf(d2))
 }
 
 func FleetSpecsAreEqual(f1, f2 FleetSpec) bool {
-	if !reflect.DeepEqual(f1.Selector, f2.Selector) {
-		return false
-	}
-
-	if !reflect.DeepEqual(f1.Template.Metadata, f2.Template.Metadata) {
-		return false
-	}
-
-	return DeviceSpecsAreEqual(f1.Template.Spec, f2.Template.Spec)
+	return util.DeepEqualWithUnionHandling(reflect.ValueOf(f1), reflect.ValueOf(f2))
 }
 
 // Some functions that we provide to users.  In case of a missing label,

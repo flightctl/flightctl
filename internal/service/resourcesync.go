@@ -8,6 +8,8 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
@@ -23,7 +25,7 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.Resource
 
 	result, err := h.store.ResourceSync().Create(ctx, orgId, &rs)
 	status := StoreErrorToApiStatus(err, true, api.ResourceSyncKind, rs.Metadata.Name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.ResourceSyncKind, *rs.Metadata.Name, status, nil))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.ResourceSyncKind, *rs.Metadata.Name, status, nil, h.log))
 	return result, status
 }
 
@@ -50,13 +52,6 @@ func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListR
 	}
 }
 
-func (h *ServiceHandler) DeleteResourceSyncs(ctx context.Context) api.Status {
-	orgId := store.NullOrgId
-
-	err := h.store.ResourceSync().DeleteAll(ctx, orgId, h.store.Fleet().UnsetOwnerByKind)
-	return StoreErrorToApiStatus(err, false, api.ResourceSyncKind, nil)
-}
-
 func (h *ServiceHandler) GetResourceSync(ctx context.Context, name string) (*api.ResourceSync, api.Status) {
 	orgId := store.NullOrgId
 
@@ -79,15 +74,24 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, name string, r
 
 	result, created, updateDesc, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs)
 	status := StoreErrorToApiStatus(err, created, api.ResourceSyncKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.ResourceSyncKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.ResourceSyncKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
-	err := h.store.ResourceSync().Delete(ctx, orgId, name, h.store.Fleet().UnsetOwner)
+
+	var deleted bool
+	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+		deleted = true
+		return h.store.Fleet().UnsetOwner(ctx, tx, orgId, owner)
+	}
+
+	err := h.store.ResourceSync().Delete(ctx, orgId, name, callback)
 	status := StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
-	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.ResourceSyncKind, name, status))
+	if deleted || err != nil {
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.ResourceSyncKind, name, status, h.log))
+	}
 	return status
 }
 
@@ -126,7 +130,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, name string, pat
 	newObj.Metadata.ResourceVersion = nil
 	result, updateDesc, err := h.store.ResourceSync().Update(ctx, orgId, newObj)
 	status := StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.ResourceSyncKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.ResourceSyncKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 

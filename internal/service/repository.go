@@ -24,7 +24,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, repo api.Reposito
 
 	result, err := h.store.Repository().Create(ctx, orgId, &repo, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, true, api.RepositoryKind, repo.Metadata.Name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.RepositoryKind, *repo.Metadata.Name, status, nil))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.RepositoryKind, *repo.Metadata.Name, status, nil, h.log))
 	return result, status
 }
 
@@ -51,13 +51,6 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRe
 	}
 }
 
-func (h *ServiceHandler) DeleteRepositories(ctx context.Context) api.Status {
-	orgId := store.NullOrgId
-
-	err := h.store.Repository().DeleteAll(ctx, orgId, h.callbackManager.AllRepositoriesDeletedCallback)
-	return StoreErrorToApiStatus(err, false, api.RepositoryKind, nil)
-}
-
 func (h *ServiceHandler) GetRepository(ctx context.Context, name string) (*api.Repository, api.Status) {
 	orgId := store.NullOrgId
 
@@ -81,16 +74,18 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, rep
 
 	result, created, updateDesc, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repo, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, created, api.RepositoryKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.RepositoryKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.RepositoryKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback)
+	deleted, err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
-	h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.RepositoryKind, name, status))
+	if deleted || err != nil {
+		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.RepositoryKind, name, status, h.log))
+	}
 	return status
 }
 
@@ -128,14 +123,14 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Repository, *api.Repository)
+	var updateCallback func(context.Context, uuid.UUID, *api.Repository, *api.Repository)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.RepositoryUpdatedCallback
 	}
 	result, updateDesc, err := h.store.Repository().Update(ctx, orgId, newObj, updateCallback)
 	status := StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.RepositoryKind, name, status, &updateDesc))
+	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.RepositoryKind, name, status, &updateDesc, h.log))
 	return result, status
 }
 

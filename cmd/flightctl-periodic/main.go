@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
+
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -9,6 +12,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	log := log.InitLogs()
 	log.Println("Starting periodic")
 
@@ -24,6 +29,13 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
+	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-periodic")
+	defer func() {
+		if err := tracerShutdown(ctx); err != nil {
+			log.Fatalf("failed to shut down tracer: %v", err)
+		}
+	}()
+
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
@@ -34,7 +46,7 @@ func main() {
 	defer store.Close()
 
 	server := periodic.New(cfg, log, store)
-	if err := server.Run(); err != nil {
+	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}
 }

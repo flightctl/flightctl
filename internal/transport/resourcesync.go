@@ -25,12 +25,6 @@ func (h *TransportHandler) ListResourceSyncs(w http.ResponseWriter, r *http.Requ
 	SetResponse(w, body, status)
 }
 
-// (DELETE /api/v1/resourcesyncs)
-func (h *TransportHandler) DeleteResourceSyncs(w http.ResponseWriter, r *http.Request) {
-	status := h.serviceHandler.DeleteResourceSyncs(r.Context())
-	SetResponse(w, nil, status)
-}
-
 // (GET /api/v1/resourcesyncs/{name})
 func (h *TransportHandler) GetResourceSync(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetResourceSync(r.Context(), name)

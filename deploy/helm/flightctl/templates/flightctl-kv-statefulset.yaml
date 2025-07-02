@@ -8,7 +8,7 @@ metadata:
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 data:
   redis.conf: |-
-    bind 0.0.0.0
+    bind 0.0.0.0 ::
     protected-mode yes
     port 6379
     dir /var/lib/redis/data
@@ -49,6 +49,10 @@ spec:
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      {{- if .Values.kv.fsGroup }}
+      securityContext:
+        fsGroup: {{ .Values.kv.fsGroup }}
       {{- end }}
       containers:
         - name: flightctl-kv

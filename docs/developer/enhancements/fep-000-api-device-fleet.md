@@ -126,8 +126,6 @@ The proposed changes include:
 
 * Some config items reference external configurations (`KubernetesSecretProviderSpec`, `GitConfigProviderSpec`)
 
-* `GitConfigProviderSpec` config types add a `mountPath` field for consistency, in the same way k8s secrets add such field.
-
 * External references (image or config items) must support floating tags (`latest`, `main`, `v1.0`), although
   **when managed from a fleet, the floating tags will be frozen as hashes** on the device spec by the
   fleet controller.
@@ -179,7 +177,6 @@ spec:
       repository: my-repo
       ref: v1.0.0
       path: /path/to/config/in/git
-      mountPath: /path/to/config/in/device
 
     - name: config-from-k8s-secret
       configType: KubernetesSecretProviderSpec

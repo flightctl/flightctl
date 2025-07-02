@@ -8,10 +8,9 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
-func checkCondition(cond *api.HookCondition, actionContext *actionContext) (bool, error) {
+func checkCondition(cond *v1alpha1.HookCondition, actionContext *actionContext) (bool, error) {
 	if cond == nil {
 		return true, nil
 	}
@@ -22,13 +21,13 @@ func checkCondition(cond *api.HookCondition, actionContext *actionContext) (bool
 	}
 
 	switch conditionType {
-	case api.HookConditionTypeExpression:
+	case v1alpha1.HookConditionTypeExpression:
 		expression, err := (*cond).AsHookConditionExpression()
 		if err != nil {
 			return false, err
 		}
 		return checkExpressionCondition(expression, actionContext), nil
-	case api.HookConditionTypePathOp:
+	case v1alpha1.HookConditionTypePathOp:
 		pathOp, err := (*cond).AsHookConditionPathOp()
 		if err != nil {
 			return false, err
@@ -45,7 +44,7 @@ const (
 
 var hookExpressionConditionRegex = regexp.MustCompile(hookExpressionConditionFmt)
 
-func checkExpressionCondition(cond api.HookConditionExpression, actionCtx *actionContext) bool {
+func checkExpressionCondition(cond v1alpha1.HookConditionExpression, actionCtx *actionContext) bool {
 	match := hookExpressionConditionRegex.FindStringSubmatch(cond)
 	if match == nil {
 		return false
@@ -76,7 +75,7 @@ func checkEquals[T comparable](a, b T) bool {
 	return a == b
 }
 
-func checkPathOpCondition(cond api.HookConditionPathOp, actionCtx *actionContext) bool {
+func checkPathOpCondition(cond v1alpha1.HookConditionPathOp, actionCtx *actionContext) bool {
 	resetCommandLineVars(actionCtx)
 
 	isPathToDir := len(cond.Path) > 0 && cond.Path[len(cond.Path)-1] == '/'
@@ -89,10 +88,10 @@ func checkPathOpCondition(cond api.HookConditionPathOp, actionCtx *actionContext
 // checkFileOpConditionForDir checks whether a specified operation (create, update, remove) has been performed
 // on any file in the tree rooted at the specified path.
 // As a side-effect, it populates the command line variables of the action context with the corresponding list of files.
-func checkPathOpConditionForDir(cond api.HookConditionPathOp, actionCtx *actionContext) bool {
+func checkPathOpConditionForDir(cond v1alpha1.HookConditionPathOp, actionCtx *actionContext) bool {
 	dirPath := ensureTrailingSlash(cond.Path)
 	conditionMet := false
-	if slices.Contains(cond.Op, api.FileOperationCreated) {
+	if slices.Contains(cond.Op, v1alpha1.FileOperationCreated) {
 		if treeFromPathContains(dirPath, actionCtx.createdFiles) {
 			files := getContainedFiles(dirPath, actionCtx.createdFiles)
 			appendFiles(actionCtx, FilesKey, files...)
@@ -100,7 +99,7 @@ func checkPathOpConditionForDir(cond api.HookConditionPathOp, actionCtx *actionC
 			conditionMet = true
 		}
 	}
-	if slices.Contains(cond.Op, api.FileOperationUpdated) {
+	if slices.Contains(cond.Op, v1alpha1.FileOperationUpdated) {
 		if treeFromPathContains(dirPath, actionCtx.updatedFiles) {
 			files := getContainedFiles(dirPath, actionCtx.updatedFiles)
 			appendFiles(actionCtx, FilesKey, files...)
@@ -108,7 +107,7 @@ func checkPathOpConditionForDir(cond api.HookConditionPathOp, actionCtx *actionC
 			conditionMet = true
 		}
 	}
-	if slices.Contains(cond.Op, api.FileOperationRemoved) {
+	if slices.Contains(cond.Op, v1alpha1.FileOperationRemoved) {
 		if treeFromPathContains(dirPath, actionCtx.removedFiles) {
 			files := getContainedFiles(dirPath, actionCtx.removedFiles)
 			appendFiles(actionCtx, FilesKey, files...)
@@ -125,23 +124,23 @@ func checkPathOpConditionForDir(cond api.HookConditionPathOp, actionCtx *actionC
 // checkFileOpConditionForFile checks whether a specified operation (create, update, remove) has been performed
 // on the specified file.
 // As a side-effect, it populates the command line variables of the action context with the corresponding list of files.
-func checkPathOpConditionForFile(cond api.HookConditionPathOp, actionCtx *actionContext) bool {
+func checkPathOpConditionForFile(cond v1alpha1.HookConditionPathOp, actionCtx *actionContext) bool {
 	conditionMet := false
-	if slices.Contains(cond.Op, api.FileOperationCreated) {
+	if slices.Contains(cond.Op, v1alpha1.FileOperationCreated) {
 		if pathEquals(cond.Path, actionCtx.createdFiles) {
 			appendFiles(actionCtx, FilesKey, cond.Path)
 			appendFiles(actionCtx, CreatedKey, cond.Path)
 			conditionMet = true
 		}
 	}
-	if slices.Contains(cond.Op, api.FileOperationUpdated) {
+	if slices.Contains(cond.Op, v1alpha1.FileOperationUpdated) {
 		if pathEquals(cond.Path, actionCtx.updatedFiles) {
 			appendFiles(actionCtx, FilesKey, cond.Path)
 			appendFiles(actionCtx, UpdatedKey, cond.Path)
 			conditionMet = true
 		}
 	}
-	if slices.Contains(cond.Op, api.FileOperationRemoved) {
+	if slices.Contains(cond.Op, v1alpha1.FileOperationRemoved) {
 		if pathEquals(cond.Path, actionCtx.removedFiles) {
 			appendFiles(actionCtx, FilesKey, cond.Path)
 			appendFiles(actionCtx, RemovedKey, cond.Path)

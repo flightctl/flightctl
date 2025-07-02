@@ -21,6 +21,10 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
+      {{- if .Values.db.fsGroup }}
+      securityContext:
+        fsGroup: {{ .Values.db.fsGroup }}
+      {{- end }}
       containers:
         - env:
             - name: PGPASSWORD
@@ -76,4 +80,3 @@ spec:
         - name: init-scripts
           configMap:
             name: flightctl-db
-

@@ -1,6 +1,7 @@
 package microshift
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,12 +31,14 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 		})
 
 		var (
+			ctx      context.Context
 			harness  *e2e.Harness
 			deviceId string
 		)
 
 		BeforeEach(func() {
-			harness = e2e.NewTestHarness()
+			ctx = util.StartSpecTracerForGinkgo(suiteCtx)
+			harness = e2e.NewTestHarness(ctx)
 			deviceId = harness.StartVMAndEnroll()
 		})
 
@@ -214,7 +217,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				cmd := []string{
 					"sudo", "oc", "wait",
 					"--for=condition=Ready", "pods",
-					"--all", "-A", "--timeout=30s",
+					"--all", "-A", "--timeout=300s",
 					fmt.Sprintf("--kubeconfig=%s", kubeconfigPath),
 				}
 				_, err = harness.VM.RunSSH(cmd, nil)

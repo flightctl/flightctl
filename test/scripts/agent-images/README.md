@@ -8,6 +8,20 @@ directory.
 
 And can be triggered from the top-level makefile with: `make e2e-agent-images`
 
+## Build Process
+
+The script builds images in two phases:
+1. **Base image**: Built first since other images depend on it
+2. **Remaining images**: Built in parallel to speed up the process
+
+The number of parallel build jobs can be controlled with the `PARALLEL_JOBS`
+environment variable (default: 4).
+
+Example:
+```bash
+PARALLEL_JOBS=8 make e2e-agent-images
+```
+
 The images are built using the `Containerfile-*` files in this directory, functionality
 or service deployment changes should be implemented on those container files, or if
 additional transition images are required we should create and document new Containerfiles.

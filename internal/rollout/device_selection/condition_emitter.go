@@ -13,10 +13,10 @@ type conditionEmitter struct {
 	orgId          uuid.UUID
 	fleetName      string
 	batchName      string
-	serviceHandler *service.ServiceHandler
+	serviceHandler service.Service
 }
 
-func newConditionEmitter(orgId uuid.UUID, fleetName, batchName string, serviceHandler *service.ServiceHandler) *conditionEmitter {
+func newConditionEmitter(orgId uuid.UUID, fleetName, batchName string, serviceHandler service.Service) *conditionEmitter {
 	return &conditionEmitter{
 		orgId:          orgId,
 		fleetName:      fleetName,
@@ -30,7 +30,7 @@ func (c *conditionEmitter) create(status api.ConditionStatus, reason, message st
 		Message: message,
 		Reason:  reason,
 		Status:  status,
-		Type:    api.FleetRolloutInProgress,
+		Type:    api.ConditionTypeFleetRolloutInProgress,
 	}
 }
 
