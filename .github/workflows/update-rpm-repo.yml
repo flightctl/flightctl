@@ -1,0 +1,185 @@
+name: Update RPM Repository
+
+on:
+  workflow_dispatch:  # Manual triggering via GitHub UI
+  release:
+    types: [published]  # Trigger when a new release is created
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+
+jobs:
+  update-rpm-repo:
+    # Only run for releases/tags, not PR builds
+    if: ${{ github.event_name != 'pull_request' && (github.ref_type == 'tag' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install COPR CLI and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y createrepo-c curl jq python3-pip
+          pip3 install copr-cli
+
+      - name: Create directory structure
+        run: |
+          mkdir -p rpm-repo/rpms
+          mkdir -p rpm-repo/repodata
+
+      - name: Wait for COPR build completion (for tags)
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          echo "Waiting for COPR builds to complete for tag ${{ github.ref_name }}"
+          
+          # Wait up to 45 minutes for builds to complete
+          max_attempts=90
+          attempt=0
+          
+          while [ $attempt -lt $max_attempts ]; do
+            builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
+          
+            version="${{ github.ref_name }}"
+            version=${version#v}  # Remove 'v' prefix
+          
+            completed_build=$(echo "$builds" | jq -r --arg version "$version" '.[] | select(.source_package.version == $version and .state == "succeeded") | .id' | head -1)
+          
+            if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
+              echo "Found completed COPR build: $completed_build"
+              echo "build_id=$completed_build" >> $GITHUB_ENV
+              break
+            fi
+          
+            echo "Waiting for COPR build to complete... (attempt $((attempt + 1))/$max_attempts)"
+            sleep 30
+            attempt=$((attempt + 1))
+          done
+          
+          if [ $attempt -eq $max_attempts ]; then
+            echo "Timeout waiting for COPR build to complete"
+            exit 1
+          fi
+
+      - name: Get latest COPR build (for manual/main branch)
+        if: ${{ github.ref_type != 'tag' }}
+        run: |
+          echo "Using most recent successful COPR build"
+          builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
+          completed_build=$(echo "$builds" | jq -r '.[] | select(.state == "succeeded") | .id' | head -1)
+          
+          if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
+            echo "Found recent completed COPR build: $completed_build"
+            echo "build_id=$completed_build" >> $GITHUB_ENV
+          else
+            echo "No recent successful builds found"
+            exit 1
+          fi
+
+      - name: Download RPMs from COPR
+        run: |
+          build_id="${{ env.build_id }}"
+          mkdir -p copr-rpms-temp
+          
+          echo "Downloading build $build_id from COPR..."
+          copr-cli download-build $build_id --dest copr-rpms-temp
+          
+          # Remove debuginfo, debugsource, and source RPMs
+          find copr-rpms-temp -name "*debuginfo*.rpm" -delete
+          find copr-rpms-temp -name "*debugsource*.rpm" -delete
+          find copr-rpms-temp -name "*.src.rpm" -delete
+          
+          # Rename RPMs to include directory name to avoid conflicts
+          echo "Renaming and organizing RPMs:"
+          find copr-rpms-temp -name "*.rpm" | while read rpm_path; do
+            dir_name=$(basename "$(dirname "$rpm_path")")
+            rpm_name=$(basename "$rpm_path")
+            new_name="${dir_name}-${rpm_name}"
+            echo "  $rpm_name -> $new_name"
+            cp "$rpm_path" "rpm-repo/rpms/$new_name"
+          done
+          
+          # List final RPMs
+          echo "RPMs in repository:"
+          ls -la rpm-repo/rpms/
+
+      - name: Generate repository metadata
+        run: |
+          cd rpm-repo
+          createrepo_c .
+
+      - name: Create .repo file
+        run: |
+          cat > rpm-repo/flightctl.repo << EOF
+          [flightctl]
+          name=FlightCtl RPM Repository
+          baseurl=https://flightctl.github.io/flightctl/
+          enabled=1
+          gpgcheck=0
+          repo_gpgcheck=0
+          type=rpm
+          EOF
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-content
+
+      - name: Update gh-pages content
+        run: |
+          # Keep docs and .nojekyll, but update RPM repository
+          find gh-pages-content -name "*.rpm" -delete
+          rm -rf gh-pages-content/repodata
+          rm -f gh-pages-content/flightctl.repo
+          
+          # Copy new repository content
+          cp -r rpm-repo/rpms gh-pages-content/
+          cp -r rpm-repo/repodata gh-pages-content/
+          cp rpm-repo/flightctl.repo gh-pages-content/
+          
+          # Update README
+          cat > gh-pages-content/README.md << EOF
+          # FlightCtl RPM Repository
+          
+          This is an automated RPM repository for FlightCtl, updated from COPR builds.
+          
+          ## Usage
+          
+          Add the repository:
+          \`\`\`bash
+          sudo dnf config-manager --add-repo https://flightctl.github.io/flightctl/flightctl.repo
+          \`\`\`
+          
+          Install FlightCtl packages:
+          \`\`\`bash
+          sudo dnf install flightctl
+          \`\`\`
+          
+          ## Repository Contents
+          
+          - **RPMs**: $(ls -1 gh-pages-content/rpms/ | wc -l) packages available
+          - **Last updated**: $(date)
+          - **Source build**: ${{ env.build_id }}
+          
+          Available packages:
+          $(ls -1 gh-pages-content/rpms/ | sed 's/^/- /')
+          EOF
+
+      - name: Commit and push to gh-pages
+        run: |
+          cd gh-pages-content
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update RPM repository from COPR build ${{ env.build_id }} - $(date)"
+            git push
+          fi
