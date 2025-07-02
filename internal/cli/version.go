@@ -11,6 +11,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/spf13/cobra"
@@ -19,7 +20,7 @@ import (
 )
 
 var (
-	legalVersionOutputTypes = []string{jsonFormat, yamlFormat}
+	legalVersionOutputTypes = []string{string(display.JSONFormat), string(display.YAMLFormat)}
 )
 
 type VersionOptions struct {
