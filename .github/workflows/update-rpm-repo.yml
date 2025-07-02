@@ -3,7 +3,7 @@ name: Update RPM Repository
 on:
   workflow_dispatch:  # Manual triggering via GitHub UI
   release:
-    types: [ published ]  # Trigger when a new release is created
+    types: [published]  # Trigger when a new release is created
   push:
     branches:
       - 'release-*'  # Match your existing release workflow pattern
@@ -72,30 +72,30 @@ jobs:
         if: ${{ github.ref_type == 'tag' }}
         run: |
           echo "Waiting for COPR builds to complete for tag ${{ github.ref_name }}"
-
+          
           # Wait up to 45 minutes for builds to complete
           max_attempts=90
           attempt=0
-
+          
           while [ $attempt -lt $max_attempts ]; do
             builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
-
+          
             version="${{ github.ref_name }}"
             version=${version#v}  # Remove 'v' prefix
-
+          
             completed_build=$(echo "$builds" | jq -r --arg version "$version" '.[] | select(.source_package.version == $version and .state == "succeeded") | .id' | head -1)
-
+          
             if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
               echo "Found completed COPR build: $completed_build"
               echo "build_id=$completed_build" >> $GITHUB_ENV
               break
             fi
-
+          
             echo "Waiting for COPR build to complete... (attempt $((attempt + 1))/$max_attempts)"
             sleep 30
             attempt=$((attempt + 1))
           done
-
+          
           if [ $attempt -eq $max_attempts ]; then
             echo "Timeout waiting for COPR build to complete"
             exit 1
@@ -262,15 +262,13 @@ jobs:
       - name: Create .repo file
         run: |
           echo "=== CREATING .REPO FILE ==="
-          cat > rpm-repo/flightctl.repo << EOF
-  [flightctl]
-  name=FlightCtl RPM Repository
-  baseurl=https://flightctl.github.io/flightctl/
-  enabled=1
-  gpgcheck=0
-  repo_gpgcheck=0
-  type=rpm
-  EOF
+          echo '[flightctl]' > rpm-repo/flightctl.repo
+          echo 'name=FlightCtl RPM Repository' >> rpm-repo/flightctl.repo
+          echo 'baseurl=https://flightctl.github.io/flightctl/' >> rpm-repo/flightctl.repo
+          echo 'enabled=1' >> rpm-repo/flightctl.repo
+          echo 'gpgcheck=0' >> rpm-repo/flightctl.repo
+          echo 'repo_gpgcheck=0' >> rpm-repo/flightctl.repo
+          echo 'type=rpm' >> rpm-repo/flightctl.repo
           echo "Created .repo file:"
           cat rpm-repo/flightctl.repo
           echo "=============================="
