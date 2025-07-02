@@ -22,6 +22,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// The deviceRender task is triggered when a device is updated or its template version changes.
+// It renders the device’s configuration and applications into a final form that can be consumed
+// by the edge device, and stores the rendered output.
+//
+// To ensure idempotency:
+// - If the device has already been rendered for the current template version (as recorded in
+//   the DeviceAnnotationRenderedTemplateVersion annotation), the task exits early.
+// - The rendering process is deterministic, based on the device spec, configuration sources,
+//   and application specs.
+// - External inputs (e.g., Git repositories, HTTP endpoints, Kubernetes secrets) are frozen per
+//   fleet/template version using a KV store. Writes to the store use SetNX to prevent changes
+//   after freezing, and to detect inconsistencies.
+// - The rendered output and device condition status are safely overwritten or retried without
+//   side effects.
+//
+// This design ensures the task can be retried safely, detects mid-write inconsistencies,
+// and avoids unnecessary reprocessing when the output is already up to date.
+
 func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
 	logic := NewDeviceRenderLogic(callbackManager, log, serviceHandler, k8sClient, kvStore, *resourceRef)
 	if resourceRef.Op == tasks_client.DeviceRenderOpUpdate {
