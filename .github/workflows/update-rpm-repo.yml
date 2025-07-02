@@ -3,7 +3,7 @@ name: Update RPM Repository
 on:
   workflow_dispatch:  # Manual triggering via GitHub UI
   release:
-    types: [published]  # Trigger when a new release is created
+    types: [ published ]  # Trigger when a new release is created
   push:
     branches:
       - 'release-*'  # Match your existing release workflow pattern
@@ -72,30 +72,30 @@ jobs:
         if: ${{ github.ref_type == 'tag' }}
         run: |
           echo "Waiting for COPR builds to complete for tag ${{ github.ref_name }}"
-          
+
           # Wait up to 45 minutes for builds to complete
           max_attempts=90
           attempt=0
-          
+
           while [ $attempt -lt $max_attempts ]; do
             builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
-          
+
             version="${{ github.ref_name }}"
             version=${version#v}  # Remove 'v' prefix
-          
+
             completed_build=$(echo "$builds" | jq -r --arg version "$version" '.[] | select(.source_package.version == $version and .state == "succeeded") | .id' | head -1)
-          
+
             if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
               echo "Found completed COPR build: $completed_build"
               echo "build_id=$completed_build" >> $GITHUB_ENV
               break
             fi
-          
+
             echo "Waiting for COPR build to complete... (attempt $((attempt + 1))/$max_attempts)"
             sleep 30
             attempt=$((attempt + 1))
           done
-          
+
           if [ $attempt -eq $max_attempts ]; then
             echo "Timeout waiting for COPR build to complete"
             exit 1
@@ -270,169 +270,169 @@ jobs:
   gpgcheck=0
   repo_gpgcheck=0
   type=rpm
-  EOF
-  echo "Created .repo file:"
-  cat rpm-repo/flightctl.repo
-  echo "=============================="
-  
-  - name: Checkout gh-pages branch
-uses: actions/checkout@v4
-with:
-  ref: gh-pages
-  path: gh-pages-content
+          EOF
+          echo "Created .repo file:"
+          cat rpm-repo/flightctl.repo
+          echo "=============================="
 
-- name: Debug - gh-pages State
-  run: |
-    echo "=== GH-PAGES BRANCH STATE ==="
-    echo "gh-pages content directory:"
-    ls -la gh-pages-content/
-    echo "Existing RPMs:"
-    find gh-pages-content -name "*.rpm" | head -10 || echo "No existing RPMs found"
-    echo "Existing metadata:"
-    ls -la gh-pages-content/repodata/ 2>/dev/null || echo "No existing repodata"
-    echo "=============================="
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-content
 
-- name: Update gh-pages content
-  run: |
-    echo "=== UPDATING GH-PAGES CONTENT ==="
-    # Keep existing RPMs and docs, just add new ones and update metadata
-    # Don't delete existing RPMs - we want to keep all versions forever
-    
-    # Ensure directories exist
-    mkdir -p gh-pages-content/rpms
-    echo "Created/verified rpms directory"
-    
-    # Copy new RPMs (this will add to existing ones)
-    if [ "$(ls -A rpm-repo/rpms/)" ]; then
-      echo "Copying new RPMs:"
-      cp -v rpm-repo/rpms/* gh-pages-content/rpms/
-      echo "RPMs copied successfully"
-    else
-      echo "No new RPMs to copy"
-    fi
-    
-    echo "All RPMs now in repository:"
-    ls -la gh-pages-content/rpms/ | head -20
-    echo "Total RPM files: $(find gh-pages-content/rpms -name "*.rpm" | wc -l)"
-    echo "Total checksum files: $(find gh-pages-content/rpms -name "*.sha256" | wc -l)"
-    
-    # Update repository metadata to include all RPMs (old + new)
-    echo "Regenerating repository metadata for all RPMs..."
-    cd gh-pages-content
-    createrepo_c .
-    echo "Metadata regenerated"
-    ls -la repodata/
-    cd ..
-    
-    # Update the .repo file
-    echo "Updating .repo file..."
-    cp rpm-repo/flightctl.repo gh-pages-content/
-    echo "=============================="
-    
-    # Update the index.html with current repository info
-    cat > gh-pages-content/index.html << EOF
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>FlightCtl</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; }
-            .code { background: #f4f4f4; padding: 10px; border-radius: 5px; }
-            .info { background: #e8f4fd; padding: 10px; border-radius: 5px; margin: 10px 0; }
-        </style>
-    </head>
-    <body>
-        <h1>FlightCtl</h1>
-        <p>Flight Control is a service for declarative management of fleets of edge devices and their workloads.</p>
-    
-        <div class="info">
-            <strong>Repository Status:</strong> $(ls -1 gh-pages-content/rpms/ | wc -l) packages available<br>
-            <strong>Last updated:</strong> $(date)<br>
-            <strong>Source build:</strong> ${{ env.build_id }}
-        </div>
-    
-        <h2>Documentation</h2>
-        <ul>
-            <li><a href="https://github.com/flightctl/flightctl/blob/main/docs/user/README.md">User Documentation</a></li>
-            <li><a href="https://github.com/flightctl/flightctl/blob/main/docs/developer/README.md">Developer Documentation</a></li>
-        </ul>
-    
-        <h2>FlightCtl RPM Repository</h2>
-        <p>This is the RPM repository for FlightCtl, automatically updated from COPR builds.</p>
-    
-        <h3>Usage</h3>
-        <p>Add the repository:</p>
-        <div class="code">
-            <code>sudo dnf config-manager --add-repo https://flightctl.github.io/flightctl/flightctl.repo</code>
-        </div>
-    
-        <p>Install FlightCtl packages (checksums verified automatically):</p>
-        <div class="code">
-            <code>sudo dnf install flightctl</code>
-        </div>
-    
-        <h3>Manual Verification</h3>
-        <p>For manual checksum verification:</p>
-        <div class="code">
-            <code>wget https://flightctl.github.io/flightctl/rpms/fedora-39-x86_64-flightctl-1.0.0.rpm</code><br>
-            <code>wget https://flightctl.github.io/flightctl/rpms/fedora-39-x86_64-flightctl-1.0.0.rpm.sha256</code><br>
-            <code>sha256sum -c fedora-39-x86_64-flightctl-1.0.0.rpm.sha256</code>
-        </div>
-    
-        <h3>Repository Files</h3>
-        <ul>
-            <li><a href="flightctl.repo">flightctl.repo</a> - Repository configuration file</li>
-            <li><a href="rpms/">rpms/</a> - RPM packages directory</li>
-            <li><a href="repodata/">repodata/</a> - Repository metadata</li>
-        </ul>
-    
-        <h3>Available Packages</h3>
-        <p>Current packages in repository:</p>
-        <ul>
-    $(ls -1 gh-pages-content/rpms/ | sed 's/^/<li>/' | sed 's/$/<\/li>/')
-        </ul>
-    
-        <p><em>Repository automatically updated from COPR builds.</em></p>
-    </body>
-    </html>
-    EOF
+      - name: Debug - gh-pages State
+        run: |
+          echo "=== GH-PAGES BRANCH STATE ==="
+          echo "gh-pages content directory:"
+          ls -la gh-pages-content/
+          echo "Existing RPMs:"
+          find gh-pages-content -name "*.rpm" | head -10 || echo "No existing RPMs found"
+          echo "Existing metadata:"
+          ls -la gh-pages-content/repodata/ 2>/dev/null || echo "No existing repodata"
+          echo "=============================="
 
-- name: Commit and push to gh-pages
-  run: |
-    echo "=== COMMITTING TO GH-PAGES ==="
-    cd gh-pages-content
-    
-    echo "Git status before changes:"
-    git status
-    
-    echo "Configuring git..."
-    git config user.name "GitHub Actions"
-    git config user.email "actions@github.com"
-    
-    echo "Adding files..."
-    git add .
-    
-    echo "Git status after adding:"
-    git status
-    
-    if git diff --staged --quiet; then
-      echo "ℹ️  No changes to commit"
-    else
-      echo "📝 Changes detected, committing..."
-      echo "Files to be committed:"
-      git diff --staged --name-only
-    
-      echo "Diff summary:"
-      git diff --staged --stat
-    
-      commit_msg="Update RPM repository from COPR build ${{ env.build_id }} - $(date)"
-      echo "Commit message: $commit_msg"
-    
-      git commit -m "$commit_msg"
-      echo "✅ Committed successfully"
-    
-      echo "🚀 Pushing to gh-pages..."
-      git push
-      echo "✅ Pushed successfully"
-    fi
-    echo "=============================="
+      - name: Update gh-pages content
+        run: |
+          echo "=== UPDATING GH-PAGES CONTENT ==="
+          # Keep existing RPMs and docs, just add new ones and update metadata
+          # Don't delete existing RPMs - we want to keep all versions forever
+          
+          # Ensure directories exist
+          mkdir -p gh-pages-content/rpms
+          echo "Created/verified rpms directory"
+          
+          # Copy new RPMs (this will add to existing ones)
+          if [ "$(ls -A rpm-repo/rpms/)" ]; then
+            echo "Copying new RPMs:"
+            cp -v rpm-repo/rpms/* gh-pages-content/rpms/
+            echo "RPMs copied successfully"
+          else
+            echo "No new RPMs to copy"
+          fi
+          
+          echo "All RPMs now in repository:"
+          ls -la gh-pages-content/rpms/ | head -20
+          echo "Total RPM files: $(find gh-pages-content/rpms -name "*.rpm" | wc -l)"
+          echo "Total checksum files: $(find gh-pages-content/rpms -name "*.sha256" | wc -l)"
+          
+          # Update repository metadata to include all RPMs (old + new)
+          echo "Regenerating repository metadata for all RPMs..."
+          cd gh-pages-content
+          createrepo_c .
+          echo "Metadata regenerated"
+          ls -la repodata/
+          cd ..
+          
+          # Update the .repo file
+          echo "Updating .repo file..."
+          cp rpm-repo/flightctl.repo gh-pages-content/
+          echo "=============================="
+          
+          # Update the index.html with current repository info
+          cat > gh-pages-content/index.html << EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>FlightCtl</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; }
+                  .code { background: #f4f4f4; padding: 10px; border-radius: 5px; }
+                  .info { background: #e8f4fd; padding: 10px; border-radius: 5px; margin: 10px 0; }
+              </style>
+          </head>
+          <body>
+              <h1>FlightCtl</h1>
+              <p>Flight Control is a service for declarative management of fleets of edge devices and their workloads.</p>
+          
+              <div class="info">
+                  <strong>Repository Status:</strong> $(ls -1 gh-pages-content/rpms/ | wc -l) packages available<br>
+                  <strong>Last updated:</strong> $(date)<br>
+                  <strong>Source build:</strong> ${{ env.build_id }}
+              </div>
+          
+              <h2>Documentation</h2>
+              <ul>
+                  <li><a href="https://github.com/flightctl/flightctl/blob/main/docs/user/README.md">User Documentation</a></li>
+                  <li><a href="https://github.com/flightctl/flightctl/blob/main/docs/developer/README.md">Developer Documentation</a></li>
+              </ul>
+          
+              <h2>FlightCtl RPM Repository</h2>
+              <p>This is the RPM repository for FlightCtl, automatically updated from COPR builds.</p>
+          
+              <h3>Usage</h3>
+              <p>Add the repository:</p>
+              <div class="code">
+                  <code>sudo dnf config-manager --add-repo https://flightctl.github.io/flightctl/flightctl.repo</code>
+              </div>
+          
+              <p>Install FlightCtl packages (checksums verified automatically):</p>
+              <div class="code">
+                  <code>sudo dnf install flightctl</code>
+              </div>
+          
+              <h3>Manual Verification</h3>
+              <p>For manual checksum verification:</p>
+              <div class="code">
+                  <code>wget https://flightctl.github.io/flightctl/rpms/fedora-39-x86_64-flightctl-1.0.0.rpm</code><br>
+                  <code>wget https://flightctl.github.io/flightctl/rpms/fedora-39-x86_64-flightctl-1.0.0.rpm.sha256</code><br>
+                  <code>sha256sum -c fedora-39-x86_64-flightctl-1.0.0.rpm.sha256</code>
+              </div>
+          
+              <h3>Repository Files</h3>
+              <ul>
+                  <li><a href="flightctl.repo">flightctl.repo</a> - Repository configuration file</li>
+                  <li><a href="rpms/">rpms/</a> - RPM packages directory</li>
+                  <li><a href="repodata/">repodata/</a> - Repository metadata</li>
+              </ul>
+          
+              <h3>Available Packages</h3>
+              <p>Current packages in repository:</p>
+              <ul>
+          $(ls -1 gh-pages-content/rpms/ | sed 's/^/<li>/' | sed 's/$/<\/li>/')
+              </ul>
+          
+              <p><em>Repository automatically updated from COPR builds.</em></p>
+          </body>
+          </html>
+          EOF
+
+      - name: Commit and push to gh-pages
+        run: |
+          echo "=== COMMITTING TO GH-PAGES ==="
+          cd gh-pages-content
+          
+          echo "Git status before changes:"
+          git status
+          
+          echo "Configuring git..."
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          echo "Adding files..."
+          git add .
+          
+          echo "Git status after adding:"
+          git status
+          
+          if git diff --staged --quiet; then
+            echo "ℹ️  No changes to commit"
+          else
+            echo "📝 Changes detected, committing..."
+            echo "Files to be committed:"
+            git diff --staged --name-only
+          
+            echo "Diff summary:"
+            git diff --staged --stat
+          
+            commit_msg="Update RPM repository from COPR build ${{ env.build_id }} - $(date)"
+            echo "Commit message: $commit_msg"
+          
+            git commit -m "$commit_msg"
+            echo "✅ Committed successfully"
+          
+            echo "🚀 Pushing to gh-pages..."
+            git push
+            echo "✅ Pushed successfully"
+          fi
+          echo "=============================="
