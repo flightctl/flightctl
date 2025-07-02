@@ -92,7 +92,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Plural names for resources and autocompletion in the cli work well", func() {
-		It("Should let you list resources by plural names", Label("80453", "sanity"), func() {
+		It("Should let you list resources by plural names", Label("80453"), func() {
 			deviceID := harness.StartVMAndEnroll()
 			By("Should let you list devices")
 			out, err := harness.CLI("get", "devices")
