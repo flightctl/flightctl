@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FlightCtl</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .code { background: #f4f4f4; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+    <h1>FlightCtl</h1>
+    <p>Flight Control is a service for declarative management of fleets of edge devices and their workloads.</p>
+
+    <h2>Documentation</h2>
+    <ul>
+        <li><a href="user/README.md">User Documentation</a></li>
+        <li><a href="developer/README.md">Developer Documentation</a></li>
+    </ul>
+
+    <h2>FlightCtl RPM Repository</h2>
+    <p>This is the RPM repository for FlightCtl.</p>
+    
+    <h3>Usage</h3>
+    <p>Add the repository:</p>
+    <div class="code">
+        <code>sudo dnf config-manager --add-repo https://flightctl.github.io/flightctl/flightctl.repo</code>
+    </div>
+    
+    <p>Install FlightCtl packages:</p>
+    <div class="code">
+        <code>sudo dnf install flightctl</code>
+    </div>
+    
+    <h3>Repository Files</h3>
+    <ul>
+        <li><a href="flightctl.repo">flightctl.repo</a> - Repository configuration file</li>
+        <li><a href="rpms/">rpms/</a> - RPM packages directory</li>
+        <li><a href="repodata/">repodata/</a> - Repository metadata</li>
+    </ul>
+    
+    <p><em>Repository automatically updated from COPR builds.</em></p>
+</body>
+</html>
