@@ -57,7 +57,7 @@ func NewBootstrap(
 	managementServiceConfig *baseclient.Config,
 	systemInfoManager systeminfo.Manager,
 	managementMetricsCallback client.RPCMetricsCallback,
-  podmanClient *client.Podman,
+	podmanClient *client.Podman,
 	log *log.PrefixLogger,
 ) *Bootstrap {
 	return &Bootstrap{
@@ -72,7 +72,7 @@ func NewBootstrap(
 		managementServiceConfig:   managementServiceConfig,
 		systemInfoManager:         systemInfoManager,
 		managementMetricsCallback: managementMetricsCallback,
-    podmanClient:            podmanClient,
+		podmanClient:              podmanClient,
 		log:                       log,
 	}
 }
