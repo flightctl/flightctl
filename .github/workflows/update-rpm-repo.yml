@@ -64,10 +64,43 @@ jobs:
             exit 1
           fi
 
-      - name: Get latest COPR build (for manual/main branch)
-        if: ${{ github.ref_type != 'tag' }}
+      - name: Wait for COPR build completion (for releases)
+        if: ${{ github.event_name == 'release' }}
         run: |
-          echo "Using most recent successful COPR build"
+          echo "Waiting for COPR builds to complete for release ${{ github.event.release.tag_name }}"
+          
+          # Wait up to 45 minutes for builds to complete
+          max_attempts=90
+          attempt=0
+          
+          while [ $attempt -lt $max_attempts ]; do
+            builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
+          
+            version="${{ github.event.release.tag_name }}"
+            version=${version#v}  # Remove 'v' prefix
+          
+            completed_build=$(echo "$builds" | jq -r --arg version "$version" '.[] | select(.source_package.version == $version and .state == "succeeded") | .id' | head -1)
+          
+            if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
+              echo "Found completed COPR build for release: $completed_build"
+              echo "build_id=$completed_build" >> $GITHUB_ENV
+              break
+            fi
+          
+            echo "Waiting for COPR build to complete... (attempt $((attempt + 1))/$max_attempts)"
+            sleep 30
+            attempt=$((attempt + 1))
+          done
+          
+          if [ $attempt -eq $max_attempts ]; then
+            echo "Timeout waiting for COPR build to complete for release ${{ github.event.release.tag_name }}"
+            exit 1
+          fi
+
+      - name: Get latest COPR build (for manual runs only)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "Manual run - using most recent successful COPR build"
           builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
           completed_build=$(echo "$builds" | jq -r '.[] | select(.state == "succeeded") | .id' | head -1)
           
