@@ -1,436 +1,218 @@
 name: Update RPM Repository
 
 on:
-  workflow_dispatch:  # Manual triggering via GitHub UI
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to download (e.g., 0.8.0, v0.8.0-rc2)'
+        required: true
+        type: string
+      use_curl:
+        description: 'Use curl for faster downloads'
+        required: false
+        default: true
+        type: boolean
+
   release:
-    types: [published]  # Trigger when a new release is created
+    types: [published]
+
   push:
     branches:
-      - 'release-*'  # Match your existing release workflow pattern
+      - 'release-*'
     tags:
       - '*'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
   update-rpm-repo:
     # Only run for releases/tags/manual/push, not PR builds
-    if: ${{ github.event_name != 'pull_request' && (github.ref_type == 'tag' || github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') }}
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Debug - Environment Info
-        run: |
-          echo "=== WORKFLOW DEBUG INFO ==="
-          echo "Event name: ${{ github.event_name }}"
-          echo "Ref type: ${{ github.ref_type }}"
-          echo "Ref name: ${{ github.ref_name }}"
-          echo "Repository: ${{ github.repository }}"
-          echo "Actor: ${{ github.actor }}"
-          echo "Workflow: ${{ github.workflow }}"
-          echo "Run ID: ${{ github.run_id }}"
-          echo "Run number: ${{ github.run_number }}"
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "Release tag: ${{ github.event.release.tag_name }}"
-            echo "Release name: ${{ github.event.release.name }}"
-          fi
-          echo "=========================="
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug - Repository State
+      - name: Install dependencies
         run: |
-          echo "=== REPOSITORY STATE ==="
-          echo "Current directory: $(pwd)"
-          echo "Branch/ref: $(git branch --show-current || echo 'detached HEAD')"
-          echo "Last commit: $(git log -1 --oneline)"
-          echo "Working directory contents:"
-          ls -la
-          echo "======================="
-
-      - name: Install COPR CLI and dependencies
-        run: |
-          echo "=== INSTALLING DEPENDENCIES ==="
+          echo "=== Installing dependencies ==="
           sudo apt-get update
-          sudo apt-get install -y createrepo-c curl jq python3-pip
+          sudo apt-get install -y createrepo-c curl jq python3-pip parallel
           pip3 install copr-cli
+          
           echo "Installed versions:"
           createrepo_c --version
           copr-cli --version
           jq --version
+          parallel --version
           echo "=========================="
 
-      - name: Create directory structure
+      - name: Determine version to download
+        id: version
         run: |
-          echo "=== CREATING DIRECTORIES ==="
-          mkdir -p rpm-repo/rpms
-          mkdir -p rpm-repo/repodata
-          echo "Directory structure created:"
-          find rpm-repo -type d
-          echo "=========================="
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            echo "Using release tag: $VERSION"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "Using manual input: $VERSION"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${{ github.ref_name }}"
+            echo "Using push tag: $VERSION"
+          else
+            # For push to release branches, get the latest successful build
+            echo "Push to branch ${{ github.ref_name }} - finding latest successful COPR build"
+          
+            # Get the most recent successful build
+            builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
+            latest_build_id=$(echo "$builds" | jq -r '.[] | select(.state == "succeeded") | .id' | head -1)
+          
+            if [ -n "$latest_build_id" ]; then
+              # Get version from the build
+              build_details=$(curl -s "https://copr.fedorainfracloud.org/api_3/build/$latest_build_id")
+              VERSION=$(echo "$build_details" | jq -r '.source_package.version')
+              echo "Using latest successful build version: $VERSION (build: $latest_build_id)"
+            else
+              echo "❌ No successful builds found"
+              exit 1
+            fi
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Final version: $VERSION"
 
-      - name: Wait for COPR build completion (for tags)
-        if: ${{ github.ref_type == 'tag' }}
+      - name: Wait for COPR build (for tags and releases)
+        if: ${{ github.event_name == 'release' || github.ref_type == 'tag' }}
         run: |
-          echo "Waiting for COPR builds to complete for tag ${{ github.ref_name }}"
+          echo "=== Waiting for COPR build completion ==="
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "Waiting for COPR build for version: $VERSION"
           
           # Wait up to 45 minutes for builds to complete
           max_attempts=90
           attempt=0
           
           while [ $attempt -lt $max_attempts ]; do
-            builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
+            echo "Attempt $((attempt + 1))/$max_attempts - Checking for completed build..."
           
-            version="${{ github.ref_name }}"
-            version=${version#v}  # Remove 'v' prefix
-          
-            completed_build=$(echo "$builds" | jq -r --arg version "$version" '.[] | select(.source_package.version == $version and .state == "succeeded") | .id' | head -1)
-          
-            if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
-              echo "Found completed COPR build: $completed_build"
-              echo "build_id=$completed_build" >> $GITHUB_ENV
-              break
+            # Use our script's build finding logic
+            if build_id=$(timeout 30 ./hack/copr_to_gh-pages_upload.sh "$VERSION" 2>/dev/null | grep "Using COPR build ID:" | cut -d: -f2 | tr -d ' '); then
+              if [ -n "$build_id" ] && [ "$build_id" != "" ]; then
+                echo "✅ Found completed COPR build: $build_id"
+                echo "build_ready=true" >> $GITHUB_ENV
+                break
+              fi
             fi
           
-            echo "Waiting for COPR build to complete... (attempt $((attempt + 1))/$max_attempts)"
+            echo "⏳ Build not ready yet, waiting 30 seconds..."
             sleep 30
             attempt=$((attempt + 1))
           done
           
           if [ $attempt -eq $max_attempts ]; then
-            echo "Timeout waiting for COPR build to complete"
-            exit 1
-          fi
-
-      - name: Wait for COPR build completion (for releases)
-        if: ${{ github.event_name == 'release' }}
-        run: |
-          echo "=== WAITING FOR COPR BUILD (RELEASE) ==="
-          echo "Waiting for COPR builds to complete for release ${{ github.event.release.tag_name }}"
-          
-          # Wait up to 45 minutes for builds to complete
-          max_attempts=90
-          attempt=0
-          
-          while [ $attempt -lt $max_attempts ]; do
-            echo "Attempt $((attempt + 1))/$max_attempts - Checking COPR builds..."
+            echo "❌ Timeout waiting for COPR build for version $VERSION"
+            echo "Available successful builds:"
             builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
-            echo "Raw COPR response (first 500 chars):"
-            echo "$builds" | head -c 500
-            echo ""
-          
-            version="${{ github.event.release.tag_name }}"
-            version=${version#v}  # Remove 'v' prefix
-            echo "Looking for version: $version"
-          
-            completed_build=$(echo "$builds" | jq -r --arg version "$version" '.[] | select(.source_package.version == $version and .state == "succeeded") | .id' | head -1)
-          
-            if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
-              echo "✅ Found completed COPR build for release: $completed_build"
-              echo "build_id=$completed_build" >> $GITHUB_ENV
-              break
-            fi
-          
-            echo "⏳ No completed build found, waiting..."
-            sleep 30
-            attempt=$((attempt + 1))
-          done
-          
-          if [ $attempt -eq $max_attempts ]; then
-            echo "❌ Timeout waiting for COPR build to complete for release ${{ github.event.release.tag_name }}"
+            echo "$builds" | jq -r '.[] | select(.state == "succeeded") | "\(.id): \(.source_package.version // "unknown")"' | head -5
             exit 1
           fi
-          echo "=============================="
-
-      - name: Get latest COPR build (for manual runs only)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          echo "=== GETTING LATEST COPR BUILD (MANUAL) ==="
-          echo "Manual run - using most recent successful COPR build"
-          builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
-          echo "Raw COPR response (first 1000 chars):"
-          echo "$builds" | head -c 1000
-          echo ""
-          
-          completed_build=$(echo "$builds" | jq -r '.[] | select(.state == "succeeded") | .id' | head -1)
-          
-          if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
-            echo "✅ Found recent completed COPR build: $completed_build"
-            echo "build_id=$completed_build" >> $GITHUB_ENV
-          
-            # Show build details
-            echo "Build details:"
-            echo "$builds" | jq -r --arg build_id "$completed_build" '.[] | select(.id == ($build_id | tonumber))'
-          else
-            echo "❌ No recent successful builds found"
-            echo "Available builds:"
-            echo "$builds" | jq -r '.[] | "\(.id): \(.state) - \(.source_package.version // "unknown")"' | head -10
-            exit 1
-          fi
-          echo "=============================="
-
-      - name: Get latest COPR build (for push events)
-        if: ${{ github.event_name == 'push' }}
-        run: |
-          echo "=== GETTING LATEST COPR BUILD (PUSH) ==="
-          echo "Push to ${{ github.ref_name }} - using most recent successful COPR build"
-          builds=$(copr-cli list-builds @redhat-et/flightctl --output-format json)
-          echo "Raw COPR response (first 1000 chars):"
-          echo "$builds" | head -c 1000
-          echo ""
-          
-          completed_build=$(echo "$builds" | jq -r '.[] | select(.state == "succeeded") | .id' | head -1)
-          
-          if [ -n "$completed_build" ] && [ "$completed_build" != "null" ]; then
-            echo "✅ Found recent completed COPR build: $completed_build"
-            echo "build_id=$completed_build" >> $GITHUB_ENV
-          
-            # Show build details
-            echo "Build details:"
-            echo "$builds" | jq -r --arg build_id "$completed_build" '.[] | select(.id == ($build_id | tonumber))'
-          else
-            echo "❌ No recent successful builds found"
-            echo "Available builds:"
-            echo "$builds" | jq -r '.[] | "\(.id): \(.state) - \(.source_package.version // "unknown")"' | head -10
-            exit 1
-          fi
-          echo "=============================="
 
       - name: Download RPMs from COPR
         run: |
-          echo "=== DOWNLOADING RPMS FROM COPR ==="
-          build_id="${{ env.build_id }}"
-          echo "Using COPR build ID: $build_id"
-          mkdir -p copr-rpms-temp
+          echo "=== Downloading RPMs using our script ==="
+          VERSION="${{ steps.version.outputs.version }}"
+          USE_CURL="${{ github.event.inputs.use_curl || 'true' }}"
           
-          echo "Downloading build $build_id from COPR..."
-          copr-cli download-build $build_id --dest copr-rpms-temp
+          echo "Running: ./hack/copr_to_gh-pages_upload.sh $VERSION $USE_CURL"
           
+          # Make script executable and run it
+          chmod +x ./hack/copr_to_gh-pages_upload.sh
+          ./hack/copr_to_gh-pages_upload.sh "$VERSION" "$USE_CURL"
+          
+          echo "Script completed successfully!"
+          
+          # Verify what we downloaded
           echo "Downloaded content:"
-          find copr-rpms-temp -type f | head -20
-          echo "Total files downloaded: $(find copr-rpms-temp -type f | wc -l)"
+          ls -la copr-rpms-temp/
           
-          echo "Removing debuginfo, debugsource, and source RPMs..."
-          find copr-rpms-temp -name "*debuginfo*.rpm" -delete
-          find copr-rpms-temp -name "*debugsource*.rpm" -delete
-          find copr-rpms-temp -name "*.src.rpm" -delete
+          total_rpms=$(find copr-rpms-temp -name "*.rpm" | wc -l)
+          echo "Total RPMs downloaded: $total_rpms"
           
-          echo "Files after cleanup:"
-          find copr-rpms-temp -name "*.rpm" | head -10
-          echo "RPMs remaining: $(find copr-rpms-temp -name "*.rpm" | wc -l)"
+          if [ $total_rpms -eq 0 ]; then
+            echo "❌ No RPMs were downloaded!"
+            exit 1
+          fi
+
+      - name: Create GitHub Pages structure
+        run: |
+          echo "=== Creating GitHub Pages structure ==="
           
-          # Rename RPMs to include directory name to avoid conflicts
-          echo "Renaming and organizing RPMs:"
-          find copr-rpms-temp -name "*.rpm" | while read rpm_path; do
-            dir_name=$(basename "$(dirname "$rpm_path")")
-            rpm_name=$(basename "$rpm_path")
-            new_name="${dir_name}-${rpm_name}"
-            echo "  $rpm_name -> $new_name"
-            cp "$rpm_path" "rpm-repo/rpms/$new_name"
+          # Make the script executable
+          chmod +x ./hack/create-github-pages.sh
           
-            # Generate checksum for each RPM
-            cd rpm-repo/rpms/
-            sha256sum "$new_name" > "${new_name}.sha256"
-            echo "  Generated checksum: ${new_name}.sha256"
-            cd - > /dev/null
+          # Run the pages creation script
+          ./hack/create-github-pages.sh \
+            copr-rpms-temp \
+            pages-content \
+            "${{ github.repository_owner }}" \
+            "${{ github.event.repository.name }}"
+          
+          echo "GitHub Pages structure created successfully!"
+          
+          # Prepare for deployment to docs/ directory structure
+          echo "=== Preparing for docs/ deployment ==="
+          mkdir -p deployment-content/docs
+          cp -r pages-content/* deployment-content/docs/
+          
+          echo "Content prepared for docs/ deployment"
+          ls -la deployment-content/docs/
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./deployment-content
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Create deployment summary
+        run: |
+          echo "## 🚀 FlightCtl RPM Repository Updated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository URL**: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📦 Available Platforms:" >> $GITHUB_STEP_SUMMARY
+          for chroot_dir in pages-content/*/; do
+            if [ -d "$chroot_dir" ] && [ "$(basename "$chroot_dir")" != "repodata" ]; then
+              chroot=$(basename "$chroot_dir")
+              rpm_count=$(find "$chroot_dir" -name "*.rpm" | wc -l)
+              echo "- **$chroot**: $rpm_count RPMs" >> $GITHUB_STEP_SUMMARY
+            fi
           done
           
-          # List final RPMs
-          echo "Final RPMs and checksums in repository:"
-          ls -la rpm-repo/rpms/
-          echo "Total files in rpms/: $(ls -1 rpm-repo/rpms/ | wc -l)"
-          echo "=============================="
-
-      - name: Generate repository metadata
-        run: |
-          echo "=== GENERATING REPOSITORY METADATA ==="
-          cd rpm-repo
-          echo "Current directory contents before createrepo_c:"
-          find . -type f | head -10
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 Quick Installation:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "sudo dnf config-manager --add-repo ${{ steps.deployment.outputs.page_url }}flightctl.repo" >> $GITHUB_STEP_SUMMARY
+          echo "sudo dnf install flightctl" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           
-          echo "Running createrepo_c..."
-          createrepo_c .
-          
-          echo "Generated metadata:"
-          ls -la repodata/
-          echo "Metadata files created: $(ls -1 repodata/ | wc -l)"
-          
-          echo "Repository structure:"
-          find . -type f | head -20
-          cd ..
-          echo "=============================="
-
-      - name: Create .repo file
-        run: |
-          echo "=== CREATING .REPO FILE ==="
-          echo '[flightctl]' > rpm-repo/flightctl.repo
-          echo 'name=FlightCtl RPM Repository' >> rpm-repo/flightctl.repo
-          echo 'baseurl=https://flightctl.github.io/flightctl/' >> rpm-repo/flightctl.repo
-          echo 'enabled=1' >> rpm-repo/flightctl.repo
-          echo 'gpgcheck=0' >> rpm-repo/flightctl.repo
-          echo 'repo_gpgcheck=0' >> rpm-repo/flightctl.repo
-          echo 'type=rpm' >> rpm-repo/flightctl.repo
-          echo "Created .repo file:"
-          cat rpm-repo/flightctl.repo
-          echo "=============================="
-
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages-content
-
-      - name: Debug - gh-pages State
-        run: |
-          echo "=== GH-PAGES BRANCH STATE ==="
-          echo "gh-pages content directory:"
-          ls -la gh-pages-content/
-          echo "Existing RPMs:"
-          find gh-pages-content -name "*.rpm" | head -10 || echo "No existing RPMs found"
-          echo "Existing metadata:"
-          ls -la gh-pages-content/repodata/ 2>/dev/null || echo "No existing repodata"
-          echo "=============================="
-
-      - name: Update gh-pages content
-        run: |
-          echo "=== UPDATING GH-PAGES CONTENT ==="
-          # Keep existing RPMs and docs, just add new ones and update metadata
-          # Don't delete existing RPMs - we want to keep all versions forever
-          
-          # Ensure directories exist
-          mkdir -p gh-pages-content/rpms
-          echo "Created/verified rpms directory"
-          
-          # Copy new RPMs (this will add to existing ones)
-          if [ "$(ls -A rpm-repo/rpms/)" ]; then
-            echo "Copying new RPMs:"
-            cp -v rpm-repo/rpms/* gh-pages-content/rpms/
-            echo "RPMs copied successfully"
-          else
-            echo "No new RPMs to copy"
-          fi
-          
-          echo "All RPMs now in repository:"
-          ls -la gh-pages-content/rpms/ | head -20
-          echo "Total RPM files: $(find gh-pages-content/rpms -name "*.rpm" | wc -l)"
-          echo "Total checksum files: $(find gh-pages-content/rpms -name "*.sha256" | wc -l)"
-          
-          # Update repository metadata to include all RPMs (old + new)
-          echo "Regenerating repository metadata for all RPMs..."
-          cd gh-pages-content
-          createrepo_c .
-          echo "Metadata regenerated"
-          ls -la repodata/
-          cd ..
-          
-          # Update the .repo file
-          echo "Updating .repo file..."
-          cp rpm-repo/flightctl.repo gh-pages-content/
-          echo "=============================="
-          
-          # Update the index.html with current repository info
-          cat > gh-pages-content/index.html << EOF
-          <!DOCTYPE html>
-          <html>
-          <head>
-              <title>FlightCtl</title>
-              <style>
-                  body { font-family: Arial, sans-serif; margin: 40px; }
-                  .code { background: #f4f4f4; padding: 10px; border-radius: 5px; }
-                  .info { background: #e8f4fd; padding: 10px; border-radius: 5px; margin: 10px 0; }
-              </style>
-          </head>
-          <body>
-              <h1>FlightCtl</h1>
-              <p>Flight Control is a service for declarative management of fleets of edge devices and their workloads.</p>
-          
-              <div class="info">
-                  <strong>Repository Status:</strong> $(ls -1 gh-pages-content/rpms/ | wc -l) packages available<br>
-                  <strong>Last updated:</strong> $(date)<br>
-                  <strong>Source build:</strong> ${{ env.build_id }}
-              </div>
-          
-              <h2>Documentation</h2>
-              <ul>
-                  <li><a href="https://github.com/flightctl/flightctl/blob/main/docs/user/README.md">User Documentation</a></li>
-                  <li><a href="https://github.com/flightctl/flightctl/blob/main/docs/developer/README.md">Developer Documentation</a></li>
-              </ul>
-          
-              <h2>FlightCtl RPM Repository</h2>
-              <p>This is the RPM repository for FlightCtl, automatically updated from COPR builds.</p>
-          
-              <h3>Usage</h3>
-              <p>Add the repository:</p>
-              <div class="code">
-                  <code>sudo dnf config-manager --add-repo https://flightctl.github.io/flightctl/flightctl.repo</code>
-              </div>
-          
-              <p>Install FlightCtl packages (checksums verified automatically):</p>
-              <div class="code">
-                  <code>sudo dnf install flightctl</code>
-              </div>
-          
-              <h3>Manual Verification</h3>
-              <p>For manual checksum verification:</p>
-              <div class="code">
-                  <code>wget https://flightctl.github.io/flightctl/rpms/fedora-39-x86_64-flightctl-1.0.0.rpm</code><br>
-                  <code>wget https://flightctl.github.io/flightctl/rpms/fedora-39-x86_64-flightctl-1.0.0.rpm.sha256</code><br>
-                  <code>sha256sum -c fedora-39-x86_64-flightctl-1.0.0.rpm.sha256</code>
-              </div>
-          
-              <h3>Repository Files</h3>
-              <ul>
-                  <li><a href="flightctl.repo">flightctl.repo</a> - Repository configuration file</li>
-                  <li><a href="rpms/">rpms/</a> - RPM packages directory</li>
-                  <li><a href="repodata/">repodata/</a> - Repository metadata</li>
-              </ul>
-          
-              <h3>Available Packages</h3>
-              <p>Current packages in repository:</p>
-              <ul>
-          $(ls -1 gh-pages-content/rpms/ | sed 's/^/<li>/' | sed 's/$/<\/li>/')
-              </ul>
-          
-              <p><em>Repository automatically updated from COPR builds.</em></p>
-          </body>
-          </html>
-          EOF
-
-      - name: Commit and push to gh-pages
-        run: |
-          echo "=== COMMITTING TO GH-PAGES ==="
-          cd gh-pages-content
-          
-          echo "Git status before changes:"
-          git status
-          
-          echo "Configuring git..."
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          
-          echo "Adding files..."
-          git add .
-          
-          echo "Git status after adding:"
-          git status
-          
-          if git diff --staged --quiet; then
-            echo "ℹ️  No changes to commit"
-          else
-            echo "📝 Changes detected, committing..."
-            echo "Files to be committed:"
-            git diff --staged --name-only
-          
-            echo "Diff summary:"
-            git diff --staged --stat
-          
-            commit_msg="Update RPM repository from COPR build ${{ env.build_id }} - $(date)"
-            echo "Commit message: $commit_msg"
-          
-            git commit -m "$commit_msg"
-            echo "✅ Committed successfully"
-          
-            echo "🚀 Pushing to gh-pages..."
-            git push
-            echo "✅ Pushed successfully"
-          fi
-          echo "=============================="
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Manual Download:" >> $GITHUB_STEP_SUMMARY
+          echo "Browse packages at: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
