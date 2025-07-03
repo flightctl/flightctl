@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/samber/lo"
 )
 
@@ -22,11 +23,14 @@ const (
 	defaultSpecRequeueMaxRetries = 0
 	// defaultSpecQueueMaxSize is the default maximum number of items in the queue.
 	defaultSpecQueueMaxSize = 1
-	// defaultSpecRequeueThreshold is the default number of retries before enforcing a requeue delay.
-	defaultSpecRequeueThreshold = 5
-	// defaultSpecRequeueDelay is the default delay between requeue attempts.
-	defaultSpecRequeueDelay = 5 * time.Minute
 )
+
+// defaultSpecPollConfig is the default poll configuration for the spec priority queue.
+var defaultSpecPollConfig = poll.Config{
+	BaseDelay: 30 * time.Second,
+	Factor:    1.5,
+	MaxDelay:  5 * time.Minute,
+}
 
 type Manager interface {
 	// Initialize initializes the current, desired and rollback device files on

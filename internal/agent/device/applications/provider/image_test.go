@@ -165,7 +165,7 @@ image: quay.io/flightctl-tests/alpine:v1`,
 			require.NoError(err)
 			err = rw.WriteFile("/mount/podman-compose.yaml", []byte(tt.composeSpec), fileio.DefaultFilePermissions)
 			require.NoError(err)
-			podman := client.NewPodman(log, mockExec, rw, util.NewBackoff())
+			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 			spec := v1alpha1.ImageApplicationProviderSpec{
 				Image: tt.image,

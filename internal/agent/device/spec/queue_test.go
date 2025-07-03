@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -93,9 +94,10 @@ func TestQueue(t *testing.T) {
 func TestRequeueThreshold(t *testing.T) {
 	require := require.New(t)
 	const (
-		delayThreshold  = 1
-		delayDuration   = time.Millisecond * 200
-		renderedVersion = "1"
+		baseDelay        = time.Millisecond * 100
+		backoffFactor    = 2.0
+		maxDelayDuration = time.Millisecond * 200
+		renderedVersion  = "1"
 	)
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
@@ -113,9 +115,12 @@ func TestRequeueThreshold(t *testing.T) {
 		failedVersions: make(map[int64]struct{}),
 		requeueLookup:  make(map[int64]*requeueState),
 		maxRetries:     maxRetries,
-		delayThreshold: delayThreshold,
-		delayDuration:  delayDuration,
-		log:            log,
+		pollConfig: poll.Config{
+			BaseDelay: baseDelay,
+			Factor:    backoffFactor,
+			MaxDelay:  maxDelayDuration,
+		},
+		log: log,
 	}
 
 	item := newVersionedDevice(renderedVersion)
@@ -148,15 +153,15 @@ func TestRequeueThreshold(t *testing.T) {
 	_, ok = q.Next(ctx)
 	require.True(ok, "first retrieval should succeed")
 
-	// add same item to queue after it is tried should trigger requeue delay duration
+	// add same item to queue after it is tried should trigger incremental backoff
 	q.Add(ctx, item)
 	_, ok = q.Next(ctx)
-	require.False(ok, "retrieval before threshold duration should return false")
+	require.False(ok, "retrieval should be blocked by backoff")
 
 	require.Eventually(func() bool {
 		item, ok := q.Next(ctx)
 		return ok && item.Version() == renderedVersion
-	}, time.Second, time.Millisecond*10, "retrieval after threshold duration should succeed")
+	}, time.Second, time.Millisecond*10, "retrieval after backoff duration should succeed")
 }
 
 func TestPolicy(t *testing.T) {
@@ -240,17 +245,18 @@ func TestPolicy(t *testing.T) {
 			log.SetLevel(logrus.TraceLevel)
 			maxSize := 1
 			maxRetries := 0
-			delayThreshold := 1
-			delayDuration := 1 * time.Second
 			q := &queueManager{
 				queue:          newQueue(log, maxSize),
 				policyManager:  mockPolicyManager,
 				failedVersions: make(map[int64]struct{}),
 				requeueLookup:  make(map[int64]*requeueState),
 				maxRetries:     maxRetries,
-				delayThreshold: delayThreshold,
-				delayDuration:  delayDuration,
-				log:            log,
+				pollConfig: poll.Config{
+					BaseDelay: 1 * time.Second,
+					Factor:    2.0,
+					MaxDelay:  5 * time.Second,
+				},
+				log: log,
 			}
 
 			tt.setupMocks(mockPolicyManager)
@@ -272,4 +278,23 @@ func TestPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCalculateBackoffDelay(t *testing.T) {
+	require := require.New(t)
+
+	q := &queueManager{
+		pollConfig: poll.Config{
+			BaseDelay: 100 * time.Millisecond,
+			Factor:    2.0,
+			MaxDelay:  500 * time.Millisecond,
+		},
+	}
+
+	// progressive delays
+	require.Equal(100*time.Millisecond, q.calculateBackoffDelay(1), "First try should use base delay")
+	require.Equal(200*time.Millisecond, q.calculateBackoffDelay(2), "Second try should double")
+	require.Equal(400*time.Millisecond, q.calculateBackoffDelay(3), "Third try should double again")
+	require.Equal(500*time.Millisecond, q.calculateBackoffDelay(4), "Fourth try should cap at max delay")
+	require.Equal(500*time.Millisecond, q.calculateBackoffDelay(5), "Fifth try should remain at max delay")
 }
