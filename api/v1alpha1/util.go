@@ -322,3 +322,57 @@ func GetNextDeviceRenderedVersion(annotations map[string]string) (string, error)
 	currentRenderedVersion++
 	return strconv.FormatInt(currentRenderedVersion, 10), nil
 }
+
+type SensitiveDataHider interface {
+	HideSensitiveData() error
+}
+
+func hideValue(value *string) {
+	if value != nil {
+		*value = "*****"
+	}
+}
+
+func (r *Repository) HideSensitiveData() error {
+	if r == nil {
+		return nil
+	}
+	spec := r.Spec
+
+	_, err := spec.GetGenericRepoSpec()
+	if err != nil {
+		gitHttpSpec, err := spec.GetHttpRepoSpec()
+		if err == nil {
+			hideValue(gitHttpSpec.HttpConfig.Password)
+			hideValue(gitHttpSpec.HttpConfig.TlsKey)
+			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
+			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
+				return err
+			}
+
+		} else {
+			gitSshRepoSpec, err := spec.GetSshRepoSpec()
+			if err == nil {
+				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
+				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
+				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	r.Spec = spec
+	return nil
+}
+
+func (r *RepositoryList) HideSensitiveData() error {
+	if r == nil {
+		return nil
+	}
+	for _, repo := range r.Items {
+		if err := repo.HideSensitiveData(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
