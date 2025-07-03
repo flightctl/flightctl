@@ -110,6 +110,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		Steps:    6,
 	}
 
+<<<<<<< HEAD
+=======
+	pollBackoff := poll.Config{
+		BaseDelay: 10 * time.Second,
+		Factor:    1.5,
+		MaxDelay:  1 * time.Minute,
+	}
+
+>>>>>>> 5d370239 (impl)
 	// create os client
 	osClient := os.NewClient(a.log, executer)
 
