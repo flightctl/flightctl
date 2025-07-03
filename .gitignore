@@ -8,7 +8,12 @@ test/e2e/cli/*.key
 /packaging/rpm/flightctl-*.tar.gz
 /packaging/rpm/flightctl-*-build/
 /packaging/rpm/flightctl-*-vendor.tar.bz2
-flightctl-*.rpm
+./flightctl-*.rpm
 *.tar
+
+/.output/
+
+# AI setup
 .claude/
 .cursor/
+.serena/
