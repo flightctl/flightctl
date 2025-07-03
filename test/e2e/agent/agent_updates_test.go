@@ -33,7 +33,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 	})
 
 	Context("updates", func() {
-		It("should update to the requested image", Label("75523", "sanity"), func() {
+		It("should update to the requested image", Label("75523"), func() {
 			By("Verifying update to agent  with requested image")
 			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
 
@@ -161,7 +161,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			logrus.Info("Went back to base image and checked that there is no application now👌")
 		})
-		It("Should resolve to the latest version when multiple updates are applied", Label("77672", "sanity"), func() {
+		It("Should resolve to the latest version when multiple updates are applied", Label("77672"), func() {
 			initialVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())
 

@@ -26,7 +26,6 @@ func TestInlineProvider(t *testing.T) {
 		image         string
 		spec          *v1alpha1.ApplicationProviderSpec
 		content       []v1alpha1.ApplicationContent
-		setupMocks    func(*executer.MockExecuter)
 		wantVerifyErr error
 	}{
 		{
@@ -46,11 +45,6 @@ func TestInlineProvider(t *testing.T) {
 					Path:    "docker-compose.yml",
 				},
 			},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
-				)
-			},
 		},
 		{
 			name:  "invalid compose path",
@@ -64,9 +58,6 @@ func TestInlineProvider(t *testing.T) {
 					Content: lo.ToPtr(util.NewComposeSpec()),
 					Path:    "invalid-compose.yml",
 				},
-			},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder()
 			},
 			wantVerifyErr: errors.ErrNoComposeFile,
 		},
@@ -86,9 +77,6 @@ func TestInlineProvider(t *testing.T) {
 					Path:    "docker-compose.yml",
 				},
 			},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder()
-			},
 			wantVerifyErr: errors.ErrInvalidSpec,
 		},
 		{
@@ -107,11 +95,6 @@ func TestInlineProvider(t *testing.T) {
 					Content: lo.ToPtr(util.NewComposeSpec("docker.io/override:latest")),
 					Path:    "podman-compose.override.yml",
 				},
-			},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "docker.io/override:latest"}).Return("", "", 0),
-				)
 			},
 		},
 	}
@@ -140,7 +123,6 @@ func TestInlineProvider(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			tt.setupMocks(mockExec)
 			err = inlineProvider.Verify(ctx)
 			if tt.wantVerifyErr != nil {
 				require.Error(err)
