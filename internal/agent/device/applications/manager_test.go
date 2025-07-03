@@ -5,14 +5,18 @@ import (
 	"fmt"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/test/util"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -20,7 +24,9 @@ import (
 )
 
 const (
-	testImage = "quay.io/flightctl-tests/alpine:v1"
+	testImageV1 = "quay.io/flightctl-tests/alpine:v1"
+	testImageV2 = "quay.io/flightctl-tests/alpine:v2"
+	testImageV3 = "quay.io/flightctl-tests/alpine:v3"
 )
 
 func TestManager(t *testing.T) {
@@ -45,7 +51,7 @@ func TestManager(t *testing.T) {
 		{
 			name:    "add new application",
 			current: &v1alpha1.DeviceSpec{},
-			desired: newTestDeviceWithApplications(require, "app-new", []testInlineDetails{
+			desired: newTestDeviceWithApplications(t, "app-new", []testInlineDetails{
 				{Content: compose1, Path: "podman-compose.yaml"},
 			}),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
@@ -60,7 +66,7 @@ func TestManager(t *testing.T) {
 		},
 		{
 			name: "remove existing application",
-			current: newTestDeviceWithApplications(require, "app-remove", []testInlineDetails{
+			current: newTestDeviceWithApplications(t, "app-remove", []testInlineDetails{
 				{Content: compose1, Path: "podman-compose.yaml"},
 			}),
 			desired: &v1alpha1.DeviceSpec{},
@@ -82,10 +88,10 @@ func TestManager(t *testing.T) {
 		},
 		{
 			name: "update existing application",
-			current: newTestDeviceWithApplications(require, "app-update", []testInlineDetails{
+			current: newTestDeviceWithApplications(t, "app-update", []testInlineDetails{
 				{Content: compose1, Path: "podman-compose.yaml"},
 			}),
-			desired: newTestDeviceWithApplications(require, "app-update", []testInlineDetails{
+			desired: newTestDeviceWithApplications(t, "app-update", []testInlineDetails{
 				{Content: compose2, Path: "podman-compose.yaml"},
 			}),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
@@ -121,7 +127,8 @@ func TestManager(t *testing.T) {
 
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
-			mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+			mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
+			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
 
 			tmpDir := t.TempDir()
 			readWriter.SetRootdir(tmpDir)
@@ -135,9 +142,10 @@ func TestManager(t *testing.T) {
 			require.NoError(err)
 
 			manager := &manager{
-				readWriter:    readWriter,
-				podmanMonitor: NewPodmanMonitor(log, mockPodmanClient, "", readWriter),
-				log:           log,
+				readWriter:      readWriter,
+				podmanMonitor:   NewPodmanMonitor(log, mockPodmanClient, "", readWriter),
+				prefetchManager: mockPrefetchManager,
+				log:             log,
 			}
 
 			// ensure the current applications are installed
@@ -169,13 +177,12 @@ func TestManager(t *testing.T) {
 }
 
 func TestBeforeUpdate(t *testing.T) {
-	require := require.New(t)
-
 	tests := []struct {
-		name        string
-		deviceSpec  *v1alpha1.DeviceSpec
-		setupMocks  func(mockExec *executer.MockExecuter)
-		expectedErr error
+		name       string
+		deviceSpec *v1alpha1.DeviceSpec
+		setupMocks func(
+			mockExec *executer.MockExecuter)
+		wantErr error
 	}{
 		{
 			name:       "no applications",
@@ -186,37 +193,32 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "inline application some images exist",
-			deviceSpec: newTestDeviceWithApplications(require, "test-app", []testInlineDetails{
+			deviceSpec: newTestDeviceWithApplications(t, "test-app", []testInlineDetails{
 				{Content: compose1, Path: "docker-compose.yml"},
 			}),
 			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder(
-					// not available
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 1),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testImage).Return("", "", 0),
-					// available no pull
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
-				)
+				// prefetch manager calls to check image exists (once per unique image)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV1).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV2).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV3).Return("", "", 0)
 			},
+			wantErr: errors.ErrImagePrefetchNotReady,
 		},
 		{
 			name: "inline application all images exist",
-			deviceSpec: newTestDeviceWithApplications(require, "test-app-wait", []testInlineDetails{
+			deviceSpec: newTestDeviceWithApplications(t, "test-app-wait", []testInlineDetails{
 				{Content: compose1, Path: "docker-compose.yml"},
 			}),
 			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
-				)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV1).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV2).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV3).Return("", "", 0)
 			},
 		},
 		{
 			name: "inline application with pull secret config no images exist",
 			deviceSpec: func() *v1alpha1.DeviceSpec {
-				spec := newTestDeviceWithApplications(require, "test-secret", []testInlineDetails{
+				spec := newTestDeviceWithApplications(t, "test-secret", []testInlineDetails{
 					{Content: compose1, Path: "docker-compose.yml"},
 				})
 				// pull secret via config provider
@@ -230,22 +232,16 @@ func TestBeforeUpdate(t *testing.T) {
 						},
 					},
 				})
-				require.NoError(err)
+				require.NoError(t, err)
 				spec.Config = &[]v1alpha1.ConfigProviderSpec{pullSecretConfig}
 				return spec
 			}(),
 			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 1),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testImage, "--authfile", gomock.Any()).Return("", "", 0),
-
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 1),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testImage, "--authfile", gomock.Any()).Return("", "", 0),
-
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 1),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testImage, "--authfile", gomock.Any()).Return("", "", 0),
-				)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV1).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV2).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImageV3).Return("", "", 1)
 			},
+			wantErr: errors.ErrImagePrefetchNotReady,
 		},
 	}
 
@@ -262,24 +258,26 @@ func TestBeforeUpdate(t *testing.T) {
 			rw.SetRootdir(tmpDir)
 
 			mockExec := executer.NewMockExecuter(ctrl)
-			podmanClient := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
+			podmanClient := client.NewPodman(log, mockExec, rw, testutil.NewPollConfig())
+			prefetchManager := dependency.NewPrefetchManager(log, podmanClient, util.Duration(1*time.Second))
 
 			manager := &manager{
-				readWriter:    rw,
-				podmanMonitor: NewPodmanMonitor(log, podmanClient, "", rw),
-				podmanClient:  podmanClient,
-				log:           log,
+				readWriter:      rw,
+				podmanMonitor:   NewPodmanMonitor(log, podmanClient, "", rw),
+				podmanClient:    podmanClient,
+				prefetchManager: prefetchManager,
+				log:             log,
 			}
 
 			tt.setupMocks(mockExec)
 
 			err := manager.BeforeUpdate(ctx, tt.deviceSpec)
-			if tt.expectedErr != nil {
-				require.Error(err)
-				require.ErrorIs(err, tt.expectedErr)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				require.ErrorIs(t, err, tt.wantErr)
 				return
 			}
-			require.NoError(err)
+			require.NoError(t, err)
 		})
 	}
 }
@@ -338,7 +336,9 @@ type testInlineDetails struct {
 	Path    string
 }
 
-func newTestDeviceWithApplications(require *require.Assertions, name string, details []testInlineDetails) *v1alpha1.DeviceSpec {
+func newTestDeviceWithApplications(t *testing.T, name string, details []testInlineDetails) *v1alpha1.DeviceSpec {
+	t.Helper()
+
 	inline := v1alpha1.InlineApplicationProviderSpec{
 		Inline: make([]v1alpha1.ApplicationContent, len(details)),
 	}
@@ -355,7 +355,7 @@ func newTestDeviceWithApplications(require *require.Assertions, name string, det
 		Name:    lo.ToPtr(name),
 	}
 	err := providerSpec.FromInlineApplicationProviderSpec(inline)
-	require.NoError(err)
+	require.NoError(t, err)
 
 	applications := []v1alpha1.ApplicationProviderSpec{providerSpec}
 
@@ -370,10 +370,10 @@ services:
     image: quay.io/flightctl-tests/alpine:v1
     command: ["sleep", "infinity"]
   service2:
-    image: quay.io/flightctl-tests/alpine:v1
+    image: quay.io/flightctl-tests/alpine:v2
     command: ["sleep", "infinity"]
   service3:
-    image: quay.io/flightctl-tests/alpine:v1
+    image: quay.io/flightctl-tests/alpine:v3
     command: ["sleep", "infinity"]
 `
 

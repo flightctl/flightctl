@@ -22,10 +22,11 @@ const (
 var _ Manager = (*manager)(nil)
 
 type manager struct {
-	podmanMonitor *PodmanMonitor
-	podmanClient  *client.Podman
-	readWriter    fileio.ReadWriter
-	log           *log.PrefixLogger
+	podmanMonitor   *PodmanMonitor
+	podmanClient    *client.Podman
+	prefetchManager dependency.PrefetchManager
+	readWriter      fileio.ReadWriter
+	log             *log.PrefixLogger
 }
 
 func NewManager(
@@ -33,13 +34,15 @@ func NewManager(
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
 	systemInfo systeminfo.Manager,
+	prefetchManager dependency.PrefetchManager,
 ) Manager {
 	bootTime := systemInfo.BootTime()
 	return &manager{
-		readWriter:    readWriter,
-		podmanMonitor: NewPodmanMonitor(log, podmanClient, bootTime, readWriter),
-		podmanClient:  podmanClient,
-		log:           log,
+		readWriter:      readWriter,
+		podmanMonitor:   NewPodmanMonitor(log, podmanClient, bootTime, readWriter),
+		podmanClient:    podmanClient,
+		prefetchManager: prefetchManager,
+		log:             log,
 	}
 }
 
@@ -105,56 +108,55 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec
 		return fmt.Errorf("parsing apps: %w", err)
 	}
 
-	var opts []client.ClientOption
-	secret, found, err := client.ResolvePullSecret(m.log, m.readWriter, desired, pullAuthPath)
+	secret, err := m.resolvePullSecret(desired)
 	if err != nil {
 		return err
 	}
-	if found {
+	if secret != nil {
 		defer secret.Cleanup()
-		opts = append(opts, client.WithPullSecret(secret.Path))
 	}
 
+	targets, err := m.collectOCITargets(providers, secret)
+	if err != nil {
+		return err
+	}
+
+	if err := m.prefetchManager.EnsureScheduled(ctx, targets); err != nil {
+		return fmt.Errorf("application prefetch scheduled: %w", err)
+	}
+
+	return m.verifyProviders(ctx, providers)
+}
+
+func (m *manager) resolvePullSecret(desired *v1alpha1.DeviceSpec) (*client.PullSecret, error) {
+	secret, found, err := client.ResolvePullSecret(m.log, m.readWriter, desired, pullAuthPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving pull secret: %w", err)
+	}
+	if !found {
+		return nil, nil
+	}
+	return secret, nil
+}
+
+func (m *manager) collectOCITargets(providers []provider.Provider, secret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	var targets []dependency.OCIPullTarget
 	for _, provider := range providers {
-		// get a list of all OCI targets for the provider
-		targets, err := provider.OCITargets(secret)
+		providerTargets, err := provider.OCITargets(secret)
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("provide oci targets: %w", err)
 		}
+		targets = append(targets, providerTargets...)
+	}
+	return targets, nil
+}
 
-		for _, target := range targets {
-			// skip if pull policy is never
-			if target.PullPolicy == v1alpha1.PullNever {
-				m.log.Tracef("pull policy is set to never, skipping: %s", target.Reference)
-				continue
-			}
-
-			// skip pull if image exists and policy isn't always this covers images and artifacts
-			if m.podmanClient.ImageExists(ctx, target.Reference) && target.PullPolicy != v1alpha1.PullAlways {
-				m.log.Tracef("image exists, skipping pull: %s", target.Reference)
-				continue
-			}
-
-			switch target.Type {
-			case dependency.OCITypeImage:
-				if _, err := m.podmanClient.Pull(ctx, target.Reference, opts...); err != nil {
-					return fmt.Errorf("pulling image: %w", err)
-				}
-			case dependency.OCITypeArtifact:
-				if _, err := m.podmanClient.PullArtifact(ctx, target.Reference, opts...); err != nil {
-					return fmt.Errorf("pulling artifact: %w", err)
-				}
-			default:
-				m.log.Warnf("unknown target type %q, skipping: %s", target.Type, target.Reference)
-			}
-		}
-
-		// verify the application content is valid and dependencies are met.
+func (m *manager) verifyProviders(ctx context.Context, providers []provider.Provider) error {
+	for _, provider := range providers {
 		if err := provider.Verify(ctx); err != nil {
-			return fmt.Errorf("initializing application: %w", err)
+			return fmt.Errorf("verify app provider: %w", err)
 		}
 	}
-
 	return nil
 }
 

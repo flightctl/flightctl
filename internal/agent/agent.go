@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -191,12 +192,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create hook manager
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
+	// create prefetch manager
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, a.config.ImagePrefetchTimeout)
+
 	// create application manager
 	applicationManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
 		podmanClient,
 		systemInfoManager,
+		prefetchManager,
 	)
 
 	// register the application manager with the shutdown manager
@@ -206,7 +211,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	systemdManager := systemd.NewManager(a.log, systemdClient)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
+	osManager := os.NewManager(a.log, prefetchManager, osClient, deviceReadWriter, podmanClient)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -313,6 +318,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		consoleController,
 		osClient,
 		podmanClient,
+		prefetchManager,
 		backoff,
 		a.log,
 	)
@@ -328,6 +334,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	go shutdownManager.Run(ctx)
 	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
+	go prefetchManager.Run(ctx)
 
 	return agent.Run(ctx)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -48,6 +49,7 @@ type Agent struct {
 	consoleController      *console.ConsoleController
 	osClient               os.Client
 	podmanClient           *client.Podman
+	prefetchManager        dependency.PrefetchManager
 
 	fetchSpecInterval    util.Duration
 	statusUpdateInterval util.Duration
@@ -79,6 +81,7 @@ func NewAgent(
 	consoleController *console.ConsoleController,
 	osClient os.Client,
 	podmanClient *client.Podman,
+	prefetchManager dependency.PrefetchManager,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -102,6 +105,7 @@ func NewAgent(
 		consoleController:      consoleController,
 		osClient:               osClient,
 		podmanClient:           podmanClient,
+		prefetchManager:        prefetchManager,
 		cancelFn:               func() {},
 		backoff:                backoff,
 		log:                    log,
@@ -199,6 +203,12 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			}
 		}
 
+		// special handling for image prefetch errors
+		if errors.Is(syncErr, errors.ErrImagePrefetchNotReady) {
+			a.handleImagePrefetchError(ctx, syncErr)
+			return
+		}
+
 		if err := a.rollbackDevice(ctx, current, desired, a.sync); err != nil {
 			a.log.Errorf("Rollback did not complete cleanly: %v", err)
 		}
@@ -206,6 +216,8 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		a.handleSyncError(ctx, desired, syncErr)
 		return
 	}
+
+	defer a.prefetchManager.Cleanup()
 
 	// skip status update if the device is in a steady state and not upgrading.
 	// also ensures previous failed status is not overwritten.
@@ -519,6 +531,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, s
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
+		a.prefetchManager.Cleanup()
 		a.log.Error(msg)
 	} else {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr.Error())
@@ -530,6 +543,26 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, s
 
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
+	}
+}
+
+func (a *Agent) handleImagePrefetchError(ctx context.Context, syncErr error) {
+	progressMsg := a.prefetchManager.GetProgressMessage(ctx)
+	a.log.Warnf("Image prefetch in progress: %s", progressMsg)
+
+	// rollback the spec to the previous version
+	if err := a.specManager.Rollback(ctx); err != nil {
+		a.log.Errorf("Failed to rollback spec: %v", err)
+	}
+
+	updateStatusErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.ConditionTypeDeviceUpdating,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.UpdateStatePreparing),
+		Message: progressMsg,
+	})
+	if updateStatusErr != nil {
+		a.log.Warnf("Failed to update status for image prefetch progress: %v", updateStatusErr)
 	}
 }
 
