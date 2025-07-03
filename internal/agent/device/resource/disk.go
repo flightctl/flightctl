@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"math"
+	"os"
 	"sync"
 	"syscall"
 	"time"
@@ -129,6 +130,11 @@ func (m *DiskMonitor) sync(ctx context.Context, usage *DiskUsage) {
 	defer cancel()
 
 	path := m.getPath()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		m.log.Debugf("Skipping disk usage sync: path %s does not exist", path)
+		return
+	}
+	
 	if err := m.CollectUsage(ctx, usage); err != nil {
 		m.log.Errorf("Failed to collect Disk usage for path: %s: %v", path, err)
 	}
