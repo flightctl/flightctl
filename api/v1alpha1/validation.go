@@ -569,7 +569,10 @@ func (u UpdateSchedule) Validate() []error {
 	return allErrs
 }
 
-func (r Repository) Validate() []error {
+func (r *Repository) Validate() []error {
+	if r == nil {
+		return nil
+	}
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)

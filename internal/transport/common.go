@@ -17,6 +17,16 @@ const (
 func SetResponse(w http.ResponseWriter, body any, status api.Status) {
 	w.Header().Set("Content-Type", "application/json")
 
+	hider, ok := body.(api.SensitiveDataHider)
+	if ok {
+		// If the body implements SensitiveDataHider, hide sensitive data before encoding
+		if err := hider.HideSensitiveData(); err != nil {
+			// If hiding sensitive data fails, return an internal server error
+			http.Error(w, fmt.Sprintf("failed to hide sensitive data: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// Encode body into a buffer first to catch encoding errors before writing the response
 	var buf bytes.Buffer
 	var err error
