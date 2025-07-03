@@ -2,10 +2,11 @@ package os
 
 import (
 	"context"
-	"time"
+	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
@@ -33,20 +34,28 @@ type Manager interface {
 }
 
 // NewManager creates a new os manager.
-func NewManager(log *log.PrefixLogger, client Client, reader fileio.ReadWriter, podmanClient *client.Podman) Manager {
+func NewManager(
+	log *log.PrefixLogger,
+	prefetchManager dependency.PrefetchManager,
+	client Client,
+	readWriter fileio.ReadWriter,
+	podmanClient *client.Podman,
+) Manager {
 	return &manager{
-		client:       client,
-		podmanClient: podmanClient,
-		reader:       reader,
-		log:          log,
+		client:          client,
+		prefetchManager: prefetchManager,
+		podmanClient:    podmanClient,
+		readWriter:      readWriter,
+		log:             log,
 	}
 }
 
 type manager struct {
-	client       Client
-	podmanClient *client.Podman
-	reader       fileio.ReadWriter
-	log          *log.PrefixLogger
+	client          Client
+	prefetchManager dependency.PrefetchManager
+	podmanClient    *client.Podman
+	readWriter      fileio.ReadWriter
+	log             *log.PrefixLogger
 }
 
 func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
@@ -66,10 +75,6 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.D
 	}
 
 	osImage := desired.Os.Image
-	opts := []client.ClientOption{
-		client.WithRetry(),
-	}
-
 	// check if the image is already booted or exists in container storage
 	status, err := m.client.Status(ctx)
 	if err != nil {
@@ -90,26 +95,28 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.D
 		return nil
 	}
 
-	now := time.Now()
-	m.log.Infof("Fetching OS image: %s", osImage)
+	target := dependency.OCIPullTarget{
+		Type:       dependency.OCITypeImage,
+		Reference:  osImage,
+		PullPolicy: v1alpha1.PullIfNotPresent,
+	}
 
 	// auth
-	secret, exists, err := client.ResolvePullSecret(m.log, m.reader, desired, authPath)
+	secret, found, err := client.ResolvePullSecret(m.log, m.readWriter, desired, authPath)
 	if err != nil {
 		return err
 	}
-	if exists {
+	if found {
 		defer secret.Cleanup()
-		m.log.Infof("Using pull secret: %s", secret.Path)
-		opts = append(opts, client.WithPullSecret(secret.Path))
+		target.PullSecret = secret
 	}
 
-	_, err = m.podmanClient.Pull(ctx, osImage, opts...)
-	if err != nil {
-		return err
+	// if the os image is not ready we will return a retryable error
+	if err := m.prefetchManager.EnsureScheduled(ctx, []dependency.OCIPullTarget{target}); err != nil {
+		return fmt.Errorf("os prefetch scheduled: %w", err)
 	}
-	m.log.Infof("Fetched OS image: %s in %s", osImage, time.Since(now))
 
+	m.log.Infof("OS image pulled successfully")
 	return nil
 }
 

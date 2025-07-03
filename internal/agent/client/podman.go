@@ -89,12 +89,9 @@ func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (
 	}
 
 	return logProgress(ctx, p.log, "Pulling image, please wait...", func(ctx context.Context) (string, error) {
-		if options.retry {
-			return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
-				return p.pullImage(ctx, image, options.pullSecretPath)
-			})
-		}
-		return p.pullImage(ctx, image, options.pullSecretPath)
+		return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
+			return p.pullImage(ctx, image, options.pullSecretPath)
+		})
 	})
 }
 
@@ -131,12 +128,9 @@ func (p *Podman) PullArtifact(ctx context.Context, artifact string, opts ...Clie
 	}
 
 	return logProgress(ctx, p.log, "Pulling artifact, please wait...", func(ctx context.Context) (string, error) {
-		if options.retry {
-			return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
-				return p.pullArtifact(ctx, artifact, options.pullSecretPath)
-			})
-		}
-		return p.pullArtifact(ctx, artifact, options.pullSecretPath)
+		return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
+			return p.pullArtifact(ctx, artifact, options.pullSecretPath)
+		})
 	})
 }
 

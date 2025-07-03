@@ -26,6 +26,8 @@ const (
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
+	// DefaultImagePrefetchTimeout is the default timeout for pulling a container images during prefetch.
+	DefaultImagePrefetchTimeout = util.Duration(30 * time.Minute)
 	// MinSyncInterval is the minimum interval allowed for the spec fetch and status update
 	MinSyncInterval = util.Duration(2 * time.Second)
 	// DefaultConfigDir is the default directory where the device's configuration is stored
@@ -98,6 +100,9 @@ type Config struct {
 	// SystemInfoTimeout is the timeout for collecting system info.
 	SystemInfoTimeout util.Duration `json:"system-info-timeout,omitempty"`
 
+	// ImagePrefetchTimeout sets the timeout for pulling images during prefetch operations.
+	ImagePrefetchTimeout util.Duration `json:"image-prefetch-timeout,omitempty"`
+
 	readWriter fileio.ReadWriter
 }
 
@@ -128,6 +133,7 @@ func NewDefault() *Config {
 		ServiceConfig:        config.NewServiceConfig(),
 		SystemInfo:           DefaultSystemInfo,
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
+		ImagePrefetchTimeout: DefaultImagePrefetchTimeout,
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {

@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -57,6 +58,7 @@ func TestSync(t *testing.T) {
 			mockLifecycleManager *lifecycle.MockManager,
 			mockPolicyManager *policy.MockManager,
 			mockSpecManager *spec.MockManager,
+			mockPrefetchManager *dependency.MockPrefetchManager,
 		)
 	}{
 		{
@@ -78,6 +80,7 @@ func TestSync(t *testing.T) {
 				mockLifecycleManager *lifecycle.MockManager,
 				mockPolicyManager *policy.MockManager,
 				mockSpecManager *spec.MockManager,
+				mockPrefetchManager *dependency.MockPrefetchManager,
 			) {
 				nonRetryableHookError := errors.New("hook error")
 				gomock.InOrder(
@@ -118,6 +121,7 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil),
 					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
+					mockPrefetchManager.EXPECT().Cleanup(),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					//
 					// resync steady state current 0 desired 0
@@ -142,6 +146,7 @@ func TestSync(t *testing.T) {
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, current.Spec, false).Return(nil),
 					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockPrefetchManager.EXPECT().Cleanup(),
 				)
 			},
 		},
@@ -162,6 +167,7 @@ func TestSync(t *testing.T) {
 			mockLifecycleManager := lifecycle.NewMockManager(ctrl)
 			mockPolicyManager := policy.NewMockManager(ctrl)
 			mockSpecManager := spec.NewMockManager(ctrl)
+			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -177,6 +183,7 @@ func TestSync(t *testing.T) {
 				mockLifecycleManager,
 				mockPolicyManager,
 				mockSpecManager,
+				mockPrefetchManager,
 			)
 
 			// setup
@@ -210,6 +217,7 @@ func TestSync(t *testing.T) {
 				resourceController:     resourceController,
 				systemdManager:         mockSystemdManager,
 				lifecycleManager:       mockLifecycleManager,
+				prefetchManager:        mockPrefetchManager,
 			}
 
 			// initial sync
