@@ -10,8 +10,7 @@ import (
 var (
 	ErrInvalidBaseDelay = errors.New("BaseDelay must be greater than 0")
 	ErrInvalidTimeout   = errors.New("timeout must be greater than 0")
-	ErrTimeout          = errors.New("operation timed out")
-	ErrMaxSteps         = errors.New("max retry steps exceeded")
+	ErrMaxSteps         = errors.New("max poll retry steps exceeded")
 )
 
 // Config defines parameters for exponential backoff polling.

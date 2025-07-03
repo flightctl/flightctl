@@ -599,7 +599,7 @@ func SanitizePodmanLabel(name string) string {
 
 func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff poll.Config, operation func(context.Context) (string, error)) (string, error) {
 	var result string
-	err := poll.BackoffWithContext(ctx, backoff, defaultPodmanTimeout, func(ctx context.Context) (bool, error) {
+	err := poll.BackoffWithContext(ctx, backoff, defaultPodmanMaxRetryTimeout, func(ctx context.Context) (bool, error) {
 		var err error
 		result, err = operation(ctx)
 		if err != nil {

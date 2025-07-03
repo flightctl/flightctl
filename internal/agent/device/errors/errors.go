@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/flightctl/flightctl/pkg/poll"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -102,6 +103,8 @@ func IsRetryable(err error) bool {
 		// this is a retryable error because it means the bootc status did not
 		// return valid JSON. this is a bug in the bootc status and we should
 		// retry the request as the error is transient.
+		return true
+	case errors.Is(err, poll.ErrMaxSteps):
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false

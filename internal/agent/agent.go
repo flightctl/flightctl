@@ -103,7 +103,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: this needs tuned
+	// TODO: replace wait with poll
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
 		Duration: 10 * time.Second,
@@ -112,9 +112,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	pollBackoff := poll.Config{
+		MaxDelay:  1 * time.Minute,
 		BaseDelay: 10 * time.Second,
 		Factor:    1.5,
-		MaxDelay:  1 * time.Minute,
+		MaxSteps:  6,
 	}
 
 	// create os client
