@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -91,7 +91,7 @@ func (s *DataStore) Event() Event {
 }
 
 func (s *DataStore) InitialMigration(ctx context.Context) error {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/store", "InitialMigration")
+	ctx, span := tracing.StartSpan(ctx, "flightctl/store", "InitialMigration")
 	defer span.End()
 
 	if err := s.Device().InitialMigration(ctx); err != nil {
