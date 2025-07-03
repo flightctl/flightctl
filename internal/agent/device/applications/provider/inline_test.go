@@ -109,7 +109,7 @@ func TestInlineProvider(t *testing.T) {
 			tmpDir := t.TempDir()
 			rw := fileio.NewReadWriter()
 			rw.SetRootdir(tmpDir)
-			podman := client.NewPodman(log, mockExec, rw, util.NewBackoff())
+			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 			spec := v1alpha1.InlineApplicationProviderSpec{
 				Inline: tt.content,

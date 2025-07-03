@@ -13,20 +13,18 @@ func TestBackoffWithContext(t *testing.T) {
 	require := require.New(t)
 	opErr := errors.New("fatal op error")
 
-	type testCase struct {
+	tests := []struct {
 		name       string
 		ctxTimeout time.Duration
-		config     *Config
+		config     Config
 		timeout    time.Duration
 		operation  func() func(context.Context) (bool, error)
 		expectErr  error
-	}
-
-	tests := []testCase{
+	}{
 		{
 			name:       "immediate success",
 			ctxTimeout: 1 * time.Second,
-			config:     &Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
 			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -38,7 +36,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "succeeds after retries",
 			ctxTimeout: 500 * time.Millisecond,
-			config:     &Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
 			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				attempts := 0
@@ -55,7 +53,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "fails with permanent error",
 			ctxTimeout: 1 * time.Second,
-			config:     &Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
 			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -67,7 +65,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "context timeout cancels retries",
 			ctxTimeout: 50 * time.Millisecond,
-			config:     &Config{BaseDelay: 30 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 30 * time.Millisecond, Factor: 2},
 			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -79,7 +77,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "invalid base delay",
 			ctxTimeout: 50 * time.Millisecond,
-			config:     &Config{BaseDelay: 0, Factor: 2},
+			config:     Config{BaseDelay: 0, Factor: 2},
 			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -91,7 +89,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "invalid timeout",
 			ctxTimeout: 50 * time.Millisecond,
-			config:     &Config{Factor: 2},
+			config:     Config{Factor: 2},
 			timeout:    0,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -103,7 +101,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "respects timeout",
 			ctxTimeout: 5 * time.Second, // parent should not interfere
-			config:     &Config{BaseDelay: 30 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 30 * time.Millisecond, Factor: 2},
 			timeout:    100 * time.Millisecond,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -111,6 +109,23 @@ func TestBackoffWithContext(t *testing.T) {
 				}
 			},
 			expectErr: context.DeadlineExceeded,
+		},
+		{
+			name:       "max steps exceeded",
+			ctxTimeout: 5 * time.Second,
+			config: Config{
+				BaseDelay: 10 * time.Millisecond,
+				Factor:    2,
+				MaxSteps:  3,
+			},
+			timeout: 2 * time.Second,
+			operation: func() func(context.Context) (bool, error) {
+				return func(context.Context) (bool, error) {
+					// retryable
+					return false, nil
+				}
+			},
+			expectErr: ErrMaxSteps,
 		},
 	}
 

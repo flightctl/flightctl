@@ -239,7 +239,7 @@ func TestApplicationStatus(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 
 			mockExec := executer.NewMockExecuter(ctrl)
-			podman := client.NewPodman(log, mockExec, readWriter, util.NewBackoff())
+			podman := client.NewPodman(log, mockExec, readWriter, util.NewPollConfig())
 
 			spec := v1alpha1.InlineApplicationProviderSpec{
 				Inline: []v1alpha1.ApplicationContent{

@@ -119,8 +119,7 @@ func TestInitialize(t *testing.T) {
 	queue := newPriorityQueue(
 		defaultSpecQueueMaxSize,
 		defaultSpecRequeueMaxRetries,
-		defaultSpecRequeueThreshold,
-		defaultSpecRequeueDelay,
+		defaultSpecPollConfig,
 		mockPolicyManager,
 		log,
 	)
@@ -777,8 +776,7 @@ func TestRollback(t *testing.T) {
 			queue := newPriorityQueue(
 				defaultSpecQueueMaxSize,
 				defaultSpecRequeueMaxRetries,
-				defaultSpecRequeueThreshold,
-				defaultSpecRequeueDelay,
+				defaultSpecPollConfig,
 				mockPolicyManager,
 				log,
 			)

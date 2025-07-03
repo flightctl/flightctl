@@ -176,7 +176,7 @@ func TestParseAppProviders(t *testing.T) {
 
 			imageConfig, err := newImageConfig(tc.labels)
 			require.NoError(err)
-			mockPodman := client.NewPodman(log, execMock, readWriter, util.NewBackoff())
+			mockPodman := client.NewPodman(log, execMock, readWriter, util.NewPollConfig())
 
 			tc.setupMocks(execMock, imageConfig)
 
@@ -402,7 +402,7 @@ func TestControllerSync(t *testing.T) {
 			defer ctrl.Finish()
 			mockExecuter := executer.NewMockExecuter(ctrl)
 			mockAppManager := NewMockManager(ctrl)
-			podmanClient := client.NewPodman(log, mockExecuter, readWriter, util.NewBackoff())
+			podmanClient := client.NewPodman(log, mockExecuter, readWriter, util.NewPollConfig())
 
 			controller := NewController(podmanClient, mockAppManager, readWriter, log)
 

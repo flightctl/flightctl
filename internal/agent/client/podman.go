@@ -15,7 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 const (
@@ -62,21 +62,15 @@ type PodmanEvent struct {
 }
 
 type Podman struct {
-	exec       executer.Executer
-	log        *log.PrefixLogger
+	exec executer.Executer
+	log  *log.PrefixLogger
+	// timeout per client call
 	timeout    time.Duration
 	readWriter fileio.ReadWriter
-<<<<<<< HEAD
-	backoff    wait.Backoff
-}
-
-func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff wait.Backoff) *Podman {
-=======
 	backoff    poll.Config
 }
 
 func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff poll.Config) *Podman {
->>>>>>> 5d370239 (impl)
 	return &Podman{
 		log:        log,
 		exec:       exec,
@@ -603,15 +597,9 @@ func SanitizePodmanLabel(name string) string {
 	return result.String()
 }
 
-<<<<<<< HEAD
-func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff wait.Backoff, operation func(context.Context) (string, error)) (string, error) {
-	var result string
-	err := wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
-=======
 func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff poll.Config, operation func(context.Context) (string, error)) (string, error) {
 	var result string
 	err := poll.BackoffWithContext(ctx, backoff, defaultPodmanTimeout, func(ctx context.Context) (bool, error) {
->>>>>>> 5d370239 (impl)
 		var err error
 		result, err = operation(ctx)
 		if err != nil {

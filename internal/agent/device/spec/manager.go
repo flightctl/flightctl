@@ -49,8 +49,7 @@ func NewManager(
 	queue := newPriorityQueue(
 		defaultSpecQueueMaxSize,
 		defaultSpecRequeueMaxRetries,
-		defaultSpecRequeueThreshold,
-		defaultSpecRequeueDelay,
+		defaultSpecPollConfig,
 		policyManager,
 		log,
 	)

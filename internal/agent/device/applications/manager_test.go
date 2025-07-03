@@ -121,7 +121,7 @@ func TestManager(t *testing.T) {
 
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
-			mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewBackoff())
+			mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
 
 			tmpDir := t.TempDir()
 			readWriter.SetRootdir(tmpDir)
@@ -262,7 +262,7 @@ func TestBeforeUpdate(t *testing.T) {
 			rw.SetRootdir(tmpDir)
 
 			mockExec := executer.NewMockExecuter(ctrl)
-			podmanClient := client.NewPodman(log, mockExec, rw, util.NewBackoff())
+			podmanClient := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 			manager := &manager{
 				readWriter:    rw,
