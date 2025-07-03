@@ -130,11 +130,6 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	err := h.allowCreationOrUpdate(ctx, orgId, *er.Metadata.Name)
-	if err != nil {
-		return nil, api.StatusBadRequest(err.Error())
-	}
-
 	addStatusIfNeeded(&er)
 
 	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er)
@@ -327,16 +322,11 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
 	device, err := h.store.Device().Get(ctx, orgId, name)
-	if err != nil {
-		// Device not found, allow creation or update
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil
-		}
-		return fmt.Errorf("failed to get device: %w", err)
+	if errors.Is(err, flterrors.ErrResourceNotFound) {
+		return nil // Device not found: allow create or update
 	}
-	// Device found successfully - check if it has been seen
-	if device.Status != nil && !device.Status.LastSeen.IsZero() {
-		return flterrors.ErrDuplicateName // Device exists and has been seen
+	if device != nil {
+		return flterrors.ErrDuplicateName // Duplicate name: creation blocked
 	}
-	return nil
+	return err
 }
