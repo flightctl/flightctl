@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -62,17 +63,33 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 	}, nil
 }
 
+func (p *imageProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	policy := v1alpha1.PullIfNotPresent
+	var targets []dependency.OCIPullTarget
+	targets = append(targets, dependency.OCIPullTarget{
+		Type:       dependency.OCITypeImage,
+		Reference:  p.spec.ImageProvider.Image,
+		PullPolicy: policy,
+		PullSecret: pullSecret,
+	})
+
+	// volume artifacts
+	volTargets, err := extractVolumeTargets(p.spec.ImageProvider.Volumes, pullSecret)
+	if err != nil {
+		return nil, fmt.Errorf("parsing volume targets: %w", err)
+	}
+	targets = append(targets, volTargets...)
+
+	return targets, nil
+}
+
 func (p *imageProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
 
-	image := p.spec.ImageProvider.Image
-	if err := ensureImageExists(ctx, p.log, p.podman, image, v1alpha1.PullIfNotPresent); err != nil {
-		return fmt.Errorf("pulling image: %w", err)
-	}
-
 	// type declared in the spec overrides the type from the image
+	image := p.spec.ImageProvider.Image
 	if p.spec.AppType == "" {
 		appType, err := typeFromImage(ctx, p.podman, image)
 		if err != nil {
@@ -117,11 +134,8 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		p.spec.Path = path
 
 		// ensure the compose application content in tmp dir is valid
-		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
+		if err := ensureCompose(p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
-		}
-		if err := ensureVolumesContent(ctx, p.log, p.podman, p.spec.ImageProvider.Volumes); err != nil {
-			return fmt.Errorf("ensuring volumes: %w", err)
 		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)

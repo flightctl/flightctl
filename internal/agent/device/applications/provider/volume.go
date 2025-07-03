@@ -165,59 +165,6 @@ func (m *volumeManager) UpdateStatus(event *client.PodmanEvent) {
 	}
 }
 
-// ensureVolumesContent ensures image content for each volume is present,
-// pulling it based on the volume's pull policy.
-func ensureVolumesContent(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, volumes *[]v1alpha1.ApplicationVolume) error {
-	if volumes == nil {
-		return nil
-	}
-
-	// ensure the volume content is pulled and available on disk
-	for _, volume := range *volumes {
-		vType, err := volume.Type()
-		if err != nil {
-			return fmt.Errorf("getting volume type: %w", err)
-		}
-		switch vType {
-		case v1alpha1.ImageApplicationVolumeProviderType:
-			v, err := volume.AsImageVolumeProviderSpec()
-			if err != nil {
-				return fmt.Errorf("getting image volume provider spec: %w", err)
-			}
-			pullPolicy := v1alpha1.PullIfNotPresent
-			if v.Image.PullPolicy != nil {
-				pullPolicy = *v.Image.PullPolicy
-			}
-			if err := ensureArtifactExists(ctx, log, podman, v.Image.Reference, pullPolicy); err != nil {
-				return fmt.Errorf("pulling image volume: %w", err)
-			}
-		default:
-			return fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, vType)
-		}
-	}
-	return nil
-}
-
-// ensureArtifactExists checks if an artifact exists locally and pulls it if needed.
-func ensureArtifactExists(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, artifact string, pullPolicy v1alpha1.ImagePullPolicy) error {
-	if pullPolicy == v1alpha1.PullNever {
-		log.Tracef("Pull policy is set to never, skipping artifact pull: %s", artifact)
-		return nil
-	}
-	if podman.ImageExists(ctx, artifact) && pullPolicy != v1alpha1.PullAlways {
-		log.Tracef("Artifact already exists in container storage: %s", artifact)
-		return nil
-	}
-
-	_, err := podman.PullArtifact(ctx, artifact)
-	if err != nil {
-		log.Warnf("Failed to pull artifact %q: %v", artifact, err)
-		return err
-	}
-
-	return nil
-}
-
 // ensureDependenciesFromVolumes verifies all volume types are supported
 // and checks that Podman ≥ 5.5 is used for image backed volumes.
 func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, volumes *[]v1alpha1.ApplicationVolume) error {

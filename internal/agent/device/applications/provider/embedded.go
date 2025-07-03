@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -23,30 +24,58 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 	if err != nil {
 		return nil, err
 	}
+
+	appPath, err := pathFromAppType(appType, name, true)
+	if err != nil {
+		return nil, fmt.Errorf("getting app path: %w", err)
+	}
+
 	return &embeddedProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
 		spec: &ApplicationSpec{
 			Name:     name,
+			ID:       client.NewComposeID(name),
 			AppType:  appType,
 			Embedded: true,
 			EnvVars:  make(map[string]string),
 			Volume:   volumeManager,
+			Path:     appPath,
 		},
 	}, nil
 }
 
-func (p *embeddedProvider) Verify(ctx context.Context) error {
-	appPath, err := pathFromAppType(p.spec.AppType, p.spec.Name, p.spec.Embedded)
-	if err != nil {
-		return fmt.Errorf("getting app path: %w", err)
-	}
+func (p *embeddedProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
 	switch p.spec.AppType {
 	case v1alpha1.AppTypeCompose:
-		p.spec.ID = client.NewComposeID(p.spec.Name)
-		p.spec.Path = appPath
-		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, appPath); err != nil {
+		spec, err := client.ParseComposeSpecFromDir(p.readWriter, p.spec.Path)
+		if err != nil {
+			return nil, fmt.Errorf("parsing compose spec: %w", err)
+		}
+		// extract images from service
+		var targets []dependency.OCIPullTarget
+		for _, svc := range spec.Services {
+			if svc.Image != "" {
+				targets = append(targets, dependency.OCIPullTarget{
+					Type:       dependency.OCITypeImage,
+					Reference:  svc.Image,
+					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullSecret: pullSecret,
+				})
+			}
+		}
+
+		return targets, nil
+	default:
+		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
+	}
+}
+
+func (p *embeddedProvider) Verify(ctx context.Context) error {
+	switch p.spec.AppType {
+	case v1alpha1.AppTypeCompose:
+		if err := ensureCompose(p.readWriter, p.spec.Path); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
 	default:
@@ -54,6 +83,7 @@ func (p *embeddedProvider) Verify(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (e *embeddedProvider) Name() string {
 	return e.spec.Name
 }

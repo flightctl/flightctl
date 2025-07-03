@@ -51,9 +51,6 @@ func TestManager(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
 				gomock.InOrder(
 					// start new app
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-new", true, true),
 					mockExecPodmanEvents(mockExec),
@@ -71,9 +68,6 @@ func TestManager(t *testing.T) {
 				id := client.NewComposeID("app-remove")
 				gomock.InOrder(
 					// start current app
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-remove", true, true),
 
@@ -97,24 +91,16 @@ func TestManager(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
 				id := client.NewComposeID("app-update")
 				gomock.InOrder(
-					// verify current app
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-
-					// verify desired app
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", testImage}).Return("", "", 0),
-
 					// start current app
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-update", true, true),
 
-					// // stop and remove current app
+					// stop and remove current app
 					mockExecPodmanNetworkList(mockExec, "app-update"),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
 
-					// // start desired app
+					// start desired app
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-update", true, true),
 					mockExecPodmanEvents(mockExec),
@@ -178,6 +164,122 @@ func TestManager(t *testing.T) {
 			if len(tc.wantAppNames) == 0 {
 				require.Empty(manager.podmanMonitor.apps)
 			}
+		})
+	}
+}
+
+func TestBeforeUpdate(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name        string
+		deviceSpec  *v1alpha1.DeviceSpec
+		setupMocks  func(mockExec *executer.MockExecuter)
+		expectedErr error
+	}{
+		{
+			name:       "no applications",
+			deviceSpec: &v1alpha1.DeviceSpec{},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				// no calls expected for empty spec
+			},
+		},
+		{
+			name: "inline application some images exist",
+			deviceSpec: newTestDeviceWithApplications(require, "test-app", []testInlineDetails{
+				{Content: compose1, Path: "docker-compose.yml"},
+			}),
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				gomock.InOrder(
+					// not available
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 1),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testImage).Return("", "", 0),
+					// available no pull
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
+				)
+			},
+		},
+		{
+			name: "inline application all images exist",
+			deviceSpec: newTestDeviceWithApplications(require, "test-app-wait", []testInlineDetails{
+				{Content: compose1, Path: "docker-compose.yml"},
+			}),
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				gomock.InOrder(
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 0),
+				)
+			},
+		},
+		{
+			name: "inline application with pull secret config no images exist",
+			deviceSpec: func() *v1alpha1.DeviceSpec {
+				spec := newTestDeviceWithApplications(require, "test-secret", []testInlineDetails{
+					{Content: compose1, Path: "docker-compose.yml"},
+				})
+				// pull secret via config provider
+				pullSecretConfig := v1alpha1.ConfigProviderSpec{}
+				err := pullSecretConfig.FromInlineConfigProviderSpec(v1alpha1.InlineConfigProviderSpec{
+					Name: "pull-secret",
+					Inline: []v1alpha1.FileSpec{
+						{
+							Path:    "/root/.config/containers/auth.json",
+							Content: `{"auths":{"registry.io":{"auth":"dGVzdDp0ZXN0"}}}`,
+						},
+					},
+				})
+				require.NoError(err)
+				spec.Config = &[]v1alpha1.ConfigProviderSpec{pullSecretConfig}
+				return spec
+			}(),
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				gomock.InOrder(
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 1),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testImage, "--authfile", gomock.Any()).Return("", "", 0),
+
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 1),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testImage, "--authfile", gomock.Any()).Return("", "", 0),
+
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testImage).Return("", "", 1),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testImage, "--authfile", gomock.Any()).Return("", "", 0),
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			rw := fileio.NewReadWriter()
+			tmpDir := t.TempDir()
+			rw.SetRootdir(tmpDir)
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			podmanClient := client.NewPodman(log, mockExec, rw, util.NewBackoff())
+
+			manager := &manager{
+				readWriter:    rw,
+				podmanMonitor: NewPodmanMonitor(log, podmanClient, "", rw),
+				podmanClient:  podmanClient,
+				log:           log,
+			}
+
+			tt.setupMocks(mockExec)
+
+			err := manager.BeforeUpdate(ctx, tt.deviceSpec)
+			if tt.expectedErr != nil {
+				require.Error(err)
+				require.ErrorIs(err, tt.expectedErr)
+				return
+			}
+			require.NoError(err)
 		})
 	}
 }

@@ -241,9 +241,6 @@ func TestApplicationStatus(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			podman := client.NewPodman(log, mockExec, readWriter, util.NewBackoff())
 
-			appImage := "quay.io/flightctl-tests/alpine:v1"
-			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0)
-
 			spec := v1alpha1.InlineApplicationProviderSpec{
 				Inline: []v1alpha1.ApplicationContent{
 					{

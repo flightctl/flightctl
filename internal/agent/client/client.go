@@ -1,16 +1,20 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"os/exec"
+	"strings"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -70,6 +74,98 @@ func IsComposeAvailable() bool {
 		}
 	}
 	return false
+}
+
+type PullSecret struct {
+	// Absolute path to the pull secret
+	Path string
+	// Cleanup function for temporary files, or no-op
+	Cleanup func()
+}
+
+// ResolvePullSecret returns the image pull secret path, preferring inline spec
+// auth then falling back to on disk.  Cleanup removes tmp files generated from
+// inline spec if found and is otherwise a no-op.
+func ResolvePullSecret(
+	log *log.PrefixLogger,
+	rw fileio.ReadWriter,
+	desired *v1alpha1.DeviceSpec,
+	authPath string,
+) (*PullSecret, bool, error) {
+	specContent, found, err := authFromSpec(log, desired, authPath)
+	if err != nil {
+		return nil, false, err
+	}
+	if found {
+		exists, err := rw.PathExists(authPath)
+		if err != nil {
+			return nil, false, err
+		}
+		if exists {
+			diskContent, err := rw.ReadFile(authPath)
+			if err != nil {
+				return nil, false, fmt.Errorf("reading existing auth file: %w", err)
+			}
+
+			if bytes.Equal(diskContent, specContent) {
+				log.Debugf("Using on-disk pull secret (identical to spec): %s", authPath)
+				return &PullSecret{Path: authPath, Cleanup: func() {}}, true, nil
+			}
+		}
+		path, cleanup, err := fileio.WriteTmpFile(rw, "os_auth_", "auth.json", specContent, 0600)
+		if err != nil {
+			return nil, false, fmt.Errorf("writing inline auth file: %w", err)
+		}
+		log.Debugf("Using inline auth from device spec")
+		return &PullSecret{Path: path, Cleanup: cleanup}, true, nil
+	}
+
+	exists, err := rw.PathExists(authPath)
+	if err != nil {
+		return nil, false, err
+	}
+	if exists {
+		log.Debugf("Using on-disk pull secret: %s", authPath)
+		return &PullSecret{Path: authPath, Cleanup: func() {}}, true, nil
+	}
+
+	return nil, false, nil
+}
+
+func authFromSpec(log *log.PrefixLogger, device *v1alpha1.DeviceSpec, authPath string) ([]byte, bool, error) {
+	if device.Config == nil {
+		return nil, false, nil
+	}
+
+	for _, provider := range *device.Config {
+		pType, err := provider.Type()
+		if err != nil {
+			return nil, false, fmt.Errorf("provider type: %v", err)
+		}
+		if pType != v1alpha1.InlineConfigProviderType {
+			// agent should only ever see inline config
+			log.Errorf("Invalid config provider type: %s", pType)
+			continue
+		}
+		spec, err := provider.AsInlineConfigProviderSpec()
+		if err != nil {
+			return nil, false, fmt.Errorf("convert inline config provider: %v", err)
+		}
+
+		for _, file := range spec.Inline {
+			if strings.TrimSpace(file.Path) == authPath {
+				// ensure content is properly decoded
+				contents, err := fileio.DecodeContent(file.Content, file.ContentEncoding)
+				if err != nil {
+					log.Errorf("decode content: %v", err)
+					continue
+				}
+				return contents, true, nil
+			}
+		}
+	}
+
+	return nil, false, nil
 }
 
 // ClientOption is a functional option for configuring the client.

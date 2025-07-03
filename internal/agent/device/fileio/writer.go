@@ -353,3 +353,23 @@ func DecodeContent(content string, encoding *v1alpha1.EncodingType) ([]byte,
 		return nil, fmt.Errorf("unsupported content encoding: %q", *encoding)
 	}
 }
+
+// WriteTmpFile writes the given content to a temporary file with the specified name prefix.
+// It returns the path to the tmp file and a cleanup function to remove it.
+func WriteTmpFile(rw ReadWriter, prefix, filename string, content []byte, perm os.FileMode) (path string, cleanup func(), err error) {
+	tmpDir, err := rw.MkdirTemp(prefix)
+	if err != nil {
+		return "", nil, fmt.Errorf("creating tmp dir: %w", err)
+	}
+
+	tmpPath := filepath.Join(tmpDir, filename)
+	if err := rw.WriteFile(tmpPath, content, perm); err != nil {
+		_ = rw.RemoveAll(tmpDir)
+		return "", nil, fmt.Errorf("writing tmp file: %w", err)
+	}
+
+	cleanup = func() {
+		_ = rw.RemoveAll(tmpDir)
+	}
+	return tmpPath, cleanup, nil
+}

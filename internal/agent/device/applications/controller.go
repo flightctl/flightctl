@@ -2,6 +2,7 @@ package applications
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -35,14 +36,29 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Device
 	c.log.Debug("Syncing device applications")
 	defer c.log.Debug("Finished syncing device applications")
 
-	currentAppProviders, err := provider.FromDeviceSpec(ctx, c.log, c.podman, c.readWriter, current)
+	currentAppProviders, err := provider.FromDeviceSpec(
+		ctx,
+		c.log,
+		c.podman,
+		c.readWriter,
+		current,
+		provider.WithVerify(),
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("current app providers: %w", err)
 	}
 
-	desiredAppProviders, err := provider.FromDeviceSpec(ctx, c.log, c.podman, c.readWriter, desired, provider.WithEmbedded())
+	desiredAppProviders, err := provider.FromDeviceSpec(
+		ctx,
+		c.log,
+		c.podman,
+		c.readWriter,
+		desired,
+		provider.WithVerify(),
+		provider.WithEmbedded(),
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("desired app providers: %w", err)
 	}
 
 	return syncProviders(ctx, c.log, c.manager, currentAppProviders, desiredAppProviders)

@@ -35,7 +35,7 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("vm", func() {
-		It("Verify VM agent", Label("80455", "sanity"), func() {
+		It("Verify VM agent", Label("80455"), func() {
 			By("should print QR output to console")
 			// Wait for the top-most part of the QR output to appear
 			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
@@ -51,7 +51,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 		})
 
-		It("Verifying generation of enrollment request link", Label("75518", "sanity"), func() {
+		It("Verifying generation of enrollment request link", Label("75518"), func() {
 			By("should be reporting device status on enrollment request")
 			// Get the enrollment Request ID from the console output
 			enrollmentID := harness.GetEnrollmentIDFromConsole()
@@ -71,7 +71,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
 				enrollmentID).ShouldNot(BeNil())
 		})
-		It("Should report a message when a device is assigned to multiple fleets", Label("75992", "sanity"), func() {
+		It("Should report a message when a device is assigned to multiple fleets", Label("75992"), func() {
 			const (
 				fleet1Name  = "fleet1"
 				fleet2Name  = "fleet2"

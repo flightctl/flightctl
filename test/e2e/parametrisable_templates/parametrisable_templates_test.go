@@ -34,7 +34,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 	Context("parametrisable_templates", func() {
 		It(`Verifies that Flightctl fleet resource supports parametrisable device
 		    templates to configure items that are specific to an individual device
-			or a group of devices selected by labels`, Label("75486", "sanity"), func() {
+			or a group of devices selected by labels`, Label("75486"), func() {
 
 			By("Create a fleet with template variables in InlineConfigProviderSpec")
 			err := configProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidWithFunction)

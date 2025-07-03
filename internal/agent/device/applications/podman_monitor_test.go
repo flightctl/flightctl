@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -463,6 +464,10 @@ func (m *mockProvider) Spec() *provider.ApplicationSpec {
 		Name:   m.name,
 		Volume: volManager,
 	}
+}
+
+func (m *mockProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	return nil, nil
 }
 
 func (m *mockProvider) Verify(ctx context.Context) error {

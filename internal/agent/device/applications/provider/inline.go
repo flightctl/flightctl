@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -58,6 +59,35 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 
 }
 
+func (p *inlineProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	// parse compose content from the inline spec
+	spec, err := client.ParseComposeFromSpec(p.spec.InlineProvider.Inline)
+	if err != nil {
+		return nil, err
+	}
+
+	// extract images from inline service
+	var targets []dependency.OCIPullTarget
+	for _, svc := range spec.Services {
+		if svc.Image != "" {
+			targets = append(targets, dependency.OCIPullTarget{
+				Type:       dependency.OCITypeImage,
+				Reference:  svc.Image,
+				PullPolicy: v1alpha1.PullIfNotPresent,
+				PullSecret: pullSecret,
+			})
+		}
+	}
+
+	volTargets, err := extractVolumeTargets(p.spec.InlineProvider.Volumes, pullSecret)
+	if err != nil {
+		return nil, err
+	}
+	targets = append(targets, volTargets...)
+
+	return targets, nil
+}
+
 func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
@@ -90,11 +120,8 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 
 	switch p.spec.AppType {
 	case v1alpha1.AppTypeCompose:
-		if err := ensureCompose(ctx, p.log, p.podman, p.readWriter, tmpAppPath); err != nil {
+		if err := ensureCompose(p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
-		}
-		if err := ensureVolumesContent(ctx, p.log, p.podman, p.spec.InlineProvider.Volumes); err != nil {
-			return fmt.Errorf("ensuring volumes: %w", err)
 		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
