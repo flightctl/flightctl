@@ -12,6 +12,7 @@ package policy
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	gomock "go.uber.org/mock/gomock"
@@ -41,29 +42,59 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // IsReady mocks base method.
-func (m *MockManager) IsReady(ctx context.Context, policyType Type) bool {
+func (m *MockManager) IsReady(ctx context.Context, policyType Type, device *v1alpha1.Device) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsReady", ctx, policyType)
+	ret := m.ctrl.Call(m, "IsReady", ctx, policyType, device)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
 // IsReady indicates an expected call of IsReady.
-func (mr *MockManagerMockRecorder) IsReady(ctx, policyType any) *gomock.Call {
+func (mr *MockManagerMockRecorder) IsReady(ctx, policyType, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReady", reflect.TypeOf((*MockManager)(nil).IsReady), ctx, policyType)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReady", reflect.TypeOf((*MockManager)(nil).IsReady), ctx, policyType, device)
+}
+
+// IsVersionReady mocks base method.
+func (m *MockManager) IsVersionReady(ctx context.Context, device *v1alpha1.Device) (bool, *time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsVersionReady", ctx, device)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(*time.Time)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// IsVersionReady indicates an expected call of IsVersionReady.
+func (mr *MockManagerMockRecorder) IsVersionReady(ctx, device any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsVersionReady", reflect.TypeOf((*MockManager)(nil).IsVersionReady), ctx, device)
+}
+
+// SetCurrentDevice mocks base method.
+func (m *MockManager) SetCurrentDevice(ctx context.Context, device *v1alpha1.Device) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetCurrentDevice", ctx, device)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetCurrentDevice indicates an expected call of SetCurrentDevice.
+func (mr *MockManagerMockRecorder) SetCurrentDevice(ctx, device any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCurrentDevice", reflect.TypeOf((*MockManager)(nil).SetCurrentDevice), ctx, device)
 }
 
 // Sync mocks base method.
-func (m *MockManager) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *MockManager) Sync(ctx context.Context, device *v1alpha1.Device) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Sync", ctx, desired)
+	ret := m.ctrl.Call(m, "Sync", ctx, device)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Sync indicates an expected call of Sync.
-func (mr *MockManagerMockRecorder) Sync(ctx, desired any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Sync(ctx, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sync", reflect.TypeOf((*MockManager)(nil).Sync), ctx, desired)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sync", reflect.TypeOf((*MockManager)(nil).Sync), ctx, device)
 }

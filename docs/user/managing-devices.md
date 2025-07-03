@@ -844,7 +844,13 @@ Each schedule supports:
 | `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device’s local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `startGraceDuration`   | (Optional) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
 
-The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](device-api-statuses.md#device-api-statuses).
+The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed.
+While waiting for the update window to trigger, the device will have an `Updating` condition containing a message that indicates at what time reevaluation of the condition will occur
+(`device.status.conditions.Updating.Reason` will be `Preparing`).
+For more details please see [Device API Statuses](device-api-statuses.md#device-api-statuses).
+
+Only once all defined policies have passed their schedule conditions will the update begin.
+As an example, if updating is scheduled for the 17th of a month, and downloading for the 19th, then a spec will not be applied until the 19th.
 
 >[!TIP]
 > Use [crontab guru](https://crontab.guru/) to create and test cron expressions interactively.
@@ -866,11 +872,18 @@ updatePolicy:
 ```yaml
 updatePolicy:
   updateSchedule:
-    at: "0 5 14 5 *"              # May 15th at 5:00 AM
+    at: "0 5 15 5 *"              # May 15th at 5:00 AM
     timeZone: "America/New_York"
     startGraceDuration: "2h"      # allow update until 7:00 AM
 ```
 
+```yaml
+updatePolicy:
+  updateSchedule:
+    at: "0 5 15 5 *"              # May 15th at 5:00 AM 
+    timeZone: "America/New_York"  # update will only occur at exactly 5:00AM
+```
+
 > [!NOTE]
-> It’s best practice to define a `startGraceDuration` to allow for potential delays in agent execution. Without it, the update window may be missed.
+> It’s best practice to define a `startGraceDuration` to allow for potential delays in agent execution. Without it, the update window will likely be missed.
 > Once an update begins within the allowed window, there is no enforced timeout the update may continue running beyond the grace period.
