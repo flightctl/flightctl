@@ -17,8 +17,14 @@ case $IMAGE in
     periodic)
         NAMESPACE=flightctl-internal
         ;;
+    alert-exporter)
+        NAMESPACE=flightctl-internal
+        ;;
+    alertmanager-proxy)
+        NAMESPACE=flightctl-internal
+        ;;
 
-    *) echo "Usage: $0 <api|worker|periodic>"
+    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy>"
        exit 1
 esac
 

@@ -529,6 +529,8 @@ func (t *TracedService) GetLatestTemplateVersion(ctx context.Context, fleet stri
 	endSpan(span, st)
 	return resp, st
 }
+
+// --- Event ---
 func (t *TracedService) CreateEvent(ctx context.Context, event *api.Event) {
 	ctx, span := startSpan(ctx, "CreateEvent")
 	t.inner.CreateEvent(ctx, event)
@@ -543,6 +545,26 @@ func (t *TracedService) ListEvents(ctx context.Context, params api.ListEventsPar
 func (t *TracedService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status) {
 	ctx, span := startSpan(ctx, "DeleteEventsOlderThan")
 	resp, st := t.inner.DeleteEventsOlderThan(ctx, cutoffTime)
+	endSpan(span, st)
+	return resp, st
+}
+
+// --- Checkpoint ---
+func (t *TracedService) GetCheckpoint(ctx context.Context, consumer string, key string) ([]byte, api.Status) {
+	ctx, span := startSpan(ctx, "GetCheckpoint")
+	resp, st := t.inner.GetCheckpoint(ctx, consumer, key)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) SetCheckpoint(ctx context.Context, consumer string, key string, value []byte) api.Status {
+	ctx, span := startSpan(ctx, "SetCheckpoint")
+	st := t.inner.SetCheckpoint(ctx, consumer, key, value)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) GetDatabaseTime(ctx context.Context) (time.Time, api.Status) {
+	ctx, span := startSpan(ctx, "GetDatabaseTime")
+	resp, st := t.inner.GetDatabaseTime(ctx)
 	endSpan(span, st)
 	return resp, st
 }

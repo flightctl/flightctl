@@ -46,17 +46,13 @@ unit-test:
 run-integration-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
-prepare-integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
-prepare-integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
-prepare-integration-test: deploy-db deploy-kv
-
+integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
+integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
 integration-test:
-	@$(MAKE) prepare-integration-test && \
-	$(MAKE) run-integration-test;        \
-	rc=$$?;                              \
-	$(MAKE) -s kill-kv kill-db;          \
-	exit $$rc
-
+	@set -e; \
+	$(MAKE) deploy-db deploy-kv deploy-alertmanager; \
+	trap '$(MAKE) -k kill-alertmanager kill-kv kill-db' EXIT; \
+	$(MAKE) run-integration-test
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh

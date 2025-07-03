@@ -1,0 +1,79 @@
+{{- if .Values.alertmanagerProxy.enabled -}}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-alertmanager-proxy
+  name: flightctl-alertmanager-proxy
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-alertmanager-proxy
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-alertmanager-proxy
+    spec:
+      containers:
+        - name: alertmanager-proxy
+          image: "{{ .Values.alertmanagerProxy.image.image }}:{{ default .Chart.AppVersion .Values.alertmanagerProxy.image.tag }}"
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.alertmanagerProxy.image.pullPolicy }}
+          ports:
+            - containerPort: 8443
+              name: proxy
+              protocol: TCP
+          env:
+            - name: HOME
+              value: "/root"
+            - name: ALERTMANAGER_URL
+              value: "http://flightctl-alertmanager:9093"
+            {{- if eq .Values.global.auth.type "none" }}
+            - name: FLIGHTCTL_DISABLE_AUTH
+              value: "true"
+            {{- end }}
+          volumeMounts:
+            - mountPath: /root/.flightctl-certs/
+              name: flightctl-alertmanager-proxy-certs
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-alertmanager-proxy-config
+              subPath: config.yaml
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-alertmanager-proxy-certs
+          persistentVolumeClaim:
+            claimName: flightctl-alertmanager-proxy-certs
+        - name: flightctl-alertmanager-proxy-config
+          configMap:
+            name: flightctl-alertmanager-proxy-config
+{{- end }}

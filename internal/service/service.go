@@ -109,4 +109,9 @@ type Service interface {
 	CreateEvent(ctx context.Context, event *api.Event)
 	ListEvents(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status)
 	DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status)
+
+	// Checkpoint
+	GetCheckpoint(ctx context.Context, consumer string, key string) ([]byte, api.Status)
+	SetCheckpoint(ctx context.Context, consumer string, key string, value []byte) api.Status
+	GetDatabaseTime(ctx context.Context) (time.Time, api.Status)
 }
