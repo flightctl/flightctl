@@ -3602,12 +3602,12 @@ components:
       required:
         - reference
     ApplicationContent:
-        allOf:
-          - $ref: '#/components/schemas/FileContent'
-          - $ref: '#/components/schemas/RelativePath'
-          - type: object
-            required:
-              - path
+      allOf:
+      - $ref: '#/components/schemas/FileContent'
+      - $ref: '#/components/schemas/RelativePath'
+      - type: object
+        required:
+          - path
     ApplicationEnvVars:
       type: object
       properties:
@@ -5091,6 +5091,8 @@ components:
             - ResourceUpdateFailed
             - ResourceDeleted
             - ResourceDeletionFailed
+            - ResourceUpdateFound
+            - ResourceUpdateNotFound
             - DeviceDecommissioned
             - DeviceDecommissionFailed
             - DeviceCPUCritical
@@ -5112,6 +5114,10 @@ components:
             - DeviceContentUpdating
             - EnrollmentRequestApproved
             - EnrollmentRequestApprovalFailed
+            - FleetReconciled
+            - FleetReconcileFailed
+            - RepositoryAccessible
+            - RepositoryInaccessible
         message:
           type: string
           description: A human-readable description of the status of this operation.

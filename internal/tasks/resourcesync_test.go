@@ -1,18 +1,24 @@
 package tasks
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -79,7 +85,7 @@ func TestParseAndValidate_already_in_sync(t *testing.T) {
 	rs.Status.ObservedGeneration = lo.ToPtr(int64(1))
 
 	// Already in sync with hash
-	rm, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
+	rm, _, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
 	require.NoError(err)
 	require.Nil(rm)
 }
@@ -92,7 +98,7 @@ func TestParseAndValidate_no_files(t *testing.T) {
 	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	// Empty folder
-	_, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
+	_, _, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
 	require.Error(err)
 }
 
@@ -103,7 +109,7 @@ func TestParseAndValidate_unsupportedFiles(t *testing.T) {
 	require.NoError(err)
 	rsTask := NewResourceSync(resourceSyncParams(t))
 
-	_, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
+	_, _, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
 	require.Error(err)
 }
 
@@ -115,8 +121,9 @@ func TestParseAndValidate_singleFile(t *testing.T) {
 	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	rs.Spec.Path = "/examples/fleet.yaml"
-	resources, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
+	resources, hash, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
 	require.NoError(err)
+	require.NotEmpty(hash)
 	require.Len(resources, 1)
 	require.Equal(resources[0]["kind"], api.FleetKind)
 }
@@ -246,6 +253,28 @@ func TestParseFleet_multiple(t *testing.T) {
 
 }
 
+func TestCreateEvent(t *testing.T) {
+	//require := require.New(t)
+
+	ctx := context.Background()
+	reqid.OverridePrefix(resourceSyncName)
+	requestID := reqid.NextRequestID()
+	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, consts.EventActorCtxKey, resourceSyncTask)
+	rsTask := NewResourceSync(resourceSyncParams(t))
+	rsTask.serviceHandler = service.NewServiceHandler(&testStore{}, nil, nil, nil, rsTask.log, "", "")
+	rs := testResourceSync()
+
+	rsTask.createEvent(ctx, &rs, "1234", fmt.Errorf("new failure"))
+	list, status := rsTask.serviceHandler.ListEvents(context.Background(), api.ListEventsParams{})
+	require.Equal(t, status.Code, int32(200))
+	require.Len(t, list.Items, 1)
+	rsTask.createEvent(ctx, &rs, "1234", nil)
+	list, status = rsTask.serviceHandler.ListEvents(context.Background(), api.ListEventsParams{})
+	require.Equal(t, status.Code, int32(200))
+	require.Len(t, list.Items, 1)
+}
+
 func testResourceSync() api.ResourceSync {
 	return api.ResourceSync{
 		Metadata: api.ObjectMeta{
@@ -306,4 +335,41 @@ func writeCopy(fs billy.Filesystem, localPath, path string) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+type serviceHandler struct {
+	store.Store
+	log logrus.FieldLogger
+}
+
+type dummyEvent struct {
+	store.Event
+	events *[]api.Event
+}
+
+type testStore struct {
+	store.Store
+	events *dummyEvent
+}
+
+func (s *testStore) Event() store.Event {
+	if s.events == nil {
+		s.events = &dummyEvent{events: &[]api.Event{}}
+	}
+	return s.events
+}
+
+func (s *dummyEvent) Create(ctx context.Context, orgId uuid.UUID, event *api.Event) error {
+	*s.events = append(*s.events, *event)
+	return nil
+}
+
+func (s *dummyEvent) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.EventList, error) {
+	list := &api.EventList{
+		ApiVersion: "",
+		Kind:       "",
+		Metadata:   api.ListMeta{},
+		Items:      *s.events,
+	}
+	return list, nil
 }

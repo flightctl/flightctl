@@ -89,7 +89,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Rollout device selection
 	rolloutDeviceSelection := device_selection.NewReconciler(serviceHandler, callbackManager, s.log)
 	rolloutDeviceSelectionThread := thread.New(ctx,
-		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
+		s.log.WithField("pkg", device_selection.RolloutTask), device_selection.RolloutName, device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
 	rolloutDeviceSelectionThread.Start()
 	defer rolloutDeviceSelectionThread.Stop()
 

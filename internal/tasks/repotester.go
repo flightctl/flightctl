@@ -3,8 +3,8 @@ package tasks
 import (
 	"context"
 	"fmt"
-
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -13,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/sirupsen/logrus"
+	"net/http"
 )
 
 type API interface {
@@ -25,6 +26,8 @@ type RepoTester struct {
 	TypeSpecificRepoTester TypeSpecificRepoTester
 }
 
+const repotesterName = "repotester"
+
 func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *RepoTester {
 	return &RepoTester{
 		log:            log,
@@ -33,9 +36,10 @@ func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *Repo
 }
 
 func (r *RepoTester) TestRepositories(ctx context.Context) {
-	reqid.OverridePrefix("repotester")
+	reqid.OverridePrefix(repotesterName)
 	requestID := reqid.NextRequestID()
 	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
+	ctx = context.WithValue(ctx, consts.EventActorCtxKey, repotesterName)
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running RepoTester")
@@ -66,6 +70,7 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 				r.TypeSpecificRepoTester = &GitRepoTester{}
 			default:
 				log.Errorf("unsupported repository type: %s", repoSpec.Type)
+				continue
 			}
 
 			accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
@@ -144,6 +149,17 @@ func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Rep
 		// Nothing to do
 		return nil
 	}
-	_, status := r.serviceHandler.ReplaceRepositoryStatus(ctx, *repository.Metadata.Name, *repository)
+
+	status := api.NewSuccessStatus(http.StatusAccepted, http.StatusText(http.StatusAccepted), "")
+	if err != nil {
+		status = api.NewFailureStatus(http.StatusNotAcceptable, http.StatusText(http.StatusNotAcceptable), "")
+	}
+	r.serviceHandler.CreateEvent(ctx,
+		r.serviceHandler.CreateGenericEvent(ctx, api.RepositoryKind, *repository.Metadata.Name, repotesterName, status,
+			fmt.Sprintf("repository %s is accessible", *repository.Metadata.Name),
+			fmt.Sprintf("repository %s is inaccessible: %v", *repository.Metadata.Name, err),
+			api.EventReasonRepositoryAccessible, api.EventReasonRepositoryInaccessible, nil))
+
+	_, status = r.serviceHandler.ReplaceRepositoryStatus(ctx, *repository.Metadata.Name, *repository)
 	return service.ApiStatusToErr(status)
 }
