@@ -41,6 +41,8 @@ if [ -z "$BASE_DOMAIN" ]; then
   exit 1
 fi
 
+AUTH_SED_CMDS=()
+
 # Process auth settings based on auth type
 if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
@@ -49,13 +51,34 @@ if [ "$AUTH_TYPE" == "aap" ]; then
   AAP_OAUTH_TOKEN=$(extract_value "oAuthToken" "$SERVICE_CONFIG_FILE")
   AAP_CLIENT_ID=$(extract_value "oAuthApplicationClientId" "$SERVICE_CONFIG_FILE")
 
+  AUTH_SED_CMDS=(
+    -e "/{{if AAP}}/d"
+    -e "/{{elseif OIDC}}/,/{{endif}}/d"
+    -e "s|{{AAP_API_URL}}|$AAP_API_URL|g"
+    -e "s|{{AAP_EXTERNAL_API_URL}}|$AAP_EXTERNAL_API_URL|g"
+  )
+
   # If client id is not set and we have an oauth token, create a new oauth application
   if [ -z "$AAP_CLIENT_ID" ] && [ -n "$AAP_OAUTH_TOKEN" ]; then
     create_oauth_application "$AAP_OAUTH_TOKEN" "$BASE_DOMAIN" "$AAP_API_URL" "$INSECURE_SKIP_TLS_VERIFY"
   fi
+elif [ "$AUTH_TYPE" == "oidc" ]; then
+  echo "Configuring OIDC authentication"
+  OIDC_URL=$(extract_value "oidcAuthority" "$SERVICE_CONFIG_FILE")
+  OIDC_EXTERNAL_URL=$(extract_value "externalOidcAuthority" "$SERVICE_CONFIG_FILE")
+
+  AUTH_SED_CMDS=(
+    -e "/{{if AAP}}/,/{{elseif OIDC}}/d"
+    -e "/{{endif}}/d"
+    -e "s|{{OIDC_URL}}|$OIDC_URL|g"
+    -e "s|{{OIDC_EXTERNAL_URL}}|$OIDC_EXTERNAL_URL|g"
+  )
 else
   echo "Auth not configured"
   FLIGHTCTL_DISABLE_AUTH="true"
+  AUTH_SED_CMDS+=(
+    -e "/{{if AAP}}/,/{{endif}}/d"
+  )
 fi
 
 # Set cert paths
@@ -76,9 +99,8 @@ sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     -e "s|{{SRV_CERT_FILE}}|$SRV_CERT_FILE|g" \
     -e "s|{{SRV_KEY_FILE}}|$SRV_KEY_FILE|g" \
     -e "s|{{INSECURE_SKIP_TLS_VERIFY}}|$INSECURE_SKIP_TLS_VERIFY|g" \
-    -e "s|{{AAP_API_URL}}|$AAP_API_URL|g" \
-    -e "s|{{AAP_EXTERNAL_API_URL}}|$AAP_EXTERNAL_API_URL|g" \
     -e "s|{{AUTH_CA_CERT}}|$AUTH_CA_CERT|g" \
+    "${AUTH_SED_CMDS[@]}" \
     "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT"
 
 # Template the environment file
