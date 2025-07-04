@@ -1,0 +1,41 @@
+{{- $namespaces := list .Release.Namespace }}
+{{- if .Values.global.internalNamespace }}
+{{- $namespaces = append $namespaces .Values.global.internalNamespace }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flightctl-cleanup-secrets
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        flightctl.service: secrets-cleanup
+    spec:
+      serviceAccountName: flightctl-cleanup
+      containers:
+        - name: cleanup
+          image: {{ .Values.secretsJob.image.image }}:{{ .Values.secretsJob.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.secretsJob.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "Starting post-delete cleanup process..."
+              echo "Deleting secrets..."
+              {{- range $ns := $namespaces }}
+              oc delete secret flightctl-db-secret -n {{ $ns }} --ignore-not-found
+              oc delete secret flightctl-kv-secret -n {{ $ns }} --ignore-not-found
+              {{- end }}
+              echo "Deleting orphaned PVCs..."
+              {{- range $ns := $namespaces }}
+              oc delete pvc -l flightctl.service=flightctl-kv -n {{ $ns }} --ignore-not-found
+              {{- end }}
+              echo "Cleanup completed successfully!"
+              exit 0
+      restartPolicy: Never
+      
