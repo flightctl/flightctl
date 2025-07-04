@@ -44,6 +44,7 @@ var (
 		ResourceSyncKind:              "rs",
 		TemplateVersionKind:           "tv",
 		CertificateSigningRequestKind: "csr",
+		EventKind:                     "ev",
 	}
 )
 
