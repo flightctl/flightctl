@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +26,7 @@ type resourceEvent struct {
 	OutcomeFailure               outcomeFailureFunc
 	Status                       api.Status
 	UpdateDetails                *api.ResourceUpdatedDetails
+	CustomDetails                *api.EventDetails
 }
 
 type eventConfig struct {
@@ -37,6 +39,66 @@ type eventConfig struct {
 }
 
 type outcomeFailureFunc func() string
+
+// Helper functions for standardized event message formatting
+
+// formatResourceActionMessage creates a standardized message for resource actions
+func formatResourceActionMessage(resourceKind api.ResourceKind, resourceName, action string) string {
+	return fmt.Sprintf("%s '%s' was %s successfully.", resourceKind, resourceName, action)
+}
+
+// formatResourceActionFailedMessage creates a standardized message for failed resource actions
+func formatResourceActionFailedMessage(resourceKind api.ResourceKind, resourceName, action, errorMsg string) string {
+	return fmt.Sprintf("%s '%s' %s failed: %s.", resourceKind, resourceName, action, errorMsg)
+}
+
+// formatResourceActionFailedTemplate creates a template for failed resource actions
+func formatResourceActionFailedTemplate(resourceKind api.ResourceKind, resourceName, action string) string {
+	return fmt.Sprintf("%s '%s' %s failed: %%s.", resourceKind, resourceName, action)
+}
+
+// formatDeviceOwnershipMessage creates a standardized message for device ownership changes
+func formatDeviceOwnershipMessage(deviceName string, previousOwner, newOwner *string) string {
+	if previousOwner != nil && newOwner != nil {
+		return fmt.Sprintf("Device '%s' ownership was changed from fleet '%s' to fleet '%s'.", deviceName, *previousOwner, *newOwner)
+	} else if previousOwner != nil {
+		return fmt.Sprintf("Device '%s' ownership was removed from fleet '%s'.", deviceName, *previousOwner)
+	} else if newOwner != nil {
+		return fmt.Sprintf("Device '%s' ownership was assigned to fleet '%s'.", deviceName, *newOwner)
+	} else {
+		return fmt.Sprintf("Device '%s' ownership was changed.", deviceName)
+	}
+}
+
+// formatDeviceMultipleOwnersMessage creates a standardized message for multiple owners detected
+func formatDeviceMultipleOwnersMessage(deviceName string, matchingFleets []string) string {
+	return fmt.Sprintf("Device '%s' matches multiple fleets: %s.", deviceName, strings.Join(matchingFleets, ", "))
+}
+
+// formatDeviceMultipleOwnersResolvedMessage creates a standardized message for multiple owners resolved
+func formatDeviceMultipleOwnersResolvedMessage(deviceName string, resolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType, assignedOwner *string) string {
+	switch resolutionType {
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch:
+		return fmt.Sprintf("Device '%s' multiple owners conflict was resolved: single fleet match, assigned to fleet '%s'.", deviceName, lo.FromPtr(assignedOwner))
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch:
+		return fmt.Sprintf("Device '%s' multiple owners conflict was resolved: no fleet matches, owner was removed.", deviceName)
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted:
+		return fmt.Sprintf("Device '%s' multiple owners conflict was resolved: fleet was deleted.", deviceName)
+	default:
+		return fmt.Sprintf("Device '%s' multiple owners conflict was resolved.", deviceName)
+	}
+}
+
+// formatInternalTaskFailedMessage creates a standardized message for internal task failures
+func formatInternalTaskFailedMessage(resourceKind api.ResourceKind, resourceName, taskType, errorMessage string) string {
+	return fmt.Sprintf("%s '%s' internal task failed: %s - %s.", resourceKind, resourceName, taskType, errorMessage)
+}
+
+// formatFleetSelectorProcessingMessage creates a standardized message for fleet selector processing
+func formatFleetSelectorProcessingMessage(fleetName string, devicesProcessed, devicesWithErrors int, processingDuration time.Duration) string {
+	durationMs := float64(processingDuration.Nanoseconds()) / 1000000
+	return fmt.Sprintf("Fleet '%s' selector processing was completed: %d devices processed, %d errors in %.2f ms.", fleetName, devicesProcessed, devicesWithErrors, durationMs)
+}
 
 func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
 	if event == nil {
@@ -143,7 +205,10 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 		event.Type = api.Warning
 	}
 
-	if resourceEvent.UpdateDetails != nil {
+	// Handle custom details first, then fall back to UpdateDetails
+	if resourceEvent.CustomDetails != nil {
+		event.Details = resourceEvent.CustomDetails
+	} else if resourceEvent.UpdateDetails != nil {
 		details := api.EventDetails{}
 		if err := details.FromResourceUpdatedDetails(*resourceEvent.UpdateDetails); err != nil {
 			log.WithError(err).WithField("event", event).Error("Failed to serialize event details")
@@ -178,8 +243,8 @@ func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourc
 			Prefix:          "resource-create",
 			ReasonSuccess:   api.EventReasonResourceCreated,
 			ReasonFailure:   api.EventReasonResourceCreationFailed,
-			SuccessMessage:  "created successfully",
-			FailureTemplate: "create failed: %s",
+			SuccessMessage:  formatResourceActionMessage(resourceKind, resourceName, "created"),
+			FailureTemplate: formatResourceActionFailedTemplate(resourceKind, resourceName, "creation"),
 		}, log)
 	}
 
@@ -187,8 +252,8 @@ func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourc
 		Prefix:          "resource-update",
 		ReasonSuccess:   api.EventReasonResourceUpdated,
 		ReasonFailure:   api.EventReasonResourceUpdateFailed,
-		SuccessMessage:  "updated successfully",
-		FailureTemplate: "update failed: %s",
+		SuccessMessage:  formatResourceActionMessage(resourceKind, resourceName, "updated"),
+		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, resourceName, "update"),
 		UpdateDetails:   updateDesc,
 	}, log)
 }
@@ -198,8 +263,8 @@ func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind,
 		Prefix:          "resource-delete",
 		ReasonSuccess:   api.EventReasonResourceDeleted,
 		ReasonFailure:   api.EventReasonResourceDeletionFailed,
-		SuccessMessage:  "deleted successfully",
-		FailureTemplate: "delete failed: %s",
+		SuccessMessage:  formatResourceActionMessage(resourceKind, resourceName, "deleted"),
+		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, resourceName, "deletion"),
 	}, log)
 }
 
@@ -208,8 +273,8 @@ func GetResourceApprovedEvent(ctx context.Context, resourceKind api.ResourceKind
 		Prefix:          "resource-approval",
 		ReasonSuccess:   api.EventReasonEnrollmentRequestApproved,
 		ReasonFailure:   api.EventReasonEnrollmentRequestApprovalFailed,
-		SuccessMessage:  "approved successfully",
-		FailureTemplate: "approval failed: %s",
+		SuccessMessage:  formatResourceActionMessage(resourceKind, resourceName, "approved"),
+		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, resourceName, "approval"),
 	}, log)
 }
 
@@ -218,8 +283,8 @@ func GetResourceDecommissionedEvent(ctx context.Context, resourceKind api.Resour
 		Prefix:          "resource-decommission",
 		ReasonSuccess:   api.EventReasonDeviceDecommissioned,
 		ReasonFailure:   api.EventReasonDeviceDecommissionFailed,
-		SuccessMessage:  "decommissioned successfully",
-		FailureTemplate: "decommission failed: %s",
+		SuccessMessage:  formatResourceActionMessage(resourceKind, resourceName, "decommissioned"),
+		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, resourceName, "decommission"),
 		UpdateDetails:   updateDetails,
 	}, log)
 }
@@ -245,4 +310,163 @@ func GetResourceEventFromUpdateDetails(ctx context.Context, resourceKind api.Res
 			OutcomeSuccess: updateDetails,
 			OutcomeFailure: nil,
 		}, log)
+}
+
+// GetDeviceOwnershipChangedEvent creates an event for device ownership changes
+func GetDeviceOwnershipChangedEvent(ctx context.Context, deviceName string, previousOwner, newOwner *string, log logrus.FieldLogger) *api.Event {
+	message := formatDeviceOwnershipMessage(deviceName, previousOwner, newOwner)
+
+	details := api.EventDetails{}
+	detailsStruct := api.DeviceOwnershipChangedDetails{
+		PreviousOwner: previousOwner,
+		NewOwner:      newOwner,
+	}
+	if err := details.FromDeviceOwnershipChangedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize device ownership changed event details")
+		return nil
+	}
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		Prefix:         "device-ownership-changed",
+		ReasonSuccess:  api.EventReasonDeviceOwnershipChanged,
+		OutcomeSuccess: message,
+		Status:         api.StatusOK(),
+		CustomDetails:  &details,
+	}, log)
+}
+
+// GetDeviceMultipleOwnersDetectedEvent creates an event for multiple fleet owners detected
+func GetDeviceMultipleOwnersDetectedEvent(ctx context.Context, deviceName string, matchingFleets []string, log logrus.FieldLogger) *api.Event {
+	message := formatDeviceMultipleOwnersMessage(deviceName, matchingFleets)
+
+	details := api.EventDetails{}
+	detailsStruct := api.DeviceMultipleOwnersDetectedDetails{
+		MatchingFleets: matchingFleets,
+	}
+	if err := details.FromDeviceMultipleOwnersDetectedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize device multiple owners detected event details")
+		return nil
+	}
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		Prefix:         "device-multiple-owners-detected",
+		ReasonFailure:  api.EventReasonDeviceMultipleOwnersDetected,
+		OutcomeFailure: func() string { return message },
+		Status:         api.StatusInternalServerError("Multiple fleet owners detected"),
+		CustomDetails:  &details,
+	}, log)
+}
+
+// GetDeviceMultipleOwnersResolvedEvent creates an event for multiple fleet owners resolved
+func GetDeviceMultipleOwnersResolvedEvent(ctx context.Context, deviceName string, resolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType, assignedOwner *string, previousMatchingFleets []string, log logrus.FieldLogger) *api.Event {
+	var message string
+	switch resolutionType {
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch:
+		message = fmt.Sprintf("Device multiple owners resolved: single fleet match, assigned to %s", lo.FromPtr(assignedOwner))
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch:
+		message = "Device multiple owners resolved: no fleet matches, owner removed"
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted:
+		message = "Device multiple owners resolved: fleet deleted"
+	default:
+		message = "Device multiple owners resolved"
+	}
+
+	details := api.EventDetails{}
+	detailsStruct := api.DeviceMultipleOwnersResolvedDetails{
+		ResolutionType:         resolutionType,
+		AssignedOwner:          assignedOwner,
+		PreviousMatchingFleets: &previousMatchingFleets,
+	}
+	if err := details.FromDeviceMultipleOwnersResolvedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize device multiple owners resolved event details")
+		return nil
+	}
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		Prefix:         "device-multiple-owners-resolved",
+		ReasonSuccess:  api.EventReasonDeviceMultipleOwnersResolved,
+		OutcomeSuccess: message,
+		Status:         api.StatusOK(),
+		CustomDetails:  &details,
+	}, log)
+}
+
+// GetInternalTaskFailedEvent creates an event for internal task failures
+func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, taskType string, errorMessage string, retryCount *int, taskParameters map[string]string, log logrus.FieldLogger) *api.Event {
+	message := fmt.Sprintf("Internal task failed: %s - %s", taskType, errorMessage)
+
+	details := api.EventDetails{}
+	detailsStruct := api.InternalTaskFailedDetails{
+		TaskType:       taskType,
+		ErrorMessage:   errorMessage,
+		RetryCount:     retryCount,
+		TaskParameters: &taskParameters,
+	}
+	if err := details.FromInternalTaskFailedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize internal task failed event details")
+		return nil
+	}
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   resourceKind,
+		ResourceName:   resourceName,
+		Prefix:         "internal-task-failed",
+		ReasonFailure:  api.EventReasonInternalTaskFailed,
+		OutcomeFailure: func() string { return message },
+		Status:         api.StatusInternalServerError("Internal task failed"),
+		CustomDetails:  &details,
+	}, log)
+}
+
+// GetFleetSelectorProcessingCompletedEvent creates an event for fleet selector processing completion
+func GetFleetSelectorProcessingCompletedEvent(ctx context.Context, fleetName string, processingType api.FleetSelectorProcessingCompletedDetailsProcessingType, devicesProcessed, devicesWithErrors int, processingDuration time.Duration, log logrus.FieldLogger) *api.Event {
+	message := fmt.Sprintf("Fleet selector processing completed: %d devices processed, %d errors in %v", devicesProcessed, devicesWithErrors, processingDuration)
+
+	details := api.EventDetails{}
+	durationStr := processingDuration.String()
+	detailsStruct := api.FleetSelectorProcessingCompletedDetails{
+		ProcessingType:     processingType,
+		DevicesProcessed:   devicesProcessed,
+		DevicesWithErrors:  &devicesWithErrors,
+		ProcessingDuration: &durationStr,
+	}
+	if err := details.FromFleetSelectorProcessingCompletedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize fleet selector processing completed event details")
+		return nil
+	}
+
+	var status api.Status
+	var reason api.EventReason
+	var outcomeFunc func() string
+
+	if devicesWithErrors > 0 {
+		status = api.StatusInternalServerError("Fleet selector processing completed with errors")
+		reason = api.EventReasonFleetSelectorProcessingCompleted
+		outcomeFunc = func() string { return message }
+		return getBaseEvent(ctx, resourceEvent{
+			ResourceKind:   api.FleetKind,
+			ResourceName:   fleetName,
+			Prefix:         "fleet-selector-processing",
+			ReasonFailure:  reason,
+			OutcomeFailure: outcomeFunc,
+			Status:         status,
+			CustomDetails:  &details,
+		}, log)
+	} else {
+		return getBaseEvent(ctx, resourceEvent{
+			ResourceKind:   api.FleetKind,
+			ResourceName:   fleetName,
+			Prefix:         "fleet-selector-processing",
+			ReasonSuccess:  api.EventReasonFleetSelectorProcessingCompleted,
+			OutcomeSuccess: message,
+			Status:         api.StatusOK(),
+			CustomDetails:  &details,
+		}, log)
+	}
 }

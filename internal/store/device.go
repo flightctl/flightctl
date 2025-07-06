@@ -49,6 +49,9 @@ type Device interface {
 	// Used only by device_disconnected
 	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 
+	// Used by fleet selector
+	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams ListParams) (*api.DeviceList, error)
+
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
@@ -317,19 +320,19 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 	} else {
 		updateTimeoutValue = gorm.Expr("false")
 	}
-	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count, 
-                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version, 
+	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count,
+                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version,
                                  elem ->> 'reason' as updating_reason,
-                                 annotations->>'%s' = ? as same_template_version, 
+                                 annotations->>'%s' = ? as same_template_version,
 								 ? as update_timed_out
                           from devices d LEFT JOIN LATERAL (
                             SELECT elem
 						    FROM jsonb_array_elements(d.status->'conditions') AS elem
 						    WHERE elem->>'type' = 'Updating'
 						    LIMIT 1
-							) subquery ON TRUE 
+							) subquery ON TRUE
 						     where
-						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null 
+						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null
 						        group by same_rendered_version, updating_reason, same_template_version, update_timed_out`,
 		api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationSelectedForRollout),
 		templateVersion,
@@ -492,9 +495,9 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 	createMissing := "false"
 	query := fmt.Sprintf(`
         UPDATE devices
-        SET 
+        SET
             status = jsonb_set(
-                jsonb_set(status, '{summary,status}', '"%s"', %s), 
+                jsonb_set(status, '{summary,status}', '"%s"', %s),
                 '{summary,info}', '"%s"'
             ),
             resource_version = resource_version + 1
@@ -682,4 +685,72 @@ func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, na
 		return nil, err
 	}
 	return &repositories, nil
+}
+
+func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams ListParams) (*api.DeviceList, error) {
+	// Use raw SQL like CompletionCounts to avoid GORM parameter binding issues with JSONB
+	// The service_conditions field is stored as bytea and needs to be converted to text then jsonb
+	var devices []model.Device
+	var nextContinue *string
+	var numRemaining *int64
+
+	// Build the raw SQL query with proper pagination support and bytea->text->jsonb conversion
+	baseSQL := `
+		SELECT * FROM devices
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND service_conditions IS NOT NULL
+			AND EXISTS (
+				SELECT 1 FROM jsonb_array_elements(convert_from(service_conditions, 'UTF8')::jsonb->'conditions') AS elem
+				WHERE elem->>'type' = ? AND elem->>'status' = ?
+			)`
+
+	// Handle pagination - add WHERE condition before ORDER BY
+	var args []interface{}
+	args = append(args, orgId, conditionType, conditionStatus)
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		baseSQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	// Add ORDER BY after all WHERE conditions
+	baseSQL += " ORDER BY name ASC"
+
+	// Add limit
+	baseSQL += " LIMIT ?"
+	args = append(args, listParams.Limit)
+
+	// Execute the query
+	if err := s.getDB(ctx).Raw(baseSQL, args...).Scan(&devices).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	// Calculate pagination metadata
+	if len(devices) > 0 && len(devices) == listParams.Limit {
+		// Check if there are more results
+		var count int64
+		countSQL := `
+			SELECT COUNT(*) FROM devices
+			WHERE org_id = ?
+				AND deleted_at IS NULL
+				AND service_conditions IS NOT NULL
+				AND EXISTS (
+					SELECT 1 FROM jsonb_array_elements(convert_from(service_conditions, 'UTF8')::jsonb->'conditions') AS elem
+					WHERE elem->>'type' = ? AND elem->>'status' = ?
+				) AND name > ?`
+
+		countArgs := []interface{}{orgId, conditionType, conditionStatus, devices[len(devices)-1].Name}
+		if err := s.getDB(ctx).Raw(countSQL, countArgs...).Scan(&count).Error; err != nil {
+			return nil, ErrorFromGormError(err)
+		}
+
+		if count > 0 {
+			nextContinue = BuildContinueString([]string{devices[len(devices)-1].Name}, count)
+			numRemaining = &count
+		}
+	}
+
+	result, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	return &result, err
 }
