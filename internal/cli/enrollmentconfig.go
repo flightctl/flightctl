@@ -9,7 +9,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
-	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
