@@ -100,3 +100,45 @@ func (m *management) GetRenderedDevice(ctx context.Context, name string, params 
 
 	return nil, resp.StatusCode(), nil
 }
+
+func (m *management) CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, error) {
+	start := time.Now()
+	resp, err := m.client.CreateCertificateSigningRequestWithResponse(ctx, csr, rcb...)
+	if err != nil {
+		return nil, err
+	}
+	if resp.HTTPResponse != nil {
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
+	}
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("create_certificate_signing_request_duration", time.Since(start).Seconds(), err)
+	}
+
+	if resp.JSON201 != nil {
+		return resp.JSON201, nil
+	}
+
+	return nil, nil
+}
+
+func (m *management) GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, error) {
+	start := time.Now()
+	resp, err := m.client.GetCertificateSigningRequestWithResponse(ctx, name, rcb...)
+	if err != nil {
+		return nil, err
+	}
+	if resp.HTTPResponse != nil {
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
+	}
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("get_certificate_signing_request_duration", time.Since(start).Seconds(), err)
+	}
+
+	if resp.JSON200 != nil {
+		return resp.JSON200, nil
+	}
+
+	return nil, nil
+}

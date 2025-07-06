@@ -33,6 +33,18 @@ const (
 	HookConditionTypeExpression HookConditionType = "expression"
 )
 
+type CertStorageProviderType string
+
+const (
+	FileSystemCertStorageProviderType CertStorageProviderType = "FileSystem"
+)
+
+type CertProvisionerProviderType string
+
+const (
+	CSRProvisionerProviderType CertProvisionerProviderType = "csr"
+)
+
 type ConfigProviderType string
 
 const (
@@ -95,6 +107,44 @@ func (t HookCondition) Type() (HookConditionType, error) {
 	}
 
 	return "", fmt.Errorf("unable to determine hook condition type: %+v", data)
+}
+
+// Type returns the type of the cert storage provider.
+func (c CertProviderSpec_Storage) Type() (CertStorageProviderType, error) {
+	var data map[CertStorageProviderType]interface{}
+	if err := json.Unmarshal(c.union, &data); err != nil {
+		return "", err
+	}
+
+	types := []CertStorageProviderType{
+		FileSystemCertStorageProviderType,
+	}
+	for _, t := range types {
+		if _, exists := data[t]; exists {
+			return t, nil
+		}
+	}
+
+	return "", fmt.Errorf("unknown cert storage provider type: %v", data)
+}
+
+// Type returns the type of the certificate provisioner.
+func (c CertProviderSpec_Provisioner) Type() (CertProvisionerProviderType, error) {
+	var data map[CertProvisionerProviderType]interface{}
+	if err := json.Unmarshal(c.union, &data); err != nil {
+		return "", err
+	}
+
+	types := []CertProvisionerProviderType{
+		CSRProvisionerProviderType,
+	}
+	for _, t := range types {
+		if _, exists := data[t]; exists {
+			return t, nil
+		}
+	}
+
+	return "", fmt.Errorf("unknown cert provisioner type: %v", data)
 }
 
 // Type returns the type of the config provider.

@@ -3525,6 +3525,61 @@ components:
       required:
       - name
       - httpRef
+    CertProviderSpec:
+      type: object
+      description: A certificate to be generated and provisioned on the device.
+      required:
+        - name
+        - provisioner
+        - storage
+      properties:
+        name:
+          type: string
+          description: Logical name of the certificate (e.g., "otel", "metrics").
+        provisioner:
+          oneOf:
+            - $ref: '#/components/schemas/CSRProvisioner'
+        storage:
+          oneOf:
+            - $ref: '#/components/schemas/FileSystemCertStorageProvider'
+    CSRProvisioner:
+      type: object
+      description: CSR-based certificate provisioning via the API server.
+      properties:
+        csr:
+          type: object
+          description: Parameters for CSR-based provisioning.
+          properties:
+            signer:
+              type: string
+              description: The signer name or CA profile to use when signing the CSR.
+            expirationSeconds:
+              type: integer
+              format: int32
+              description: Optional requested duration in seconds for the issued certificate.
+          required:
+            - signer
+      required: [csr]
+    FileSystemCertStorageProvider:
+      type: object
+      required: [FileSystem]
+      properties:
+        FileSystem:
+          $ref: '#/components/schemas/FileSystemCertStorage'
+
+    FileSystemCertStorage:
+      type: object
+      description: Certificate and key will be stored on the device’s file system.
+      required:
+        - certPath
+        - keyPath
+      properties:
+        certPath:
+          type: string
+          description: Absolute path to write the signed certificate (e.g., "/etc/otel/cert.pem").
+        keyPath:
+          type: string
+          description: Absolute path to write the private key (e.g., "/etc/otel/key.pem").
     ApplicationProviderSpec:
       type: object
       allOf:
@@ -4592,6 +4647,11 @@ components:
           description: List of config providers.
           items:
             $ref: '#/components/schemas/ConfigProviderSpec'
+        certs:
+          type: array
+          description: List of certificates to provision on the device.
+          items:
+            $ref: '#/components/schemas/CertProviderSpec'
         applications:
           type: array
           description: List of application providers.

@@ -1,0 +1,44 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: ./otel-certs/cert.pem
+          key_file: ./otel-certs/key.pem
+          ca_file: ./otel-certs/ca.crt
+          client_ca_file: ./otel-certs/ca.crt
+          # Require client certificates
+          client_cert_auth: true
+      http:
+        endpoint: 0.0.0.0:4318
+        tls:
+          cert_file: ./otel-certs/cert.pem
+          key_file: ./otel-certs/key.pem
+          ca_file: ./otel-certs/ca.crt
+          client_ca_file: ./otel-certs/ca.crt
+          # Require client certificates
+          client_cert_auth: true
+
+processors:
+  batch:
+  # Add a resource processor to extract client certificate information
+  resource/add_client_info:
+    attributes:
+    - key: client_cert_cn
+      from_context: client_cert_subject_cn
+      action: insert
+
+exporters:
+  debug:
+    verbosity: detailed
+  # Log the metrics to see the CN
+  logging:
+    loglevel: info
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [resource/add_client_info, batch]
+      exporters: [debug, logging] 

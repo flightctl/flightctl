@@ -14,6 +14,7 @@ import (
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/cert"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -31,7 +32,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/experimental"
-	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -79,18 +80,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
 		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
 	}
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
+	publicKey, privateKey, _, err := fccrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
 	if err != nil {
 		return err
 	}
 
-	publicKeyHash, err := fcrypto.HashPublicKey(publicKey)
+	publicKeyHash, err := fccrypto.HashPublicKey(publicKey)
 	if err != nil {
 		return err
 	}
 
 	deviceName := strings.ToLower(base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(publicKeyHash))
-	csr, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), deviceName)
+	csr, err := fccrypto.MakeCSR(privateKey.(crypto.Signer), deviceName)
 	if err != nil {
 		return err
 	}
@@ -214,6 +215,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	certManager := cert.NewManager(deviceName, a.config, deviceReadWriter, a.log)
+
 	// create lifecycle manager
 	lifecycleManager := lifecycle.NewManager(
 		deviceName,
@@ -251,6 +254,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		specManager,
 		devicePublisher,
 		statusManager,
+		certManager,
 		hookManager,
 		lifecycleManager,
 		&a.config.ManagementService.Config,
@@ -303,6 +307,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		systemdManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
+		certManager,
 		hookManager,
 		osManager,
 		policyManager,

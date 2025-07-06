@@ -1,0 +1,80 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: ./otel-certs/cert.pem
+          key_file: ./otel-certs/key.pem
+          ca_file: ./otel-certs/ca.crt
+          client_ca_file: ./otel-certs/ca.crt
+          # Require client certificates for mutual TLS
+          client_cert_auth: true
+        # This will be where we add custom interceptors
+        max_recv_msg_size_mib: 4
+        max_concurrent_streams: 1024
+        read_buffer_size: 524288
+        write_buffer_size: 524288
+        keepalive:
+          server_parameters:
+            max_connection_idle: 11s
+            max_connection_age: 12s
+            max_connection_age_grace: 13s
+            time: 30s
+            timeout: 5s
+          enforcement_policy:
+            min_time: 10s
+            permit_without_stream: true
+      http:
+        endpoint: 0.0.0.0:4318
+        tls:
+          cert_file: ./otel-certs/cert.pem
+          key_file: ./otel-certs/key.pem
+          ca_file: ./otel-certs/ca.crt
+          client_ca_file: ./otel-certs/ca.crt
+          client_cert_auth: true
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+  # Add a logging processor to see detailed data
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+
+exporters:
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 200
+  logging:
+    loglevel: info
+    verbosity: detailed
+
+extensions:
+  # Add health check for monitoring
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: debug
+    metrics:
+      address: 0.0.0.0:8888
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug, logging]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug, logging]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug, logging] 

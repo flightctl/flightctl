@@ -65,6 +65,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	if r.Config != nil {
 		allErrs = append(allErrs, validateConfigs(*r.Config, fleetTemplate)...)
 	}
+	if r.Certs != nil {
+		allErrs = append(allErrs, validateCerts(*r.Certs)...)
+	}
 	if r.Applications != nil {
 		allErrs = append(allErrs, validateApplications(*r.Applications, fleetTemplate)...)
 	}
@@ -78,6 +81,58 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, validation.ValidateSystemdName(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i))...)
 		}
 	}
+	return allErrs
+}
+
+func validateCerts(certs []CertProviderSpec) []error {
+	allErrs := []error{}
+	seenCertPath := make(map[string]struct{}, len(certs))
+
+	for i, cert := range certs {
+		// Validate provisioner type
+		provisionerType, err := cert.Provisioner.Type()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("spec.certs[%d].provisioner: %w", i, err))
+			continue
+		}
+
+		switch provisionerType {
+		case CSRProvisionerProviderType:
+			_, err := cert.Provisioner.AsCSRProvisioner()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("spec.certs[%d].provisioner.Csr: %w", i, err))
+			}
+		default:
+			allErrs = append(allErrs, fmt.Errorf("spec.certs[%d].provisioner: unknown provisioner type: %s", i, provisionerType))
+		}
+
+		// Validate storage type
+		storageType, err := cert.Storage.Type()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("spec.certs[%d].storage: %w", i, err))
+			continue
+		}
+
+		switch storageType {
+		case FileSystemCertStorageProviderType:
+			provider, err := cert.Storage.AsFileSystemCertStorageProvider()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("spec.certs[%d].storage.FileSystem: %w", i, err))
+				break
+			}
+
+			// Validate certPath uniqueness
+			path := provider.FileSystem.CertPath
+			if _, exists := seenCertPath[path]; exists {
+				allErrs = append(allErrs, fmt.Errorf("spec.certs[%d].storage.FileSystem.certPath must be unique: %s", i, path))
+			} else {
+				seenCertPath[path] = struct{}{}
+			}
+		default:
+			allErrs = append(allErrs, fmt.Errorf("spec.certs[%d].storage: unknown storage provider type: %s", i, storageType))
+		}
+	}
+
 	return allErrs
 }
 

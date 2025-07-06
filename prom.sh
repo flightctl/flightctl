@@ -1,0 +1,1 @@
+podman run -d --name prometheus2   -v $PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z   -p 9098:9090   docker.io/prom/prometheus^C
