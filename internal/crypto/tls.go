@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
@@ -15,7 +16,7 @@ func TLSConfigForServer(caBundlex509 []*x509.Certificate, serverConfig *TLSCerti
 	if err != nil {
 		return nil, nil, err
 	}
-	keyBytes, err := PEMEncodeKey(serverConfig.Key)
+	keyBytes, err := fccrypto.PEMEncodeKey(serverConfig.Key)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -59,7 +60,7 @@ func TLSConfigForClient(caBundleX509 []*x509.Certificate, clientConfig *TLSCerti
 		if err != nil {
 			return nil, err
 		}
-		keyBytes, err := PEMEncodeKey(clientConfig.Key)
+		keyBytes, err := fccrypto.PEMEncodeKey(clientConfig.Key)
 		if err != nil {
 			return nil, err
 		}

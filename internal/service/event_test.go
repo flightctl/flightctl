@@ -14,6 +14,7 @@ import (
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -492,9 +493,9 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 	status := api.EnrollmentRequestStatus{}
 	deviceStatus := api.NewDeviceStatus()
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
-	_, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor("TestCSR"))
+	_, privateKey, _, err := fccrypto.EnsureKey(deviceReadWriter.PathFor("TestCSR"))
 	require.NoError(err)
-	csr, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), name)
+	csr, err := fccrypto.MakeCSR(privateKey.(crypto.Signer), name)
 	require.NoError(err)
 	er := api.EnrollmentRequest{
 		ApiVersion: "v1",

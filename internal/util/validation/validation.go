@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/util"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/samber/lo"
 	k8sapivalidation "k8s.io/apimachinery/pkg/api/validation"
 	k8smetav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
@@ -291,8 +291,9 @@ func ValidateSignerName(s string) []error {
 	errs := field.ErrorList{}
 
 	validSigners := map[string]struct{}{
-		"ca":         {}, // general signer
-		"enrollment": {}, // special logic for enrollment certs, but afterwards fwds to same 'ca' signer internally
+		"flightctl.io/enrollment":        {},
+		"flightctl.io/device-enrollment": {},
+		"flightctl.io/device-svc-client": {},
 	}
 
 	if _, exists := validSigners[s]; exists {
@@ -311,8 +312,12 @@ func ValidateExpirationSeconds(e *int32) []error {
 func ValidateCSR(csr []byte) []error {
 	errs := field.ErrorList{}
 
-	_, err := crypto.ParseCSR(csr)
+	c, err := fccrypto.ParseCSR(csr)
 	if err != nil {
+		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
+		return asErrors(errs)
+	}
+	if err := c.CheckSignature(); err != nil {
 		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
 		return asErrors(errs)
 	}

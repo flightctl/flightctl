@@ -1,16 +1,19 @@
 package crypto
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config/ca"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
@@ -93,7 +96,7 @@ func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryD
 }
 
 func makeSelfSignedCAConfig(subject pkix.Name, caLifetime time.Duration, serial int64) (*oscrypto.TLSCertificateConfig, error) {
-	rootcaPublicKey, rootcaPrivateKey, publicKeyHash, err := NewKeyPairWithHash()
+	rootcaPublicKey, rootcaPrivateKey, publicKeyHash, err := fccrypto.NewKeyPairWithHash()
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +159,7 @@ func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, is
 // Certificate Signing Request (CSR) and the desired expiration time in seconds.
 // This currently processes both enrollment cert and management cert signing requests, which both are signed
 // by the FC service's internal CA instance named 'ca'.
-func (caBackend *internalCA) IssueRequestedCertificateAsX509(csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage) (*x509.Certificate, error) {
+func (caBackend *internalCA) IssueRequestedCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage, opts ...CertOption) (*x509.Certificate, error) {
 	now := time.Now()
 	expire := time.Duration(expirySeconds) * time.Second
 	// Note Subject (and other fields where applicable) validation is performed by the callers.
@@ -178,6 +181,12 @@ func (caBackend *internalCA) IssueRequestedCertificateAsX509(csr *x509.Certifica
 		ExtKeyUsage:           usage,
 		BasicConstraintsValid: true,
 		AuthorityKeyId:        caBackend.Config.Certs[0].SubjectKeyId,
+	}
+
+	for _, opt := range opts {
+		if err := opt(template); err != nil {
+			return nil, fmt.Errorf("applying cert option: %w", err)
+		}
 	}
 	return caBackend.signCertificate(template, csr.PublicKey)
 }
