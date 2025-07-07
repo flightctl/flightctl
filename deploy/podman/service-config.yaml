@@ -1,10 +1,14 @@
 global:
   baseDomain:
   auth:
-    type: none # aap or none
+    type: none # aap, oidc or none
     insecureSkipTlsVerify: false
     aap:
       apiUrl:
       externalApiUrl:
       oAuthApplicationClientId:
       oAuthToken:
+    oidc:
+      oidcAuthority:
+      externalOidcAuthority:
+      oidcClientId:
