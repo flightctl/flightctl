@@ -32,11 +32,15 @@ func (f *TableFormatter) Format(data interface{}, options FormatOptions) error {
 		err = f.formatSingle(w, data, options)
 	}
 
+	if err != nil {
+		return err
+	}
+
 	// ensure that after this call headers are suppressed on subsequent calls
 	// noHeaders is set to true after the first successful formatting run
 	f.noHeaders = true
 
-	return err
+	return nil
 }
 
 // formatList handles formatting for list endpoints (TYPE)
