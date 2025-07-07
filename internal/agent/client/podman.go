@@ -51,6 +51,9 @@ type PodmanContainerConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
+// PodmanEvent represents the structure of a podman event as produced via a CLI events command.
+// It should be noted that the CLI represents events differently from libpod. (notably the time properties)
+// https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
 type PodmanEvent struct {
 	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
 	ID                string            `json:"ID"`
@@ -58,6 +61,7 @@ type PodmanEvent struct {
 	Name              string            `json:"Name"`
 	Status            string            `json:"Status"`
 	Type              string            `json:"Type"`
+	TimeNano          int64             `json:"timeNano"`
 	Attributes        map[string]string `json:"Attributes"`
 }
 
