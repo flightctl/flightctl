@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -21,7 +22,7 @@ func updateMonitor(
 		return false, err
 	}
 
-	newSamplingInterval, err := time.ParseDuration(spec.ResourceMonitorSpec.SamplingInterval)
+	newSamplingInterval, err := util.ExtendedParseDuration(spec.ResourceMonitorSpec.SamplingInterval)
 	if err != nil {
 		return false, err
 	}
