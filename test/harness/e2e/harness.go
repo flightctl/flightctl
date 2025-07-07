@@ -52,6 +52,15 @@ type Harness struct {
 	gitWorkDir string            // working directory for git operations
 }
 
+// GitServerConfig holds configuration for the git server
+type GitServerConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	SSHKey   string // path to SSH private key if using key auth
+}
+
 func findTopLevelDir() string {
 	currentWorkDirectory, err := os.Getwd()
 	Expect(err).ToNot(HaveOccurred())
@@ -1647,17 +1656,6 @@ func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
 	return "", "", fmt.Errorf("unknown context")
 }
 
-// Git Repository Management Methods
-
-// GitServerConfig holds configuration for the git server
-type GitServerConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	SSHKey   string // path to SSH private key if using key auth
-}
-
 // GetGitServerConfig returns the configuration for the e2e git server
 func (h *Harness) GetGitServerConfig() GitServerConfig {
 	// Default configuration for the e2e git server
@@ -2062,83 +2060,6 @@ func (h *Harness) CleanupGitRepositories() error {
 }
 
 // CreateGitRepositoryWithContent creates a git repository with initial content
-//
-// Example usage demonstrating the complete git repository lifecycle:
-//
-//	func TestGitBasedFleetConfiguration(h *Harness) {
-//		// 1. Create a Repository resource spec
-//		repositorySpec := v1alpha1.RepositorySpec{}
-//		err := repositorySpec.FromGenericRepoSpec(v1alpha1.GenericRepoSpec{
-//			Url: "ssh://user@localhost:3222/home/user/repos/test-repo.git",
-//		})
-//		if err != nil {
-//			return err
-//		}
-//
-//		// 2. Create git repository with initial content
-//		repoName := "test-repo"
-//		fleetYAML := `apiVersion: flightctl.io/v1alpha1
-//
-// kind: Fleet
-// metadata:
-//
-//	name: test-fleet
-//
-// spec:
-//
-//	 selector:
-//	   matchLabels:
-//	     fleet: test`
-//			err = h.CreateGitRepositoryWithContent(repoName, "fleet.yaml", fleetYAML, repositorySpec)
-//			if err != nil {
-//				return err
-//			}
-//
-//			// 3. Create a ResourceSync to sync the fleet configuration
-//			resourceSyncSpec := v1alpha1.ResourceSyncSpec{
-//				Repository:     repoName,
-//				Path:           "/fleet.yaml",
-//				TargetRevision: "main",
-//			}
-//			err = h.CreateResourceSync("test-sync", repoName, resourceSyncSpec)
-//			if err != nil {
-//				return err
-//			}
-//
-//			// 4. Wait for ResourceSync to reach desired status
-//			err = h.WaitForResourceSyncStatus("test-sync", v1alpha1.ConditionStatusTrue, TIMEOUT)
-//			if err != nil {
-//				return err
-//			}
-//
-//			// 5. Update the git repository with new content
-//			updatedFleetYAML := `apiVersion: flightctl.io/v1alpha1
-//
-// kind: Fleet
-// metadata:
-//
-//	name: test-fleet
-//
-// spec:
-//
-//	 selector:
-//	   matchLabels:
-//	     fleet: test
-//	     environment: production`
-//			err = h.PushContentToGitServerRepo(repoName, "fleet.yaml", updatedFleetYAML, "Update fleet selector")
-//			if err != nil {
-//				return err
-//			}
-//
-//			// 6. Wait for ResourceSync to process the update
-//			err = h.WaitForResourceSyncStatus("test-sync", v1alpha1.ConditionStatusTrue, TIMEOUT)
-//			if err != nil {
-//				return err
-//			}
-//
-//			// Cleanup is automatic via h.Cleanup() which calls h.CleanupGitRepositories()
-//			return nil
-//		}
 func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content string, repositorySpec v1alpha1.RepositorySpec) error {
 	// Create the git repository and Repository resource
 	if err := h.CreateGitRepository(repoName, repositorySpec); err != nil {
