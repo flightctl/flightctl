@@ -108,6 +108,13 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, params api.ListDevices
 	}
 }
 
+func (h *ServiceHandler) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
+	orgId := store.NullOrgId
+
+	result, err := h.store.Device().ListDevicesByServiceCondition(ctx, orgId, conditionType, conditionStatus, listParams)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
+}
+
 func (h *ServiceHandler) GetDevice(ctx context.Context, name string) (*api.Device, api.Status) {
 	orgId := store.NullOrgId
 

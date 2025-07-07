@@ -5,6 +5,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 )
 
@@ -21,6 +22,7 @@ type Service interface {
 	// Device
 	CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status)
 	ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status)
+	ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status)
 	UpdateDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, error)
 	GetDevice(ctx context.Context, name string) (*api.Device, api.Status)
 	ReplaceDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status)
