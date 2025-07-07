@@ -25,11 +25,11 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestSync(t *testing.T) {
@@ -185,11 +185,8 @@ func TestSync(t *testing.T) {
 			tmpDir := t.TempDir()
 			readWriter := fileio.NewReadWriter()
 			readWriter.SetRootdir(tmpDir)
-			backoff := wait.Backoff{
-				Steps: 1,
-			}
 
-			podmanClient := client.NewPodman(log, mockExec, readWriter, backoff)
+			podmanClient := client.NewPodman(log, mockExec, readWriter, util.NewPollConfig())
 			consoleController := console.NewController(mockRouterService, deviceName, mockExec, publisher.NewSubscription(), log)
 			appController := applications.NewController(podmanClient, mockAppManager, readWriter, log)
 			statusManager := status.NewManager(deviceName, log)

@@ -207,7 +207,7 @@ func TestListenForEvents(t *testing.T) {
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
-			podman := client.NewPodman(log, execMock, rw, util.NewBackoff())
+			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
 			podmanMonitor := NewPodmanMonitor(log, podman, "", rw)
 
 			// add test apps to the monitor
@@ -354,7 +354,7 @@ func TestApplicationAddRemove(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
-			podman := client.NewPodman(log, execMock, readWriter, util.NewBackoff())
+			podman := client.NewPodman(log, execMock, readWriter, util.NewPollConfig())
 			podmanMonitor := NewPodmanMonitor(log, podman, "", readWriter)
 			testApp := createTestApplication(require, tc.appName, v1alpha1.ApplicationStatusPreparing)
 

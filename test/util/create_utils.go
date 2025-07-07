@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -237,6 +239,14 @@ func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, storeIns
 func NewBackoff() wait.Backoff {
 	return wait.Backoff{
 		Steps: 1,
+	}
+}
+
+func NewPollConfig() poll.Config {
+	return poll.Config{
+		BaseDelay: 1 * time.Millisecond,
+		Factor:    1.0,
+		MaxDelay:  1 * time.Millisecond,
 	}
 }
 

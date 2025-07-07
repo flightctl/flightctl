@@ -67,10 +67,13 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet ap
 	orgId := store.NullOrgId
 
 	// don't overwrite fields that are managed by the service
-	fleet.Status = nil
-	NilOutManagedObjectMetaProperties(&fleet.Metadata)
-	if fleet.Spec.Template.Metadata != nil {
-		NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
+	isInternal := IsInternalRequest(ctx)
+	if !isInternal {
+		fleet.Status = nil
+		NilOutManagedObjectMetaProperties(&fleet.Metadata)
+		if fleet.Spec.Template.Metadata != nil {
+			NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
+		}
 	}
 
 	if errs := fleet.Validate(); len(errs) > 0 {
@@ -80,7 +83,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet ap
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, updateDesc, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, true, h.callbackManager.FleetUpdatedCallback)
+	result, created, updateDesc, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackManager.FleetUpdatedCallback)
 	status := StoreErrorToApiStatus(err, created, api.FleetKind, &name)
 	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.FleetKind, name, status, &updateDesc, h.log))
 	return result, status

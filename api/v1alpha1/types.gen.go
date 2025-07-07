@@ -52,7 +52,6 @@ const (
 	ConditionTypeDeviceSpecValid                   ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                    ConditionType = "Updating"
 	ConditionTypeEnrollmentRequestApproved         ConditionType = "Approved"
-	ConditionTypeFleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
 	ConditionTypeFleetRolloutInProgress            ConditionType = "RolloutInProgress"
 	ConditionTypeFleetValid                        ConditionType = "Valid"
 	ConditionTypeRepositoryAccessible              ConditionType = "Accessible"
@@ -91,6 +90,28 @@ const (
 	DeviceLifecycleStatusUnknown         DeviceLifecycleStatusType = "Unknown"
 )
 
+// Defines values for DeviceMultipleOwnersDetectedDetailsDetailType.
+const (
+	DeviceMultipleOwnersDetected DeviceMultipleOwnersDetectedDetailsDetailType = "DeviceMultipleOwnersDetected"
+)
+
+// Defines values for DeviceMultipleOwnersResolvedDetailsDetailType.
+const (
+	DeviceMultipleOwnersResolved DeviceMultipleOwnersResolvedDetailsDetailType = "DeviceMultipleOwnersResolved"
+)
+
+// Defines values for DeviceMultipleOwnersResolvedDetailsResolutionType.
+const (
+	DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted DeviceMultipleOwnersResolvedDetailsResolutionType = "FleetDeleted"
+	DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch      DeviceMultipleOwnersResolvedDetailsResolutionType = "NoMatch"
+	DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch  DeviceMultipleOwnersResolvedDetailsResolutionType = "SingleMatch"
+)
+
+// Defines values for DeviceOwnershipChangedDetailsDetailType.
+const (
+	DeviceOwnershipChanged DeviceOwnershipChangedDetailsDetailType = "DeviceOwnershipChanged"
+)
+
 // Defines values for DeviceResourceStatusType.
 const (
 	DeviceResourceStatusCritical DeviceResourceStatusType = "Critical"
@@ -126,33 +147,38 @@ const (
 
 // Defines values for EventReason.
 const (
-	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
-	EventReasonDeviceApplicationError          EventReason = "DeviceApplicationError"
-	EventReasonDeviceApplicationHealthy        EventReason = "DeviceApplicationHealthy"
-	EventReasonDeviceCPUCritical               EventReason = "DeviceCPUCritical"
-	EventReasonDeviceCPUNormal                 EventReason = "DeviceCPUNormal"
-	EventReasonDeviceCPUWarning                EventReason = "DeviceCPUWarning"
-	EventReasonDeviceConnected                 EventReason = "DeviceConnected"
-	EventReasonDeviceContentOutOfDate          EventReason = "DeviceContentOutOfDate"
-	EventReasonDeviceContentUpToDate           EventReason = "DeviceContentUpToDate"
-	EventReasonDeviceContentUpdating           EventReason = "DeviceContentUpdating"
-	EventReasonDeviceDecommissionFailed        EventReason = "DeviceDecommissionFailed"
-	EventReasonDeviceDecommissioned            EventReason = "DeviceDecommissioned"
-	EventReasonDeviceDisconnected              EventReason = "DeviceDisconnected"
-	EventReasonDeviceDiskCritical              EventReason = "DeviceDiskCritical"
-	EventReasonDeviceDiskNormal                EventReason = "DeviceDiskNormal"
-	EventReasonDeviceDiskWarning               EventReason = "DeviceDiskWarning"
-	EventReasonDeviceMemoryCritical            EventReason = "DeviceMemoryCritical"
-	EventReasonDeviceMemoryNormal              EventReason = "DeviceMemoryNormal"
-	EventReasonDeviceMemoryWarning             EventReason = "DeviceMemoryWarning"
-	EventReasonEnrollmentRequestApprovalFailed EventReason = "EnrollmentRequestApprovalFailed"
-	EventReasonEnrollmentRequestApproved       EventReason = "EnrollmentRequestApproved"
-	EventReasonResourceCreated                 EventReason = "ResourceCreated"
-	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
-	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
-	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
-	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
-	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
+	EventReasonDeviceApplicationDegraded        EventReason = "DeviceApplicationDegraded"
+	EventReasonDeviceApplicationError           EventReason = "DeviceApplicationError"
+	EventReasonDeviceApplicationHealthy         EventReason = "DeviceApplicationHealthy"
+	EventReasonDeviceCPUCritical                EventReason = "DeviceCPUCritical"
+	EventReasonDeviceCPUNormal                  EventReason = "DeviceCPUNormal"
+	EventReasonDeviceCPUWarning                 EventReason = "DeviceCPUWarning"
+	EventReasonDeviceConnected                  EventReason = "DeviceConnected"
+	EventReasonDeviceContentOutOfDate           EventReason = "DeviceContentOutOfDate"
+	EventReasonDeviceContentUpToDate            EventReason = "DeviceContentUpToDate"
+	EventReasonDeviceContentUpdating            EventReason = "DeviceContentUpdating"
+	EventReasonDeviceDecommissionFailed         EventReason = "DeviceDecommissionFailed"
+	EventReasonDeviceDecommissioned             EventReason = "DeviceDecommissioned"
+	EventReasonDeviceDisconnected               EventReason = "DeviceDisconnected"
+	EventReasonDeviceDiskCritical               EventReason = "DeviceDiskCritical"
+	EventReasonDeviceDiskNormal                 EventReason = "DeviceDiskNormal"
+	EventReasonDeviceDiskWarning                EventReason = "DeviceDiskWarning"
+	EventReasonDeviceMemoryCritical             EventReason = "DeviceMemoryCritical"
+	EventReasonDeviceMemoryNormal               EventReason = "DeviceMemoryNormal"
+	EventReasonDeviceMemoryWarning              EventReason = "DeviceMemoryWarning"
+	EventReasonDeviceMultipleOwnersDetected     EventReason = "DeviceMultipleOwnersDetected"
+	EventReasonDeviceMultipleOwnersResolved     EventReason = "DeviceMultipleOwnersResolved"
+	EventReasonDeviceOwnershipChanged           EventReason = "DeviceOwnershipChanged"
+	EventReasonEnrollmentRequestApprovalFailed  EventReason = "EnrollmentRequestApprovalFailed"
+	EventReasonEnrollmentRequestApproved        EventReason = "EnrollmentRequestApproved"
+	EventReasonFleetSelectorProcessingCompleted EventReason = "FleetSelectorProcessingCompleted"
+	EventReasonInternalTaskFailed               EventReason = "InternalTaskFailed"
+	EventReasonResourceCreated                  EventReason = "ResourceCreated"
+	EventReasonResourceCreationFailed           EventReason = "ResourceCreationFailed"
+	EventReasonResourceDeleted                  EventReason = "ResourceDeleted"
+	EventReasonResourceDeletionFailed           EventReason = "ResourceDeletionFailed"
+	EventReasonResourceUpdateFailed             EventReason = "ResourceUpdateFailed"
+	EventReasonResourceUpdated                  EventReason = "ResourceUpdated"
 )
 
 // Defines values for EventType.
@@ -168,11 +194,28 @@ const (
 	FileOperationUpdated FileOperation = "updated"
 )
 
+// Defines values for FleetSelectorProcessingCompletedDetailsDetailType.
+const (
+	FleetSelectorProcessingCompleted FleetSelectorProcessingCompletedDetailsDetailType = "FleetSelectorProcessingCompleted"
+)
+
+// Defines values for FleetSelectorProcessingCompletedDetailsProcessingType.
+const (
+	FleetSelectorProcessingCompletedDetailsProcessingTypeDeviceLabelsUpdated FleetSelectorProcessingCompletedDetailsProcessingType = "DeviceLabelsUpdated"
+	FleetSelectorProcessingCompletedDetailsProcessingTypeFleetDeleted        FleetSelectorProcessingCompletedDetailsProcessingType = "FleetDeleted"
+	FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated     FleetSelectorProcessingCompletedDetailsProcessingType = "SelectorUpdated"
+)
+
 // Defines values for ImagePullPolicy.
 const (
 	PullAlways       ImagePullPolicy = "Always"
 	PullIfNotPresent ImagePullPolicy = "IfNotPresent"
 	PullNever        ImagePullPolicy = "Never"
+)
+
+// Defines values for InternalTaskFailedDetailsDetailType.
+const (
+	InternalTaskFailed InternalTaskFailedDetailsDetailType = "InternalTaskFailed"
 )
 
 // Defines values for MatchExpressionOperator.
@@ -212,6 +255,11 @@ const (
 	ResourceKindRepository                ResourceKind = "Repository"
 	ResourceKindResourceSync              ResourceKind = "ResourceSync"
 	ResourceKindTemplateVersion           ResourceKind = "TemplateVersion"
+)
+
+// Defines values for ResourceUpdatedDetailsDetailType.
+const (
+	ResourceUpdated ResourceUpdatedDetailsDetailType = "ResourceUpdated"
 )
 
 // Defines values for ResourceUpdatedDetailsUpdatedFields.
@@ -576,6 +624,39 @@ type DeviceList struct {
 	Summary *DevicesSummary `json:"summary,omitempty"`
 }
 
+// DeviceMultipleOwnersDetectedDetails defines model for DeviceMultipleOwnersDetectedDetails.
+type DeviceMultipleOwnersDetectedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeviceMultipleOwnersDetectedDetailsDetailType `json:"detailType"`
+
+	// MatchingFleets List of fleet names that match the device.
+	MatchingFleets []string `json:"matchingFleets"`
+}
+
+// DeviceMultipleOwnersDetectedDetailsDetailType The type of detail for discriminator purposes.
+type DeviceMultipleOwnersDetectedDetailsDetailType string
+
+// DeviceMultipleOwnersResolvedDetails defines model for DeviceMultipleOwnersResolvedDetails.
+type DeviceMultipleOwnersResolvedDetails struct {
+	// AssignedOwner The fleet assigned as owner (null if no owner).
+	AssignedOwner *string `json:"assignedOwner"`
+
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeviceMultipleOwnersResolvedDetailsDetailType `json:"detailType"`
+
+	// PreviousMatchingFleets List of fleets that previously matched the device.
+	PreviousMatchingFleets *[]string `json:"previousMatchingFleets,omitempty"`
+
+	// ResolutionType How the conflict was resolved.
+	ResolutionType DeviceMultipleOwnersResolvedDetailsResolutionType `json:"resolutionType"`
+}
+
+// DeviceMultipleOwnersResolvedDetailsDetailType The type of detail for discriminator purposes.
+type DeviceMultipleOwnersResolvedDetailsDetailType string
+
+// DeviceMultipleOwnersResolvedDetailsResolutionType How the conflict was resolved.
+type DeviceMultipleOwnersResolvedDetailsResolutionType string
+
 // DeviceOsSpec DeviceOsSpec describes the target OS for the device.
 type DeviceOsSpec struct {
 	// Image The target OS image name or URL.
@@ -590,6 +671,21 @@ type DeviceOsStatus struct {
 	// ImageDigest The digest of the OS image (e.g. sha256:a0...).
 	ImageDigest string `json:"imageDigest"`
 }
+
+// DeviceOwnershipChangedDetails defines model for DeviceOwnershipChangedDetails.
+type DeviceOwnershipChangedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeviceOwnershipChangedDetailsDetailType `json:"detailType"`
+
+	// NewOwner The new owner fleet (null if removed).
+	NewOwner *string `json:"newOwner"`
+
+	// PreviousOwner The previous owner fleet (null if none).
+	PreviousOwner *string `json:"previousOwner"`
+}
+
+// DeviceOwnershipChangedDetailsDetailType The type of detail for discriminator purposes.
+type DeviceOwnershipChangedDetailsDetailType string
 
 // DeviceResourceStatus Current status of the resources of the device.
 type DeviceResourceStatus struct {
@@ -1041,6 +1137,30 @@ type FleetRolloutStatus struct {
 	CurrentBatch *int `json:"currentBatch,omitempty"`
 }
 
+// FleetSelectorProcessingCompletedDetails defines model for FleetSelectorProcessingCompletedDetails.
+type FleetSelectorProcessingCompletedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetSelectorProcessingCompletedDetailsDetailType `json:"detailType"`
+
+	// DevicesProcessed Number of devices processed.
+	DevicesProcessed int `json:"devicesProcessed"`
+
+	// DevicesWithErrors Number of devices that had processing errors.
+	DevicesWithErrors *int `json:"devicesWithErrors,omitempty"`
+
+	// ProcessingDuration Duration of the processing operation.
+	ProcessingDuration *string `json:"processingDuration,omitempty"`
+
+	// ProcessingType The type of processing that was completed.
+	ProcessingType FleetSelectorProcessingCompletedDetailsProcessingType `json:"processingType"`
+}
+
+// FleetSelectorProcessingCompletedDetailsDetailType The type of detail for discriminator purposes.
+type FleetSelectorProcessingCompletedDetailsDetailType string
+
+// FleetSelectorProcessingCompletedDetailsProcessingType The type of processing that was completed.
+type FleetSelectorProcessingCompletedDetailsProcessingType string
+
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
 	// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
@@ -1238,6 +1358,27 @@ type InlineConfigProviderSpec struct {
 	// Name The name of the config provider.
 	Name string `json:"name"`
 }
+
+// InternalTaskFailedDetails defines model for InternalTaskFailedDetails.
+type InternalTaskFailedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType InternalTaskFailedDetailsDetailType `json:"detailType"`
+
+	// ErrorMessage The error message describing the failure.
+	ErrorMessage string `json:"errorMessage"`
+
+	// RetryCount Number of times the task has been retried.
+	RetryCount *int `json:"retryCount,omitempty"`
+
+	// TaskParameters Parameters needed to retry the task.
+	TaskParameters *map[string]string `json:"taskParameters,omitempty"`
+
+	// TaskType The type of internal task that failed.
+	TaskType string `json:"taskType"`
+}
+
+// InternalTaskFailedDetailsDetailType The type of detail for discriminator purposes.
+type InternalTaskFailedDetailsDetailType string
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
@@ -1509,6 +1650,9 @@ type ResourceSyncStatus struct {
 
 // ResourceUpdatedDetails defines model for ResourceUpdatedDetails.
 type ResourceUpdatedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType ResourceUpdatedDetailsDetailType `json:"detailType"`
+
 	// NewOwner The new owner (if applicable).
 	NewOwner *string `json:"newOwner"`
 
@@ -1518,6 +1662,9 @@ type ResourceUpdatedDetails struct {
 	// UpdatedFields List of fields that were updated in the resource.
 	UpdatedFields []ResourceUpdatedDetailsUpdatedFields `json:"updatedFields"`
 }
+
+// ResourceUpdatedDetailsDetailType The type of detail for discriminator purposes.
+type ResourceUpdatedDetailsDetailType string
 
 // ResourceUpdatedDetailsUpdatedFields defines model for ResourceUpdatedDetails.UpdatedFields.
 type ResourceUpdatedDetailsUpdatedFields string
@@ -2439,6 +2586,7 @@ func (t EventDetails) AsResourceUpdatedDetails() (ResourceUpdatedDetails, error)
 
 // FromResourceUpdatedDetails overwrites any union data inside the EventDetails as the provided ResourceUpdatedDetails
 func (t *EventDetails) FromResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	v.DetailType = "ResourceUpdated"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -2446,6 +2594,7 @@ func (t *EventDetails) FromResourceUpdatedDetails(v ResourceUpdatedDetails) erro
 
 // MergeResourceUpdatedDetails performs a merge with any union data inside the EventDetails, using the provided ResourceUpdatedDetails
 func (t *EventDetails) MergeResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	v.DetailType = "ResourceUpdated"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -2454,6 +2603,177 @@ func (t *EventDetails) MergeResourceUpdatedDetails(v ResourceUpdatedDetails) err
 	merged, err := runtime.JSONMerge(t.union, b)
 	t.union = merged
 	return err
+}
+
+// AsDeviceOwnershipChangedDetails returns the union data inside the EventDetails as a DeviceOwnershipChangedDetails
+func (t EventDetails) AsDeviceOwnershipChangedDetails() (DeviceOwnershipChangedDetails, error) {
+	var body DeviceOwnershipChangedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceOwnershipChangedDetails overwrites any union data inside the EventDetails as the provided DeviceOwnershipChangedDetails
+func (t *EventDetails) FromDeviceOwnershipChangedDetails(v DeviceOwnershipChangedDetails) error {
+	v.DetailType = "DeviceOwnershipChanged"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceOwnershipChangedDetails performs a merge with any union data inside the EventDetails, using the provided DeviceOwnershipChangedDetails
+func (t *EventDetails) MergeDeviceOwnershipChangedDetails(v DeviceOwnershipChangedDetails) error {
+	v.DetailType = "DeviceOwnershipChanged"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceMultipleOwnersDetectedDetails returns the union data inside the EventDetails as a DeviceMultipleOwnersDetectedDetails
+func (t EventDetails) AsDeviceMultipleOwnersDetectedDetails() (DeviceMultipleOwnersDetectedDetails, error) {
+	var body DeviceMultipleOwnersDetectedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceMultipleOwnersDetectedDetails overwrites any union data inside the EventDetails as the provided DeviceMultipleOwnersDetectedDetails
+func (t *EventDetails) FromDeviceMultipleOwnersDetectedDetails(v DeviceMultipleOwnersDetectedDetails) error {
+	v.DetailType = "DeviceMultipleOwnersDetected"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceMultipleOwnersDetectedDetails performs a merge with any union data inside the EventDetails, using the provided DeviceMultipleOwnersDetectedDetails
+func (t *EventDetails) MergeDeviceMultipleOwnersDetectedDetails(v DeviceMultipleOwnersDetectedDetails) error {
+	v.DetailType = "DeviceMultipleOwnersDetected"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceMultipleOwnersResolvedDetails returns the union data inside the EventDetails as a DeviceMultipleOwnersResolvedDetails
+func (t EventDetails) AsDeviceMultipleOwnersResolvedDetails() (DeviceMultipleOwnersResolvedDetails, error) {
+	var body DeviceMultipleOwnersResolvedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceMultipleOwnersResolvedDetails overwrites any union data inside the EventDetails as the provided DeviceMultipleOwnersResolvedDetails
+func (t *EventDetails) FromDeviceMultipleOwnersResolvedDetails(v DeviceMultipleOwnersResolvedDetails) error {
+	v.DetailType = "DeviceMultipleOwnersResolved"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceMultipleOwnersResolvedDetails performs a merge with any union data inside the EventDetails, using the provided DeviceMultipleOwnersResolvedDetails
+func (t *EventDetails) MergeDeviceMultipleOwnersResolvedDetails(v DeviceMultipleOwnersResolvedDetails) error {
+	v.DetailType = "DeviceMultipleOwnersResolved"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInternalTaskFailedDetails returns the union data inside the EventDetails as a InternalTaskFailedDetails
+func (t EventDetails) AsInternalTaskFailedDetails() (InternalTaskFailedDetails, error) {
+	var body InternalTaskFailedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInternalTaskFailedDetails overwrites any union data inside the EventDetails as the provided InternalTaskFailedDetails
+func (t *EventDetails) FromInternalTaskFailedDetails(v InternalTaskFailedDetails) error {
+	v.DetailType = "InternalTaskFailed"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInternalTaskFailedDetails performs a merge with any union data inside the EventDetails, using the provided InternalTaskFailedDetails
+func (t *EventDetails) MergeInternalTaskFailedDetails(v InternalTaskFailedDetails) error {
+	v.DetailType = "InternalTaskFailed"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFleetSelectorProcessingCompletedDetails returns the union data inside the EventDetails as a FleetSelectorProcessingCompletedDetails
+func (t EventDetails) AsFleetSelectorProcessingCompletedDetails() (FleetSelectorProcessingCompletedDetails, error) {
+	var body FleetSelectorProcessingCompletedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFleetSelectorProcessingCompletedDetails overwrites any union data inside the EventDetails as the provided FleetSelectorProcessingCompletedDetails
+func (t *EventDetails) FromFleetSelectorProcessingCompletedDetails(v FleetSelectorProcessingCompletedDetails) error {
+	v.DetailType = "FleetSelectorProcessingCompleted"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFleetSelectorProcessingCompletedDetails performs a merge with any union data inside the EventDetails, using the provided FleetSelectorProcessingCompletedDetails
+func (t *EventDetails) MergeFleetSelectorProcessingCompletedDetails(v FleetSelectorProcessingCompletedDetails) error {
+	v.DetailType = "FleetSelectorProcessingCompleted"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t EventDetails) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"detailType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "DeviceMultipleOwnersDetected":
+		return t.AsDeviceMultipleOwnersDetectedDetails()
+	case "DeviceMultipleOwnersResolved":
+		return t.AsDeviceMultipleOwnersResolvedDetails()
+	case "DeviceOwnershipChanged":
+		return t.AsDeviceOwnershipChangedDetails()
+	case "FleetSelectorProcessingCompleted":
+		return t.AsFleetSelectorProcessingCompletedDetails()
+	case "InternalTaskFailed":
+		return t.AsInternalTaskFailedDetails()
+	case "ResourceUpdated":
+		return t.AsResourceUpdatedDetails()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
 }
 
 func (t EventDetails) MarshalJSON() ([]byte, error) {

@@ -35,7 +35,7 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("vm", func() {
-		It("Verify VM agent", Label("80455", "sanity"), func() {
+		It("Verify VM agent", Label("80455"), func() {
 			By("should print QR output to console")
 			// Wait for the top-most part of the QR output to appear
 			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
@@ -51,7 +51,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 		})
 
-		It("Verifying generation of enrollment request link", Label("75518", "sanity"), func() {
+		It("Verifying generation of enrollment request link", Label("75518"), func() {
 			By("should be reporting device status on enrollment request")
 			// Get the enrollment Request ID from the console output
 			enrollmentID := harness.GetEnrollmentIDFromConsole()
@@ -71,7 +71,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
 				enrollmentID).ShouldNot(BeNil())
 		})
-		It("Should report a message when a device is assigned to multiple fleets", Label("75992", "sanity"), func() {
+		It("Should report a message when a device is assigned to multiple fleets", Label("75992"), func() {
 			const (
 				fleet1Name  = "fleet1"
 				fleet2Name  = "fleet2"
@@ -171,19 +171,6 @@ var _ = Describe("VM Agent behavior", func() {
 			cond = v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).Should(And(ContainSubstring(fleet1Name), ContainSubstring(fleet2Name)))
-
-			// verify that the fleets also have a condition added to them
-			for _, fleetName := range []string{fleet1Name, fleet2Name} {
-				harness.WaitForFleetContents(fleetName, "fleet selectors overlap should be applied", func(fleet *v1alpha1.Fleet) bool {
-					return e2e.ConditionStatusExists(fleet.Status.Conditions, v1alpha1.ConditionTypeFleetOverlappingSelectors, v1alpha1.ConditionStatusTrue)
-				}, TIMEOUT)
-				fleet, err := harness.GetFleet(fleetName)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(fleet).ToNot(BeNil())
-				cond = v1alpha1.FindStatusCondition(fleet.Status.Conditions, v1alpha1.ConditionTypeFleetOverlappingSelectors)
-				Expect(cond).ToNot(BeNil())
-				Expect(cond.Message).Should(Equal("Fleet's selector overlaps with at least one other fleet, causing ambiguous device ownership"))
-			}
 		})
 	})
 

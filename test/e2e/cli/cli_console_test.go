@@ -71,7 +71,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 		cs2.Close()
 	})
 
-	It("keeps console sessions open during a device update", Label("81786", "sanity"), func() {
+	It("keeps console sessions open during a device update", Label("81786"), func() {
 		const sessionsToOpen = 4
 		const expectedRenderedVersion = 2 + sessionsToOpen*2
 
@@ -112,7 +112,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 		Expect(out).To(ContainSubstring("not found"))
 	})
 
-	It("allows tuning spec-fetch-interval", Label("82538", "sanity"), func() {
+	It("allows tuning spec-fetch-interval", Label("82538"), func() {
 		const (
 			cfgFile              = "/etc/flightctl/config.yaml"
 			specFetchKey         = "spec-fetch-interval"
@@ -161,7 +161,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 		}, 2*time.Minute, 10*time.Second).Should(BeTrue())
 	})
 
-	It("recovers from image pull network disruption", Label("82541", "sanity"), func() {
+	It("recovers from image pull network disruption", Label("82541"), func() {
 		const disruptionTime = 1 * time.Minute
 		_, _ = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 
@@ -194,7 +194,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
-	It("recovers from image pull network connection error", Label("83029", "sanity"), func() {
+	It("recovers from image pull network connection error", Label("83029"), func() {
 		logrus.Infof("Simulating network failure")
 		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())

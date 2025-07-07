@@ -34,6 +34,7 @@ import (
 	"github.com/flightctl/flightctl/internal/experimental"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -102,7 +103,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: this needs tuned
+	// TODO: replace wait with poll
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
 		Duration: 10 * time.Second,
@@ -110,11 +111,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		Steps:    6,
 	}
 
+	pollBackoff := poll.Config{
+		MaxDelay:  1 * time.Minute,
+		BaseDelay: 10 * time.Second,
+		Factor:    1.5,
+		MaxSteps:  6,
+	}
+
 	// create os client
 	osClient := os.NewClient(a.log, executer)
 
 	// create podman client
-	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, backoff)
+	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
 
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)

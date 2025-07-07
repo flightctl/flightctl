@@ -25,6 +25,7 @@ const (
 	ComposeOverrideFilename      = "99-compose-flightctl-agent.override.yaml"
 	ComposeDockerProjectLabelKey = "com.docker.compose.project"
 	defaultPodmanTimeout         = 10 * time.Minute
+	defaultPodmanMaxRetryTimeout = 60 * time.Minute
 )
 
 var (

@@ -195,12 +195,12 @@ v3.4
 WorkDir
 10s
  - docs/user/managing-fleets.md
-OverlappingSelectors
 factory-berlinsite
 factory-madridsite
 GroupBy
 MinAvailable
 MaxUnavailable
+MultipleOwners
  - docs/user/building-images.md
 usr
 iso
