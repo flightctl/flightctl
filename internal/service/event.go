@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -20,7 +19,6 @@ import (
 type resourceEvent struct {
 	ResourceKind                 api.ResourceKind
 	ResourceName                 string
-	Prefix                       string
 	ReasonSuccess, ReasonFailure api.EventReason
 	OutcomeSuccess               string
 	OutcomeFailure               outcomeFailureFunc
@@ -30,7 +28,6 @@ type resourceEvent struct {
 }
 
 type eventConfig struct {
-	Prefix          string
 	ReasonSuccess   api.EventReason
 	ReasonFailure   api.EventReason
 	SuccessMessage  string
@@ -154,14 +151,6 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 		return nil
 	}
 
-	var requestIDstr string
-	if reqID := ctx.Value(middleware.RequestIDKey); reqID == nil {
-		// If the requestID is nil or not set, fallback to a UUID
-		requestIDstr = uuid.New().String()
-	} else {
-		requestIDstr = reqID.(string)
-	}
-
 	var actorStr string
 	if actor := ctx.Value(consts.EventActorCtxKey); actor != nil {
 		actorStr = actor.(string)
@@ -172,9 +161,12 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 		componentStr = component.(string)
 	}
 
+	// Generate a UUID for the event name to ensure k8s compliance
+	eventName := uuid.New().String()
+
 	event := api.Event{
 		Metadata: api.ObjectMeta{
-			Name: lo.ToPtr(fmt.Sprintf("%s-%s-%s-%s", resourceEvent.Prefix, resourceEvent.ResourceKind, resourceEvent.ResourceName, requestIDstr)),
+			Name: lo.ToPtr(eventName),
 		},
 		Type: api.Normal,
 		InvolvedObject: api.ObjectReference{
@@ -185,6 +177,11 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 			Component: componentStr,
 		},
 		Actor: actorStr,
+	}
+
+	// Add request ID to the event for correlation
+	if reqID := ctx.Value(middleware.RequestIDKey); reqID != nil {
+		event.Metadata.Annotations = &map[string]string{api.EventAnnotationRequestID: reqID.(string)}
 	}
 
 	if operationSucceeded {
@@ -221,7 +218,6 @@ func buildResourceEvent(ctx context.Context, resourceKind api.ResourceKind, reso
 		resourceEvent{
 			ResourceKind:   resourceKind,
 			ResourceName:   resourceName,
-			Prefix:         config.Prefix,
 			ReasonSuccess:  config.ReasonSuccess,
 			ReasonFailure:  config.ReasonFailure,
 			OutcomeSuccess: config.SuccessMessage,
@@ -234,7 +230,6 @@ func buildResourceEvent(ctx context.Context, resourceKind api.ResourceKind, reso
 func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDesc *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
 	if created {
 		return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-			Prefix:          "resource-create",
 			ReasonSuccess:   api.EventReasonResourceCreated,
 			ReasonFailure:   api.EventReasonResourceCreationFailed,
 			SuccessMessage:  formatResourceActionMessage(resourceKind, "created"),
@@ -243,7 +238,6 @@ func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourc
 	}
 
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-		Prefix:          "resource-update",
 		ReasonSuccess:   api.EventReasonResourceUpdated,
 		ReasonFailure:   api.EventReasonResourceUpdateFailed,
 		SuccessMessage:  formatResourceActionMessage(resourceKind, "updated"),
@@ -254,7 +248,6 @@ func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourc
 
 func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, log logrus.FieldLogger) *api.Event {
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-		Prefix:          "resource-delete",
 		ReasonSuccess:   api.EventReasonResourceDeleted,
 		ReasonFailure:   api.EventReasonResourceDeletionFailed,
 		SuccessMessage:  formatResourceActionMessage(resourceKind, "deleted"),
@@ -264,7 +257,6 @@ func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind,
 
 func GetResourceApprovedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, log logrus.FieldLogger) *api.Event {
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-		Prefix:          "resource-approval",
 		ReasonSuccess:   api.EventReasonEnrollmentRequestApproved,
 		ReasonFailure:   api.EventReasonEnrollmentRequestApprovalFailed,
 		SuccessMessage:  formatResourceActionMessage(resourceKind, "approved"),
@@ -274,7 +266,6 @@ func GetResourceApprovedEvent(ctx context.Context, resourceKind api.ResourceKind
 
 func GetResourceDecommissionedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDetails *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-		Prefix:          "resource-decommission",
 		ReasonSuccess:   api.EventReasonDeviceDecommissioned,
 		ReasonFailure:   api.EventReasonDeviceDecommissionFailed,
 		SuccessMessage:  formatResourceActionMessage(resourceKind, "decommissioned"),
@@ -283,22 +274,11 @@ func GetResourceDecommissionedEvent(ctx context.Context, resourceKind api.Resour
 	}, log)
 }
 
-func createPrefixGenerator(basePrefix string) func() string {
-	var counter int64
-	return func() string {
-		count := atomic.AddInt64(&counter, 1)
-		return fmt.Sprintf("%s_%d", basePrefix, count)
-	}
-}
-
-var generateUpdateDetailsPrefix = createPrefixGenerator("from-update-details")
-
 func GetResourceEventFromUpdateDetails(ctx context.Context, resourceKind api.ResourceKind, resourceName string, reasonSuccess api.EventReason, updateDetails string, log logrus.FieldLogger) *api.Event {
 	return getBaseEvent(ctx,
 		resourceEvent{
 			ResourceKind:   resourceKind,
 			ResourceName:   resourceName,
-			Prefix:         generateUpdateDetailsPrefix(),
 			ReasonSuccess:  reasonSuccess,
 			Status:         api.StatusOK(),
 			OutcomeSuccess: updateDetails,
@@ -323,7 +303,6 @@ func GetDeviceOwnershipChangedEvent(ctx context.Context, deviceName string, prev
 	return getBaseEvent(ctx, resourceEvent{
 		ResourceKind:   api.DeviceKind,
 		ResourceName:   deviceName,
-		Prefix:         "device-ownership-changed",
 		ReasonSuccess:  api.EventReasonDeviceOwnershipChanged,
 		OutcomeSuccess: message,
 		Status:         api.StatusOK(),
@@ -347,7 +326,6 @@ func GetDeviceMultipleOwnersDetectedEvent(ctx context.Context, deviceName string
 	return getBaseEvent(ctx, resourceEvent{
 		ResourceKind:   api.DeviceKind,
 		ResourceName:   deviceName,
-		Prefix:         "device-multiple-owners-detected",
 		ReasonFailure:  api.EventReasonDeviceMultipleOwnersDetected,
 		OutcomeFailure: func() string { return message },
 		Status:         api.StatusInternalServerError("Multiple fleet owners detected"),
@@ -373,7 +351,6 @@ func GetDeviceMultipleOwnersResolvedEvent(ctx context.Context, deviceName string
 	return getBaseEvent(ctx, resourceEvent{
 		ResourceKind:   api.DeviceKind,
 		ResourceName:   deviceName,
-		Prefix:         "device-multiple-owners-resolved",
 		ReasonSuccess:  api.EventReasonDeviceMultipleOwnersResolved,
 		OutcomeSuccess: message,
 		Status:         api.StatusOK(),
@@ -400,7 +377,6 @@ func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKi
 	return getBaseEvent(ctx, resourceEvent{
 		ResourceKind:   resourceKind,
 		ResourceName:   resourceName,
-		Prefix:         "internal-task-failed",
 		ReasonFailure:  api.EventReasonInternalTaskFailed,
 		OutcomeFailure: func() string { return message },
 		Status:         api.StatusInternalServerError("Internal task failed"),
@@ -429,7 +405,6 @@ func GetFleetSelectorProcessingCompletedEvent(ctx context.Context, fleetName str
 		return getBaseEvent(ctx, resourceEvent{
 			ResourceKind:   api.FleetKind,
 			ResourceName:   fleetName,
-			Prefix:         "fleet-selector-processing",
 			ReasonFailure:  api.EventReasonFleetSelectorProcessingCompleted,
 			OutcomeFailure: func() string { return message },
 			Status:         api.StatusInternalServerError("Fleet selector processing completed with errors"),
@@ -439,7 +414,6 @@ func GetFleetSelectorProcessingCompletedEvent(ctx context.Context, fleetName str
 		return getBaseEvent(ctx, resourceEvent{
 			ResourceKind:   api.FleetKind,
 			ResourceName:   fleetName,
-			Prefix:         "fleet-selector-processing",
 			ReasonSuccess:  api.EventReasonFleetSelectorProcessingCompleted,
 			OutcomeSuccess: message,
 			Status:         api.StatusOK(),
