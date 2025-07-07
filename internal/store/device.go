@@ -49,6 +49,9 @@ type Device interface {
 	// Used only by device_disconnected
 	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 
+	// Used by fleet selector
+	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams ListParams) (*api.DeviceList, error)
+
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
@@ -92,20 +95,53 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
-	// Create index for device primary key 'name'
-	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_primary_key_name") {
-		if db.Dialector.Name() == "postgres" {
-			if err := db.Exec("CREATE INDEX idx_device_primary_key_name ON devices USING BTREE (name)").Error; err != nil {
-				return err
-			}
-		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "PrimaryKeyColumnName"); err != nil {
-				return err
-			}
-		}
+	if err := s.createDeviceNameIndex(db); err != nil {
+		return err
 	}
 
-	// Create indexes for device 'Alias' column
+	if err := s.createDeviceAliasIndexes(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceLabelsIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceAnnotationsIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceStatusIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceLabelsPartialIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createServiceConditionsIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceLabelsTrigger(db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *DeviceStore) createDeviceNameIndex(db *gorm.DB) error {
+	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_primary_key_name") {
+		if db.Dialector.Name() == "postgres" {
+			return db.Exec("CREATE INDEX idx_device_primary_key_name ON devices USING BTREE (name)").Error
+		} else {
+			return db.Migrator().CreateIndex(&model.Device{}, "PrimaryKeyColumnName")
+		}
+	}
+	return nil
+}
+
+func (s *DeviceStore) createDeviceAliasIndexes(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.Device{}, "device_alias") {
 		if db.Dialector.Name() == "postgres" {
 			// Enable pg_trgm extension if not already enabled
@@ -117,56 +153,48 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 				return err
 			}
 			// Create a GIN index for substring matches on the 'Alias' field
-			if err := db.Exec("CREATE INDEX IF NOT EXISTS device_alias_gin ON devices USING GIN (alias gin_trgm_ops)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX IF NOT EXISTS device_alias_gin ON devices USING GIN (alias gin_trgm_ops)").Error
 		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "device_alias"); err != nil {
-				return err
-			}
+			return db.Migrator().CreateIndex(&model.Device{}, "device_alias")
 		}
 	}
+	return nil
+}
 
-	// Create GIN index for device labels
+func (s *DeviceStore) createDeviceLabelsIndex(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_labels") {
 		if db.Dialector.Name() == "postgres" {
-			if err := db.Exec("CREATE INDEX idx_device_labels ON devices USING GIN (labels)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX idx_device_labels ON devices USING GIN (labels)").Error
 		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "Labels"); err != nil {
-				return err
-			}
+			return db.Migrator().CreateIndex(&model.Device{}, "Labels")
 		}
 	}
+	return nil
+}
 
-	// Create GIN index for device annotations
+func (s *DeviceStore) createDeviceAnnotationsIndex(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_annotations") {
 		if db.Dialector.Name() == "postgres" {
-			if err := db.Exec("CREATE INDEX idx_device_annotations ON devices USING GIN (annotations)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX idx_device_annotations ON devices USING GIN (annotations)").Error
 		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "Annotations"); err != nil {
-				return err
-			}
+			return db.Migrator().CreateIndex(&model.Device{}, "Annotations")
 		}
 	}
+	return nil
+}
 
-	// Create GIN index for device status
+func (s *DeviceStore) createDeviceStatusIndex(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_status") {
 		if db.Dialector.Name() == "postgres" {
-			if err := db.Exec("CREATE INDEX idx_device_status ON devices USING GIN (status)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX idx_device_status ON devices USING GIN (status)").Error
 		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "Status"); err != nil {
-				return err
-			}
+			return db.Migrator().CreateIndex(&model.Device{}, "Status")
 		}
 	}
+	return nil
+}
 
-	// Create indexes for device_labels (Partial Matching Support)
+func (s *DeviceStore) createDeviceLabelsPartialIndex(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.DeviceLabel{}, "idx_device_labels_partial") {
 		if db.Dialector.Name() == "postgres" {
 			// Enable pg_trgm extension for partial matching
@@ -174,13 +202,26 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 				return err
 			}
 			// Create GIN index for partial match searches
-			if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error
 		}
 	}
+	return nil
+}
 
-	// Ensure trigger is created for INSERT & UPDATE (labels JSONB changes)
+func (s *DeviceStore) createServiceConditionsIndex(db *gorm.DB) error {
+	if !db.Migrator().HasIndex(&model.Device{}, "idx_devices_service_conditions") {
+		if db.Dialector.Name() == "postgres" {
+			// Create a GIN index on the service_conditions JSONB field
+			// This provides optimal performance for JSONB path operations
+			return db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_service_conditions ON devices USING GIN ((service_conditions->'conditions')) WHERE service_conditions IS NOT NULL").Error
+		} else {
+			return db.Migrator().CreateIndex(&model.Device{}, "ServiceConditions")
+		}
+	}
+	return nil
+}
+
+func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
 	if db.Dialector.Name() == "postgres" {
 		triggerSQL := `
 		DROP TRIGGER IF EXISTS device_labels_insert ON devices;
@@ -220,9 +261,7 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		WHEN (OLD.labels IS DISTINCT FROM NEW.labels)
 		EXECUTE FUNCTION sync_device_labels();
 		`
-		if err := db.Exec(triggerSQL).Error; err != nil {
-			return err
-		}
+		return db.Exec(triggerSQL).Error
 	}
 	return nil
 }
@@ -317,19 +356,19 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 	} else {
 		updateTimeoutValue = gorm.Expr("false")
 	}
-	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count, 
-                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version, 
+	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count,
+                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version,
                                  elem ->> 'reason' as updating_reason,
-                                 annotations->>'%s' = ? as same_template_version, 
+                                 annotations->>'%s' = ? as same_template_version,
 								 ? as update_timed_out
                           from devices d LEFT JOIN LATERAL (
                             SELECT elem
 						    FROM jsonb_array_elements(d.status->'conditions') AS elem
 						    WHERE elem->>'type' = 'Updating'
 						    LIMIT 1
-							) subquery ON TRUE 
+							) subquery ON TRUE
 						     where
-						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null 
+						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null
 						        group by same_rendered_version, updating_reason, same_template_version, update_timed_out`,
 		api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationSelectedForRollout),
 		templateVersion,
@@ -492,9 +531,9 @@ func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.U
 	createMissing := "false"
 	query := fmt.Sprintf(`
         UPDATE devices
-        SET 
+        SET
             status = jsonb_set(
-                jsonb_set(status, '{summary,status}', '"%s"', %s), 
+                jsonb_set(status, '{summary,status}', '"%s"', %s),
                 '{summary,info}', '"%s"'
             ),
             resource_version = resource_version + 1
@@ -682,4 +721,72 @@ func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, na
 		return nil, err
 	}
 	return &repositories, nil
+}
+
+func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams ListParams) (*api.DeviceList, error) {
+	// Use raw SQL to efficiently query JSONB service_conditions field
+	// The service_conditions field is stored as JSONB for optimal performance
+	var devices []model.Device
+	var nextContinue *string
+	var numRemaining *int64
+
+	// Build the raw SQL query with proper pagination support for JSONB
+	baseSQL := `
+		SELECT * FROM devices
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND service_conditions IS NOT NULL
+			AND EXISTS (
+				SELECT 1 FROM jsonb_array_elements(service_conditions->'conditions') AS elem
+				WHERE elem->>'type' = ? AND elem->>'status' = ?
+			)`
+
+	// Handle pagination - add WHERE condition before ORDER BY
+	var args []interface{}
+	args = append(args, orgId, conditionType, conditionStatus)
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		baseSQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	// Add ORDER BY after all WHERE conditions
+	baseSQL += " ORDER BY name ASC"
+
+	// Add limit
+	baseSQL += " LIMIT ?"
+	args = append(args, listParams.Limit)
+
+	// Execute the query
+	if err := s.getDB(ctx).Raw(baseSQL, args...).Scan(&devices).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	// Calculate pagination metadata
+	if len(devices) > 0 && len(devices) == listParams.Limit {
+		// Check if there are more results
+		var count int64
+		countSQL := `
+			SELECT COUNT(*) FROM devices
+			WHERE org_id = ?
+				AND deleted_at IS NULL
+				AND service_conditions IS NOT NULL
+				AND EXISTS (
+					SELECT 1 FROM jsonb_array_elements(service_conditions->'conditions') AS elem
+					WHERE elem->>'type' = ? AND elem->>'status' = ?
+				) AND name > ?`
+
+		countArgs := []interface{}{orgId, conditionType, conditionStatus, devices[len(devices)-1].Name}
+		if err := s.getDB(ctx).Raw(countSQL, countArgs...).Scan(&count).Error; err != nil {
+			return nil, ErrorFromGormError(err)
+		}
+
+		if count > 0 {
+			nextContinue = BuildContinueString([]string{devices[len(devices)-1].Name}, count)
+			numRemaining = &count
+		}
+	}
+
+	result, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	return &result, err
 }

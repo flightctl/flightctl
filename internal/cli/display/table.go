@@ -212,10 +212,6 @@ func (f *TableFormatter) printFleetsTable(w *tabwriter.Writer, showSummary bool,
 			if condition != nil {
 				valid = string(condition.Status)
 			}
-			condition = api.FindStatusCondition(fleet.Status.Conditions, api.ConditionTypeFleetOverlappingSelectors)
-			if condition != nil && condition.Status == api.ConditionStatusTrue {
-				valid = string(api.ConditionStatusFalse)
-			}
 		}
 
 		numDevices := "Unknown"
