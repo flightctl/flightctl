@@ -1,2 +1,2 @@
-#! bin/bash
-sleep infinite
+#!/bin/bash
+sleep infinity
