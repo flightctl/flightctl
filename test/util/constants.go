@@ -27,11 +27,11 @@ const (
 )
 
 var ResourceTypes = [...]string{
-	Device,
+	ResourceSync,
 	Fleet,
+	Device,
 	EnrollmentRequest,
 	Repository,
-	ResourceSync,
 	CertificateSigningRequest,
 }
 
