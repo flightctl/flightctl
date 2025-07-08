@@ -148,9 +148,9 @@ func TestEnsureScheduled(t *testing.T) {
 			manager := NewPrefetchManager(log, podman, timeout)
 
 			// register a collector that returns the test targets
-			manager.RegisterOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 				return tt.targets, nil
-			})
+			}))
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -282,9 +282,9 @@ func TestStatus(t *testing.T) {
 		},
 	}
 
-	manager.RegisterOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 		return targets, nil
-	})
+	}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -308,7 +308,7 @@ func TestBeforeUpdate(t *testing.T) {
 		name       string
 		current    *v1alpha1.DeviceSpec
 		desired    *v1alpha1.DeviceSpec
-		collectors []OCICollectorFn
+		collectors []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)
 		setupMocks func(*executer.MockExecuter)
 		wantErr    error
 	}{
@@ -324,7 +324,7 @@ func TestBeforeUpdate(t *testing.T) {
 			name:    "empty device specs with registered collectors",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			collectors: []OCICollectorFn{
+			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
 				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 					return []OCIPullTarget{}, nil
 				},
@@ -337,7 +337,7 @@ func TestBeforeUpdate(t *testing.T) {
 			name:    "single collector with missing images",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			collectors: []OCICollectorFn{
+			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
 				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
@@ -367,7 +367,7 @@ func TestBeforeUpdate(t *testing.T) {
 			name:    "single collector with all images present",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			collectors: []OCICollectorFn{
+			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
 				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
@@ -396,7 +396,7 @@ func TestBeforeUpdate(t *testing.T) {
 			name:    "single collector with mixed image availability",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			collectors: []OCICollectorFn{
+			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
 				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
@@ -426,7 +426,7 @@ func TestBeforeUpdate(t *testing.T) {
 			name:    "multiple collectors with different image sets",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			collectors: []OCICollectorFn{
+			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
 				// app collector
 				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
@@ -469,7 +469,7 @@ func TestBeforeUpdate(t *testing.T) {
 			name:    "collector returns error",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			collectors: []OCICollectorFn{
+			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
 				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 					return nil, fmt.Errorf("failed to collect OCI targets")
 				},
@@ -477,13 +477,13 @@ func TestBeforeUpdate(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				// no mock calls expected since collector fails
 			},
-			wantErr: fmt.Errorf("prefetch function 0 failed: failed to collect OCI targets"),
+			wantErr: fmt.Errorf("prefetch collector 0 failed: failed to collect OCI targets"),
 		},
 		{
 			name:    "artifact target with missing image",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			collectors: []OCICollectorFn{
+			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
 				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
@@ -505,7 +505,7 @@ func TestBeforeUpdate(t *testing.T) {
 			name:    "pull always policy with existing image",
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
-			collectors: []OCICollectorFn{
+			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
 				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
@@ -545,7 +545,7 @@ func TestBeforeUpdate(t *testing.T) {
 
 			// Register collectors
 			for _, collector := range tt.collectors {
-				manager.RegisterOCICollector(collector)
+				manager.RegisterOCICollector(newTestOCICollector(collector))
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -683,7 +683,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	}
 
 	// register the collector
-	manager.RegisterOCICollector(appCollector)
+	manager.RegisterOCICollector(newTestOCICollector(appCollector))
 
 	// simulate the device update flow
 	current := &v1alpha1.DeviceSpec{}
@@ -720,4 +720,17 @@ func TestPullSecretCleanup(t *testing.T) {
 type taskState struct {
 	done bool
 	err  error
+}
+
+// testOCICollector is a test helper that implements OCICollector interface
+type testOCICollector struct {
+	collectFn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)
+}
+
+func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+	return t.collectFn(ctx, current, desired)
+}
+
+func newTestOCICollector(fn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)) OCICollector {
+	return &testOCICollector{collectFn: fn}
 }

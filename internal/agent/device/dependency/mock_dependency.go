@@ -67,15 +67,15 @@ func (mr *MockPrefetchManagerMockRecorder) Cleanup() *gomock.Call {
 }
 
 // RegisterOCICollector mocks base method.
-func (m *MockPrefetchManager) RegisterOCICollector(collectorFn OCICollectorFn) {
+func (m *MockPrefetchManager) RegisterOCICollector(collector OCICollector) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterOCICollector", collectorFn)
+	m.ctrl.Call(m, "RegisterOCICollector", collector)
 }
 
 // RegisterOCICollector indicates an expected call of RegisterOCICollector.
-func (mr *MockPrefetchManagerMockRecorder) RegisterOCICollector(collectorFn any) *gomock.Call {
+func (mr *MockPrefetchManagerMockRecorder) RegisterOCICollector(collector any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterOCICollector", reflect.TypeOf((*MockPrefetchManager)(nil).RegisterOCICollector), collectorFn)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterOCICollector", reflect.TypeOf((*MockPrefetchManager)(nil).RegisterOCICollector), collector)
 }
 
 // StatusMessage mocks base method.
@@ -116,15 +116,16 @@ func (m *MockOCICollector) EXPECT() *MockOCICollectorMockRecorder {
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockOCICollector) CollectOCITargets(ctx context.Context) OCICollectorFn {
+func (m *MockOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CollectOCITargets", ctx)
-	ret0, _ := ret[0].(OCICollectorFn)
-	return ret0
+	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
+	ret0, _ := ret[0].([]OCIPullTarget)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // CollectOCITargets indicates an expected call of CollectOCITargets.
-func (mr *MockOCICollectorMockRecorder) CollectOCITargets(ctx any) *gomock.Call {
+func (mr *MockOCICollectorMockRecorder) CollectOCITargets(ctx, current, desired any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockOCICollector)(nil).CollectOCITargets), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockOCICollector)(nil).CollectOCITargets), ctx, current, desired)
 }

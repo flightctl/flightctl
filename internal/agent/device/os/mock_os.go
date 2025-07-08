@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	dependency "github.com/flightctl/flightctl/internal/agent/device/dependency"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -133,6 +134,21 @@ func (m *MockManager) BeforeUpdate(ctx context.Context, current, desired *v1alph
 func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, current, desired any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockManager)(nil).BeforeUpdate), ctx, current, desired)
+}
+
+// CollectOCITargets mocks base method.
+func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]dependency.OCIPullTarget, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
+	ret0, _ := ret[0].([]dependency.OCIPullTarget)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CollectOCITargets indicates an expected call of CollectOCITargets.
+func (mr *MockManagerMockRecorder) CollectOCITargets(ctx, current, desired any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockManager)(nil).CollectOCITargets), ctx, current, desired)
 }
 
 // Reboot mocks base method.
