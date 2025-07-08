@@ -146,7 +146,10 @@ func TestClientConfig(t *testing.T) {
 			require.NotEmpty(httpTransport.TLSClientConfig.Certificates)
 			require.ElementsMatch(clientCert.Certs[0].Raw, httpTransport.TLSClientConfig.Certificates[0].Certificate[0])
 			require.NotNil(httpTransport.TLSClientConfig.RootCAs)
-			caPool := x509.NewCertPool()
+			caPool, err := x509.SystemCertPool()
+			if err != nil {
+				caPool = x509.NewCertPool()
+			}
 			for _, caCert := range ca.GetCABundleX509() {
 				caPool.AddCert(caCert)
 			}

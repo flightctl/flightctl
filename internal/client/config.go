@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -24,7 +25,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	certutil "k8s.io/client-go/util/cert"
 	"sigs.k8s.io/yaml"
 )
 
@@ -267,11 +267,17 @@ func CreateTLSConfigFromConfig(config *Config) (*tls.Config, error) {
 
 func addServiceCAToTLSConfig(tlsConfig *tls.Config, config *Config) error {
 	if len(config.Service.CertificateAuthorityData) > 0 {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+		rootCAs, err := x509.SystemCertPool()
 		if err != nil {
-			return err
+			// On some systems (like Windows), SystemCertPool is not supported.
+			// In this case, we'll create a new pool.
+			rootCAs = x509.NewCertPool()
 		}
-		tlsConfig.RootCAs = caPool
+
+		if ok := rootCAs.AppendCertsFromPEM(config.Service.CertificateAuthorityData); !ok {
+			return errors.New("failed to append certificate authority")
+		}
+		tlsConfig.RootCAs = rootCAs
 	}
 	return nil
 }
@@ -299,40 +305,24 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 		return nil, err
 	}
 
-	tlsConfig := tls.Config{
-		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: config.Service.InsecureSkipVerify, //nolint:gosec
-	}
-
-	if string(config.Service.CertificateAuthorityData) != "" {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
-		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
-		}
-		tlsConfig.RootCAs = caPool
+	tlsConfig, err := CreateTLSConfigFromConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("NewGRPCClientFromConfig: creating TLS config: %w", err)
 	}
 
 	u, err := url.Parse(grpcEndpoint)
 	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+		return nil, fmt.Errorf("NewGRPCClientFromConfig: parsing endpoint: %w", err)
 	}
-	tlsServerName := u.Hostname()
-	tlsConfig.ServerName = tlsServerName
+	tlsConfig.ServerName = u.Hostname()
 
-	if len(config.AuthInfo.ClientCertificateData) > 0 {
-		clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
-		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{clientCert}
-	}
 	// our transport is http, but the grpc library has special encoding for the endpoint
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "http://")
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
 	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
 	client, err := grpc.NewClient(grpcEndpoint,
-		grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)),
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second, // Send keepalive ping every 30s
 			Timeout:             10 * time.Second, // Wait 10s for server response
