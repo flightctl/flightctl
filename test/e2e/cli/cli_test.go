@@ -46,6 +46,8 @@ var _ = Describe("cli operation", func() {
 	})
 
 	AfterEach(func() {
+		err := harness.CleanUpAllResources()
+		Expect(err).ToNot(HaveOccurred())
 		harness.Cleanup(false) // do not print console on error
 	})
 
