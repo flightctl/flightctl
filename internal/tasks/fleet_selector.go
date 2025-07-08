@@ -511,12 +511,10 @@ func (f FleetSelectorMatchingLogic) recomputeDeviceOwnership(ctx context.Context
 func (f FleetSelectorMatchingLogic) setDeviceMultipleOwnersCondition(ctx context.Context, device *api.Device, matchingFleets []string) error {
 	newConditionMessage := createMultipleOwnersConditionMessage(matchingFleets)
 	currentConditionMessage := ""
-	wasMultipleOwners := false
 
 	if device.Status != nil {
 		if cond := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners); cond != nil {
 			currentConditionMessage = cond.Message
-			wasMultipleOwners = cond.Status == api.ConditionStatusTrue
 		}
 	}
 
@@ -543,32 +541,7 @@ func (f FleetSelectorMatchingLogic) setDeviceMultipleOwnersCondition(ctx context
 		api.SetStatusCondition(&device.Status.Conditions, condition)
 	}
 
-	// Emit appropriate events based on actual state changes
-	if len(matchingFleets) > 1 && !wasMultipleOwners {
-		// Multiple owners detected (transition from single/no owner to multiple owners)
-		event := service.GetDeviceMultipleOwnersDetectedEvent(ctx, *device.Metadata.Name, matchingFleets, f.log)
-		f.serviceHandler.CreateEvent(ctx, event)
-	} else if len(matchingFleets) <= 1 && wasMultipleOwners {
-		// Multiple owners resolved (transition from multiple owners to single/no owner)
-		var resolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType
-		var assignedOwner *string
-		var previousFleets []string
-
-		// Parse previous matching fleets from condition message
-		if currentConditionMessage != "" {
-			previousFleets = strings.Split(currentConditionMessage, ",")
-		}
-
-		if len(matchingFleets) == 1 {
-			resolutionType = api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch
-			assignedOwner = &matchingFleets[0]
-		} else {
-			resolutionType = api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch
-		}
-
-		event := service.GetDeviceMultipleOwnersResolvedEvent(ctx, *device.Metadata.Name, resolutionType, assignedOwner, previousFleets, f.log)
-		f.serviceHandler.CreateEvent(ctx, event)
-	}
+	// Events are now emitted automatically from the service layer when conditions are set
 	return nil
 }
 
