@@ -338,7 +338,7 @@ func (f *TableFormatter) printCSRTable(w *tabwriter.Writer, csrs ...api.Certific
 }
 
 func (f *TableFormatter) printEventsTable(w *tabwriter.Writer, events ...api.Event) error {
-	f.printHeaderRowLn(w, "AGE", "KIND", "NAME", "TYPE", "MESSAGE")
+	f.printHeaderRowLn(w, "AGE", "INVOLVEDOBJECT.KIND", "INVOLVEDOBJECT.NAME", "TYPE", "MESSAGE")
 	for _, e := range events {
 		f.printTableRowLn(w,
 			humanize.Time(*e.Metadata.CreationTimestamp),
