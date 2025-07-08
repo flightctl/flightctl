@@ -37,8 +37,14 @@ spec:
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
             {{- end }}
+            {{- if not (eq .Values.global.auth.type "none") }}
+            - name: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
+              value: {{ default false .Values.global.auth.insecureSkipTlsVerify | quote }}
+            - name: AUTH_INSECURE_SKIP_VERIFY
+              value: {{ default false .Values.global.auth.insecureSkipTlsVerify | quote }}
+            {{- end }}
           volumeMounts:
-            - mountPath: /root/.flightctl-certs/
+            - mountPath: /app/certs
               name: flightctl-alertmanager-proxy-certs
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-alertmanager-proxy-config
@@ -71,8 +77,15 @@ spec:
       restartPolicy: Always
       volumes:
         - name: flightctl-alertmanager-proxy-certs
-          persistentVolumeClaim:
-            claimName: flightctl-alertmanager-proxy-certs
+          secret:
+            secretName: flightctl-alertmanager-proxy-certs
+            items:
+              - key: ca.crt
+                path: ca.crt
+              {{- if or (and .Values.global.auth .Values.global.auth.caCert) (and .Values.auth .Values.auth.caCert) }}
+              - key: ca_oidc.crt
+                path: ca_oidc.crt
+              {{- end }}
         - name: flightctl-alertmanager-proxy-config
           configMap:
             name: flightctl-alertmanager-proxy-config
