@@ -168,7 +168,6 @@ const (
 	EventReasonDeviceMemoryWarning              EventReason = "DeviceMemoryWarning"
 	EventReasonDeviceMultipleOwnersDetected     EventReason = "DeviceMultipleOwnersDetected"
 	EventReasonDeviceMultipleOwnersResolved     EventReason = "DeviceMultipleOwnersResolved"
-	EventReasonDeviceOwnershipChanged           EventReason = "DeviceOwnershipChanged"
 	EventReasonEnrollmentRequestApprovalFailed  EventReason = "EnrollmentRequestApprovalFailed"
 	EventReasonEnrollmentRequestApproved        EventReason = "EnrollmentRequestApproved"
 	EventReasonFleetSelectorProcessingCompleted EventReason = "FleetSelectorProcessingCompleted"

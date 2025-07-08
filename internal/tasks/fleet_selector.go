@@ -569,7 +569,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 	_, status := f.serviceHandler.ReplaceDevice(ctx, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
 
 	if status.Code == http.StatusOK {
-		// Emit DeviceOwnershipChanged event
+		// Emit ResourceUpdated event for owner change
 		var previousOwner, newOwner *string
 
 		if currentOwner != "" {
@@ -579,7 +579,13 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 			newOwner = &newOwnerFleet
 		}
 
-		event := service.GetDeviceOwnershipChangedEvent(ctx, *device.Metadata.Name, previousOwner, newOwner, f.log)
+		updateDetails := &api.ResourceUpdatedDetails{
+			PreviousOwner: previousOwner,
+			NewOwner:      newOwner,
+			UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{api.Owner},
+		}
+
+		event := service.GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, *device.Metadata.Name, api.StatusOK(), updateDetails, f.log)
 		f.serviceHandler.CreateEvent(ctx, event)
 	}
 

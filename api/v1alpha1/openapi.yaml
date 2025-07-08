@@ -5110,7 +5110,6 @@ components:
             - DeviceContentUpdating
             - EnrollmentRequestApproved
             - EnrollmentRequestApprovalFailed
-            - DeviceOwnershipChanged
             - DeviceMultipleOwnersDetected
             - DeviceMultipleOwnersResolved
             - InternalTaskFailed
