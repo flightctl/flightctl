@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 )
 
@@ -54,6 +55,7 @@ type Manager interface {
 	// Stop halts the application running on the device.
 	Stop(ctx context.Context) error
 
+	dependency.OCICollector
 	status.Exporter
 }
 

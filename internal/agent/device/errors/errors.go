@@ -34,6 +34,9 @@ var (
 	ErrNoComposeFile     = errors.New("no valid compose file found")
 	ErrNoComposeServices = errors.New("no services found in compose spec")
 
+	// application status
+	ErrUnknownApplicationStatus = errors.New("unknown application status")
+
 	// container images
 	ErrImageShortName = errors.New("failed to resolve image short name: use the full name i.e registry/image:tag")
 
@@ -80,6 +83,9 @@ var (
 	ErrUpdatePolicyNotReady   = errors.New("update policy not ready")
 	ErrInvalidPolicyType      = errors.New("invalid policy type")
 
+	// prefetch
+	ErrPrefetchNotReady = errors.New("oci prefetch not ready")
+
 	// bootc
 	ErrBootcStatusInvalidJSON = errors.New("bootc status did not return valid JSON")
 )
@@ -94,6 +100,8 @@ func IsRetryable(err error) bool {
 	case errors.Is(err, ErrNetwork):
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
+		return true
+	case errors.Is(err, ErrPrefetchNotReady):
 		return true
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a
