@@ -333,17 +333,17 @@ var _ = Describe("VM Agent behavior", func() {
 
 				device.Spec.Os = &osImageSpec
 
-				logrus.Infof("Updating %s with Os image", osImageSpec)
+				logrus.Infof("Updating %s with OS image", osImageSpec)
 			})
 
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			By("reload the flight agent")
+			By("Reload the flight agent")
 			_, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "reload", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			By("custom system-info infinite is empty due to timeout")
+			By("Custom system-info infinite is empty due to timeout")
 			// wait for the device to pickup enrollment and report measurements on device status
 			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(deviceId).ShouldNot(BeNil())
 
