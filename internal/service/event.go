@@ -321,6 +321,32 @@ func GetDeviceMultipleOwnersResolvedEvent(ctx context.Context, deviceName string
 	}, log)
 }
 
+// GetDeviceSpecValidEvent creates an event for device spec becoming valid
+func GetDeviceSpecValidEvent(ctx context.Context, deviceName string, log logrus.FieldLogger) *api.Event {
+	message := "Device specification is valid."
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		ReasonSuccess:  api.EventReasonDeviceSpecValid,
+		OutcomeSuccess: message,
+		Status:         api.StatusOK(),
+	}, log)
+}
+
+// GetDeviceSpecInvalidEvent creates an event for device spec becoming invalid
+func GetDeviceSpecInvalidEvent(ctx context.Context, deviceName string, message string, log logrus.FieldLogger) *api.Event {
+	msg := fmt.Sprintf("Device specification is invalid: %s.", message)
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		ReasonFailure:  api.EventReasonDeviceSpecInvalid,
+		OutcomeFailure: func() string { return msg },
+		Status:         api.StatusInternalServerError("Invalid device specification"),
+	}, log)
+}
+
 // GetInternalTaskFailedEvent creates an event for internal task failures
 func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, taskType string, errorMessage string, retryCount *int, taskParameters map[string]string, log logrus.FieldLogger) *api.Event {
 	message := formatInternalTaskFailedMessage(resourceKind, taskType, errorMessage)

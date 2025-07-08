@@ -455,15 +455,26 @@ func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, name st
 
 // diffAndEmitConditionEvents compares old and new conditions and emits events for condition changes
 func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, device *api.Device, oldConditions, newConditions []api.Condition) {
-	// Track condition changes for MultipleOwners only (SpecValid events don't have defined event reasons)
-	oldCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeDeviceMultipleOwners)
-	newCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceMultipleOwners)
+	// Track condition changes for MultipleOwners
+	oldMultipleOwnersCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeDeviceMultipleOwners)
+	newMultipleOwnersCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceMultipleOwners)
 
-	// Check if condition changed
-	conditionChanged := h.hasConditionChanged(oldCondition, newCondition)
+	// Check if MultipleOwners condition changed
+	multipleOwnersConditionChanged := h.hasConditionChanged(oldMultipleOwnersCondition, newMultipleOwnersCondition)
 
-	if conditionChanged {
-		h.emitMultipleOwnersEvents(ctx, device, oldCondition, newCondition)
+	if multipleOwnersConditionChanged {
+		h.emitMultipleOwnersEvents(ctx, device, oldMultipleOwnersCondition, newMultipleOwnersCondition)
+	}
+
+	// Track condition changes for SpecValid
+	oldSpecValidCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeDeviceSpecValid)
+	newSpecValidCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceSpecValid)
+
+	// Check if SpecValid condition changed
+	specValidConditionChanged := h.hasConditionChanged(oldSpecValidCondition, newSpecValidCondition)
+
+	if specValidConditionChanged {
+		h.emitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition)
 	}
 }
 
@@ -540,6 +551,42 @@ func (h *ServiceHandler) emitMultipleOwnersEvents(ctx context.Context, device *a
 		}
 
 		event := GetDeviceMultipleOwnersResolvedEvent(ctx, deviceName, resolutionType, assignedOwner, previousMatchingFleets, h.log)
+		h.CreateEvent(ctx, event)
+	}
+}
+
+// emitSpecValidEvents emits events for SpecValid condition changes
+func (h *ServiceHandler) emitSpecValidEvents(ctx context.Context, device *api.Device, oldCondition, newCondition *api.Condition) {
+	deviceName := *device.Metadata.Name
+	wasSpecValid := oldCondition != nil && oldCondition.Status == api.ConditionStatusTrue
+	isSpecValid := newCondition != nil && newCondition.Status == api.ConditionStatusTrue
+
+	h.log.Infof("Device %s: SpecValid transition: was=%v, is=%v", deviceName, wasSpecValid, isSpecValid)
+
+	if !wasSpecValid && isSpecValid {
+		// Spec became valid (or was valid from the start)
+		h.log.Infof("Device %s: Emitting DeviceSpecValidEvent", deviceName)
+		event := GetDeviceSpecValidEvent(ctx, deviceName, h.log)
+		h.CreateEvent(ctx, event)
+	} else if wasSpecValid && !isSpecValid {
+		// Spec became invalid (was valid before)
+		h.log.Infof("Device %s: Emitting DeviceSpecInvalidEvent", deviceName)
+		// Get the message from the new condition if available
+		message := "Unknown"
+		if newCondition != nil && newCondition.Message != "" {
+			message = newCondition.Message
+		}
+		event := GetDeviceSpecInvalidEvent(ctx, deviceName, message, h.log)
+		h.CreateEvent(ctx, event)
+	} else if oldCondition == nil && newCondition != nil && !isSpecValid {
+		// Special case: device created with invalid spec (no previous condition, but new condition is invalid)
+		h.log.Infof("Device %s: Emitting DeviceSpecInvalidEvent for initial invalid spec", deviceName)
+		// Get the message from the new condition if available
+		message := "Unknown"
+		if newCondition.Message != "" {
+			message = newCondition.Message
+		}
+		event := GetDeviceSpecInvalidEvent(ctx, deviceName, message, h.log)
 		h.CreateEvent(ctx, event)
 	}
 }

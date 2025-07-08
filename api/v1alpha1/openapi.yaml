@@ -5112,6 +5112,8 @@ components:
             - EnrollmentRequestApprovalFailed
             - DeviceMultipleOwnersDetected
             - DeviceMultipleOwnersResolved
+            - DeviceSpecValid
+            - DeviceSpecInvalid
             - InternalTaskFailed
             - FleetSelectorProcessingCompleted
         message:
