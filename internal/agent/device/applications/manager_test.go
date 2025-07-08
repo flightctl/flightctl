@@ -37,9 +37,7 @@ func TestManager(t *testing.T) {
 			current: &v1alpha1.DeviceSpec{},
 			desired: &v1alpha1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
-				gomock.InOrder(
-					mockExecPodmanEvents(mockExec),
-				)
+				// No mock expectations - monitor should not start with no applications
 			},
 		},
 		{
@@ -57,28 +55,6 @@ func TestManager(t *testing.T) {
 				)
 			},
 			wantAppNames: []string{"app-new"},
-		},
-		{
-			name: "remove existing application",
-			current: newTestDeviceWithApplications(require, "app-remove", []testInlineDetails{
-				{Content: compose1, Path: "podman-compose.yaml"},
-			}),
-			desired: &v1alpha1.DeviceSpec{},
-			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
-				id := client.NewComposeID("app-remove")
-				gomock.InOrder(
-					// start current app
-					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
-					mockExecPodmanComposeUp(mockExec, "app-remove", true, true),
-
-					// remove current app
-					mockExecPodmanNetworkList(mockExec, "app-remove"),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-
-					mockExecPodmanEvents(mockExec),
-				)
-			},
 		},
 		{
 			name: "update existing application",
@@ -166,6 +142,81 @@ func TestManager(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManagerRemoveApplication(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+
+	readWriter := fileio.NewReadWriter()
+	tmpDir := t.TempDir()
+	readWriter.SetRootdir(tmpDir)
+
+	current := newTestDeviceWithApplications(require, "app-remove", []testInlineDetails{
+		{Content: compose1, Path: "podman-compose.yaml"},
+	})
+	desired := &v1alpha1.DeviceSpec{}
+
+	id := client.NewComposeID("app-remove")
+	gomock.InOrder(
+		// start current app
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
+		mockExecPodmanComposeUp(mockExec, "app-remove", true, true),
+
+		// Monitor starts when AfterUpdate is called with apps
+		mockExecPodmanEvents(mockExec),
+
+		// remove current app during syncProviders
+		mockExecPodmanNetworkList(mockExec, "app-remove"),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
+		// Monitor stops during second AfterUpdate when no apps remain (no mock needed)
+	)
+
+	manager := &manager{
+		readWriter:    readWriter,
+		podmanMonitor: NewPodmanMonitor(log, mockPodmanClient, "", readWriter),
+		log:           log,
+	}
+
+	// Ensure current applications
+	currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, current)
+	require.NoError(err)
+	for _, provider := range currentProviders {
+		err := manager.Ensure(ctx, provider)
+		require.NoError(err)
+	}
+
+	// Start monitor for current apps
+	err = manager.AfterUpdate(ctx)
+	require.NoError(err)
+
+	// Verify app exists and monitor is running
+	require.True(manager.podmanMonitor.Has(id))
+	require.True(manager.podmanMonitor.isRunning())
+
+	// Remove applications
+	desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, desired)
+	require.NoError(err)
+	err = syncProviders(ctx, log, manager, currentProviders, desiredProviders)
+	require.NoError(err)
+
+	// Stop monitor since no apps remain
+	err = manager.AfterUpdate(ctx)
+	require.NoError(err)
+
+	// Verify app is removed and monitor is stopped
+	require.False(manager.podmanMonitor.Has(id))
+	require.False(manager.podmanMonitor.isRunning())
 }
 
 func TestBeforeUpdate(t *testing.T) {

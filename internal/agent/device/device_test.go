@@ -83,7 +83,6 @@ func TestSync(t *testing.T) {
 				gomock.InOrder(
 					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
-					mockPolicyManager.EXPECT().Sync(ctx, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
@@ -124,7 +123,6 @@ func TestSync(t *testing.T) {
 					//
 					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
-					mockPolicyManager.EXPECT().Sync(ctx, current.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
