@@ -122,6 +122,8 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 		return nil, false
 	}
 
+	// currently it's useful to allow specs to be consumed if the download policy is satisfied
+	// even if the updatePolicy isn't
 	if !requeue.downloadPolicySatisfied && !requeue.updatePolicySatisfied {
 		m.log.Debugf("Template version %d policies are not satisfied skipping...", version)
 		m.queue.Add(item)

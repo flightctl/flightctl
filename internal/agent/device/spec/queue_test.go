@@ -1,7 +1,7 @@
 package spec
 
 import (
-	context "context"
+	"context"
 	"testing"
 	"time"
 
@@ -226,6 +226,26 @@ func TestPolicy(t *testing.T) {
 				// evaluate policy ready on retry Next
 				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true)
 				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
+			},
+			wantNext:           true,
+			wantDesiredVersion: "6",
+		},
+		{
+			name: "download not ready update ready on retry",
+			setupMocks: func(mockPolicyManager *policy.MockManager) {
+				// check policy during init Add
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
+				// check policy during Add
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
+
+				// evaluate policy first Next
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(false)
+				// evaluate policy ready on retry Next
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(false)
+				mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true)
 			},
 			wantNext:           true,
 			wantDesiredVersion: "6",
