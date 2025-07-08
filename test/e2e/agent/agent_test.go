@@ -314,6 +314,43 @@ var _ = Describe("VM Agent behavior", func() {
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
 
 		})
+
+		It("System Info Timeout Tests", Label("81864"), func() {
+			deviceId, device := harness.EnrollAndWaitForOnlineStatus()
+
+			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			By("Update the device image to one containing an embedded hook")
+			_, err = harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+			Expect(err).ToNot(HaveOccurred())
+			deviceImage := fmt.Sprintf("%s/flightctl-device:v9", harness.RegistryEndpoint())
+
+			var osImageSpec = v1alpha1.DeviceOsSpec{
+				Image: deviceImage,
+			}
+
+			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+
+				device.Spec.Os = &osImageSpec
+
+				logrus.Infof("Updating %s with Os image", osImageSpec)
+			})
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "reload", "flightctl-agent"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// wait for the device to pickup enrollment and report measurements on device status
+			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(deviceId).ShouldNot(BeNil())
+
+			response := harness.GetDeviceWithStatusSystem(deviceId)
+			device = response.JSON200
+
+			Expect((*device.Status.SystemInfo.CustomInfo)["infinite"]).To(Equal(""))
+
+		})
 	})
 })
 
