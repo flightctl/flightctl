@@ -316,7 +316,7 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 
 		It("System Info Timeout Tests", Label("81864"), func() {
-			deviceId, device := harness.EnrollAndWaitForOnlineStatus()
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
@@ -348,7 +348,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(deviceId).ShouldNot(BeNil())
 
 			response := harness.GetDeviceWithStatusSystem(deviceId)
-			device = response.JSON200
+			device := response.JSON200
 
 			Expect((*device.Status.SystemInfo.CustomInfo)["infinite"]).To(Equal(""))
 
