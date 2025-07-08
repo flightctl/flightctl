@@ -320,7 +320,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			By("Update the device image to one containing an embedded hook")
+			By("Update the device image to one that has infinite.sh , timeout set to 15s")
 			_, err = harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
 			Expect(err).ToNot(HaveOccurred())
 			deviceImage := fmt.Sprintf("%s/flightctl-device:v9", harness.RegistryEndpoint())
@@ -339,9 +339,11 @@ var _ = Describe("VM Agent behavior", func() {
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
+			By("reload the flight agent")
 			_, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "reload", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 
+			By("custom system-info infinite is empty due to timeout")
 			// wait for the device to pickup enrollment and report measurements on device status
 			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(deviceId).ShouldNot(BeNil())
 
