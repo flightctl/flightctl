@@ -49,19 +49,6 @@ func formatResourceActionFailedTemplate(resourceKind api.ResourceKind, action st
 	return fmt.Sprintf("%s %s failed: %%s.", resourceKind, action)
 }
 
-// formatDeviceOwnershipMessage creates a standardized message for device ownership changes
-func formatDeviceOwnershipMessage(previousOwner, newOwner *string) string {
-	if previousOwner != nil && newOwner != nil {
-		return fmt.Sprintf("Device ownership was changed from fleet '%s' to fleet '%s'.", *previousOwner, *newOwner)
-	} else if previousOwner != nil {
-		return fmt.Sprintf("Device ownership was removed from fleet '%s'.", *previousOwner)
-	} else if newOwner != nil {
-		return fmt.Sprintf("Device ownership was assigned to fleet '%s'.", *newOwner)
-	} else {
-		return "Device ownership was changed."
-	}
-}
-
 // formatDeviceMultipleOwnersMessage creates a standardized message for multiple owners detected
 func formatDeviceMultipleOwnersMessage(matchingFleets []string) string {
 	return fmt.Sprintf("Device matches multiple fleets: %s.", strings.Join(matchingFleets, ", "))
@@ -286,30 +273,6 @@ func GetResourceEventFromUpdateDetails(ctx context.Context, resourceKind api.Res
 		}, log)
 }
 
-// GetDeviceOwnershipChangedEvent creates an event for device ownership changes
-func GetDeviceOwnershipChangedEvent(ctx context.Context, deviceName string, previousOwner, newOwner *string, log logrus.FieldLogger) *api.Event {
-	message := formatDeviceOwnershipMessage(previousOwner, newOwner)
-
-	details := api.EventDetails{}
-	detailsStruct := api.DeviceOwnershipChangedDetails{
-		PreviousOwner: previousOwner,
-		NewOwner:      newOwner,
-	}
-	if err := details.FromDeviceOwnershipChangedDetails(detailsStruct); err != nil {
-		log.WithError(err).Error("Failed to serialize device ownership changed event details")
-		return nil
-	}
-
-	return getBaseEvent(ctx, resourceEvent{
-		ResourceKind:   api.DeviceKind,
-		ResourceName:   deviceName,
-		ReasonSuccess:  api.EventReasonDeviceOwnershipChanged,
-		OutcomeSuccess: message,
-		Status:         api.StatusOK(),
-		CustomDetails:  &details,
-	}, log)
-}
-
 // GetDeviceMultipleOwnersDetectedEvent creates an event for multiple fleet owners detected
 func GetDeviceMultipleOwnersDetectedEvent(ctx context.Context, deviceName string, matchingFleets []string, log logrus.FieldLogger) *api.Event {
 	message := formatDeviceMultipleOwnersMessage(matchingFleets)
@@ -355,6 +318,32 @@ func GetDeviceMultipleOwnersResolvedEvent(ctx context.Context, deviceName string
 		OutcomeSuccess: message,
 		Status:         api.StatusOK(),
 		CustomDetails:  &details,
+	}, log)
+}
+
+// GetDeviceSpecValidEvent creates an event for device spec becoming valid
+func GetDeviceSpecValidEvent(ctx context.Context, deviceName string, log logrus.FieldLogger) *api.Event {
+	message := "Device specification is valid."
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		ReasonSuccess:  api.EventReasonDeviceSpecValid,
+		OutcomeSuccess: message,
+		Status:         api.StatusOK(),
+	}, log)
+}
+
+// GetDeviceSpecInvalidEvent creates an event for device spec becoming invalid
+func GetDeviceSpecInvalidEvent(ctx context.Context, deviceName string, message string, log logrus.FieldLogger) *api.Event {
+	msg := fmt.Sprintf("Device specification is invalid: %s.", message)
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		ReasonFailure:  api.EventReasonDeviceSpecInvalid,
+		OutcomeFailure: func() string { return msg },
+		Status:         api.StatusInternalServerError("Invalid device specification"),
 	}, log)
 }
 

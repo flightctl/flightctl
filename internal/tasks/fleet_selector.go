@@ -96,7 +96,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 		}
 		errorMsg := f.formatCriticalError("device labels update", fmt.Sprintf("failed to get device: %s", status.Message))
 		f.log.Errorf("%s", errorMsg)
-		f.emitInternalTaskFailedEvent(ctx, "device labels update", errorMsg, nil)
 		return fmt.Errorf("%s", errorMsg)
 	}
 
@@ -105,7 +104,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 	if err != nil {
 		errorMsg := f.formatDeviceError(f.resourceRef.Name, "device labels update", fmt.Sprintf("failed to get owner fleet: %v", err))
 		f.log.Warnf("%s", errorMsg)
-		f.emitInternalTaskFailedEvent(ctx, "device labels update", errorMsg, nil)
 		return err
 	}
 	if !isOwnerAFleet {
@@ -119,7 +117,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 			err := f.updateDeviceOwner(ctx, device, "")
 			if err != nil {
 				f.log.Warnf("Device-specific error: failed to update device owner for device %s: %v", f.resourceRef.Name, err)
-				f.emitInternalTaskFailedEvent(ctx, "device labels update", fmt.Sprintf("failed to update device owner: %v", err), nil)
 				return err
 			}
 		}
@@ -131,7 +128,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 	if err != nil {
 		errorMsg := f.formatCriticalError("device labels update", fmt.Sprintf("failed to fetch fleets: %v", err))
 		f.log.Errorf("%s", errorMsg)
-		f.emitInternalTaskFailedEvent(ctx, "device labels update", errorMsg, nil)
 		return fmt.Errorf("%s", errorMsg)
 	}
 	matchingFleets := findMatchingFleets(*device.Metadata.Labels, fleets)
@@ -145,7 +141,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 			err = f.updateDeviceOwner(ctx, device, "")
 			if err != nil {
 				f.log.Warnf("Device-specific error: failed to update device owner for device %s (removing owner from %s): %v", f.resourceRef.Name, currentOwnerFleet, err)
-				f.emitInternalTaskFailedEvent(ctx, "device labels update", fmt.Sprintf("failed to update device owner: %v", err), nil)
 				processedWithErrors = true
 			}
 		}
@@ -153,7 +148,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 		err = f.setDeviceMultipleOwnersCondition(ctx, device, matchingFleets)
 		if err != nil {
 			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (no matching fleets): %v", f.resourceRef.Name, err)
-			f.emitInternalTaskFailedEvent(ctx, "device labels update", fmt.Sprintf("failed to set multiple owners condition: %v", err), nil)
 			processedWithErrors = true
 		}
 	case 1:
@@ -163,7 +157,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 			err = f.updateDeviceOwner(ctx, device, newOwnerFleet)
 			if err != nil {
 				f.log.Warnf("Device-specific error: failed to update device owner for device %s (from %s to %s): %v", f.resourceRef.Name, currentOwnerFleet, newOwnerFleet, err)
-				f.emitInternalTaskFailedEvent(ctx, "device labels update", fmt.Sprintf("failed to update device owner: %v", err), nil)
 				processedWithErrors = true
 			}
 		}
@@ -171,7 +164,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 		err = f.setDeviceMultipleOwnersCondition(ctx, device, matchingFleets)
 		if err != nil {
 			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (single fleet match: %s): %v", f.resourceRef.Name, newOwnerFleet, err)
-			f.emitInternalTaskFailedEvent(ctx, "device labels update", fmt.Sprintf("failed to set multiple owners condition: %v", err), nil)
 			processedWithErrors = true
 		}
 	default:
@@ -179,7 +171,6 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 		err = f.setDeviceMultipleOwnersCondition(ctx, device, matchingFleets)
 		if err != nil {
 			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (multiple fleet matches: %v): %v", f.resourceRef.Name, matchingFleets, err)
-			f.emitInternalTaskFailedEvent(ctx, "device labels update", fmt.Sprintf("failed to set multiple owners condition: %v", err), nil)
 			processedWithErrors = true
 		}
 	}
@@ -255,7 +246,6 @@ func (f FleetSelectorMatchingLogic) validateAndGetFleet(ctx context.Context, all
 		}
 		errorMsg := f.formatCriticalError("fleet selector update", fmt.Sprintf("failed to get fleet: %s", status.Message))
 		f.log.Errorf("%s", errorMsg)
-		f.emitInternalTaskFailedEvent(ctx, "fleet selector update", errorMsg, nil)
 		return FleetValidationResult{Fleet: nil, EventEmitted: false, Error: fmt.Errorf("%s", errorMsg)}
 	}
 
@@ -283,25 +273,16 @@ func (f FleetSelectorMatchingLogic) processFleetSelectorUpdate(ctx context.Conte
 	devicesProcessed, errors := f.handleOrphanedDevices(ctx, fleet, allFleetsFetcher)
 	stats.TotalDevicesProcessed += devicesProcessed
 	stats.TotalErrors += errors
-	if errors > 0 {
-		f.emitInternalTaskFailedEvent(ctx, "orphaned devices handling", fmt.Sprintf("%d errors occurred", errors), nil)
-	}
 
 	// Case 3: Handle devices now matching this fleet that have no owner or multipleowners condition
 	devicesProcessed, errors = f.handleDevicesMatchingFleet(ctx, fleet, allFleetsFetcher)
 	stats.TotalDevicesProcessed += devicesProcessed
 	stats.TotalErrors += errors
-	if errors > 0 {
-		f.emitInternalTaskFailedEvent(ctx, "devices matching fleet handling", fmt.Sprintf("%d errors occurred", errors), nil)
-	}
 
 	// Case 4: Re-examine all devices with multipleowners condition set
 	devicesProcessed, errors = f.handleDevicesWithMultipleOwnersCondition(ctx, allFleetsFetcher)
 	stats.TotalDevicesProcessed += devicesProcessed
 	stats.TotalErrors += errors
-	if errors > 0 {
-		f.emitInternalTaskFailedEvent(ctx, "multiple owners condition handling", fmt.Sprintf("%d errors occurred", errors), nil)
-	}
 
 	return stats
 }
@@ -511,12 +492,10 @@ func (f FleetSelectorMatchingLogic) recomputeDeviceOwnership(ctx context.Context
 func (f FleetSelectorMatchingLogic) setDeviceMultipleOwnersCondition(ctx context.Context, device *api.Device, matchingFleets []string) error {
 	newConditionMessage := createMultipleOwnersConditionMessage(matchingFleets)
 	currentConditionMessage := ""
-	wasMultipleOwners := false
 
 	if device.Status != nil {
 		if cond := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners); cond != nil {
 			currentConditionMessage = cond.Message
-			wasMultipleOwners = cond.Status == api.ConditionStatusTrue
 		}
 	}
 
@@ -543,32 +522,7 @@ func (f FleetSelectorMatchingLogic) setDeviceMultipleOwnersCondition(ctx context
 		api.SetStatusCondition(&device.Status.Conditions, condition)
 	}
 
-	// Emit appropriate events based on actual state changes
-	if len(matchingFleets) > 1 && !wasMultipleOwners {
-		// Multiple owners detected (transition from single/no owner to multiple owners)
-		event := service.GetDeviceMultipleOwnersDetectedEvent(ctx, *device.Metadata.Name, matchingFleets, f.log)
-		f.serviceHandler.CreateEvent(ctx, event)
-	} else if len(matchingFleets) <= 1 && wasMultipleOwners {
-		// Multiple owners resolved (transition from multiple owners to single/no owner)
-		var resolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType
-		var assignedOwner *string
-		var previousFleets []string
-
-		// Parse previous matching fleets from condition message
-		if currentConditionMessage != "" {
-			previousFleets = strings.Split(currentConditionMessage, ",")
-		}
-
-		if len(matchingFleets) == 1 {
-			resolutionType = api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch
-			assignedOwner = &matchingFleets[0]
-		} else {
-			resolutionType = api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch
-		}
-
-		event := service.GetDeviceMultipleOwnersResolvedEvent(ctx, *device.Metadata.Name, resolutionType, assignedOwner, previousFleets, f.log)
-		f.serviceHandler.CreateEvent(ctx, event)
-	}
+	// Events are now emitted automatically from the service layer when conditions are set
 	return nil
 }
 
@@ -596,7 +550,7 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 	_, status := f.serviceHandler.ReplaceDevice(ctx, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
 
 	if status.Code == http.StatusOK {
-		// Emit DeviceOwnershipChanged event
+		// Emit ResourceUpdated event for owner change
 		var previousOwner, newOwner *string
 
 		if currentOwner != "" {
@@ -606,7 +560,13 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 			newOwner = &newOwnerFleet
 		}
 
-		event := service.GetDeviceOwnershipChangedEvent(ctx, *device.Metadata.Name, previousOwner, newOwner, f.log)
+		updateDetails := &api.ResourceUpdatedDetails{
+			PreviousOwner: previousOwner,
+			NewOwner:      newOwner,
+			UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{api.Owner},
+		}
+
+		event := service.GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, *device.Metadata.Name, api.StatusOK(), updateDetails, f.log)
 		f.serviceHandler.CreateEvent(ctx, event)
 	}
 
@@ -676,30 +636,6 @@ func findMatchingFleets(labels map[string]string, fleets []api.Fleet) []string {
 func (f FleetSelectorMatchingLogic) emitProcessingCompletedEvent(ctx context.Context, fleetName string, processingType api.FleetSelectorProcessingCompletedDetailsProcessingType, devicesProcessed, devicesWithErrors int, processingDuration time.Duration) {
 	event := service.GetFleetSelectorProcessingCompletedEvent(ctx, fleetName, processingType, devicesProcessed, devicesWithErrors, processingDuration, f.log)
 	f.serviceHandler.CreateEvent(ctx, event)
-}
-
-func (f FleetSelectorMatchingLogic) emitInternalTaskFailedEvent(ctx context.Context, taskType string, errorMessage string, taskParameters map[string]string) {
-	enrichedParameters := f.buildTaskParameters(taskParameters)
-	event := service.GetInternalTaskFailedEvent(ctx, api.FleetKind, f.resourceRef.Name, taskType, errorMessage, nil, enrichedParameters, f.log)
-	f.serviceHandler.CreateEvent(ctx, event)
-}
-
-// buildTaskParameters creates standard task parameters for events
-func (f FleetSelectorMatchingLogic) buildTaskParameters(additional map[string]string) map[string]string {
-	params := make(map[string]string)
-
-	// Add standard parameters
-	params["orgId"] = f.resourceRef.OrgID.String()
-	params["resourceName"] = f.resourceRef.Name
-	params["resourceKind"] = f.resourceRef.Kind
-	params["operation"] = f.resourceRef.Op
-
-	// Add additional parameters
-	for k, v := range additional {
-		params[k] = v
-	}
-
-	return params
 }
 
 // Helper methods for consistent error formatting
