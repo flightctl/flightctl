@@ -46,7 +46,7 @@ If all PoS terminals used more or less the same configuration and were managed b
 
 Often, though, you would have separate organizations developing solutions and deploying and operating them. In this case, it could make sense to define two fleets `development-pos-terminals` with label selector `type=pos-terminal, stage=development` that selects devices C and D and similar for the production PoS terminals. This way, fleets can be managed independently.
 
-Note that you have to define selectors so that no two fleets select the same device. Say you had one fleet select `region=east` and another `stage=production`, then both would select device A. When Flight Control detects this situation, it keeps the device in the fleet it is currently assigned to (if any) and signals the conflict by setting the "OverlappingSelectors" condition on affected fleets to "true".
+Note that you have to define selectors so that no two fleets select the same device. Say you had one fleet select `region=east` and another `stage=production`, then both would select device A. When Flight Control detects this situation, it keeps the device in the fleet it is currently assigned to (if any) and signals the conflict by setting the "MultipleOwners" condition on affected devices to "true".
 
 ### Selecting Devices into a Fleet on the Web UI
 
@@ -71,18 +71,6 @@ spec:
       type: pos-terminal
       stage: development
 [...]
-```
-
-After applying the change, you can check whether there's an overlap with another fleet's selector like this (assuming you have installed the `jq` command):
-
-```console
-flightctl get fleets/development-pos-terminals -o json | jq -r '.status.conditions[] | select(.type=="OverlappingSelectors").status'
-```
-
-You should see the output:
-
-```console
-False
 ```
 
 ## Defining Device Templates

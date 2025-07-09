@@ -2,6 +2,7 @@
 package tasks_test
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -42,6 +43,8 @@ func startHttpsMTLSRepo(tlsConfig *tls.Config, require *require.Assertions) {
 }
 
 func TestHttpsMTLSRepo(t *testing.T) {
+	ctx := context.Background()
+
 	require := require.New(t)
 
 	testDirPath := t.TempDir()
@@ -49,10 +52,10 @@ func TestHttpsMTLSRepo(t *testing.T) {
 	ca, _, err := crypto.EnsureCA(cfg)
 	require.NoError(err)
 
-	serverCerts, _, err := ca.EnsureServerCertificate(filepath.Join(testDirPath, "server.crt"), filepath.Join(testDirPath, "server.key"), []string{"localhost"}, 1)
+	serverCerts, _, err := ca.EnsureServerCertificate(ctx, filepath.Join(testDirPath, "server.crt"), filepath.Join(testDirPath, "server.key"), []string{"localhost"}, 1)
 	require.NoError(err)
 
-	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), cfg.AdminCommonName, 1)
+	adminCert, _, err := ca.EnsureClientCertificate(ctx, filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), cfg.AdminCommonName, 1)
 	require.NoError(err)
 
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)

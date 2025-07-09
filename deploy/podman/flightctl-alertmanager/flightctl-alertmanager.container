@@ -1,0 +1,28 @@
+[Unit]
+Description=Flight Control Alertmanager service
+PartOf=flightctl.target
+After=flightctl-db.service
+Wants=flightctl-db.service
+
+[Container]
+ContainerName=flightctl-alertmanager
+Image=quay.io/prometheus/alertmanager:v0.28.1
+Network=flightctl.network
+
+# Run Alertmanager with the config file
+Exec=--config.file=/usr/local/etc/alertmanager/alertmanager.yml --storage.path=/var/lib/alertmanager
+
+# User namespace mapping (optional — useful if matching host permissions or running non-root)
+PodmanArgs=--userns=keep-id:uid=999,gid=999 --sdnotify=conmon
+
+# Persistent storage and config
+Volume=flightctl-alertmanager:/var/lib/alertmanager:Z,U
+Volume=/usr/share/flightctl/flightctl-alertmanager/alertmanager.yml:/usr/local/etc/alertmanager/alertmanager.yml:ro,Z
+
+[Service]
+Type=notify
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target

@@ -25,8 +25,10 @@ deploy_service() {
         podman volume rm flightctl-db || true
         podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
         ensure_postgres_secrets
-    else
+    elif [[ "$service_name" == "kv" ]]; then
         ensure_kv_secrets
+    else
+        echo "No pre-startup logic for $service_name"
     fi
 
     echo "Installing quadlet files for $service_full_name"
@@ -40,15 +42,15 @@ deploy_service() {
 main() {
     if [[ $# -ne 1 ]]; then
         echo "Usage: $0 <service_name>"
-        echo "Available services: db, kv"
+        echo "Available services: db, kv, alertmanager"
         exit 1
     fi
 
     # Validate service name
     local service_name="$1"
-    if [[ ! "$service_name" =~ ^(db|kv)$ ]]; then
+    if [[ ! "$service_name" =~ ^(db|kv|alertmanager)$ ]]; then
         echo "Error: Invalid service name: $service_name"
-        echo "Available services: db, kv"
+        echo "Available services: db, kv, alertmanager"
         exit 1
     fi
 

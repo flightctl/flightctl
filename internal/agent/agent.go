@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -30,10 +31,11 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
-	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/experimental"
+	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -102,7 +104,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: this needs tuned
+	// TODO: replace wait with poll
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
 		Duration: 10 * time.Second,
@@ -110,11 +112,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		Steps:    6,
 	}
 
+	pollBackoff := poll.Config{
+		MaxDelay:  1 * time.Minute,
+		BaseDelay: 10 * time.Second,
+		Factor:    1.5,
+		MaxSteps:  a.config.PullRetrySteps,
+	}
+
 	// create os client
 	osClient := os.NewClient(a.log, executer)
 
 	// create podman client
-	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, backoff)
+	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
 
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
@@ -199,6 +208,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create os manager
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
+
+	// create prefetch manager
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, a.config.PullTimeout)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -305,6 +317,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		consoleController,
 		osClient,
 		podmanClient,
+		prefetchManager,
 		backoff,
 		a.log,
 	)
@@ -320,6 +333,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	go shutdownManager.Run(ctx)
 	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
+	go prefetchManager.Run(ctx)
 
 	return agent.Run(ctx)
 }

@@ -68,6 +68,8 @@ global:
     agent: 7443
     ui: 9000
     keycloak: 8081
+    alertmanagerProxy: 8443
+    jaegerUi: 16686
   gatewayPorts:
     tls: 443
     http: 80
@@ -105,6 +107,12 @@ kv:
   save: 300 1
   loglevel: warning
   fsGroup: ""
+alertmanager:
+  enabled: true
+  image:
+    image: quay.io/prometheus/alertmanager
+    tag: "v0.28.1"
+    pullPolicy: ""
 keycloak:
   db:
     fsGroup: ""
@@ -134,8 +142,37 @@ periodic:
     image: quay.io/flightctl/flightctl-periodic
     tag: ""
     pullPolicy: ""
+alertExporter:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alert-exporter
+    tag: ""
+    pullPolicy: ""
+alertmanagerProxy:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alertmanager-proxy
+    tag: ""
+    pullPolicy: ""
 prometheus:
   enabled: false
+jaeger:
+  enabled: false
+  image:
+    image: jaegertracing/all-in-one
+    tag: "1.35"
+    pullPolicy: ""
+  storageType: memory
+  maxTraces: 50000
+  otlpEnabled: true
+  logLevel: info
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "512Mi"
+      cpu: "200m"
 ui:
   enabled: true
   api:
