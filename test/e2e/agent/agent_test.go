@@ -316,26 +316,12 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 
 		It("System Info Timeout Tests", Label("81864"), func() {
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
+			By("Enroll and wait for image v9 to become online")
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			By("Update the device image to one that has infinite.sh , timeout set to 15s")
-			_, err = harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
-			Expect(err).ToNot(HaveOccurred())
-			deviceImage := fmt.Sprintf("%s/flightctl-device:v9", harness.RegistryEndpoint())
-
-			var osImageSpec = v1alpha1.DeviceOsSpec{
-				Image: deviceImage,
-			}
-
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
-				device.Spec.Os = &osImageSpec
-
-				logrus.Infof("Updating %s with OS image", osImageSpec)
-			})
-
+			harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v9")
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
