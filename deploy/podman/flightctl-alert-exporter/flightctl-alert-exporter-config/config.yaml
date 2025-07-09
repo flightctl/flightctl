@@ -1,5 +1,5 @@
 database:
-  hostname: localhost
+  hostname: flightctl-db
   type: pgsql
   port: 5432
   name: flightctl
@@ -7,9 +7,9 @@ database:
 service: {}
 
 kv:
-  hostname: localhost
+  hostname: flightctl-kv
   port: 6379
 
 alertmanager:
-  hostname: localhost
+  hostname: flightctl-alertmanager
   port: 9093
