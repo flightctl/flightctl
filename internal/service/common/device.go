@@ -276,29 +276,29 @@ func updateServerSideDeviceUpdatedStatus(device, oldDevice *api.Device, ctx cont
 		oldStatus = oldDevice.Status.Updated.Status
 	}
 	lastUpdateStatus := device.Status.Updated.Status
+	if device.IsDisconnected(api.DeviceDisconnectedTimeout) && !device.Status.LastSeen.IsZero() {
+		device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
+		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
+		if oldStatus != device.Status.Updated.Status {
+			deviceUpdates = append(deviceUpdates, ResourceUpdate{
+				Reason:        api.EventReasonDeviceDisconnected,
+				UpdateDetails: *device.Status.Updated.Info,
+			})
+		}
+		return device.Status.Updated.Status != lastUpdateStatus, deviceUpdates
+	}
 	if device.IsUpdating() {
-		if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
-			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
-			device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s) and had an update in progress at that time.", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
-			if oldStatus != device.Status.Updated.Status {
-				deviceUpdates = append(deviceUpdates, ResourceUpdate{
-					Reason:        api.EventReasonDeviceDisconnected,
-					UpdateDetails: *device.Status.Updated.Info,
-				})
-			}
-		} else {
-			var agentInfoMessage string
-			if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceUpdating); updateCondition != nil {
-				agentInfoMessage = updateCondition.Message
-			}
-			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
-			device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "The device is updating to the latest device spec."))
-			if oldStatus != device.Status.Updated.Status {
-				deviceUpdates = append(deviceUpdates, ResourceUpdate{
-					Reason:        api.EventReasonDeviceContentUpdating,
-					UpdateDetails: *device.Status.Updated.Info,
-				})
-			}
+		var agentInfoMessage string
+		if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceUpdating); updateCondition != nil {
+			agentInfoMessage = updateCondition.Message
+		}
+		device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
+		device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "The device is updating to the latest device spec."))
+		if oldStatus != device.Status.Updated.Status {
+			deviceUpdates = append(deviceUpdates, ResourceUpdate{
+				Reason:        api.EventReasonDeviceContentUpdating,
+				UpdateDetails: *device.Status.Updated.Info,
+			})
 		}
 		return device.Status.Updated.Status != lastUpdateStatus, deviceUpdates
 	}

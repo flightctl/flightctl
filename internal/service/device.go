@@ -254,7 +254,10 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 	if name != *incomingDevice.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
-	incomingDevice.Status.LastSeen = time.Now()
+	isNotInternal := !IsInternalRequest(ctx)
+	if isNotInternal {
+		incomingDevice.Status.LastSeen = time.Now()
+	}
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
@@ -660,12 +663,6 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 	}
 	result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
-}
-
-func (h *ServiceHandler) UpdateDeviceSummaryStatusBatch(ctx context.Context, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) api.Status {
-	orgId := store.NullOrgId
-	err := h.store.Device().UpdateSummaryStatusBatch(ctx, orgId, deviceNames, status, statusInfo)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
