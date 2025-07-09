@@ -85,16 +85,28 @@ var _ = Describe("FleetSelector", func() {
 		return matchingEvents
 	}
 
-	// Helper function to validate DeviceOwnershipChanged events
-	validateDeviceOwnershipChangedEvent := func(events []api.Event, expectedPreviousOwner, expectedNewOwner *string) {
+	// Helper function to validate ResourceUpdated events for owner changes
+	validateResourceUpdatedEvent := func(deviceName string, events []api.Event, expectedPreviousOwner, expectedNewOwner *string) {
 		found := false
 		for _, event := range events {
-			if event.Reason == api.EventReasonDeviceOwnershipChanged {
+			if event.Reason == api.EventReasonResourceUpdated {
 				Expect(event.Type).To(Equal(api.Normal))
 				Expect(event.Details).ToNot(BeNil())
 
-				details, err := event.Details.AsDeviceOwnershipChangedDetails()
+				details, err := event.Details.AsResourceUpdatedDetails()
 				Expect(err).ToNot(HaveOccurred())
+
+				// Check if this is an owner update
+				hasOwnerUpdate := false
+				for _, field := range details.UpdatedFields {
+					if field == api.Owner {
+						hasOwnerUpdate = true
+						break
+					}
+				}
+				if !hasOwnerUpdate {
+					continue // This is not an owner update event
+				}
 
 				if expectedPreviousOwner != nil {
 					Expect(details.PreviousOwner).To(Equal(expectedPreviousOwner))
@@ -112,11 +124,11 @@ var _ = Describe("FleetSelector", func() {
 				break
 			}
 		}
-		Expect(found).To(BeTrue(), "DeviceOwnershipChanged event not found")
+		Expect(found).To(BeTrue(), fmt.Sprintf("ResourceUpdated event for owner change not found for device %s", deviceName))
 	}
 
 	// Helper function to validate DeviceMultipleOwnersDetected events
-	validateDeviceMultipleOwnersDetectedEvent := func(events []api.Event, expectedMatchingFleets []string) {
+	validateDeviceMultipleOwnersDetectedEvent := func(deviceName string, events []api.Event, expectedMatchingFleets []string) {
 		found := false
 		for _, event := range events {
 			if event.Reason == api.EventReasonDeviceMultipleOwnersDetected {
@@ -131,11 +143,11 @@ var _ = Describe("FleetSelector", func() {
 				break
 			}
 		}
-		Expect(found).To(BeTrue(), "DeviceMultipleOwnersDetected event not found")
+		Expect(found).To(BeTrue(), fmt.Sprintf("DeviceMultipleOwnersDetected event not found for device %s", deviceName))
 	}
 
 	// Helper function to validate DeviceMultipleOwnersResolved events
-	validateDeviceMultipleOwnersResolvedEvent := func(events []api.Event, expectedResolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType, expectedAssignedOwner *string) {
+	validateDeviceMultipleOwnersResolvedEvent := func(deviceName string, events []api.Event, expectedResolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType, expectedAssignedOwner *string) {
 		found := false
 		for _, event := range events {
 			if event.Reason == api.EventReasonDeviceMultipleOwnersResolved {
@@ -155,7 +167,7 @@ var _ = Describe("FleetSelector", func() {
 				break
 			}
 		}
-		Expect(found).To(BeTrue(), "DeviceMultipleOwnersResolved event not found")
+		Expect(found).To(BeTrue(), fmt.Sprintf("DeviceMultipleOwnersResolved event not found for device %s", deviceName))
 	}
 
 	// Helper function to validate FleetSelectorProcessingCompleted events
@@ -238,20 +250,20 @@ var _ = Describe("FleetSelector", func() {
 				case "no-owner":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
 					events := getEventsForResource(api.DeviceKind, "no-owner")
-					validateDeviceOwnershipChangedEvent(events, nil, lo.ToPtr("fleet"))
+					validateResourceUpdatedEvent("no-owner", events, nil, lo.ToPtr("fleet"))
 				case "no-owner-multiowner":
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeTrue())
 					events := getEventsForResource(api.DeviceKind, "no-owner-multiowner")
-					validateDeviceMultipleOwnersDetectedEvent(events, []string{"fleet", "otherfleet"})
+					validateDeviceMultipleOwnersDetectedEvent("no-owner-multiowner", events, []string{"fleet", "otherfleet"})
 				case "otherfleet-to-fleet":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
 					events := getEventsForResource(api.DeviceKind, "otherfleet-to-fleet")
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("otherfleet"), lo.ToPtr("fleet"))
+					validateResourceUpdatedEvent("otherfleet-to-fleet", events, lo.ToPtr("otherfleet"), lo.ToPtr("fleet"))
 				case "fleet-to-none":
 					Expect(device.Metadata.Owner).To(BeNil())
 					events := getEventsForResource(api.DeviceKind, "fleet-to-none")
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet"), nil)
+					validateResourceUpdatedEvent("fleet-to-none", events, lo.ToPtr("fleet"), nil)
 				case "stay-in-fleet":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
 					// Should not have ownership change events since ownership didn't change
@@ -259,7 +271,7 @@ var _ = Describe("FleetSelector", func() {
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/otherfleet"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeTrue())
 					events := getEventsForResource(api.DeviceKind, "otherfleet-to-multiowner")
-					validateDeviceMultipleOwnersDetectedEvent(events, []string{"fleet", "otherfleet"})
+					validateDeviceMultipleOwnersDetectedEvent("otherfleet-to-multiowner", events, []string{"fleet", "otherfleet"})
 				}
 			}
 
@@ -280,7 +292,7 @@ var _ = Describe("FleetSelector", func() {
 
 			// Validate ownership change event
 			events := getEventsForResource(api.DeviceKind, "device")
-			validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet"), nil)
+			validateResourceUpdatedEvent("device", events, lo.ToPtr("fleet"), nil)
 
 			// Validate fleet processing completed event
 			fleetEvents := getEventsForResource(api.FleetKind, "fleet")
@@ -305,7 +317,7 @@ var _ = Describe("FleetSelector", func() {
 				Expect(device.Metadata.Owner).To(BeNil())
 				// Validate ownership change events
 				events := getEventsForResource(api.DeviceKind, *device.Metadata.Name)
-				validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet"), nil)
+				validateResourceUpdatedEvent(*device.Metadata.Name, events, lo.ToPtr("fleet"), nil)
 			}
 
 			// Validate fleet processing completed event
@@ -331,7 +343,7 @@ var _ = Describe("FleetSelector", func() {
 				Expect(device.Metadata.Owner).To(BeNil())
 				// Validate ownership change events
 				events := getEventsForResource(api.DeviceKind, *device.Metadata.Name)
-				validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet"), nil)
+				validateResourceUpdatedEvent(*device.Metadata.Name, events, lo.ToPtr("fleet"), nil)
 			}
 
 			// Validate fleet processing completed event
@@ -366,7 +378,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(len(devices.Items)).To(Equal(7))
 			for _, device := range devices.Items {
 				condition := api.Condition{Type: api.ConditionTypeDeviceMultipleOwners, Status: api.ConditionStatusTrue, Message: "fleet2,fleet3"}
-				err = deviceStore.SetServiceConditions(ctx, orgId, *device.Metadata.Name, []api.Condition{condition})
+				err = deviceStore.SetServiceConditions(ctx, orgId, *device.Metadata.Name, []api.Condition{condition}, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -385,18 +397,18 @@ var _ = Describe("FleetSelector", func() {
 				case "fleet":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet2"), lo.ToPtr("fleet"))
-					validateDeviceMultipleOwnersResolvedEvent(events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet"))
+					validateResourceUpdatedEvent("fleet", events, lo.ToPtr("fleet2"), lo.ToPtr("fleet"))
+					validateDeviceMultipleOwnersResolvedEvent("fleet", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet"))
 				case "fleet2":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet2"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet"), lo.ToPtr("fleet2"))
-					validateDeviceMultipleOwnersResolvedEvent(events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet2"))
+					validateResourceUpdatedEvent("fleet2", events, lo.ToPtr("fleet"), lo.ToPtr("fleet2"))
+					validateDeviceMultipleOwnersResolvedEvent("fleet2", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet2"))
 				case "fleet3":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet3"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet2"), lo.ToPtr("fleet3"))
-					validateDeviceMultipleOwnersResolvedEvent(events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet3"))
+					validateResourceUpdatedEvent("fleet3", events, lo.ToPtr("fleet2"), lo.ToPtr("fleet3"))
+					validateDeviceMultipleOwnersResolvedEvent("fleet3", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet3"))
 				case "fleet2+3":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet2"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeTrue())
@@ -409,17 +421,17 @@ var _ = Describe("FleetSelector", func() {
 				case "nofleet":
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet4"), nil)
-					validateDeviceMultipleOwnersResolvedEvent(events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
+					validateResourceUpdatedEvent("nofleet", events, lo.ToPtr("fleet4"), nil)
+					validateDeviceMultipleOwnersResolvedEvent("nofleet", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
 				case "nolabels":
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet4"), nil)
-					validateDeviceMultipleOwnersResolvedEvent(events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
+					validateResourceUpdatedEvent("nolabels", events, lo.ToPtr("fleet4"), nil)
+					validateDeviceMultipleOwnersResolvedEvent("nolabels", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
 				case "nolabels-noowner":
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceMultipleOwnersResolvedEvent(events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
+					validateDeviceMultipleOwnersResolvedEvent("nolabels-noowner", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
 				}
 			}
 
@@ -470,19 +482,19 @@ var _ = Describe("FleetSelector", func() {
 				case "change-to-fleet2":
 					Expect(*updatedDev.Metadata.Owner).To(Equal("Fleet/fleet2"))
 					Expect(api.IsStatusConditionTrue(updatedDev.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet1"), lo.ToPtr("fleet2"))
+					validateResourceUpdatedEvent(*device.Metadata.Name, events, lo.ToPtr("fleet1"), lo.ToPtr("fleet2"))
 				case "multiple-owners":
 					Expect(*updatedDev.Metadata.Owner).To(Equal("Fleet/fleet1"))
 					Expect(api.IsStatusConditionTrue(updatedDev.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeTrue())
-					validateDeviceMultipleOwnersDetectedEvent(events, []string{"fleet1", "fleet2"})
+					validateDeviceMultipleOwnersDetectedEvent(*device.Metadata.Name, events, []string{"fleet1", "fleet2"})
 				case "no-match":
 					Expect(updatedDev.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(updatedDev.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet2"), nil)
+					validateResourceUpdatedEvent(*device.Metadata.Name, events, lo.ToPtr("fleet2"), nil)
 				case "no-labels":
 					Expect(updatedDev.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(updatedDev.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet3"), nil)
+					validateResourceUpdatedEvent(*device.Metadata.Name, events, lo.ToPtr("fleet3"), nil)
 				}
 			}
 		})
@@ -519,8 +531,18 @@ var _ = Describe("FleetSelector", func() {
 			events := getEventsForResource(api.DeviceKind, "decommissioning-device")
 			ownershipChangeFound := false
 			for _, event := range events {
-				if event.Reason == api.EventReasonDeviceOwnershipChanged {
-					ownershipChangeFound = true
+				if event.Reason == api.EventReasonResourceUpdated {
+					// Check if it's an owner update
+					if event.Details != nil {
+						if details, err := event.Details.AsResourceUpdatedDetails(); err == nil {
+							for _, field := range details.UpdatedFields {
+								if field == api.Owner {
+									ownershipChangeFound = true
+									break
+								}
+							}
+						}
+					}
 				}
 			}
 			Expect(ownershipChangeFound).To(BeFalse())
@@ -572,7 +594,7 @@ var _ = Describe("FleetSelector", func() {
 
 			// Validate ownership change event
 			events := getEventsForResource(api.DeviceKind, "no-labels-device")
-			validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet1"), nil)
+			validateResourceUpdatedEvent("no-labels-device", events, lo.ToPtr("fleet1"), nil)
 		})
 
 		It("Should handle device with empty labels in DeviceLabelsUpdated", func() {
@@ -595,7 +617,7 @@ var _ = Describe("FleetSelector", func() {
 
 			// Validate ownership change event
 			events := getEventsForResource(api.DeviceKind, "empty-labels-device")
-			validateDeviceOwnershipChangedEvent(events, lo.ToPtr("fleet1"), nil)
+			validateResourceUpdatedEvent("empty-labels-device", events, lo.ToPtr("fleet1"), nil)
 		})
 
 		It("Should handle device with non-fleet owner in DeviceLabelsUpdated", func() {
@@ -620,8 +642,18 @@ var _ = Describe("FleetSelector", func() {
 			events := getEventsForResource(api.DeviceKind, "non-fleet-owner-device")
 			ownershipChangeFound := false
 			for _, event := range events {
-				if event.Reason == api.EventReasonDeviceOwnershipChanged {
-					ownershipChangeFound = true
+				if event.Reason == api.EventReasonResourceUpdated {
+					// Check if it's an owner update
+					if event.Details != nil {
+						if details, err := event.Details.AsResourceUpdatedDetails(); err == nil {
+							for _, field := range details.UpdatedFields {
+								if field == api.Owner {
+									ownershipChangeFound = true
+									break
+								}
+							}
+						}
+					}
 				}
 			}
 			Expect(ownershipChangeFound).To(BeFalse())
