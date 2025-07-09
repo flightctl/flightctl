@@ -35,7 +35,7 @@ func startSpan(ctx context.Context, method string) (context.Context, trace.Span)
 func endSpan(span trace.Span, st api.Status) {
 	span.SetAttributes(attribute.Int("status.code", int(st.Code)))
 
-	if st != api.StatusOK() {
+	if st.Status != "Success" {
 		span.RecordError(errors.New(st.Message))
 		span.SetStatus(codes.Error, st.Message)
 	}

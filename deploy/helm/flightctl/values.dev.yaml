@@ -23,6 +23,9 @@ api:
     image:  localhost/flightctl-api
     tag: latest
   baseUIUrl: "http://localhost:9000"
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 cliArtifacts:
   enabled: true
   image:
@@ -32,20 +35,35 @@ worker:
   image:
     image: localhost/flightctl-worker
     tag: latest
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 periodic:
   image:
     image: localhost/flightctl-periodic
     tag: latest
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 alertExporter:
   image:
     image: localhost/flightctl-alert-exporter
     tag: latest
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 alertmanagerProxy:
   image:
     image: localhost/flightctl-alertmanager-proxy
     tag: latest
 prometheus:
   enabled: true
+jaeger:
+  enabled: true
+  storageType: memory
+  maxTraces: 50000
+  otlpEnabled: true
+  logLevel: info
 ui:
   enabled: false
 
