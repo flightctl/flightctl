@@ -29,6 +29,7 @@ type manager struct {
 	devicePublisher  publisher.Subscription
 	cache            *cache
 	queue            PriorityQueue
+	policyManager    policy.Manager
 
 	lastConsumedDevice *v1alpha1.Device
 	log                *log.PrefixLogger
@@ -49,8 +50,7 @@ func NewManager(
 	queue := newPriorityQueue(
 		defaultSpecQueueMaxSize,
 		defaultSpecRequeueMaxRetries,
-		defaultSpecRequeueThreshold,
-		defaultSpecRequeueDelay,
+		defaultSpecPollConfig,
 		policyManager,
 		log,
 	)
@@ -62,6 +62,7 @@ func NewManager(
 		osClient:         osClient,
 		cache:            newCache(log),
 		devicePublisher:  devicePublisher,
+		policyManager:    policyManager,
 		queue:            queue,
 		log:              log,
 	}
@@ -320,6 +321,13 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 			break
 		}
 		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
+		// as the queue maintains some policy state we need to sync the policy state prior to adding versions to the queue
+		// otherwise policy state is delayed by a version and could lead to instances in which updating is stuck for a long time.
+		// we log an error if policy syncing fails, but we don't return an error as the mechanism for indicating to users
+		// that a spec is poorly defined doesn't exist here.
+		if err = s.policyManager.Sync(ctx, newDesired.Spec); err != nil {
+			s.log.Errorf("Failed to sync new device version %s policy manager: %v", newDesired.Version(), err)
+		}
 		s.queue.Add(ctx, newDesired)
 		s.lastConsumedDevice = newDesired
 		consumed = true

@@ -26,6 +26,11 @@ const (
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
+	// DefaultPullRetrySteps is the default retry attempts are allowed for pulling an OCI target.
+	DefaultPullRetrySteps = 6
+	// DefaultPullTimeout is the default timeout for pulling a single OCI
+	// targets. Pull Timeout can not be greater that the prefetch timeout.
+	DefaultPullTimeout = util.Duration(10 * time.Minute)
 	// MinSyncInterval is the minimum interval allowed for the spec fetch and status update
 	MinSyncInterval = util.Duration(2 * time.Second)
 	// DefaultConfigDir is the default directory where the device's configuration is stored
@@ -98,6 +103,12 @@ type Config struct {
 	// SystemInfoTimeout is the timeout for collecting system info.
 	SystemInfoTimeout util.Duration `json:"system-info-timeout,omitempty"`
 
+	// PullTimeout is the max duration a single OCI target will try to pull.
+	PullTimeout util.Duration `json:"pull-timeout,omitempty"`
+
+	// PullRetrySteps defines how many retry attempts are allowed for pulling an OCI target.
+	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
+
 	readWriter fileio.ReadWriter
 }
 
@@ -128,6 +139,8 @@ func NewDefault() *Config {
 		ServiceConfig:        config.NewServiceConfig(),
 		SystemInfo:           DefaultSystemInfo,
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
+		PullTimeout:          DefaultPullTimeout,
+		PullRetrySteps:       DefaultPullRetrySteps,
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {

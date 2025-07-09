@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 // requeueState represents the state of a queued template version.
@@ -37,12 +38,8 @@ type queueManager struct {
 	// maxRetries is the number of times a template version can be requeued before being removed.
 	// A value of 0 means infinite retries.
 	maxRetries int
-	// delayThreshold is the number of times a template version can be requeued before enforcing a delay.
-	// A value of 0 means this is disabled.
-	delayThreshold int
-	// delayDuration is the duration to wait before the item is
-	// available to be retrieved form the queue.
-	delayDuration time.Duration
+	// pollConfig contains the backoff configuration for retries
+	pollConfig poll.Config
 
 	log *log.PrefixLogger
 }
@@ -51,8 +48,7 @@ type queueManager struct {
 func newPriorityQueue(
 	maxSize int,
 	maxRetries int,
-	delayThreshold int,
-	delayDuration time.Duration,
+	pollConfig poll.Config,
 	policyManager policy.Manager,
 	log *log.PrefixLogger,
 ) PriorityQueue {
@@ -62,8 +58,7 @@ func newPriorityQueue(
 		failedVersions: make(map[int64]struct{}),
 		requeueLookup:  make(map[int64]*requeueState),
 		maxRetries:     maxRetries,
-		delayThreshold: delayThreshold,
-		delayDuration:  delayDuration,
+		pollConfig:     pollConfig,
 		log:            log,
 	}
 }
@@ -123,10 +118,12 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	requeue := m.getOrCreateRequeueState(ctx, version)
 	if now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
-		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339))
+		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339Nano))
 		return nil, false
 	}
 
+	// currently it's useful to allow specs to be consumed if the download policy is satisfied
+	// even if the updatePolicy isn't
 	if !requeue.downloadPolicySatisfied && !requeue.updatePolicySatisfied {
 		m.log.Debugf("Template version %d policies are not satisfied skipping...", version)
 		m.queue.Add(item)
@@ -205,15 +202,22 @@ func (m *queueManager) getOrCreateRequeueState(ctx context.Context, version int6
 }
 
 func (m *queueManager) shouldEnforceDelay(state *requeueState) bool {
-	if m.delayThreshold <= 0 || !m.queue.IsEmpty() || state.tries == 0 {
+	if state.tries == 0 {
 		return false
 	}
-	if state.tries >= m.delayThreshold && state.nextAvailable.IsZero() {
-		state.nextAvailable = time.Now().Add(m.delayDuration)
-		m.log.Debugf("Delay enforced until: %s", state.nextAvailable)
+
+	if state.nextAvailable.IsZero() {
+		// incremental delay based on tries
+		delay := m.calculateBackoffDelay(state.tries)
+		state.nextAvailable = time.Now().Add(delay)
+		m.log.Debugf("Incremental delay enforced for version: %d: until: %s", state.version, state.nextAvailable.Format(time.RFC3339))
 		return true
 	}
 	return false
+}
+
+func (m *queueManager) calculateBackoffDelay(tries int) time.Duration {
+	return poll.CalculateBackoffDelay(&m.pollConfig, tries)
 }
 
 func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64) bool {
@@ -224,9 +228,9 @@ func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64)
 	return false
 }
 
-// updatePolicy calls into the policyManager to check if the policys have been
+// updatePolicy calls into the policyManager to check if the policy have been
 // satisfied since the last call an updates accordingly returns true if the
-// polciy has changed.
+// policy has changed.
 func (m *queueManager) updatePolicy(ctx context.Context, requeue *requeueState) bool {
 	changed := false
 	if !requeue.downloadPolicySatisfied {
