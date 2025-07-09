@@ -43,17 +43,10 @@ func (c *Config) Validate() error {
 // it returns true, an error, or the context is canceled. It waits between
 // attempts using exponential backoff, starting from Config.BaseDelay and
 // increasing by Config.Factor, capped by Config.MaxDelay if set.
-func BackoffWithContext(ctx context.Context, cfg Config, timeout time.Duration, opFn func(context.Context) (bool, error)) error {
-	if timeout <= 0 {
-		return ErrInvalidTimeout
-	}
-
+func BackoffWithContext(ctx context.Context, cfg Config, opFn func(context.Context) (bool, error)) error {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
 	delay := cfg.BaseDelay
 	attempts := 0

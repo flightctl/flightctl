@@ -21,4 +21,10 @@ data:
     alertmanager:
         hostname: flightctl-alertmanager.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 9093
+    {{ if .Values.jaeger.enabled }}
+    tracing:
+        enabled: true
+        endpoint: jaeger-collector.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:4318
+        insecure: true
+    {{ end }}
 {{- end }}

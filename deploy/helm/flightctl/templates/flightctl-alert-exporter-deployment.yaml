@@ -46,6 +46,12 @@ spec:
                 secretKeyRef:
                   name: flightctl-db-secret
                   key: masterUser
+            {{- if .Values.alertExporter.env }}
+            {{- range $key, $value := .Values.alertExporter.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
           volumeMounts:
             - mountPath: /root/.flightctl
               name: flightctl-alert-exporter-config
