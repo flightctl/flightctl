@@ -336,6 +336,9 @@ var _ = Describe("VM Agent behavior", func() {
 			response := harness.GetDeviceWithStatusSystem(deviceId)
 			device := response.JSON200
 
+			// Ensure the infinite key exists in CustomInfo
+			Expect(device.Status.SystemInfo.CustomInfo).ToNot(BeNil())
+			Expect((*device.Status.SystemInfo.CustomInfo)).To(HaveKey("infinite"))
 			Expect((*device.Status.SystemInfo.CustomInfo)["infinite"]).To(Equal(""))
 
 		})
