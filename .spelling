@@ -34,6 +34,7 @@ e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
+env
 EPEL
 FIDO
 filesystem
@@ -87,6 +88,7 @@ Quadlet
 Quadlets
 quay.io
 RBAC
+read-only
 resource-unintensive
 ResourceSync
 ResourceSyncs
@@ -95,6 +97,7 @@ RHACM
 RHEL
 rollbacks
 rollout
+rootful
 runtime
 schemas
 Sigstore
