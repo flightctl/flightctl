@@ -19,22 +19,23 @@ start_service "flightctl.target"
 echo "Checking if all services are running..."
 
 timeout --foreground 300s bash -c '
+    expected_services=("flightctl-api" "flightctl-worker" "flightctl-periodic" "flightctl-alert-exporter" "flightctl-db" "flightctl-kv" "flightctl-alertmanager" "flightctl-alertmanager-proxy" "flightctl-cli-artifacts" "flightctl-ui")
+
     while true; do
-        if podman ps --quiet \
-            --filter "name=flightctl-api" \
-            --filter "name=flightctl-worker" \
-            --filter "name=flightctl-periodic" \
-            --filter "name=flightctl-alert-exporter" \
-            --filter "name=flightctl-db" \
-            --filter "name=flightctl-kv" \
-            --filter "name=flightctl-alertmanager" \
-            --filter "name=flightctl-alertmanager-proxy" \
-            --filter "name=flightctl-cli-artifacts" \
-            --filter "name=flightctl-ui" | wc -l | grep -q 10; then
+        missing_services=()
+
+        for service in "${expected_services[@]}"; do
+            if ! podman ps --quiet --filter "name=$service" | grep -q .; then
+                missing_services+=("$service")
+            fi
+        done
+
+        if [ ${#missing_services[@]} -eq 0 ]; then
             echo "All services are running"
             exit 0
         fi
-        echo "Waiting for all services to be running..."
+
+        echo "Waiting for (${#missing_services[@]}/${#expected_services[@]}) services to start: ${missing_services[*]}"
         sleep 10
     done
 ' || {
