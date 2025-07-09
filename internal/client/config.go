@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -24,7 +25,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	certutil "k8s.io/client-go/util/cert"
 	"sigs.k8s.io/yaml"
 )
 
@@ -267,11 +267,21 @@ func CreateTLSConfigFromConfig(config *Config) (*tls.Config, error) {
 
 func addServiceCAToTLSConfig(tlsConfig *tls.Config, config *Config) error {
 	if len(config.Service.CertificateAuthorityData) > 0 {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+		// Start with the system certificate pool to preserve existing trusted CAs
+		rootCAs, err := x509.SystemCertPool()
 		if err != nil {
 			return err
 		}
-		tlsConfig.RootCAs = caPool
+		if rootCAs == nil {
+			rootCAs = x509.NewCertPool()
+		}
+		
+		// Add the service CA certificates to the system pool
+		if !rootCAs.AppendCertsFromPEM(config.Service.CertificateAuthorityData) {
+			return fmt.Errorf("failed to add service CA certificates to root CA pool")
+		}
+		
+		tlsConfig.RootCAs = rootCAs
 	}
 	return nil
 }
@@ -305,11 +315,21 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 	}
 
 	if string(config.Service.CertificateAuthorityData) != "" {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+		// Start with the system certificate pool to preserve existing trusted CAs
+		rootCAs, err := x509.SystemCertPool()
 		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+			return nil, fmt.Errorf("NewGRPCClientFromConfig: getting system cert pool: %w", err)
 		}
-		tlsConfig.RootCAs = caPool
+		if rootCAs == nil {
+			rootCAs = x509.NewCertPool()
+		}
+		
+		// Add the service CA certificates to the system pool
+		if !rootCAs.AppendCertsFromPEM(config.Service.CertificateAuthorityData) {
+			return nil, fmt.Errorf("NewGRPCClientFromConfig: failed to add service CA certificates to root CA pool")
+		}
+		
+		tlsConfig.RootCAs = rootCAs
 	}
 
 	u, err := url.Parse(grpcEndpoint)
