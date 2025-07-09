@@ -13,7 +13,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
+  # This line defines a job with the ID `smoke` that is stored within the `jobs` key.
   smoke:
     runs-on: "ubuntu-24.04"
     steps:
