@@ -45,6 +45,12 @@ spec:
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
             {{- end }}
+            {{- if .Values.api.env }}
+            {{- range $key, $value := .Values.api.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
           ports:
             - containerPort: 3443
               name: service-api

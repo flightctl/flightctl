@@ -5,6 +5,7 @@
 # where filename is relative to this configuration file
 AAP
 ACM
+Alertmanager
 amd64
 API
 APIs
@@ -195,12 +196,12 @@ v3.4
 WorkDir
 10s
  - docs/user/managing-fleets.md
-OverlappingSelectors
 factory-berlinsite
 factory-madridsite
 GroupBy
 MinAvailable
 MaxUnavailable
+MultipleOwners
  - docs/user/building-images.md
 usr
 iso
@@ -241,3 +242,8 @@ yaml
  - docs/user/rollout-policies.md
 rollouts
 BatchSequence
+ - docs/user/alerts.md
+alertmanager
+DeviceDisconnected
+DeviceCPUCritical
+programmatically

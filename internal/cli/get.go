@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -19,9 +20,9 @@ import (
 	"github.com/spf13/pflag"
 )
 
-var (
-	legalOutputTypes = []string{string(display.JSONFormat), string(display.YAMLFormat), string(display.NameFormat), string(display.WideFormat)}
-)
+var legalOutputTypes = []string{string(display.JSONFormat), string(display.YAMLFormat), string(display.NameFormat), string(display.WideFormat)}
+
+const maxRequestLimit = 1000 // At most the server side constraint
 
 type GetOptions struct {
 	GlobalOptions
@@ -79,7 +80,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, supporting operators like '=', '!=', and 'in' (e.g., -l='key1=value1,key2!=value2,key3 in (value3, value4)').")
 	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supporting operators like '=', '==', and '!=' (e.g., --field-selector='key1=value1,key2!=value2').")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
-	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response.")
+	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response. If the value is 0, then the result is not limited.")
 	fs.StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
 	fs.StringVar(&o.FleetName, "fleetname", o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
 	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting a single device).")
@@ -143,11 +144,14 @@ func (o *GetOptions) Validate(args []string) error {
 	if o.Limit < 0 {
 		return fmt.Errorf("limit must be greater than 0")
 	}
+	if o.Limit > maxRequestLimit && len(o.Output) > 0 {
+		return fmt.Errorf("limit higher than %d is only supported when using table format", maxRequestLimit)
+	}
 	return nil
 }
 
 func (o *GetOptions) Run(ctx context.Context, args []string) error {
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	clientWithResponses, err := client.NewFromConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -157,16 +161,97 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	var response interface{}
-	if len(name) == 0 {
-		// List resources (no name given)
-		response, err = o.getResourceList(ctx, c, kind)
+	formatter := display.NewFormatter(display.OutputFormat(o.Output))
+	if name == "" {
+		if err := o.handleList(ctx, formatter, clientWithResponses, kind); err != nil {
+			return fmt.Errorf("listing %s: %w", plural(kind), err)
+		}
 	} else {
-		// Get a single resource by name
-		response, err = o.getSingleResource(ctx, c, kind, name)
+		if err := o.handleSingle(ctx, formatter, clientWithResponses, kind, name); err != nil {
+			return fmt.Errorf("reading %s/%s: %w", kind, name, err)
+		}
+	}
+	return nil
+}
+
+// handleSingle fetches and displays a single resource.
+func (o *GetOptions) handleSingle(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind, name string) error {
+	response, err := o.getSingleResource(ctx, c, kind, name)
+	if err != nil {
+		return err
+	}
+	if err := validateResponse(response); err != nil {
+		return err
+	}
+	return o.displayResponse(formatter, response, kind, name)
+}
+
+func (o *GetOptions) handleList(
+	ctx context.Context,
+	formatter display.OutputFormatter,
+	c *apiclient.ClientWithResponses,
+	kind string,
+) error {
+	// Batching is only supported for table output
+	isTableOutput := o.Output == ""
+	requestedLimit := o.Limit
+	needsBatching := isTableOutput &&
+		(requestedLimit == 0 || requestedLimit > maxRequestLimit)
+
+	if !needsBatching {
+		_, err := o.listOnce(ctx, formatter, c, kind)
+		return err
 	}
 
-	return o.processResponse(response, err, kind, name)
+	return o.handleListBatching(ctx, formatter, c, kind, requestedLimit)
+}
+
+// handleList fetches and displays a list of resources, optionally processing the list in batches
+func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind string, requestedLimit int32) error {
+	var printedCount int32 = 0
+	o.Limit = 0 // Request server-side maximum (0 == capped)
+	for {
+		remaining := requestedLimit - printedCount
+		if requestedLimit > 0 && remaining <= maxRequestLimit {
+			// Ask for exactly the remaining items - the final iteration
+			o.Limit = remaining
+		}
+
+		response, err := o.listOnce(ctx, formatter, c, kind)
+		if err != nil {
+			return err
+		}
+
+		// Extract list metadata and item count from the response
+		listMetadata, listItemsCount, err := getListMetadata(response)
+		if err != nil {
+			return fmt.Errorf("reading list metadata: %w", err)
+		}
+
+		printedCount += int32(listItemsCount) // #nosec G115
+
+		if requestedLimit > 0 && printedCount >= requestedLimit {
+			break // Reached user-requested limit
+		}
+
+		if listMetadata.Continue == nil {
+			break // No more batches
+		}
+
+		o.Continue = *listMetadata.Continue
+	}
+	return nil
+}
+
+func (o *GetOptions) listOnce(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind string) (interface{}, error) {
+	response, err := o.getResourceList(ctx, c, kind)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateResponse(response); err != nil {
+		return response, err
+	}
+	return response, o.displayResponse(formatter, response, kind, "")
 }
 
 func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind, name string) (interface{}, error) {
@@ -268,16 +353,7 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 	}
 }
 
-func (o *GetOptions) processResponse(response interface{}, err error, kind string, name string) error {
-	errorPrefix := fmt.Sprintf("reading %s/%s", kind, name)
-	if len(name) == 0 {
-		errorPrefix = fmt.Sprintf("listing %s", plural(kind))
-	}
-
-	if err != nil {
-		return fmt.Errorf(errorPrefix+": %w", err)
-	}
-
+func validateResponse(response interface{}) error {
 	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
 	if err != nil {
 		return err
@@ -294,12 +370,14 @@ func (o *GetOptions) processResponse(response interface{}, err error, kind strin
 			if err := json.Unmarshal(responseBody, &dest); err != nil {
 				return fmt.Errorf("unmarshalling error: %w", err)
 			}
-			return fmt.Errorf(errorPrefix+": %d, message: %s", httpResponse.StatusCode, dest.Message)
+			return fmt.Errorf("response status: %d, message: %s", httpResponse.StatusCode, dest.Message)
 		}
-		return fmt.Errorf(errorPrefix+": %d", httpResponse.StatusCode)
+		return fmt.Errorf("response status: %d", httpResponse.StatusCode)
 	}
+	return nil
+}
 
-	formatter := display.NewFormatter(display.OutputFormat(o.Output))
+func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response interface{}, kind string, name string) error {
 	options := display.FormatOptions{
 		Kind:        kind,
 		Name:        name,
@@ -320,4 +398,34 @@ func (o *GetOptions) processResponse(response interface{}, err error, kind strin
 
 	// For table format, pass the full response
 	return formatter.Format(response, options)
+}
+
+// getListMetadata extracts the ListMeta and the number of items from a list response.
+func getListMetadata(response interface{}) (*api.ListMeta, int, error) {
+	json200, err := responseField[interface{}](response, "JSON200")
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Retrieve metadata
+	listMeta, err := responseField[api.ListMeta](json200, "Metadata")
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Determine number of items via reflection
+	v := reflect.ValueOf(json200)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil, 0, fmt.Errorf("JSON200 pointer is nil")
+		}
+		v = v.Elem()
+	}
+
+	itemsField := v.FieldByName("Items")
+	if !itemsField.IsValid() || itemsField.Kind() != reflect.Slice {
+		return nil, 0, fmt.Errorf("items field not found or not a slice")
+	}
+
+	return &listMeta, itemsField.Len(), nil
 }

@@ -107,11 +107,7 @@ func (t *callbackManager) FleetUpdatedCallback(ctx context.Context, orgId uuid.U
 		t.submitTask(ctx, FleetValidateTask, ref, FleetValidateOpUpdate)
 	}
 	if selectorUpdated {
-		op := FleetSelectorMatchOpUpdate
-		if fleet.Status != nil && fleet.Status.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Conditions, api.ConditionTypeFleetOverlappingSelectors) {
-			op = FleetSelectorMatchOpUpdateOverlap
-		}
-		t.submitTask(ctx, FleetSelectorMatchTask, ref, op)
+		t.submitTask(ctx, FleetSelectorMatchTask, ref, FleetSelectorMatchOpUpdate)
 	}
 }
 
@@ -157,8 +153,8 @@ func (t *callbackManager) DeviceUpdatedNoRenderCallback(ctx context.Context, org
 	} else if after == nil {
 		// Deleted device
 		device = before
-		labelsUpdated = true
-		ownerUpdated = false // Nothing to roll out
+		labelsUpdated = false // No need to check for ownership changes
+		ownerUpdated = false  // Nothing to roll out
 	} else {
 		device = after
 		labelsUpdated = !reflect.DeepEqual(*before.Metadata.Labels, *after.Metadata.Labels)
@@ -173,12 +169,7 @@ func (t *callbackManager) DeviceUpdatedNoRenderCallback(ctx context.Context, org
 	}
 	if labelsUpdated {
 		// Check if the new labels cause the device to move to a different fleet
-		op := FleetSelectorMatchOpUpdate
-
-		if api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners) {
-			op = FleetSelectorMatchOpUpdateOverlap
-		}
-		t.submitTask(ctx, FleetSelectorMatchTask, ref, op)
+		t.submitTask(ctx, FleetSelectorMatchTask, ref, FleetSelectorMatchOpUpdate)
 	}
 
 }

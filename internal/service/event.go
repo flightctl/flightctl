@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
+	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -19,16 +19,15 @@ import (
 type resourceEvent struct {
 	ResourceKind                 api.ResourceKind
 	ResourceName                 string
-	Prefix                       string
 	ReasonSuccess, ReasonFailure api.EventReason
 	OutcomeSuccess               string
 	OutcomeFailure               outcomeFailureFunc
 	Status                       api.Status
 	UpdateDetails                *api.ResourceUpdatedDetails
+	CustomDetails                *api.EventDetails
 }
 
 type eventConfig struct {
-	Prefix          string
 	ReasonSuccess   api.EventReason
 	ReasonFailure   api.EventReason
 	SuccessMessage  string
@@ -37,6 +36,48 @@ type eventConfig struct {
 }
 
 type outcomeFailureFunc func() string
+
+// Helper functions for standardized event message formatting
+
+// formatResourceActionMessage creates a standardized message for resource actions
+func formatResourceActionMessage(resourceKind api.ResourceKind, action string) string {
+	return fmt.Sprintf("%s was %s successfully.", resourceKind, action)
+}
+
+// formatResourceActionFailedTemplate creates a template for failed resource actions
+func formatResourceActionFailedTemplate(resourceKind api.ResourceKind, action string) string {
+	return fmt.Sprintf("%s %s failed: %%s.", resourceKind, action)
+}
+
+// formatDeviceMultipleOwnersMessage creates a standardized message for multiple owners detected
+func formatDeviceMultipleOwnersMessage(matchingFleets []string) string {
+	return fmt.Sprintf("Device matches multiple fleets: %s.", strings.Join(matchingFleets, ", "))
+}
+
+// formatDeviceMultipleOwnersResolvedMessage creates a standardized message for multiple owners resolved
+func formatDeviceMultipleOwnersResolvedMessage(resolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType, assignedOwner *string) string {
+	switch resolutionType {
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch:
+		return fmt.Sprintf("Device multiple owners conflict was resolved: single fleet match, assigned to fleet '%s'.", lo.FromPtr(assignedOwner))
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch:
+		return "Device multiple owners conflict was resolved: no fleet matches, owner was removed."
+	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted:
+		return "Device multiple owners conflict was resolved: fleet was deleted."
+	default:
+		return "Device multiple owners conflict was resolved."
+	}
+}
+
+// formatInternalTaskFailedMessage creates a standardized message for internal task failures
+func formatInternalTaskFailedMessage(resourceKind api.ResourceKind, taskType, errorMessage string) string {
+	return fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, taskType, errorMessage)
+}
+
+// formatFleetSelectorProcessingMessage creates a standardized message for fleet selector processing
+func formatFleetSelectorProcessingMessage(devicesProcessed, devicesWithErrors int, processingDuration time.Duration) string {
+	durationMs := float64(processingDuration.Nanoseconds()) / 1000000
+	return fmt.Sprintf("Fleet selector processing was completed: %d devices processed, %d errors in %.2f ms.", devicesProcessed, devicesWithErrors, durationMs)
+}
 
 func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
 	if event == nil {
@@ -97,14 +138,6 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 		return nil
 	}
 
-	var requestIDstr string
-	if reqID := ctx.Value(middleware.RequestIDKey); reqID == nil {
-		// If the requestID is nil or not set, fallback to a UUID
-		requestIDstr = uuid.New().String()
-	} else {
-		requestIDstr = reqID.(string)
-	}
-
 	var actorStr string
 	if actor := ctx.Value(consts.EventActorCtxKey); actor != nil {
 		actorStr = actor.(string)
@@ -115,9 +148,12 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 		componentStr = component.(string)
 	}
 
+	// Generate a UUID for the event name to ensure k8s compliance
+	eventName := uuid.New().String()
+
 	event := api.Event{
 		Metadata: api.ObjectMeta{
-			Name: lo.ToPtr(fmt.Sprintf("%s-%s-%s-%s", resourceEvent.Prefix, resourceEvent.ResourceKind, resourceEvent.ResourceName, requestIDstr)),
+			Name: lo.ToPtr(eventName),
 		},
 		Type: api.Normal,
 		InvolvedObject: api.ObjectReference{
@@ -128,6 +164,11 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 			Component: componentStr,
 		},
 		Actor: actorStr,
+	}
+
+	// Add request ID to the event for correlation
+	if reqID := ctx.Value(middleware.RequestIDKey); reqID != nil {
+		event.Metadata.Annotations = &map[string]string{api.EventAnnotationRequestID: reqID.(string)}
 	}
 
 	if operationSucceeded {
@@ -143,14 +184,16 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 		event.Type = api.Warning
 	}
 
-	if resourceEvent.UpdateDetails != nil {
+	// Handle custom details first, then fall back to UpdateDetails
+	if resourceEvent.CustomDetails != nil {
+		event.Details = resourceEvent.CustomDetails
+	} else if resourceEvent.UpdateDetails != nil {
 		details := api.EventDetails{}
 		if err := details.FromResourceUpdatedDetails(*resourceEvent.UpdateDetails); err != nil {
 			log.WithError(err).WithField("event", event).Error("Failed to serialize event details")
-			// Ignore the error and create an event, even without details
-		} else {
-			event.Details = &details
+			return nil
 		}
+		event.Details = &details
 	}
 
 	return &event
@@ -162,7 +205,6 @@ func buildResourceEvent(ctx context.Context, resourceKind api.ResourceKind, reso
 		resourceEvent{
 			ResourceKind:   resourceKind,
 			ResourceName:   resourceName,
-			Prefix:         config.Prefix,
 			ReasonSuccess:  config.ReasonSuccess,
 			ReasonFailure:  config.ReasonFailure,
 			OutcomeSuccess: config.SuccessMessage,
@@ -175,74 +217,196 @@ func buildResourceEvent(ctx context.Context, resourceKind api.ResourceKind, reso
 func GetResourceCreatedOrUpdatedEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDesc *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
 	if created {
 		return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-			Prefix:          "resource-create",
 			ReasonSuccess:   api.EventReasonResourceCreated,
 			ReasonFailure:   api.EventReasonResourceCreationFailed,
-			SuccessMessage:  "created successfully",
-			FailureTemplate: "create failed: %s",
+			SuccessMessage:  formatResourceActionMessage(resourceKind, "created"),
+			FailureTemplate: formatResourceActionFailedTemplate(resourceKind, "creation"),
 		}, log)
 	}
 
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-		Prefix:          "resource-update",
 		ReasonSuccess:   api.EventReasonResourceUpdated,
 		ReasonFailure:   api.EventReasonResourceUpdateFailed,
-		SuccessMessage:  "updated successfully",
-		FailureTemplate: "update failed: %s",
+		SuccessMessage:  formatResourceActionMessage(resourceKind, "updated"),
+		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, "update"),
 		UpdateDetails:   updateDesc,
 	}, log)
 }
 
 func GetResourceDeletedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, log logrus.FieldLogger) *api.Event {
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-		Prefix:          "resource-delete",
 		ReasonSuccess:   api.EventReasonResourceDeleted,
 		ReasonFailure:   api.EventReasonResourceDeletionFailed,
-		SuccessMessage:  "deleted successfully",
-		FailureTemplate: "delete failed: %s",
+		SuccessMessage:  formatResourceActionMessage(resourceKind, "deleted"),
+		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, "deletion"),
 	}, log)
 }
 
 func GetResourceApprovedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, log logrus.FieldLogger) *api.Event {
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-		Prefix:          "resource-approval",
 		ReasonSuccess:   api.EventReasonEnrollmentRequestApproved,
 		ReasonFailure:   api.EventReasonEnrollmentRequestApprovalFailed,
-		SuccessMessage:  "approved successfully",
-		FailureTemplate: "approval failed: %s",
+		SuccessMessage:  formatResourceActionMessage(resourceKind, "approved"),
+		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, "approval"),
 	}, log)
 }
 
 func GetResourceDecommissionedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, status api.Status, updateDetails *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
 	return buildResourceEvent(ctx, resourceKind, resourceName, status, eventConfig{
-		Prefix:          "resource-decommission",
 		ReasonSuccess:   api.EventReasonDeviceDecommissioned,
 		ReasonFailure:   api.EventReasonDeviceDecommissionFailed,
-		SuccessMessage:  "decommissioned successfully",
-		FailureTemplate: "decommission failed: %s",
+		SuccessMessage:  formatResourceActionMessage(resourceKind, "decommissioned"),
+		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, "decommission"),
 		UpdateDetails:   updateDetails,
 	}, log)
 }
-
-func createPrefixGenerator(basePrefix string) func() string {
-	var counter int64
-	return func() string {
-		count := atomic.AddInt64(&counter, 1)
-		return fmt.Sprintf("%s_%d", basePrefix, count)
-	}
-}
-
-var generateUpdateDetailsPrefix = createPrefixGenerator("from-update-details")
 
 func GetResourceEventFromUpdateDetails(ctx context.Context, resourceKind api.ResourceKind, resourceName string, reasonSuccess api.EventReason, updateDetails string, log logrus.FieldLogger) *api.Event {
 	return getBaseEvent(ctx,
 		resourceEvent{
 			ResourceKind:   resourceKind,
 			ResourceName:   resourceName,
-			Prefix:         generateUpdateDetailsPrefix(),
 			ReasonSuccess:  reasonSuccess,
 			Status:         api.StatusOK(),
 			OutcomeSuccess: updateDetails,
 			OutcomeFailure: nil,
 		}, log)
+}
+
+// GetDeviceMultipleOwnersDetectedEvent creates an event for multiple fleet owners detected
+func GetDeviceMultipleOwnersDetectedEvent(ctx context.Context, deviceName string, matchingFleets []string, log logrus.FieldLogger) *api.Event {
+	message := formatDeviceMultipleOwnersMessage(matchingFleets)
+
+	details := api.EventDetails{}
+	detailsStruct := api.DeviceMultipleOwnersDetectedDetails{
+		MatchingFleets: matchingFleets,
+	}
+	if err := details.FromDeviceMultipleOwnersDetectedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize device multiple owners detected event details")
+		return nil
+	}
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		ReasonFailure:  api.EventReasonDeviceMultipleOwnersDetected,
+		OutcomeFailure: func() string { return message },
+		Status:         api.StatusInternalServerError("Multiple fleet owners detected"),
+		CustomDetails:  &details,
+	}, log)
+}
+
+// GetDeviceMultipleOwnersResolvedEvent creates an event for multiple fleet owners resolved
+func GetDeviceMultipleOwnersResolvedEvent(ctx context.Context, deviceName string, resolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType, assignedOwner *string, previousMatchingFleets []string, log logrus.FieldLogger) *api.Event {
+	message := formatDeviceMultipleOwnersResolvedMessage(resolutionType, assignedOwner)
+
+	details := api.EventDetails{}
+	detailsStruct := api.DeviceMultipleOwnersResolvedDetails{
+		ResolutionType:         resolutionType,
+		AssignedOwner:          assignedOwner,
+		PreviousMatchingFleets: &previousMatchingFleets,
+	}
+	if err := details.FromDeviceMultipleOwnersResolvedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize device multiple owners resolved event details")
+		return nil
+	}
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		ReasonSuccess:  api.EventReasonDeviceMultipleOwnersResolved,
+		OutcomeSuccess: message,
+		Status:         api.StatusOK(),
+		CustomDetails:  &details,
+	}, log)
+}
+
+// GetDeviceSpecValidEvent creates an event for device spec becoming valid
+func GetDeviceSpecValidEvent(ctx context.Context, deviceName string, log logrus.FieldLogger) *api.Event {
+	message := "Device specification is valid."
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		ReasonSuccess:  api.EventReasonDeviceSpecValid,
+		OutcomeSuccess: message,
+		Status:         api.StatusOK(),
+	}, log)
+}
+
+// GetDeviceSpecInvalidEvent creates an event for device spec becoming invalid
+func GetDeviceSpecInvalidEvent(ctx context.Context, deviceName string, message string, log logrus.FieldLogger) *api.Event {
+	msg := fmt.Sprintf("Device specification is invalid: %s.", message)
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.DeviceKind,
+		ResourceName:   deviceName,
+		ReasonFailure:  api.EventReasonDeviceSpecInvalid,
+		OutcomeFailure: func() string { return msg },
+		Status:         api.StatusInternalServerError("Invalid device specification"),
+	}, log)
+}
+
+// GetInternalTaskFailedEvent creates an event for internal task failures
+func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, taskType string, errorMessage string, retryCount *int, taskParameters map[string]string, log logrus.FieldLogger) *api.Event {
+	message := formatInternalTaskFailedMessage(resourceKind, taskType, errorMessage)
+
+	details := api.EventDetails{}
+	detailsStruct := api.InternalTaskFailedDetails{
+		TaskType:       taskType,
+		ErrorMessage:   errorMessage,
+		RetryCount:     retryCount,
+		TaskParameters: &taskParameters,
+	}
+	if err := details.FromInternalTaskFailedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize internal task failed event details")
+		return nil
+	}
+
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   resourceKind,
+		ResourceName:   resourceName,
+		ReasonFailure:  api.EventReasonInternalTaskFailed,
+		OutcomeFailure: func() string { return message },
+		Status:         api.StatusInternalServerError("Internal task failed"),
+		CustomDetails:  &details,
+	}, log)
+}
+
+// GetFleetSelectorProcessingCompletedEvent creates an event for fleet selector processing completion
+func GetFleetSelectorProcessingCompletedEvent(ctx context.Context, fleetName string, processingType api.FleetSelectorProcessingCompletedDetailsProcessingType, devicesProcessed, devicesWithErrors int, processingDuration time.Duration, log logrus.FieldLogger) *api.Event {
+	message := formatFleetSelectorProcessingMessage(devicesProcessed, devicesWithErrors, processingDuration)
+
+	details := api.EventDetails{}
+	durationStr := processingDuration.String()
+	detailsStruct := api.FleetSelectorProcessingCompletedDetails{
+		ProcessingType:     processingType,
+		DevicesProcessed:   devicesProcessed,
+		DevicesWithErrors:  &devicesWithErrors,
+		ProcessingDuration: &durationStr,
+	}
+	if err := details.FromFleetSelectorProcessingCompletedDetails(detailsStruct); err != nil {
+		log.WithError(err).Error("Failed to serialize fleet selector processing completed event details")
+		return nil
+	}
+
+	if devicesWithErrors > 0 {
+		return getBaseEvent(ctx, resourceEvent{
+			ResourceKind:   api.FleetKind,
+			ResourceName:   fleetName,
+			ReasonFailure:  api.EventReasonFleetSelectorProcessingCompleted,
+			OutcomeFailure: func() string { return message },
+			Status:         api.StatusInternalServerError("Fleet selector processing completed with errors"),
+			CustomDetails:  &details,
+		}, log)
+	} else {
+		return getBaseEvent(ctx, resourceEvent{
+			ResourceKind:   api.FleetKind,
+			ResourceName:   fleetName,
+			ReasonSuccess:  api.EventReasonFleetSelectorProcessingCompleted,
+			OutcomeSuccess: message,
+			Status:         api.StatusOK(),
+			CustomDetails:  &details,
+		}, log)
+	}
 }

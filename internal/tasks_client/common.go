@@ -5,13 +5,12 @@ import (
 )
 
 const (
-	FleetRolloutOpUpdate              = "update"
-	FleetSelectorMatchOpUpdate        = "update"
-	FleetSelectorMatchOpUpdateOverlap = "update-overlap"
-	TemplateVersionPopulateOpCreated  = "create"
-	FleetValidateOpUpdate             = "update"
-	DeviceRenderOpUpdate              = "update"
-	RepositoryUpdateOpUpdate          = "update"
+	FleetRolloutOpUpdate             = "update"
+	FleetSelectorMatchOpUpdate       = "update"
+	TemplateVersionPopulateOpCreated = "create"
+	FleetValidateOpUpdate            = "update"
+	DeviceRenderOpUpdate             = "update"
+	RepositoryUpdateOpUpdate         = "update"
 )
 
 type ResourceReference struct {

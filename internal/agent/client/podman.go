@@ -51,6 +51,9 @@ type PodmanContainerConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
+// PodmanEvent represents the structure of a podman event as produced via a CLI events command.
+// It should be noted that the CLI represents events differently from libpod. (notably the time properties)
+// https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
 type PodmanEvent struct {
 	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
 	ID                string            `json:"ID"`
@@ -58,6 +61,7 @@ type PodmanEvent struct {
 	Name              string            `json:"Name"`
 	Status            string            `json:"Status"`
 	Type              string            `json:"Type"`
+	TimeNano          int64             `json:"timeNano"`
 	Attributes        map[string]string `json:"Attributes"`
 }
 
@@ -83,25 +87,28 @@ func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.
 // Pull pulls an image from the registry with optional retry and authentication via a pull secret.
 // Logs progress periodically while the operation is in progress.
 func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (string, error) {
-	options := clientOptions{}
+	options := &clientOptions{}
 	for _, opt := range opts {
-		opt(&options)
+		opt(options)
 	}
 
 	return logProgress(ctx, p.log, "Pulling image, please wait...", func(ctx context.Context) (string, error) {
-		if options.retry {
-			return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
-				return p.pullImage(ctx, image, options.pullSecretPath)
-			})
-		}
-		return p.pullImage(ctx, image, options.pullSecretPath)
+		return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
+			return p.pullImage(ctx, image, options)
+		})
 	})
 }
 
-func (p *Podman) pullImage(ctx context.Context, image string, pullSecretPath string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+func (p *Podman) pullImage(ctx context.Context, image string, options *clientOptions) (string, error) {
+	timeout := p.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	pullSecretPath := options.pullSecretPath
 	args := []string{"pull", image}
 	if pullSecretPath != "" {
 		exists, err := p.readWriter.PathExists(pullSecretPath)
@@ -125,25 +132,28 @@ func (p *Podman) pullImage(ctx context.Context, image string, pullSecretPath str
 // PullArtifact pulls an artifact from the registry with optional retry and authentication via a pull secret.
 // Logs progress periodically while the operation is in progress.
 func (p *Podman) PullArtifact(ctx context.Context, artifact string, opts ...ClientOption) (string, error) {
-	options := clientOptions{}
+	options := &clientOptions{}
 	for _, opt := range opts {
-		opt(&options)
+		opt(options)
 	}
 
 	return logProgress(ctx, p.log, "Pulling artifact, please wait...", func(ctx context.Context) (string, error) {
-		if options.retry {
-			return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
-				return p.pullArtifact(ctx, artifact, options.pullSecretPath)
-			})
-		}
-		return p.pullArtifact(ctx, artifact, options.pullSecretPath)
+		return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
+			return p.pullArtifact(ctx, artifact, options)
+		})
 	})
 }
 
-func (p *Podman) pullArtifact(ctx context.Context, artifact string, pullSecretPath string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *clientOptions) (string, error) {
+	timeout := p.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	pullSecretPath := options.pullSecretPath
 	args := []string{"artifact", "pull", artifact}
 	if pullSecretPath != "" {
 		exists, err := p.readWriter.PathExists(pullSecretPath)
@@ -599,7 +609,7 @@ func SanitizePodmanLabel(name string) string {
 
 func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff poll.Config, operation func(context.Context) (string, error)) (string, error) {
 	var result string
-	err := poll.BackoffWithContext(ctx, backoff, defaultPodmanMaxRetryTimeout, func(ctx context.Context) (bool, error) {
+	err := poll.BackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
 		var err error
 		result, err = operation(ctx)
 		if err != nil {

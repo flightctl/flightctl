@@ -1,0 +1,21 @@
+[Unit]
+Description=Flight Control Alertmanager Proxy service
+PartOf=flightctl.target
+After=flightctl-alertmanager.service flightctl-alertmanager-proxy-init.service
+Requires=flightctl-alertmanager.service
+Wants=flightctl-alertmanager-proxy-init.service
+
+[Container]
+ContainerName=flightctl-alertmanager-proxy
+Image=quay.io/flightctl/flightctl-alertmanager-proxy:latest
+Network=flightctl.network
+PublishPort=8443:8443
+EnvironmentFile=/etc/flightctl/flightctl-alertmanager-proxy/env
+Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+
+[Service]
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target 

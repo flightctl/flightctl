@@ -18,17 +18,17 @@ import (
 const (
 	ApplicationStatusInfoHealthy   = "All application workloads are healthy."
 	ApplicationStatusInfoUndefined = "No application workloads are defined."
-	DeviceStatusInfoHealthy        = "All system resources healthy."
+	DeviceStatusInfoHealthy        = "All system resources are healthy."
 	DeviceStatusInfoRebooting      = "The device is rebooting."
-	CPUIsCritical                  = "CPU utilization has reached a critical level"
-	CPUIsWarning                   = "CPU utilization has reached a warning level"
-	CPUIsNormal                    = "CPU utilization has returned to normal"
-	MemoryIsCritical               = "Memory utilization has reached a critical level"
-	MemoryIsWarning                = "Memory utilization has reached a warning level"
-	MemoryIsNormal                 = "Memory utilization has returned to normal"
-	DiskIsCritical                 = "Disk utilization has reached a critical level"
-	DiskIsWarning                  = "Disk utilization has reached a warning level"
-	DiskIsNormal                   = "Disk utilization has returned to normal"
+	CPUIsCritical                  = "CPU utilization has reached a critical level."
+	CPUIsWarning                   = "CPU utilization has reached a warning level."
+	CPUIsNormal                    = "CPU utilization has returned to normal."
+	MemoryIsCritical               = "Memory utilization has reached a critical level."
+	MemoryIsWarning                = "Memory utilization has reached a warning level."
+	MemoryIsNormal                 = "Memory utilization has returned to normal."
+	DiskIsCritical                 = "Disk utilization has reached a critical level."
+	DiskIsWarning                  = "Disk utilization has reached a warning level."
+	DiskIsNormal                   = "Disk utilization has returned to normal."
 )
 
 type ResourceUpdate struct {

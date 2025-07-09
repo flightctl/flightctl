@@ -18,46 +18,22 @@ import (
 	"github.com/samber/lo"
 )
 
-const ClientCertExpiryDays = 365
-
-func approveAndSignEnrollmentRequest(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
+func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
 
-	if enrollmentRequest.Metadata.Name == nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: enrollment request is missing metadata.name")
+	csr := enrollmentRequestToCSR(ca, enrollmentRequest)
+	signer := ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
 	}
 
-	csr, err := crypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
+	certData, err := signer.Sign(ctx, csr)
 	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
+		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
 
-	supplied, err := ca.CNFromDeviceFingerprint(csr.Subject.CommonName)
-	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: invalid CN supplied in CSR: %w", err)
-	}
-
-	desired, err := ca.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
-	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: error setting CN in CSR: %w", err)
-	}
-
-	if desired != supplied {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: attempt to supply a fake CN, possible identity theft, csr: %s, metadata %s", supplied, desired)
-	}
-	csr.Subject.CommonName = desired
-
-	if err := csr.CheckSignature(); err != nil {
-		return fmt.Errorf("failed to verify signature of CSR: %w", err)
-	}
-
-	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
-	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
-	if err != nil {
-		return err
-	}
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 		Certificate: lo.ToPtr(string(certData)),
 		Conditions:  []api.Condition{},
@@ -130,8 +106,13 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	err := h.allowCreationOrUpdate(ctx, orgId, *er.Metadata.Name)
-	if err != nil {
+	csr := enrollmentRequestToCSR(h.ca, &er)
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+	}
+
+	if err := signer.Verify(ctx, csr); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -191,6 +172,16 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
+	csr := enrollmentRequestToCSR(h.ca, &er)
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+	}
+
+	if err := signer.Verify(ctx, csr); err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+
 	addStatusIfNeeded(&er)
 
 	result, created, updateDesc, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er)
@@ -232,6 +223,16 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
+
+	csr := enrollmentRequestToCSR(h.ca, newObj)
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+	}
+
+	if err := signer.Verify(ctx, csr); err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
 
 	result, updateDesc, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj)
 	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
@@ -296,7 +297,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 		approvalStatusToReturn = &approvalStatus
 
-		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
+		if err := approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus); err != nil {
 			status := api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
 			h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
 			return nil, status
@@ -327,16 +328,26 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
 	device, err := h.store.Device().Get(ctx, orgId, name)
-	if err != nil {
-		// Device not found, allow creation or update
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil
-		}
-		return fmt.Errorf("failed to get device: %w", err)
+	if errors.Is(err, flterrors.ErrResourceNotFound) {
+		return nil // Device not found: allow create or update
 	}
-	// Device found successfully - check if it has been seen
-	if device.Status != nil && !device.Status.LastSeen.IsZero() {
-		return flterrors.ErrDuplicateName // Device exists and has been seen
+	if device != nil {
+		return flterrors.ErrDuplicateName // Duplicate name: creation blocked
 	}
-	return nil
+	return err
+}
+
+func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {
+	return api.CertificateSigningRequest{
+		ApiVersion: api.CertificateSigningRequestAPIVersion,
+		Kind:       api.CertificateSigningRequestKind,
+		Metadata: api.ObjectMeta{
+			Name: enrollmentRequest.Metadata.Name,
+		},
+		Spec: api.CertificateSigningRequestSpec{
+			Request:    []byte(enrollmentRequest.Spec.Csr),
+			SignerName: ca.Cfg.DeviceEnrollmentSignerName,
+			Usages:     &[]string{"clientAuth", "CA:false"},
+		},
+	}
 }

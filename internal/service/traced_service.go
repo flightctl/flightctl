@@ -9,6 +9,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -34,7 +35,7 @@ func startSpan(ctx context.Context, method string) (context.Context, trace.Span)
 func endSpan(span trace.Span, st api.Status) {
 	span.SetAttributes(attribute.Int("status.code", int(st.Code)))
 
-	if st != api.StatusOK() {
+	if st.Status != "Success" {
 		span.RecordError(errors.New(st.Message))
 		span.SetStatus(codes.Error, st.Message)
 	}
@@ -93,9 +94,15 @@ func (t *TracedService) CreateDevice(ctx context.Context, d api.Device) (*api.De
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) ListDevices(ctx context.Context, p api.ListDevicesParams, sel *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
+func (t *TracedService) ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
 	ctx, span := startSpan(ctx, "ListDevices")
-	resp, st := t.inner.ListDevices(ctx, p, sel)
+	resp, st := t.inner.ListDevices(ctx, params, annotationSelector)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
+	ctx, span := startSpan(ctx, "ListDevicesByServiceCondition")
+	resp, st := t.inner.ListDevicesByServiceCondition(ctx, conditionType, conditionStatus, listParams)
 	endSpan(span, st)
 	return resp, st
 }
@@ -529,6 +536,8 @@ func (t *TracedService) GetLatestTemplateVersion(ctx context.Context, fleet stri
 	endSpan(span, st)
 	return resp, st
 }
+
+// --- Event ---
 func (t *TracedService) CreateEvent(ctx context.Context, event *api.Event) {
 	ctx, span := startSpan(ctx, "CreateEvent")
 	t.inner.CreateEvent(ctx, event)
@@ -543,6 +552,26 @@ func (t *TracedService) ListEvents(ctx context.Context, params api.ListEventsPar
 func (t *TracedService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status) {
 	ctx, span := startSpan(ctx, "DeleteEventsOlderThan")
 	resp, st := t.inner.DeleteEventsOlderThan(ctx, cutoffTime)
+	endSpan(span, st)
+	return resp, st
+}
+
+// --- Checkpoint ---
+func (t *TracedService) GetCheckpoint(ctx context.Context, consumer string, key string) ([]byte, api.Status) {
+	ctx, span := startSpan(ctx, "GetCheckpoint")
+	resp, st := t.inner.GetCheckpoint(ctx, consumer, key)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) SetCheckpoint(ctx context.Context, consumer string, key string, value []byte) api.Status {
+	ctx, span := startSpan(ctx, "SetCheckpoint")
+	st := t.inner.SetCheckpoint(ctx, consumer, key, value)
+	endSpan(span, st)
+	return st
+}
+func (t *TracedService) GetDatabaseTime(ctx context.Context) (time.Time, api.Status) {
+	ctx, span := startSpan(ctx, "GetDatabaseTime")
+	resp, st := t.inner.GetDatabaseTime(ctx)
 	endSpan(span, st)
 	return resp, st
 }

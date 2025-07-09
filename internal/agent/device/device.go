@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -48,6 +49,7 @@ type Agent struct {
 	consoleController      *console.ConsoleController
 	osClient               os.Client
 	podmanClient           *client.Podman
+	prefetchManager        dependency.PrefetchManager
 
 	fetchSpecInterval    util.Duration
 	statusUpdateInterval util.Duration
@@ -79,6 +81,7 @@ func NewAgent(
 	consoleController *console.ConsoleController,
 	osClient os.Client,
 	podmanClient *client.Podman,
+	prefetchManager dependency.PrefetchManager,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -102,6 +105,7 @@ func NewAgent(
 		consoleController:      consoleController,
 		osClient:               osClient,
 		podmanClient:           podmanClient,
+		prefetchManager:        prefetchManager,
 		cancelFn:               func() {},
 		backoff:                backoff,
 		log:                    log,
@@ -192,11 +196,18 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
+		// non retryable error fails version
 		if !errors.IsRetryable(syncErr) {
 			a.log.Errorf("Marking template version %v as failed: %v", desired.Version(), syncErr)
 			if err := a.specManager.SetUpgradeFailed(desired.Version()); err != nil {
 				a.log.Errorf("Failed to set upgrade failed: %v", err)
 			}
+		}
+
+		// handle prefetch not ready
+		if errors.Is(syncErr, errors.ErrPrefetchNotReady) {
+			a.handlePrefetchNotReady(ctx, syncErr)
+			return
 		}
 
 		if err := a.rollbackDevice(ctx, current, desired, a.sync); err != nil {
@@ -206,6 +217,8 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		a.handleSyncError(ctx, desired, syncErr)
 		return
 	}
+
+	defer a.prefetchManager.Cleanup()
 
 	// skip status update if the device is in a steady state and not upgrading.
 	// also ensures previous failed status is not overwritten.
@@ -297,12 +310,7 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 }
 
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Device) error {
-	// to ensure that the agent is able to correct for an invalid policy, it is reconciled first.
-	// the new policy will go into affect on the next sync.
-	if err := a.policyManager.Sync(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("policy: %w", err)
-	}
-
+	// the policy manager currently represents the state of the desired device
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
 		return fmt.Errorf("download policy: %w", err)
 	}
@@ -322,10 +330,13 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 		}
 	}
 
+	a.prefetchManager.RegisterOCICollector(a.appManager)
 	if a.specManager.IsOSUpdate() {
-		if err := a.osManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
-			return fmt.Errorf("os: %w", err)
-		}
+		a.prefetchManager.RegisterOCICollector(a.osManager)
+	}
+
+	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
+		return fmt.Errorf("prefetch: %w", err)
 	}
 
 	if err := a.appManager.BeforeUpdate(ctx, desired.Spec); err != nil {
@@ -519,6 +530,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, s
 		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
+		a.prefetchManager.Cleanup()
 		a.log.Error(msg)
 	} else {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr.Error())
@@ -530,6 +542,26 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, s
 
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
+	}
+}
+
+func (a *Agent) handlePrefetchNotReady(ctx context.Context, syncErr error) {
+	statusMsg := a.prefetchManager.StatusMessage(ctx)
+	a.log.Debugf("Image prefetch in progress: %s", statusMsg)
+
+	// rollback the spec to the previous version
+	if err := a.specManager.Rollback(ctx); err != nil {
+		a.log.Errorf("Failed to rollback spec: %v", err)
+	}
+
+	updateStatusErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
+		Type:    v1alpha1.ConditionTypeDeviceUpdating,
+		Status:  v1alpha1.ConditionStatusTrue,
+		Reason:  string(v1alpha1.UpdateStatePreparing),
+		Message: statusMsg,
+	})
+	if updateStatusErr != nil {
+		a.log.Warnf("Failed to update status for image prefetch progress: %v", updateStatusErr)
 	}
 }
 

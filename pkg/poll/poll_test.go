@@ -17,7 +17,6 @@ func TestBackoffWithContext(t *testing.T) {
 		name       string
 		ctxTimeout time.Duration
 		config     Config
-		timeout    time.Duration
 		operation  func() func(context.Context) (bool, error)
 		expectErr  error
 	}{
@@ -25,7 +24,6 @@ func TestBackoffWithContext(t *testing.T) {
 			name:       "immediate success",
 			ctxTimeout: 1 * time.Second,
 			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
-			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return true, nil
@@ -37,7 +35,6 @@ func TestBackoffWithContext(t *testing.T) {
 			name:       "succeeds after retries",
 			ctxTimeout: 500 * time.Millisecond,
 			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
-			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				attempts := 0
 				return func(context.Context) (bool, error) {
@@ -54,7 +51,6 @@ func TestBackoffWithContext(t *testing.T) {
 			name:       "fails with permanent error",
 			ctxTimeout: 1 * time.Second,
 			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
-			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return false, opErr
@@ -66,7 +62,6 @@ func TestBackoffWithContext(t *testing.T) {
 			name:       "context timeout cancels retries",
 			ctxTimeout: 50 * time.Millisecond,
 			config:     Config{BaseDelay: 30 * time.Millisecond, Factor: 2},
-			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return false, nil
@@ -78,7 +73,6 @@ func TestBackoffWithContext(t *testing.T) {
 			name:       "invalid base delay",
 			ctxTimeout: 50 * time.Millisecond,
 			config:     Config{BaseDelay: 0, Factor: 2},
-			timeout:    5 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return false, nil
@@ -87,22 +81,9 @@ func TestBackoffWithContext(t *testing.T) {
 			expectErr: ErrInvalidBaseDelay,
 		},
 		{
-			name:       "invalid timeout",
-			ctxTimeout: 50 * time.Millisecond,
-			config:     Config{Factor: 2},
-			timeout:    0,
-			operation: func() func(context.Context) (bool, error) {
-				return func(context.Context) (bool, error) {
-					return false, nil
-				}
-			},
-			expectErr: ErrInvalidTimeout,
-		},
-		{
-			name:       "respects timeout",
-			ctxTimeout: 5 * time.Second, // parent should not interfere
+			name:       "respects ctx timeout",
+			ctxTimeout: 500 * time.Millisecond,
 			config:     Config{BaseDelay: 30 * time.Millisecond, Factor: 2},
-			timeout:    100 * time.Millisecond,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return false, nil
@@ -118,7 +99,6 @@ func TestBackoffWithContext(t *testing.T) {
 				Factor:    2,
 				MaxSteps:  3,
 			},
-			timeout: 2 * time.Second,
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					// retryable
@@ -134,7 +114,7 @@ func TestBackoffWithContext(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), tt.ctxTimeout)
 			defer cancel()
 
-			err := BackoffWithContext(ctx, tt.config, tt.timeout, tt.operation())
+			err := BackoffWithContext(ctx, tt.config, tt.operation())
 			if tt.expectErr != nil {
 				require.ErrorIs(err, tt.expectErr)
 				return
