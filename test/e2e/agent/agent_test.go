@@ -394,6 +394,181 @@ var _ = Describe("VM Agent behavior", func() {
 
 		})
 	})
+	Context("Resources", func() {
+		It("Alert Validation Rules", Label("78853"), func() {
+
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+			const fleet1Name = "fleet1"
+			const fleet1Value = "US"
+			const fleet1Label = "region"
+
+			By("creating the fleet for the test")
+			var configProviderSpec v1alpha1.ConfigProviderSpec
+			err := configProviderSpec.FromInlineConfigProviderSpec(validInlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.CreateTestFleetWithConfig(fleet1Name, v1alpha1.LabelSelector{
+				MatchLabels: &map[string]string{
+					fleet1Label: fleet1Value,
+				},
+			}, configProviderSpec)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _ = harness.DeleteFleet(fleet1Name) }()
+
+			By("assigning the label to the device")
+			expectedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			harness.SetLabelsForDevice(deviceId, map[string]string{
+				fleet1Label: fleet1Value,
+			})
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Should failed with invalid sampling interval")
+			err = harness.UpdateFleet(fleet1Name, func(fleet *v1alpha1.Fleet) {
+				// Create a ResourceMonitorSpec with an invalid sampling interval
+				resourceMonitorSpec := v1alpha1.DiskResourceMonitorSpec{
+					SamplingInterval: "5x",
+					Path:             "/run/usr/1000",
+
+					AlertRules: []v1alpha1.ResourceAlertRule{
+						{
+							Severity:    "Info",
+							Duration:    "10s",
+							Percentage:  5, // Invalid percentage
+							Description: "some metric",
+						},
+					},
+				}
+
+				// Create a ResourceMonitor using the spec
+				resourceMonitor := v1alpha1.ResourceMonitor{}
+				err := resourceMonitor.FromDiskResourceMonitorSpec(resourceMonitorSpec)
+				Expect(err).ToNot(HaveOccurred())
+				// Set fleet.Spec.Resources to a slice containing only this resource monitor
+				fleet.Spec.Template.Spec.Resources = &[]v1alpha1.ResourceMonitor{resourceMonitor}
+				logrus.Infof("Updating %s with resources %v", fleet1Name, fleet.Spec.Template.Spec.Resources)
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`/spec/template/spec/resources/0": Error at "/samplingInterval": string doesn't match the regular expression "^[1-9]\d*[smh]$`))
+
+			By("Should fail with invalid percentage")
+			err = harness.UpdateFleet(fleet1Name, func(fleet *v1alpha1.Fleet) {
+				resourceMonitorSpec := v1alpha1.DiskResourceMonitorSpec{
+					SamplingInterval: "5s",
+					Path:             "/run/user/1000",
+					AlertRules: []v1alpha1.ResourceAlertRule{
+						{
+							Severity:    "Critical",
+							Duration:    "10s",
+							Percentage:  -5, // Invalid percentage
+							Description: "Invalid percentage test",
+						},
+					},
+				}
+				resourceMonitor := v1alpha1.ResourceMonitor{}
+				err := resourceMonitor.FromDiskResourceMonitorSpec(resourceMonitorSpec)
+				Expect(err).ToNot(HaveOccurred())
+				fleet.Spec.Template.Spec.Resources = &[]v1alpha1.ResourceMonitor{resourceMonitor}
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`percentage must be between 0 and 100`))
+
+			By("Should fail with invalid duration")
+			err = harness.UpdateFleet(fleet1Name, func(fleet *v1alpha1.Fleet) {
+				resourceMonitorSpec := v1alpha1.DiskResourceMonitorSpec{
+					SamplingInterval: "5s",
+					Path:             "/run/user/1000",
+					AlertRules: []v1alpha1.ResourceAlertRule{
+						{
+							Severity:    "Critical",
+							Duration:    "10x", // Invalid duration
+							Percentage:  50,
+							Description: "Invalid duration test",
+						},
+					},
+				}
+				resourceMonitor := v1alpha1.ResourceMonitor{}
+				err := resourceMonitor.FromDiskResourceMonitorSpec(resourceMonitorSpec)
+				Expect(err).ToNot(HaveOccurred())
+				fleet.Spec.Template.Spec.Resources = &[]v1alpha1.ResourceMonitor{resourceMonitor}
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`Error at "/alertRules/0/duration": string doesn't match the regular expression "^\d+[smh]$"`))
+
+			By("Should fail when sampling interval is longer than duration")
+			err = harness.UpdateFleet(fleet1Name, func(fleet *v1alpha1.Fleet) {
+				resourceMonitorSpec := v1alpha1.DiskResourceMonitorSpec{
+					SamplingInterval: "5s", // longer than duration
+					Path:             "/run/user/1000",
+					AlertRules: []v1alpha1.ResourceAlertRule{
+						{
+							Severity:    "Critical",
+							Duration:    "1s",
+							Percentage:  50,
+							Description: "Sampling interval longer than duration",
+						},
+					},
+				}
+				resourceMonitor := v1alpha1.ResourceMonitor{}
+				err := resourceMonitor.FromDiskResourceMonitorSpec(resourceMonitorSpec)
+				Expect(err).ToNot(HaveOccurred())
+				fleet.Spec.Template.Spec.Resources = &[]v1alpha1.ResourceMonitor{resourceMonitor}
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`sampling interval 5s must be less than the duration: 1s`))
+
+			By("Should fail with invalid severity")
+			err = harness.UpdateFleet(fleet1Name, func(fleet *v1alpha1.Fleet) {
+				resourceMonitorSpec := v1alpha1.DiskResourceMonitorSpec{
+					SamplingInterval: "5s",
+					Path:             "/run/user/1000",
+					AlertRules: []v1alpha1.ResourceAlertRule{
+						{
+							Severity:    "Severe", // Invalid severity
+							Duration:    "10s",
+							Percentage:  50,
+							Description: "Invalid severity test",
+						},
+					},
+				}
+				resourceMonitor := v1alpha1.ResourceMonitor{}
+				err := resourceMonitor.FromDiskResourceMonitorSpec(resourceMonitorSpec)
+				Expect(err).ToNot(HaveOccurred())
+				fleet.Spec.Template.Spec.Resources = &[]v1alpha1.ResourceMonitor{resourceMonitor}
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`Error at "/alertRules/0/severity": value is not one of the allowed values ["Warning","Critical","Info"]`))
+
+			By("Should fail with duplicate severity")
+			err = harness.UpdateFleet(fleet1Name, func(fleet *v1alpha1.Fleet) {
+				resourceMonitorSpec := v1alpha1.DiskResourceMonitorSpec{
+					SamplingInterval: "5s",
+					Path:             "/run/user/1000",
+					AlertRules: []v1alpha1.ResourceAlertRule{
+						{
+							Severity:    "Critical",
+							Duration:    "55s",
+							Percentage:  1,
+							Description: "Disk space for application data is >1% full for over 6s.",
+						},
+						{
+							Severity:    "Critical",
+							Duration:    "10m",
+							Percentage:  90,
+							Description: "Disk space for application data is >90% full over 10m.",
+						},
+					},
+				}
+				resourceMonitor := v1alpha1.ResourceMonitor{}
+				err := resourceMonitor.FromDiskResourceMonitorSpec(resourceMonitorSpec)
+				Expect(err).ToNot(HaveOccurred())
+				fleet.Spec.Template.Spec.Resources = &[]v1alpha1.ResourceMonitor{resourceMonitor}
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(`duplicate alertRule severity: Critical`))
+		})
+	})
 })
 
 // mode defines the file permission bits, commonly used in Unix systems for files and directories.
