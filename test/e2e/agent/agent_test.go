@@ -418,9 +418,11 @@ var _ = Describe("VM Agent behavior", func() {
 			expectedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.SetLabelsForDevice(deviceId, map[string]string{
+			err = harness.SetLabelsForDevice(deviceId, map[string]string{
 				fleet1Label: fleet1Value,
 			})
+			Expect(err).ToNot(HaveOccurred())
+
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -435,7 +437,7 @@ var _ = Describe("VM Agent behavior", func() {
 						{
 							Severity:    "Info",
 							Duration:    "10s",
-							Percentage:  5, // Invalid percentage
+							Percentage:  5,
 							Description: "some metric",
 						},
 					},
@@ -550,7 +552,7 @@ var _ = Describe("VM Agent behavior", func() {
 							Severity:    "Critical",
 							Duration:    "55s",
 							Percentage:  1,
-							Description: "Disk space for application data is >1% full for over 6s.",
+							Description: "Disk space for application data is >1% full for over 55s.",
 						},
 						{
 							Severity:    "Critical",
