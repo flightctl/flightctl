@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -176,13 +177,19 @@ func (m *PodmanMonitor) stopMonitor() error {
 
 	// wait for our consuming goroutine to complete
 	if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
+		timeoutMessage := "Timeout waiting for podman monitor reader to shutdown"
+		forceKilledMessage := fmt.Sprintf("%s after force killing the process", timeoutMessage)
+		message := timeoutMessage
+		logLevel := logrus.WarnLevel
 		if killed {
-			m.log.Errorf("Timeout waiting for podman monitor reader to shutdown after force killing")
-		} else {
-			m.log.Warnf("Timeout waiting for podman monitor reader to shutdown. Force killing it")
+			logLevel = logrus.ErrorLevel
+			message = forceKilledMessage
+		}
+		m.log.Log(logLevel, message)
+		if !killed {
 			cancelFn()
 			if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
-				m.log.Errorf("Timeout waiting for podman monitor reader to shutdown after force killing")
+				m.log.Error(forceKilledMessage)
 			}
 		}
 	}
