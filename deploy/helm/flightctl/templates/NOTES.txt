@@ -6,14 +6,6 @@ You can access the Flight Control UI at {{ include "flightctl.getUIUrl" . }}
 {{- end }}
 You can access the Flight Control API at {{ include "flightctl.getApiUrl" . }}
 
-{{- if .Values.jaeger.enabled }}
-You can access the Jaeger UI for distributed tracing at http://localhost:{{ .Values.global.nodePorts.jaegerUi }}
-
-To set up port forwarding for Jaeger UI, run:
-    kubectl port-forward -n {{ default .Release.Namespace .Values.global.internalNamespace }} svc/jaeger-ui 16686:16686
-{{- end }}
-
-
 {{- if and (eq .Values.global.auth.type "builtin") (not (eq .Values.global.target "acm")) }}
 A demo user "demouser" has been created for you. You can retrieve its password by running:
 
