@@ -34,10 +34,13 @@ var _ = Describe("FleetStore create", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numFleets = 3
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+
+		orgId = uuid.New()
+		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		Expect(err).ToNot(HaveOccurred())
 
 		testutil.CreateTestFleets(ctx, 3, storeInst.Fleet(), orgId, "myfleet", false, nil)
 	})
@@ -111,8 +114,12 @@ var _ = Describe("FleetStore create", func() {
 			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
 			Expect(err).ToNot(HaveOccurred())
 
+			otherOrgId := uuid.New()
+			err = testutil.CreateTestOrganization(ctx, storeInst, otherOrgId)
+			Expect(err).ToNot(HaveOccurred())
+
 			// A device in another org that shouldn't be included
-			testutil.CreateTestDevice(ctx, storeInst.Device(), uuid.New(), "other-org-dev", util.SetResourceOwner(api.FleetKind, "myfleet-1"), nil, nil)
+			testutil.CreateTestDevice(ctx, storeInst.Device(), otherOrgId, "other-org-dev", util.SetResourceOwner(api.FleetKind, "myfleet-1"), nil, nil)
 
 			//				App:        Device:     updated:
 			// mydevice-1 | Healthy   | Online    | UpToDate
