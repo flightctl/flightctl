@@ -305,13 +305,22 @@ func updateServerSideDeviceUpdatedStatus(device, oldDevice *api.Device, ctx cont
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
-		device.Status.Updated.Info = lo.ToPtr("There is a newer device spec for this device.")
-		if oldStatus != device.Status.Updated.Status {
-			deviceUpdates = append(deviceUpdates, ResourceUpdate{
-				Reason:        api.EventReasonDeviceContentOutOfDate,
-				UpdateDetails: *device.Status.Updated.Info,
-			})
+		baseMessage := "The device has not been updated to the latest device spec"
+		var errorMessage string
+
+		// Prefer update condition error if available
+		if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceUpdating); updateCondition != nil {
+			if updateCondition.Reason == string(api.UpdateStateError) && updateCondition.Message != "" {
+				errorMessage = fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
+			}
 		}
+
+		// Final fallback to base message (skip rollout error check since unmanaged devices don't have rollout errors)
+		if errorMessage == "" {
+			errorMessage = baseMessage + "."
+		}
+
+		device.Status.Updated.Info = lo.ToPtr(errorMessage)
 		return device.Status.Updated.Status != lastUpdateStatus, deviceUpdates
 	}
 	if device.IsManaged() {
