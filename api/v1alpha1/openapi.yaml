@@ -5110,9 +5110,10 @@ components:
             - DeviceContentUpdating
             - EnrollmentRequestApproved
             - EnrollmentRequestApprovalFailed
-            - DeviceOwnershipChanged
             - DeviceMultipleOwnersDetected
             - DeviceMultipleOwnersResolved
+            - DeviceSpecValid
+            - DeviceSpecInvalid
             - InternalTaskFailed
             - FleetSelectorProcessingCompleted
         message:

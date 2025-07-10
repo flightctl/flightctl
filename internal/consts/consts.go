@@ -16,4 +16,5 @@ const (
 	DelayDeviceRenderCtxKey    ctxKey = "delayDeviceRender"
 	EventSourceComponentCtxKey ctxKey = "event_source"
 	EventActorCtxKey           ctxKey = "event_actor"
+	TLSPeerCertificateCtxKey   ctxKey = "tls-peer-certificate"
 )

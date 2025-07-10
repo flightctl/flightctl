@@ -164,6 +164,81 @@ func TestRequeueThreshold(t *testing.T) {
 	}, time.Second, time.Millisecond*10, "retrieval after backoff duration should succeed")
 }
 
+func TestRequeueRollback(t *testing.T) {
+	require := require.New(t)
+	const (
+		baseDelay        = time.Millisecond * 100
+		backoffFactor    = 2
+		maxDelayDuration = time.Millisecond * 200
+		renderedVersion1 = "1"
+		renderedVersion2 = "2"
+	)
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockPolicyManager := policy.NewMockManager(ctrl)
+	mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Download).Return(true).AnyTimes()
+	mockPolicyManager.EXPECT().IsReady(gomock.Any(), policy.Update).Return(true).AnyTimes()
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	maxSize := 1
+	maxRetries := 0
+	q := &queueManager{
+		queue:          newQueue(log, maxSize),
+		policyManager:  mockPolicyManager,
+		failedVersions: make(map[int64]struct{}),
+		requeueLookup:  make(map[int64]*requeueState),
+		maxRetries:     maxRetries,
+		pollConfig: poll.Config{
+			BaseDelay: baseDelay,
+			Factor:    backoffFactor,
+			MaxDelay:  maxDelayDuration,
+		},
+		log: log,
+	}
+
+	// add version 1
+	v1 := newVersionedDevice(renderedVersion1)
+	_, ok := q.Next(ctx)
+	require.False(ok, "queue should be empty")
+	q.Add(ctx, v1)
+
+	version, err := stringToInt64(v1.Version())
+	require.NoError(err)
+
+	// verify requeue state
+	status := q.requeueLookup[version]
+	require.NotNil(status)
+	require.Equal(0, status.tries, "tries should be zero")
+	require.True(status.nextAvailable.IsZero(), "nextAvailable should be zero")
+
+	// retrieve version 1
+	_, ok = q.Next(ctx)
+	require.True(ok, "first retrieval should succeed")
+
+	// add version 2
+	v2 := newVersionedDevice("2")
+	q.Add(ctx, v2)
+
+	// retrieve version 2
+	_, ok = q.Next(ctx)
+	require.True(ok, "new version should be immediately available")
+
+	// re-add version 1 (rollback) and version 2 (retryable)
+	q.Add(ctx, v1)
+	q.Add(ctx, v2)
+
+	// version 2 should now be blocked by backoff
+	_, ok = q.Next(ctx)
+	require.False(ok, "retrieval should be blocked by backoff")
+
+	require.Eventually(func() bool {
+		item, ok := q.Next(ctx)
+		return ok && item.Version() == renderedVersion2
+	}, time.Second, time.Millisecond*350, "retrieval after backoff duration should succeed")
+}
+
 func TestPolicy(t *testing.T) {
 	tests := []struct {
 		name               string

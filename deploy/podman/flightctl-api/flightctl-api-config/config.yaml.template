@@ -13,7 +13,7 @@ service:
   altNames:
     - {{BASE_DOMAIN}}
     - flightctl-api
-  srvCertFile: {{SRV_CERT_FILE}}
+  srvCertificateFile: {{SRV_CERT_FILE}}
   srvKeyFile: {{SRV_KEY_FILE}}
 kv:
   hostname: flightctl-kv
