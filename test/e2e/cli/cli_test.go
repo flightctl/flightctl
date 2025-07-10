@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -105,6 +106,41 @@ var _ = Describe("cli operation", func() {
 			out, err = harness.CLI("get", "fleets")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring("e2e-test-fleet"))
+		})
+	})
+
+	Context("Enrollment Request reapplication validation", func() {
+		It("should prevent reapplying enrollment request with same name after device creation", Label("83301", "sanity"), func() {
+
+			By("Applying enrollment request initially")
+			out, err := harness.CLI("apply", "-f", enrollmentRequest2YamlPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+
+			// Get the enrollment request to extract its name
+			er := harness.GetEnrollmentRequestByYaml(enrollmentRequest2YamlPath)
+			erName := *er.Metadata.Name
+
+			By("Approving the enrollment request")
+			_, err = harness.CLI("approve", fmt.Sprintf("er/%s", erName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verifying device was created")
+			out, err = harness.CLI("get", "device")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(erName))
+
+			By("Deleting the enrollment request")
+			out, err = harness.CLI("delete", fmt.Sprintf("er/%s", erName))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("completed"))
+
+			By("Attempting to reapply the same enrollment request")
+			out, err = harness.CLI("apply", "-f", enrollmentRequest2YamlPath)
+			Expect(err).To(HaveOccurred())
+			badRequestMessage := fmt.Sprintf("%d %s", http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
+			Expect(out).To(ContainSubstring(badRequestMessage))
+			Expect(out).To(ContainSubstring("a resource with this name already exists"))
 		})
 	})
 
@@ -806,6 +842,7 @@ var (
 	repositoryFlightctlYamlPath = util.GetTestExamplesYamlPath("repository-flightctl.yaml")
 	resourceSyncYamlPath        = util.GetTestExamplesYamlPath("resourcesync.yaml")
 	enrollmentRequestYamlPath   = util.GetTestExamplesYamlPath("enrollmentrequest.yaml")
+	enrollmentRequest2YamlPath  = util.GetTestExamplesYamlPath("enrollmentrequest-waiting.yaml")
 	csrYamlPath                 = util.GetTestExamplesYamlPath("csr.yaml")
 )
 
