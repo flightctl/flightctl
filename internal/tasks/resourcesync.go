@@ -110,7 +110,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *api.
 	if err != nil {
 		api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
 		err = fmt.Errorf("resourcesync/%s: error: %w", *rs.Metadata.Name, err)
-		log.Errorf("%e", err)
+		log.Error(err)
 		return err
 	}
 
@@ -381,15 +381,16 @@ func (r *ResourceSync) validateFleetNameConflicts(ctx context.Context, fleets []
 	var conflictingFleets []string
 
 	for _, fleet := range fleets {
+		fleetName := *fleet.Metadata.Name
 		// Check if a fleet with this name already exists
-		existingFleet, status := r.serviceHandler.GetFleet(ctx, *fleet.Metadata.Name, api.GetFleetParams{})
+		existingFleet, status := r.serviceHandler.GetFleet(ctx, fleetName, api.GetFleetParams{})
 		if status.Code == http.StatusOK {
 			// Fleet exists - check if it's owned by a different ResourceSync
 			if existingFleet.Metadata.Owner != nil && *existingFleet.Metadata.Owner != owner {
-				conflictingFleets = append(conflictingFleets, *fleet.Metadata.Name)
+				conflictingFleets = append(conflictingFleets, fleetName)
 			}
 		} else if status.Code != http.StatusNotFound {
-			return fmt.Errorf("failed to check existing fleet '%s': %s", *fleet.Metadata.Name, status.Message)
+			return fmt.Errorf("failed to check existing fleet '%s': %s", fleetName, status.Message)
 		}
 		// If status is 404 (not found), no conflict - fleet can be created
 	}

@@ -1,8 +1,9 @@
 [Unit]
 Description=Flight Control Alertmanager Proxy service
 PartOf=flightctl.target
-After=flightctl-alertmanager.service
+After=flightctl-alertmanager.service flightctl-alertmanager-proxy-init.service
 Requires=flightctl-alertmanager.service
+Wants=flightctl-alertmanager-proxy-init.service
 
 [Container]
 ContainerName=flightctl-alertmanager-proxy

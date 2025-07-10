@@ -72,6 +72,7 @@ render_files() {
     render_service "db" "${SOURCE_DIR}"
     render_service "kv" "${SOURCE_DIR}"
     render_service "alertmanager" "${SOURCE_DIR}"
+    render_service "alertmanager-proxy" "${SOURCE_DIR}"
     render_service "ui" "${SOURCE_DIR}"
     render_service "cli-artifacts" "${SOURCE_DIR}"
 
@@ -82,6 +83,7 @@ render_files() {
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-api"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-ui"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-cli-artifacts"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-alertmanager-proxy"
 
     move_shared_files "${SOURCE_DIR}"
 }

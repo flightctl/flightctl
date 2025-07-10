@@ -170,7 +170,7 @@ func main() {
 			altNames = []string{"localhost"}
 		}
 
-		serverCerts, err = ca.MakeAndWriteServerCertificate(srvCertFile, srvKeyFile, altNames, cfg.CA.ServerCertValidityDays)
+		serverCerts, err = ca.MakeAndWriteServerCertificate(ctx, srvCertFile, srvKeyFile, altNames, cfg.CA.ServerCertValidityDays)
 		if err != nil {
 			logger.Fatalf("failed to create certificate: %v", err)
 		}

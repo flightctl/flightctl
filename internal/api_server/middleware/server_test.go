@@ -2,17 +2,20 @@ package middleware_test
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"io"
 	"net"
 	"net/http"
-	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -57,7 +60,7 @@ var _ = Describe("Low level server behavior", func() {
 		ca, serverCerts, enrollmentCert, err = testutil.NewTestCerts(config)
 		Expect(err).ToNot(HaveOccurred())
 
-		noSubjectCert, _, err = ca.EnsureClientCertificate(filepath.Join(tempDir, "no-subject.crt"), filepath.Join(tempDir, "no-subject.key"), "", 365)
+		noSubjectCert, err = makeNoSubjectClientCertificate(ctx, ca, 365)
 		Expect(err).NotTo(HaveOccurred())
 
 		_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
@@ -117,12 +120,13 @@ type testTLSCNServer struct {
 }
 
 func (s testTLSCNServer) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	tlsCN := request.Context().Value(middleware.TLSCommonNameContextKey)
-	if tlsCN == nil {
+	peerCertificate := request.Context().Value(consts.TLSPeerCertificateCtxKey)
+	if peerCertificate == nil {
 		// this should not really happen, this will make the tests fail
 		response.WriteHeader(http.StatusInternalServerError)
 	} else {
-		tlsCN := tlsCN.(string)
+		peerCertificate := peerCertificate.(*x509.Certificate)
+		tlsCN := peerCertificate.Subject.CommonName
 		if tlsCN != "" {
 			response.WriteHeader(http.StatusOK)
 			_, err := response.Write([]byte(tlsCN))
@@ -160,4 +164,33 @@ func requestFromTLSCNServerExpectNotFound(caBundle []*x509.Certificate, clientCe
 	defer resp.Body.Close()
 
 	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+}
+
+func makeNoSubjectClientCertificate(ctx context.Context, ca *crypto.CAClient, expiryDays int) (*crypto.TLSCertificateConfig, error) {
+	_, clientPrivateKey, err := fccrypto.NewKeyPair()
+	if err != nil {
+		return nil, err
+	}
+
+	clientTemplate := &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: ""},
+	}
+	raw, err := x509.CreateCertificateRequest(rand.Reader, clientTemplate, clientPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	csr, err := x509.ParseCertificateRequest(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCrt, err := ca.IssueRequestedClientCertificateAsX509(ctx, csr, expiryDays*24*3600)
+	if err != nil {
+		return nil, err
+	}
+	client := &crypto.TLSCertificateConfig{
+		Certs: append([]*x509.Certificate{clientCrt}, ca.GetCABundleX509()...),
+		Key:   clientPrivateKey,
+	}
+	return client, nil
 }
