@@ -356,7 +356,7 @@ var _ = Describe("VM Agent behavior", func() {
 						{
 							Severity:    "Info",
 							Duration:    "10s",
-							Percentage:  5, // Invalid percentage
+							Percentage:  5,
 							Description: "some metric",
 						},
 					},
