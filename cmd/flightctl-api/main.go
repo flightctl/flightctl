@@ -73,7 +73,7 @@ func main() {
 				cfg.Service.AltNames = []string{"localhost"}
 			}
 
-			serverCerts, err = ca.MakeAndWriteServerCertificate(srvCertFile, srvKeyFile, cfg.Service.AltNames, cfg.CA.ServerCertValidityDays)
+			serverCerts, err = ca.MakeAndWriteServerCertificate(ctx, srvCertFile, srvKeyFile, cfg.Service.AltNames, cfg.CA.ServerCertValidityDays)
 			if err != nil {
 				log.Fatalf("failed to create self-signed certificate: %v", err)
 			}
@@ -94,7 +94,7 @@ func main() {
 
 	clientCertFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".crt", cfg.Service.CertStore)
 	clientKeyFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".key", cfg.Service.CertStore)
-	_, _, err = ca.EnsureClientCertificate(clientCertFile, clientKeyFile, cfg.CA.ClientBootstrapCommonName, cfg.CA.ClientBootstrapValidityDays)
+	_, _, err = ca.EnsureClientCertificate(ctx, clientCertFile, clientKeyFile, cfg.CA.ClientBootstrapCommonName, cfg.CA.ClientBootstrapValidityDays)
 	if err != nil {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
 	}

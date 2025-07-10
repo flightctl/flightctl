@@ -209,6 +209,7 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
+    %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
 
     # Files mounted to data dir
@@ -234,6 +235,8 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
     %{_datadir}/containers/systemd/flightctl*
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
+    %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy/init.sh
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh

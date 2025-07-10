@@ -314,6 +314,34 @@ var _ = Describe("VM Agent behavior", func() {
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
 
 		})
+
+		It("System Info Timeout Tests", Label("81864"), func() {
+
+			By("Enroll and wait for image v9 to become online")
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v9")
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Reload the flight agent")
+			_, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "reload", "flightctl-agent"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Custom system-info infinite is empty due to timeout")
+			// wait for the device to pickup enrollment and report measurements on device status
+			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(deviceId).ShouldNot(BeNil())
+
+			response := harness.GetDeviceWithStatusSystem(deviceId)
+			device := response.JSON200
+
+			// Ensure the infinite key exists in CustomInfo
+			Expect(device.Status.SystemInfo.CustomInfo).ToNot(BeNil())
+			Expect((*device.Status.SystemInfo.CustomInfo)).To(HaveKey("infinite"))
+			Expect((*device.Status.SystemInfo.CustomInfo)["infinite"]).To(Equal(""))
+
+		})
 	})
 })
 
