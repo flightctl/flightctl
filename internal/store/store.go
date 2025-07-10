@@ -28,6 +28,7 @@ type Store interface {
 	ResourceSync() ResourceSync
 	Event() Event
 	Checkpoint() Checkpoint
+	Organization() Organization
 	InitialMigration(context.Context) error
 	Close() error
 }
@@ -42,6 +43,7 @@ type DataStore struct {
 	resourceSync              ResourceSync
 	event                     Event
 	checkpoint                Checkpoint
+	organization              Organization
 
 	db *gorm.DB
 }
@@ -57,6 +59,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		resourceSync:              NewResourceSync(db, log),
 		event:                     NewEvent(db, log),
 		checkpoint:                NewCheckpoint(db, log),
+		organization:              NewOrganization(db),
 		db:                        db,
 	}
 }
@@ -97,6 +100,10 @@ func (s *DataStore) Checkpoint() Checkpoint {
 	return s.checkpoint
 }
 
+func (s *DataStore) Organization() Organization {
+	return s.organization
+}
+
 func (s *DataStore) InitialMigration(ctx context.Context) error {
 	ctx, span := instrumentation.StartSpan(ctx, "flightctl/store", "InitialMigration")
 	defer span.End()
@@ -126,6 +133,9 @@ func (s *DataStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 	if err := s.Checkpoint().InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := s.Organization().InitialMigration(ctx); err != nil {
 		return err
 	}
 	return s.customizeMigration(ctx)

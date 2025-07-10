@@ -9,12 +9,24 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
+
+func CreateTestOrganization(ctx context.Context, storeInst store.Store, orgId uuid.UUID) error {
+	org := &model.Organization{
+		ID: orgId,
+	}
+	_, err := storeInst.Organization().Create(ctx, org)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) api.Device {
 	deviceStatus := api.NewDeviceStatus()
