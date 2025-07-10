@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -133,6 +134,12 @@ func main() {
 	log.Infoln("creating agents")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Create simulator fleet configuration
+	if err := createSimulatorFleet(ctx, serviceClient, log); err != nil {
+		log.Warnf("Failed to create simulator fleet: %v", err)
+	}
+
 	agents, agentsFolders := createAgents(log, *numDevices, *initialDeviceIndex, agentConfigTemplate)
 
 	sigShutdown := make(chan os.Signal, 1)
@@ -376,4 +383,48 @@ func formatLabels(lableArgs *[]string) *map[string]string {
 
 	formattedLabels["created_by"] = "device-simulator"
 	return &formattedLabels
+}
+
+func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWithResponses, log *logrus.Logger) error {
+	fleetName := "simulator-disk-monitoring"
+
+	// Check if fleet already exists
+	response, err := serviceClient.GetFleetWithResponse(ctx, fleetName, &v1alpha1.GetFleetParams{})
+	if err == nil && response.HTTPResponse != nil && response.HTTPResponse.StatusCode == 200 {
+		log.Infof("Fleet %s already exists, skipping creation", fleetName)
+		return nil
+	}
+
+	log.Infof("Creating fleet configuration: %s", fleetName)
+
+	// Load fleet configuration from YAML file
+	fleetYAMLPath := filepath.Join("examples", "fleet-disk-simulator.yaml")
+	fleetYAMLData, err := os.ReadFile(fleetYAMLPath)
+	if err != nil {
+		return fmt.Errorf("reading fleet YAML file %s: %w", fleetYAMLPath, err)
+	}
+
+	var fleet v1alpha1.Fleet
+	if err := yaml.Unmarshal(fleetYAMLData, &fleet); err != nil {
+		return fmt.Errorf("unmarshaling fleet YAML: %w", err)
+	}
+
+	// Convert to JSON
+	fleetJSON, err := json.Marshal(fleet)
+	if err != nil {
+		return fmt.Errorf("marshaling fleet configuration: %w", err)
+	}
+
+	// Create the fleet
+	createResponse, err := serviceClient.ReplaceFleetWithBodyWithResponse(ctx, fleetName, "application/json", bytes.NewReader(fleetJSON))
+	if err != nil {
+		return fmt.Errorf("creating fleet: %w", err)
+	}
+
+	if createResponse.HTTPResponse != nil && createResponse.HTTPResponse.StatusCode >= 200 && createResponse.HTTPResponse.StatusCode < 300 {
+		log.Infof("Successfully created fleet: %s", fleetName)
+		return nil
+	}
+
+	return fmt.Errorf("failed to create fleet: status %d, body: %s", createResponse.HTTPResponse.StatusCode, string(createResponse.Body))
 }
