@@ -108,24 +108,49 @@ func kubernetesClient() (kubernetes.Interface, error) {
 	return iface, nil
 }
 
+// createOverlayDisk creates a qcow2 overlay disk using the base image as backing file
+func createOverlayDisk(baseDiskPath, overlayPath string) error {
+	cmd := exec.Command(
+		"qemu-img", "create",
+		"-f", "qcow2",
+		"-b", baseDiskPath,
+		"-F", "qcow2",
+		overlayPath)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create overlay disk %s: %w", overlayPath, err)
+	}
+
+	return nil
+}
+
 func NewTestHarness(ctx context.Context) *Harness {
 
 	startTime := time.Now()
 
+	baseDir := GinkgoT().TempDir()
+	topDir := findTopLevelDir()
+	baseDiskPath := filepath.Join(topDir, "bin/output/qcow2/disk.qcow2")
+	primaryVMName := "flightctl-e2e-vm-" + uuid.New().String()
+	overlayDiskPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", primaryVMName))
+
+	err := createOverlayDisk(baseDiskPath, overlayDiskPath)
+	Expect(err).ToNot(HaveOccurred())
+
 	testVM, err := vm.NewVM(vm.TestVM{
 		TestDir:       GinkgoT().TempDir(),
-		VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
-		DiskImagePath: filepath.Join(findTopLevelDir(), "bin/output/qcow2/disk.qcow2"),
+		VMName:        primaryVMName,
+		DiskImagePath: overlayDiskPath,
 		VMUser:        "user",
 		SSHPassword:   "user",
 		SSHPort:       2233, // TODO: randomize and retry on error
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	configDir, err := client.DefaultFlightctlClientConfigPath()
 	Expect(err).ToNot(HaveOccurred())
 
-	c, err := client.NewFromConfigFile(baseDir)
+	c, err := client.NewFromConfigFile(configDir)
 	Expect(err).ToNot(HaveOccurred())
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -313,35 +338,54 @@ func (h *Harness) StartMultipleVMAndEnroll(count int) ([]string, error) {
 		return nil, fmt.Errorf("count must be positive, got %d", count)
 	}
 
+	totalStartTime := time.Now()
+	logrus.Infof("Starting parallel VM creation and enrollment for %d VMs", count)
+
 	// add count-1 vms to the harness using AddMultipleVMs method
 	vmParamsList := make([]vm.TestVM, count-1)
 	baseDir := GinkgoT().TempDir()
 	topDir := findTopLevelDir()
 	baseDiskPath := filepath.Join(topDir, "bin/output/qcow2/disk.qcow2")
 
+	// Create overlay disks in paralle
+	var wg sync.WaitGroup
+	overlayPaths := make([]string, count-1)
+	errs := make([]error, count-1)
+
 	for i := 0; i < count-1; i++ {
-		vmName := "flightctl-e2e-vm-" + uuid.New().String()
-		overlayDiskPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", vmName))
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
 
-		// Create a qcow2 overlay that uses the base image as backing file
-		cmd := exec.Command(
-			"qemu-img", "create",
-			"-f", "qcow2",
-			"-b", baseDiskPath,
-			"-F", "qcow2",
-			overlayDiskPath)
+			vmName := "flightctl-e2e-vm-" + uuid.New().String()
+			overlayPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", vmName))
 
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to create overlay disk for VM %s: %w", vmName, err)
-		}
+			err := createOverlayDisk(baseDiskPath, overlayPath)
+			if err != nil {
+				errs[index] = err
+				return
+			}
 
-		vmParamsList[i] = vm.TestVM{
-			TestDir:       GinkgoT().TempDir(),
-			VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
-			DiskImagePath: overlayDiskPath,
-			VMUser:        "user",
-			SSHPassword:   "user",
-			SSHPort:       2233 + i + 1,
+			overlayPaths[index] = overlayPath
+			vmParamsList[index] = vm.TestVM{
+				TestDir:       GinkgoT().TempDir(),
+				VMName:        vmName,
+				DiskImagePath: overlayPath,
+				VMUser:        "user",
+				SSHPassword:   "user",
+				SSHPort:       2233 + index + 1,
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	logrus.Infof("Overlay creation completed")
+
+	// Check for overlay creation errors
+	for i, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("failed to create overlay disk for VM %d: %w", i, err)
 		}
 	}
 
@@ -350,27 +394,69 @@ func (h *Harness) StartMultipleVMAndEnroll(count int) ([]string, error) {
 		return nil, fmt.Errorf("failed to add multiple VMs: %w", err)
 	}
 
-	var enrollmentIDs []string
+	// Start VMs in parallel and collect enrollment IDs
+	logrus.Infof("Starting parallel VM boot and SSH wait", len(h.VMs))
+	enrollmentIDs := make([]string, len(h.VMs))
+	errs = make([]error, len(h.VMs))
 
-	for _, vm := range h.VMs {
-		err := vm.RunAndWaitForSSH()
-		if err != nil {
-			return nil, fmt.Errorf("failed to run VM and wait for SSH: %w", err)
-		}
+	for i, testVM := range h.VMs {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
 
-		enrollmentID := h.GetEnrollmentIDFromConsole(vm)
-		logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
+			// Start VM and wait for SSH
+			err := testVM.RunAndWaitForSSH()
+			if err != nil {
+				errs[index] = fmt.Errorf("failed to run VM and wait for SSH: %w", err)
+				return
+			}
 
-		_ = h.WaitForEnrollmentRequest(enrollmentID)
-		h.ApproveEnrollment(enrollmentID, util.TestEnrollmentApproval())
-		logrus.Infof("Waiting for device %s to report status", enrollmentID)
+			// Get enrollment ID
+			enrollmentID := h.GetEnrollmentIDFromConsole(testVM)
+			if enrollmentID == "" {
+				errs[index] = fmt.Errorf("failed to get enrollment ID from console")
+				return
+			}
 
-		// Wait for the device to pick up enrollment and report measurements on device status
-		Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
-			enrollmentID).ShouldNot(BeNil())
-
-		enrollmentIDs = append(enrollmentIDs, enrollmentID)
+			logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
+			enrollmentIDs[index] = enrollmentID
+		}(i)
 	}
+
+	wg.Wait()
+
+	logrus.Infof("VM startup and SSH wait completed", len(h.VMs))
+
+	// Check for VM startup errors
+	for i, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("VM %d startup failed: %w", i, err)
+		}
+	}
+
+	// Process enrollment requests and approvals in parallel
+	logrus.Infof("Starting parallel enrollment processing")
+
+	for _, enrollmentID := range enrollmentIDs {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+
+			_ = h.WaitForEnrollmentRequest(id)
+			h.ApproveEnrollment(id, util.TestEnrollmentApproval())
+			logrus.Infof("Waiting for device %s to report status", id)
+
+			// Wait for the device to pick up enrollment and report measurements on device status
+			Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
+				id).ShouldNot(BeNil())
+		}(enrollmentID)
+	}
+
+	wg.Wait()
+
+	totalElapsed := time.Since(totalStartTime)
+	logrus.Infof("Enrollment processing completed")
+	logrus.Infof("Total parallel VM creation and enrollment completed in %v for %d VMs", totalElapsed, count)
 
 	return enrollmentIDs, nil
 }

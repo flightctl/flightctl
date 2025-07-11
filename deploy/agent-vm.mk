@@ -9,19 +9,18 @@ AGENT_IP ?= 192.168.122.6
 BUILD_TYPE := bootc
 
 agent-vm: bin/output/qcow2/disk.qcow2
-	@echo "Booting Agent VM from $(VMDISK)"
-	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
+	@echo "Booting Agent VM overlay disk from $(VMDISK)"
+	sudo qemu-img create -f qcow2 -b $(PWD)/bin/output/qcow2/disk.qcow2 -F qcow2 $(VMDISK)
 	sudo chown libvirt:libvirt $(VMDISK) 2>/dev/null || true
 	sudo virt-install --name $(VMNAME) \
 		--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
-					  --vcpus $(VMCPUS) \
-					  --memory $(VMRAM) \
-					  --import --disk $(VMDISK),format=qcow2 \
-					  --os-variant fedora-eln  \
-					  --autoconsole text \
-					  --wait $(VMWAIT) \
-					  --transient || true
-
+		--vcpus $(VMCPUS) \
+		--memory $(VMRAM) \
+		--import --disk $(VMDISK),format=qcow2 \
+		--os-variant fedora-eln \
+		--autoconsole text \
+		--wait $(VMWAIT) \
+		--transient || true
 
 update-vm-agent: bin/flightctl-agent
 	@echo "Updating Agent VM $(AGENT_IP) with new flightctl-agent, if asked the password is 'user'"
@@ -40,6 +39,7 @@ agent-vm-console:
 clean-agent-vm:
 	sudo virsh destroy $(VMNAME) || true
 	sudo rm -f $(VMDISK)
+	sudo find /var/lib/libvirt/images -name "$(VMNAME)*.qcow2" -delete 2>/dev/null || true
 
 .PHONY: clean-agent-vm
 
