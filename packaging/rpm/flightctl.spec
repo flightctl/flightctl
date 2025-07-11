@@ -10,6 +10,15 @@
 %define agent_relabel_files() \
     semanage fcontext -a -t flightctl_agent_exec_t "/usr/bin/flightctl-agent" ; \
     restorecon -v /usr/bin/flightctl-agent
+%define services_relabel_files() \
+    semanage fcontext -a -t container_file_t "%{_datadir}/flightctl(/.*)?"; \
+    semanage fcontext -a -t bin_t "%{_datadir}/flightctl/init_host.sh"; \
+    semanage fcontext -a -t bin_t "%{_datadir}/flightctl/secrets.sh"; \
+    semanage fcontext -a -t bin_t "%{_datadir}/flightctl/init_utils_host.sh"; \
+    restorecon -Rv %{_datadir}/flightctl
+%define services_remove_labels() \
+    semanage fcontext -d "%{_datadir}/flightctl(/.*)?" >/dev/null 2>&1 || true; \
+    restorecon -Rvf %{_datadir}/flightctl >/dev/null 2>&1 || true
 
 Name:           flightctl
 Version:        0.6.0
@@ -65,6 +74,10 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 Summary: Flight Control services
 Requires: bash
 Requires: podman
+# For restorecon
+Requires: policycoreutils
+# For semanage
+Requires: policycoreutils-python-utils
 
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
@@ -543,6 +556,14 @@ fi
 
 %selinux_relabel_post -s %{selinuxtype}
 
+%post services
+%services_relabel_files
+
+%postun services
+if [ $1 -eq 0 ]; then
+    %services_remove_labels
+fi
+
 # File listings
 # No %files section for the main package, so it won't be built
 
@@ -606,6 +627,7 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_utils_host.sh
     %{_datadir}/flightctl/flightctl-cli-artifacts/env.template
     %{_datadir}/flightctl/flightctl-cli-artifacts/nginx.conf
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh

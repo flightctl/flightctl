@@ -1,0 +1,15 @@
+FROM quay.io/centos-bootc/centos-bootc:stream9
+
+# Copy  and install the locally built services rpm
+COPY /bin/rpm/flightctl-services-*.rpm /tmp/
+RUN dnf -y localinstall /tmp/flightctl-services-*.rpm && \
+    rm -rf /tmp/*
+
+# Install cloud-init
+RUN dnf -y install cloud-init && \
+    dnf -y clean all
+
+# Enable services to start at boot
+RUN systemctl enable cloud-init
+
+RUN bootc container lint
