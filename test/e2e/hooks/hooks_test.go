@@ -47,12 +47,12 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 				Image: deviceImage,
 			}
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Spec.Os = &osImageSpec
 
 				logrus.Infof("Updating %s with Os image", osImageSpec)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
@@ -157,11 +157,11 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			deviceSpec.Os = &osImageSpec
 			deviceSpec.Config = &deviceSpecConfig
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Spec = &deviceSpec
 				logrus.Infof("Updating %s with a new image and configuration %s", deviceId, inlineConfigLifecycleName)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
