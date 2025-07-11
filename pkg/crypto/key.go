@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -222,4 +223,29 @@ func ParseKeyPEM(pemKey []byte) (crypto.PrivateKey, error) {
 		return nil, fmt.Errorf("parsing private key: %v", err)
 	}
 	return key, nil
+}
+
+func GetExtensionValue(cert *x509.Certificate, oid asn1.ObjectIdentifier) (string, error) {
+	for _, ext := range cert.Extensions {
+		if ext.Id.Equal(oid) {
+			var value string
+			if _, err := asn1.Unmarshal(ext.Value, &value); err != nil {
+				return "", fmt.Errorf("failed to unmarshal extension for OID %v: %w", oid, err)
+			}
+			return value, nil
+		}
+	}
+
+	// Fallback: also check ExtraExtensions (if needed)
+	for _, ext := range cert.ExtraExtensions {
+		if ext.Id.Equal(oid) {
+			var value string
+			if _, err := asn1.Unmarshal(ext.Value, &value); err != nil {
+				return "", fmt.Errorf("failed to unmarshal extension for OID %v: %w", oid, err)
+			}
+			return value, nil
+		}
+	}
+
+	return "", fmt.Errorf("extension with OID %v not found", oid)
 }

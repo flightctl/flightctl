@@ -1,0 +1,6 @@
+{{- if .Values.jaeger.enabled }}
+You can access the Jaeger UI for distributed tracing at http://localhost:{{ .Values.global.nodePorts.jaegerUi }}
+
+To set up port forwarding for Jaeger UI, run:
+    kubectl port-forward -n {{ default .Release.Namespace .Values.global.internalNamespace }} svc/jaeger-ui 16686:16686
+{{- end }} 

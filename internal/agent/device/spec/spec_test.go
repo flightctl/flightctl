@@ -119,8 +119,7 @@ func TestInitialize(t *testing.T) {
 	queue := newPriorityQueue(
 		defaultSpecQueueMaxSize,
 		defaultSpecRequeueMaxRetries,
-		defaultSpecRequeueThreshold,
-		defaultSpecRequeueDelay,
+		defaultSpecPollConfig,
 		mockPolicyManager,
 		log,
 	)
@@ -777,8 +776,7 @@ func TestRollback(t *testing.T) {
 			queue := newPriorityQueue(
 				defaultSpecQueueMaxSize,
 				defaultSpecRequeueMaxRetries,
-				defaultSpecRequeueThreshold,
-				defaultSpecRequeueDelay,
+				defaultSpecPollConfig,
 				mockPolicyManager,
 				log,
 			)
@@ -896,13 +894,13 @@ func TestGetDesired(t *testing.T) {
 	// Define the test cases
 	testCases := []struct {
 		name           string
-		setupMocks     func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement)
+		setupMocks     func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager)
 		expectedDevice *v1alpha1.Device
 		expectedError  error
 	}{
 		{
 			name: "error reading desired spec",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
 				mrw.EXPECT().ReadFile(desiredPath).Return(nil, specErr)
 			},
 			expectedDevice: nil,
@@ -910,7 +908,7 @@ func TestGetDesired(t *testing.T) {
 		},
 		{
 			name: "desired spec is returned when management api returns no content",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
 				renderedDesiredSpec := createTestRenderedDevice(image)
 				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
 				require.NoError(err)
@@ -925,7 +923,7 @@ func TestGetDesired(t *testing.T) {
 		},
 		{
 			name: "spec from the api response has the same Version as desired",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
 				renderedDesiredSpec := createTestRenderedDevice(image)
 				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
 				require.NoError(err)
@@ -933,6 +931,7 @@ func TestGetDesired(t *testing.T) {
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
 				mrw.EXPECT().WriteFile(desiredPath, marshaledDesiredSpec, gomock.Any()).Return(nil)
+				mpm.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil)
 				require.NoError(devicePublisher.Push(renderedDesiredSpec))
 			},
 			expectedDevice: createTestRenderedDevice(image),
@@ -940,10 +939,11 @@ func TestGetDesired(t *testing.T) {
 		},
 		{
 			name: "error when writing the desired spec fails",
-			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement) {
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
 				device := createTestRenderedDevice(image)
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(device, true)
+				mpm.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil)
 
 				// API is returning a rendered version that is different from the read desired spec
 				apiResponse := newVersionedDevice("5")
@@ -964,6 +964,7 @@ func TestGetDesired(t *testing.T) {
 			mockClient := client.NewMockManagement(ctrl)
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockPriorityQueue := NewMockPriorityQueue(ctrl)
+			mockPolicyManager := policy.NewMockManager(ctrl)
 
 			log := log.NewPrefixLogger("test")
 
@@ -975,6 +976,7 @@ func TestGetDesired(t *testing.T) {
 				queue:            mockPriorityQueue,
 				cache:            newCache(log),
 				devicePublisher:  devicePublisher,
+				policyManager:    mockPolicyManager,
 			}
 
 			s.cache.current.renderedVersion = "1"
@@ -984,6 +986,7 @@ func TestGetDesired(t *testing.T) {
 				mockPriorityQueue,
 				mockReadWriter,
 				mockClient,
+				mockPolicyManager,
 			)
 
 			specResult, _, err := s.GetDesired(ctx)

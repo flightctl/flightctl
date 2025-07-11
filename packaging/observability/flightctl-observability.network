@@ -1,0 +1,8 @@
+[Unit]
+Description=FlightCtl Observability Network
+PartOf=flightctl-otel-collector.target flightctl-observability.target
+
+[Network]
+NetworkName=flightctl-observability
+Driver=bridge
+IPAMDriver=host-local 

@@ -45,6 +45,7 @@ func (s *Server) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-periodic")
+	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	defer cancel()
 
 	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)

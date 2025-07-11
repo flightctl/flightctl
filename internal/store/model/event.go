@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 )
 
@@ -35,7 +36,8 @@ func NewEventFromApiResource(resource *api.Event) (*Event, error) {
 	}
 	return &Event{
 		Resource: Resource{
-			Name: *resource.Metadata.Name,
+			Name:        *resource.Metadata.Name,
+			Annotations: lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
 		},
 		Reason:             string(resource.Reason),
 		SourceComponent:    resource.Source.Component,
@@ -67,6 +69,7 @@ func (e *Event) ToApiResource(opts ...APIResourceOption) (*api.Event, error) {
 		Kind:       api.EventKind,
 		Metadata: api.ObjectMeta{
 			Name:              lo.ToPtr(e.Name),
+			Annotations:       lo.ToPtr(util.EnsureMap(e.Resource.Annotations)),
 			CreationTimestamp: lo.ToPtr(e.CreatedAt.UTC()),
 		},
 		InvolvedObject: api.ObjectReference{

@@ -46,6 +46,8 @@ var _ = Describe("cli operation", func() {
 	})
 
 	AfterEach(func() {
+		err := harness.CleanUpAllResources()
+		Expect(err).ToNot(HaveOccurred())
 		harness.Cleanup(false) // do not print console on error
 	})
 
@@ -667,7 +669,7 @@ var _ = Describe("cli login", func() {
 
 // formatResourceEvent formats the event's message and returns it as a string
 func formatResourceEvent(resource, name, action string) string {
-	return fmt.Sprintf("%s\\s+%s\\s+Normal\\s+%s\\s+successfully", resource, name, action)
+	return fmt.Sprintf("%s\\s+%s\\s+Normal\\s+%s\\s+was\\s+%s\\s+successfully", resource, name, resource, action)
 }
 
 // DeleteWithoutNameTestParams defines the parameters for delete-without-name tests.

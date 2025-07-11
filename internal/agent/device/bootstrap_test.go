@@ -18,9 +18,9 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestInitialization(t *testing.T) {
@@ -159,7 +159,7 @@ func TestInitialization(t *testing.T) {
 			mockExecutor := executer.NewMockExecuter(ctrl)
 
 			log := log.NewPrefixLogger("test")
-			podmanClient := client.NewPodman(log, mockExecutor, mockReadWriter, wait.Backoff{})
+			podmanClient := client.NewPodman(log, mockExecutor, mockReadWriter, util.NewPollConfig())
 
 			b := &Bootstrap{
 				statusManager:           mockStatusManager,

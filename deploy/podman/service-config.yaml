@@ -1,10 +1,46 @@
 global:
   baseDomain:
   auth:
-    type: none # aap or none
+    type: none # aap, oidc or none
     insecureSkipTlsVerify: false
     aap:
       apiUrl:
       externalApiUrl:
       oAuthApplicationClientId:
       oAuthToken:
+    oidc:
+      oidcAuthority:
+      externalOidcAuthority:
+      oidcClientId:
+
+observability:
+  grafana:
+    image:
+    published_port:
+
+    oauth:
+      enabled:
+
+      provider_type:
+
+      auth_url:
+      token_url:
+      api_url:
+
+      client_id:
+
+      local_admin_user:
+      local_admin_password:
+
+  prometheus:
+    image:
+
+  otel_collector:
+    image:
+    http_port:
+    grpc_port:
+
+  userinfo_proxy:
+    image:
+    upstream_url:
+    skip_tls_verify:

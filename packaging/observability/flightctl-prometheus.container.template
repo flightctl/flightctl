@@ -1,0 +1,21 @@
+[Unit]
+Description=FlightCtl Prometheus Metrics Server
+After=flightctl-observability-network.service
+Wants=flightctl-observability-network.service
+PartOf=flightctl-observability.target
+
+[Container]
+Image=${PROMETHEUS_IMAGE}
+Pull=newer
+ContainerName=flightctl-prometheus
+
+Volume=/etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+Volume=/var/lib/prometheus:/prometheus:rw,z
+
+Network=flightctl-observability
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

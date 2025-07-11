@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -176,15 +177,8 @@ func authFromSpec(log *log.PrefixLogger, device *v1alpha1.DeviceSpec, authPath s
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	retry          bool
 	pullSecretPath string
-}
-
-// WithRetry enables enables retry based on the backoff config provided.
-func WithRetry() ClientOption {
-	return func(opts *clientOptions) {
-		opts.retry = true
-	}
+	timeout        time.Duration
 }
 
 // WithPullSecret sets the path to the pull secret. If unset uses the default
@@ -192,5 +186,13 @@ func WithRetry() ClientOption {
 func WithPullSecret(path string) ClientOption {
 	return func(opts *clientOptions) {
 		opts.pullSecretPath = path
+	}
+}
+
+// Timeout sets a custom timeout for the client operation.
+// When defined, this value overrides the default client timeout.
+func Timeout(timeout time.Duration) ClientOption {
+	return func(opts *clientOptions) {
+		opts.timeout = timeout
 	}
 }

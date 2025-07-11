@@ -44,7 +44,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			By("Add the application spec to the device")
 
 			// Make sure the device status right after bootstrap is Online
-			response := harness.GetDeviceWithStatusSystem(deviceId)
+			response, err := harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
 			Expect(response).ToNot(BeNil())
 			device = response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
@@ -61,7 +62,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			}
 
 			// Update the device with the application config
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 				// Create applicationSpec.
 				var applicationSpec v1alpha1.ApplicationProviderSpec
@@ -71,6 +72,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{applicationSpec}
 				logrus.Infof("Updating %s with application %s", deviceId, sleepAppImage)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("Waiting for the device to pick the config")
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
@@ -115,7 +117,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				"SOME_KEY": "SOME_KEY",
 			}
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 				// Create applicationSpec.
 				var updateApplicationSpec v1alpha1.ApplicationProviderSpec
@@ -127,6 +129,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{updateApplicationSpec}
 				logrus.Infof("Updating %s with application %s", deviceId, updateImage)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the device received the new config")
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
@@ -155,11 +158,11 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			By("Delete the application from the fleet configuration")
 			logrus.Infof("Removing all the applications from %s", deviceId)
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
 				logrus.Infof("Updating %s removing application %s", deviceId, updateImage)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the device received the new config")
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
@@ -249,9 +252,10 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Remove the application from the spec")
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for device to pick up the removal config")
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
