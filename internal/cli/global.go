@@ -41,7 +41,7 @@ func (o *GlobalOptions) Bind(fs *pflag.FlagSet) {
 }
 
 func (o *GlobalOptions) Complete(cmd *cobra.Command, args []string) error {
-	o.ConfigFilePath = ConfigFilePath(o.Context, o.ConfigDir)
+	o.ConfigFilePath = filepath.Clean(ConfigFilePath(o.Context, o.ConfigDir))
 	return nil
 }
 
@@ -51,11 +51,15 @@ func (o *GlobalOptions) Validate(args []string) error {
 		return fmt.Errorf("request-timeout must be greater than 0")
 	}
 
+	// If user provided --config-dir, validate it's actually a directory
 	if o.ConfigDir != "" {
-		path := filepath.Clean(o.ConfigDir)
-		ext := filepath.Ext(path)
-		if ext != "" {
-			return fmt.Errorf("config-dir should specify a directory path")
+		if stat, err := os.Stat(o.ConfigDir); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("config directory %q does not exist", o.ConfigDir)
+			}
+			return fmt.Errorf("failed to check config directory %q: %w", o.ConfigDir, err)
+		} else if !stat.IsDir() {
+			return fmt.Errorf("config directory path %q exists but is not a directory", o.ConfigDir)
 		}
 	}
 
