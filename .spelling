@@ -152,6 +152,19 @@ OpenTelemetry
 OTLP
 crontab
 datasets
+grafana
+oauth
+grpc
+dns
+zipkin
+backends
+ansible
+openid
+pki
+uid
+idp
+systemctl
+enablement
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -247,3 +260,11 @@ alertmanager
 DeviceDisconnected
 DeviceCPUCritical
 programmatically
+ - docs/user/standalone-observability.md
+UserInfo
+Pre-configured
+is_superuser
+is_platform_auditor
+flightctl-api
+flightctl-kv
+IdPs
