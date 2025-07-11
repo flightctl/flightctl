@@ -21,7 +21,7 @@ type resourceEvent struct {
 	ResourceName                 string
 	ReasonSuccess, ReasonFailure api.EventReason
 	OutcomeSuccess               string
-	OutcomeFailure               outcomeFailureFunc
+	OutcomeFailure               OutcomeFailureFunc
 	Status                       api.Status
 	UpdateDetails                *api.ResourceUpdatedDetails
 	CustomDetails                *api.EventDetails
@@ -35,7 +35,7 @@ type eventConfig struct {
 	UpdateDetails   *api.ResourceUpdatedDetails
 }
 
-type outcomeFailureFunc func() string
+type OutcomeFailureFunc func() string
 
 // Helper functions for standardized event message formatting
 
@@ -190,7 +190,9 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 	} else if resourceEvent.UpdateDetails != nil {
 		details := api.EventDetails{}
 		if err := details.FromResourceUpdatedDetails(*resourceEvent.UpdateDetails); err != nil {
-			log.WithError(err).WithField("event", event).Error("Failed to serialize event details")
+			if log != nil {
+				log.WithError(err).WithField("event", event).Error("Failed to serialize event details")
+			}
 			return nil
 		}
 		event.Details = &details
@@ -409,4 +411,86 @@ func GetFleetSelectorProcessingCompletedEvent(ctx context.Context, fleetName str
 			CustomDetails:  &details,
 		}, log)
 	}
+}
+
+// GetReporterTaskEvent creates an event for repotester task
+func GetReporterTaskEvent(ctx context.Context, repoName string, err error) *api.Event {
+	statusFunc := lo.Ternary(err == nil,
+		func() api.Status {
+			return api.StatusOK()
+		}, func() api.Status {
+			return api.StatusInternalServerError(err.Error())
+		})
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.RepositoryKind,
+		ResourceName:   repoName,
+		ReasonSuccess:  api.EventReasonRepositoryAccessible,
+		ReasonFailure:  api.EventReasonRepositoryInaccessible,
+		OutcomeSuccess: "Repository is accessible",
+		OutcomeFailure: func() string { return fmt.Sprintf("Repository is inaccessible: %v", err) },
+		Status:         statusFunc(),
+	}, nil)
+}
+
+// GetResourceSyncTaskEvent creates an event for resourcesync task
+func GetResourceSyncTaskEvent(ctx context.Context, repoName string, totalChanges int, totalErrors int, updatedFields []api.ResourceUpdatedDetailsUpdatedFields, log logrus.FieldLogger) *api.Event {
+	statusFunc := lo.Ternary(totalErrors == 0,
+		func() api.Status {
+			return api.StatusOK()
+		}, func() api.Status {
+			return api.StatusInternalServerError(fmt.Sprintf("%d errors", totalErrors))
+		})
+	var resourceDetails *api.ResourceUpdatedDetails = nil
+	if len(updatedFields) > 0 {
+		resourceDetails = &api.ResourceUpdatedDetails{
+			UpdatedFields: updatedFields,
+		}
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.ResourceSyncKind,
+		ResourceName:   repoName,
+		ReasonSuccess:  api.EventReasonGitResourceChangeDetected,
+		ReasonFailure:  api.EventReasonGitResourceChangeDetected,
+		OutcomeSuccess: fmt.Sprintf("ResourceSync Polling Success: %d changes", totalChanges),
+		OutcomeFailure: func() string {
+			return fmt.Sprintf("ResourceSync Polling: %d changes and %d failures", totalChanges, totalErrors)
+		},
+		Status:        statusFunc(),
+		UpdateDetails: resourceDetails,
+	}, log)
+}
+
+// GetDisruptionBudgetReconcilerTaskEvent creates an event for disruption_budget.reconciler task
+func GetDisruptionBudgetReconcilerTaskEvent(ctx context.Context, fleetName string, err error, log logrus.FieldLogger) *api.Event {
+	statusFunc := lo.Ternary(err == nil,
+		func() api.Status {
+			return api.StatusOK()
+		}, func() api.Status {
+			return api.StatusInternalServerError(err.Error())
+		})
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.FleetKind,
+		ResourceName:   fleetName,
+		ReasonSuccess:  api.EventReasonFleetReconciled,
+		ReasonFailure:  api.EventReasonFleetReconcileFailed,
+		OutcomeSuccess: fmt.Sprintf("Fleet '%s' was Reconciled for Disruption Budget", fleetName),
+		OutcomeFailure: func() string {
+			return fmt.Sprintf("Fleet '%s' was NOT Reconciled for Disruption Budget", fleetName)
+		},
+		Status: statusFunc(),
+	}, log)
+}
+
+// GetDeviceSelectionReconcilerSuccessTaskEvent creates an event for device_selection.reconciler task
+func GetDeviceSelectionReconcilerSuccessTaskEvent(ctx context.Context, resourceName string, successMessage string, log logrus.FieldLogger) *api.Event {
+	resourceName = fmt.Sprintf("%s/%s", api.FleetKind, resourceName)
+	return getBaseEvent(ctx, resourceEvent{
+		ResourceKind:   api.FleetKind,
+		ResourceName:   resourceName,
+		ReasonSuccess:  api.EventReasonFleetReconciled,
+		ReasonFailure:  api.EventReasonFleetReconcileFailed,
+		OutcomeSuccess: successMessage,
+		OutcomeFailure: func() string { return "" },
+		Status:         api.StatusOK(),
+	}, log)
 }
