@@ -7,13 +7,13 @@ all: ${MODULES}
 %.pp.bz2: %.pp
 	rm -f $@ || true
 	@echo Compressing $^ -\> $@
-	bzip2 -9 $^
+	bzip2 -9 -f $^
 
-%.pp: %.te
+%.pp: %.te %.fc
 	make -f ${SHAREDIR}/selinux/devel/Makefile $@
 
 clean:
-	rm -f *~  *.tc *.pp *.pp.bz2
+	rm -f *~ *.tc *.pp *.mod *.pp.bz2
 	rm -rf tmp *.tar.gz
 
 man: install-policy

@@ -1,35 +1,116 @@
 policy_module(flightctl_agent, 1.0.0)
 
+# Security Enhanced Linux Reference
+# https://pages.cs.wisc.edu/~matyas/selinux-policy/
+# https://access.redhat.com/articles/6999267
+
 type flightctl_agent_t;
-domain_type(flightctl_agent_t);
+type flightctl_agent_exec_t;
+type flightctl_agent_var_lib_t;
+type flightctl_agent_tmp_t;
 
-require {
-    # Existing types from the policy
-    type init_t;
-    type devpts_t;
-    type ptmx_t;
-    type unreserved_port_t;
-    
-    attribute file_type;
-    attribute exec_type;
+init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
+files_type(flightctl_agent_var_lib_t)
+files_tmp_file(flightctl_agent_tmp_t)
 
+gen_require(`
+    type install_t, install_exec_t;
+    type hostname_t, hostname_exec_t;
+    type kernel_t, sysfs_t, ptmx_t, devpts_t, unlabeled_t, nsfs_t;
+    type etc_t, tmp_t, home_root_t, root_t, fs_t, admin_home_t;
+')
 
-    # Classes and permissions that will be used.
-    class file { read execute open };
-    class process transition;
-    class chr_file { open read write ioctl };
-    class tcp_socket { name_connect };
-}
+## File Access ##
 
-# Define the new file type for the flightctl-agent executable.
-# It must have the file and exec attributes.
-type flightctl_agent_exec_t, file_type, exec_type;
+# /etc management
+files_read_etc_files(flightctl_agent_t)
+files_read_etc_runtime_files(flightctl_agent_t)
+manage_dirs_pattern(flightctl_agent_t, etc_t, etc_t)
+manage_files_pattern(flightctl_agent_t, etc_t, etc_t)
+manage_lnk_files_pattern(flightctl_agent_t, etc_t, etc_t)
 
-# When a process running in init_t executes a file labeled flightctl_agent_exec_t,
-# have it transition into flightctl_agent_t.
-type_transition init_t flightctl_agent_exec_t:process flightctl_agent_t;
+# /usr access
+files_read_usr_files(flightctl_agent_t)
 
-# Allow the flightctl-agent process (running in flightctl_agent_t) to do what it needs.
-allow flightctl_agent_t devpts_t:chr_file open;
-allow flightctl_agent_t ptmx_t:chr_file { open read write ioctl };
-allow flightctl_agent_t unreserved_port_t:tcp_socket name_connect;  
+# /var/lib/flightctl management
+manage_dirs_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
+manage_files_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
+manage_lnk_files_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
+files_var_lib_filetrans(flightctl_agent_t, flightctl_agent_var_lib_t, dir, "flightctl")
+files_read_var_lib_files(flightctl_agent_t)
+
+# /tmp management
+files_tmp_filetrans(flightctl_agent_t, flightctl_agent_tmp_t, { file dir })
+manage_dirs_pattern(flightctl_agent_t, tmp_t, flightctl_agent_tmp_t)
+manage_files_pattern(flightctl_agent_t, tmp_t, flightctl_agent_tmp_t)
+
+# Admin home (root) directory access
+userdom_manage_admin_dirs(flightctl_agent_t)
+userdom_manage_admin_files(flightctl_agent_t)
+userdom_search_admin_dir(flightctl_agent_t)
+allow flightctl_agent_t root_t:dir { read search open getattr };
+allow flightctl_agent_t root_t:filesystem { getattr mount remount };
+allow flightctl_agent_t fs_t:filesystem getattr;
+
+# Allow reading symlinks in /home
+allow flightctl_agent_t home_root_t:lnk_file read;
+
+# Container storage and admin
+container_read_share_files(flightctl_agent_t)
+container_manage_files(flightctl_agent_t)
+container_admin(flightctl_agent_t)
+container_runtime_domtrans(flightctl_agent_t)
+
+# Other
+files_read_boot_files(flightctl_agent_t)
+files_read_generic_pids(flightctl_agent_t)
+
+## System Information ##
+
+kernel_read_system_state(flightctl_agent_t)
+kernel_read_network_state(flightctl_agent_t)
+kernel_read_all_proc(flightctl_agent_t)
+kernel_read_all_sysctls(flightctl_agent_t)
+
+dev_read_sysfs(flightctl_agent_t)
+dev_read_kmsg(flightctl_agent_t)
+
+## Process Management ##
+
+domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
+domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
+domtrans_pattern(flightctl_agent_t, container_runtime_exec_t, container_runtime_t)
+
+allow flightctl_agent_t { install_t hostname_t container_runtime_t }:fd use;
+allow { install_t hostname_t container_runtime_t } flightctl_agent_t:fd use;
+allow flightctl_agent_t { install_t hostname_t container_runtime_t }:process { sigchld signal sigkill sigstop signull };
+allow flightctl_agent_t self:capability { dac_override chown setuid setgid sys_admin audit_write sys_resource };
+allow flightctl_agent_t self:process { fork signal sigchld execmem setfscreate getsched setsched setpgid setcap };
+
+corecmd_exec_all_executables(flightctl_agent_t)
+
+## Networking ##
+
+corenet_tcp_connect_all_ports(flightctl_agent_t)
+corenet_sendrecv_all_client_packets(flightctl_agent_t)
+sysnet_dns_name_resolve(flightctl_agent_t)
+
+allow flightctl_agent_t self:{ tcp_socket udp_socket netlink_route_socket } create_stream_socket_perms;
+allow flightctl_agent_t self:unix_dgram_socket { create connect read write getattr };
+allow flightctl_agent_t kernel_t:unix_dgram_socket sendto;
+
+## System Services Access ##
+
+init_read_utmp(flightctl_agent_t)
+miscfiles_read_localization(flightctl_agent_t)
+auth_read_passwd(flightctl_agent_t)
+logging_read_generic_logs(flightctl_agent_t)
+logging_send_audit_msgs(flightctl_agent_t)
+
+## Console Terminal Access ##
+
+allow flightctl_agent_t ptmx_t:chr_file { read write open ioctl getattr };
+allow flightctl_agent_t devpts_t:chr_file { read write append open getattr ioctl };
+allow flightctl_agent_t nsfs_t:file getattr;
+allow flightctl_agent_t sysfs_t:dir mounton;
+allow flightctl_agent_t unlabeled_t:dir search;
