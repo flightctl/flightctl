@@ -33,7 +33,7 @@ clean_files() {
 
 clean_volumes() {
     # Remove volumes
-    for volume in flightctl-db flightctl-api-certs flightctl-kv flightctl-ui-certs; do
+    for volume in flightctl-db flightctl-api-certs flightctl-kv flightctl-ui-certs flightctl-cli-artifacts-certs flightctl-alertmanager flightctl-alertmanager-proxy flightctl-alert-exporter; do
         if podman volume inspect "$volume" >/dev/null 2>&1; then
             echo "Removing volume $volume"
             podman volume rm "$volume" || echo "Warning: Failed to remove volume $volume"
@@ -51,7 +51,7 @@ clean_networks() {
 
 clean_secrets() {
     # Remove generated secrets
-    secrets=("flightctl-postgresql-password" "flightctl-postgresql-master-password" "flightctl-postgresql-user-password" "flightctl-kv-password")
+    secrets=("flightctl-postgresql-password" "flightctl-postgresql-master-password" "flightctl-postgresql-user-password" "flightctl-kv-password" "flightctl-alertmanager-password" "flightctl-alertmanager-proxy-password")
     for secret in "${secrets[@]}"; do
         if  podman secret inspect "$secret" &>/dev/null; then
             echo "Removing secret $secret"
