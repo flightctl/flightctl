@@ -302,3 +302,7 @@ func (b *Bootstrap) setManagementClient() error {
 	b.log.Info("Management client set")
 	return nil
 }
+
+func (b *Bootstrap) ManagementClient() client.Management {
+	return b.managementClient
+}

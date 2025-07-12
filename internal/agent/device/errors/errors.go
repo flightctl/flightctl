@@ -88,6 +88,9 @@ var (
 
 	// bootc
 	ErrBootcStatusInvalidJSON = errors.New("bootc status did not return valid JSON")
+
+	// certificates
+	ErrCreateCertificateSigningRequest = errors.New("")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined

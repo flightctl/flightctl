@@ -111,3 +111,49 @@ func (m *management) GetRenderedDevice(ctx context.Context, name string, params 
 
 	return nil, resp.StatusCode(), nil
 }
+
+func (m *management) CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error) {
+	start := time.Now()
+	resp, err := m.client.CreateCertificateSigningRequestWithResponse(ctx, csr, rcb...)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	if resp.HTTPResponse != nil {
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
+	}
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("create_Certificate_Signing_request_duration", time.Since(start).Seconds(), err)
+	}
+
+	if resp.JSON400 != nil {
+		return nil, resp.StatusCode(), fmt.Errorf("create certificate signing request failed: %s", resp.JSON400.Message)
+	}
+
+	if resp.JSON201 != nil {
+		return resp.JSON201, resp.StatusCode(), nil
+	}
+
+	return nil, resp.StatusCode(), nil
+}
+
+func (m *management) GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error) {
+	start := time.Now()
+	resp, err := m.client.GetCertificateSigningRequestWithResponse(ctx, name, rcb...)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	if resp.HTTPResponse != nil {
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
+	}
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("get_Certificate_Signing_request_duration", time.Since(start).Seconds(), err)
+	}
+
+	if resp.JSON200 != nil {
+		return resp.JSON200, resp.StatusCode(), nil
+	}
+
+	return nil, resp.StatusCode(), nil
+}

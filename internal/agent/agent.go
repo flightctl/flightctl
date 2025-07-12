@@ -14,6 +14,11 @@ import (
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager"
+	cm_config "github.com/flightctl/flightctl/internal/agent/device/certmanager/common/config"
+	cm_provisioner "github.com/flightctl/flightctl/internal/agent/device/certmanager/common/provisioner"
+	cm_state "github.com/flightctl/flightctl/internal/agent/device/certmanager/common/state"
+	cm_storage "github.com/flightctl/flightctl/internal/agent/device/certmanager/common/storage"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
@@ -269,6 +274,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("bootstrap failed: %w", err)
 	}
 
+	certManager, err := certmanager.NewManager(a.log,
+		certmanager.WithSyncInterval(1*time.Second),
+		certmanager.WithStateStorageProvider(cm_state.NewFileStorage(filepath.Join(agent_config.DefaultConfigDir, "cert-state.json"))),
+		certmanager.WithConfigProvider(cm_config.NewAgentConfigProvider(a.configFile)),
+		certmanager.WithProvisionerProvider(cm_provisioner.NewCSRProvisionerFactory(deviceName, bootstrap.ManagementClient())),
+		certmanager.WithStorageProvider(cm_storage.NewFileSystemStorageFactory(deviceReadWriter)),
+	)
+	if err != nil {
+		//TODO
+	}
+
 	// create the gRPC client this must be done after bootstrap
 	grpcClient, err := newGrpcClient(&a.config.ManagementService)
 	if err != nil {
@@ -335,6 +351,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
 	go prefetchManager.Run(ctx)
+	go certManager.Run(ctx)
 
 	return agent.Run(ctx)
 }

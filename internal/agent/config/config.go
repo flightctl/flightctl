@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager/common"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
@@ -58,6 +59,8 @@ const (
 	EnrollmentKeyFile = "client-enrollment.key"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
+	// DefaultRenewalThreshold is the default threshold for certificate renewal
+	DefaultRenewalThreshold = util.Duration(7 * 24 * time.Hour) // 7 days before expiry
 )
 
 type Config struct {
@@ -112,6 +115,9 @@ type Config struct {
 
 	// PullRetrySteps defines how many retry attempts are allowed for pulling an OCI target.
 	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
+
+	// Certificates defines the certificates to be managed by the agent
+	Certificates []common.CertificateConfig `json:"certificates,omitempty"`
 
 	readWriter fileio.ReadWriter
 }
