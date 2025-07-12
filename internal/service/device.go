@@ -242,31 +242,38 @@ func validateDeviceStatus(d *api.Device) []error {
 	return allErrs
 }
 
-func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, device api.Device) (*api.Device, api.Status) {
+func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, incomingDevice api.Device) (*api.Device, api.Status) {
 	orgId := store.NullOrgId
 
-	if errs := validateDeviceStatus(&device); len(errs) > 0 {
+	if errs := validateDeviceStatus(&incomingDevice); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if name != *device.Metadata.Name {
+	if incomingDevice.Metadata.Name == nil || *incomingDevice.Metadata.Name == "" {
+		return nil, api.StatusBadRequest("device name is required")
+	}
+	if name != *incomingDevice.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
-	device.Status.LastSeen = time.Now()
+	incomingDevice.Status.LastSeen = time.Now()
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
-	oldDevice, err := h.store.Device().Get(ctx, orgId, name)
+	originalDevice, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
-	common.KeepDBDeviceStatus(&device, oldDevice)
-	oldDevice.Status = device.Status
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *device.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	updated := common.UpdateServiceSideStatus(ctx, orgId, oldDevice, oldDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
 
-	result, err := h.store.Device().UpdateStatus(ctx, orgId, oldDevice)
+	deviceToStore := &api.Device{}
+	*deviceToStore = *originalDevice
+
+	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
+	deviceToStore.Status = incomingDevice.Status
+	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
+		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *incomingDevice.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
+	}
+	updated := common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, originalDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+
+	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore)
 	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	if updated && err != nil {
 		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, nil, h.log))
