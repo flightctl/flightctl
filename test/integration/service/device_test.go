@@ -188,7 +188,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			appErrorEvent = findEventByReason(finalEvents, api.EventReasonDeviceApplicationError)
 			Expect(appErrorEvent).ToNot(BeNil(), "DeviceApplicationError event should be generated when transitioning from Unknown to Error")
-			Expect(appErrorEvent.Type).To(Equal(api.Normal)) // Events are generated as Normal type
+			Expect(appErrorEvent.Type).To(Equal(api.Warning))
 			Expect(appErrorEvent.Message).To(ContainSubstring("test-app is in status Error"))
 		})
 
@@ -465,7 +465,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			finalEvents := getEventsForDevice(deviceName)
 			cpuWarningEvent := findEventByReason(finalEvents, api.EventReasonDeviceCPUWarning)
 			Expect(cpuWarningEvent).ToNot(BeNil(), "DeviceCPUWarning event should be generated when transitioning from Unknown to Warning")
-			Expect(cpuWarningEvent.Type).To(Equal(api.Normal))
+			Expect(cpuWarningEvent.Type).To(Equal(api.Warning))
 			Expect(cpuWarningEvent.Message).To(ContainSubstring("CPU utilization has reached a warning level"))
 		})
 	})
