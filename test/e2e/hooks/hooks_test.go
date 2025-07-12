@@ -174,6 +174,71 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(logs).To(ContainSubstring("this is a test message from beforerebooting hook"))
 			Expect(logs).To(ContainSubstring("this is a test message from beforeupdating hook"))
 		})
+		It("Verifies that lifecycle hooks can be defined with template variables", Label("80022"), func() {
+			const (
+				firstMessage   = "this is a test message from afteradding hook"
+				firstFile      = "temp-dir/file1.txt"
+				secondMessage  = "this is a second test message from afteradding hook"
+				secondFile     = "secondary-dir/file2.txt"
+				updatedMessage = "this has been updated"
+			)
+
+			By("Adding a template hook that prints the contents of all created/updated files")
+			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			inlineConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
+			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidTemplateLifeCycle)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.AddConfigToDeviceWithRetries(deviceId, inlineConfigProviderSpec)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("adding a new file to the hooks watch directory")
+			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			provider, err := newTemplateSpecProvider("first-create", firstFile, firstMessage)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.AddConfigToDeviceWithRetries(deviceId, provider)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			// ensure we see our expected messages
+			logs, err := harness.ReadPrimaryVMAgentLogs("")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(logs).To(And(ContainSubstring(templateHookDirectory), ContainSubstring(firstMessage)))
+
+			By("adding a second file, and updating the first file to the hooks watch directory")
+			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			updatedProvider, err := newTemplateSpecProvider("first-create", firstFile, updatedMessage)
+			Expect(err).ToNot(HaveOccurred())
+			// create a second file
+			newProvider, err := newTemplateSpecProvider("second-create", secondFile, secondMessage)
+			Expect(err).ToNot(HaveOccurred())
+
+			modifiedSpec := []v1alpha1.ConfigProviderSpec{
+				inlineConfigProviderSpec, // original hook
+				updatedProvider,          // first file updated
+				newProvider,              // second file created
+			}
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &modifiedSpec
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			// ensure we see our expected messages
+			logs, err = harness.ReadPrimaryVMAgentLogs("")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(logs).To(And(ContainSubstring(updatedMessage), ContainSubstring(secondMessage)))
+		})
 	})
 })
 
@@ -213,6 +278,16 @@ var sshdHook = `
     op: [created, updated, removed]
   run: sudo sshd -t
 `
+
+// templateHook defines a YAML configuration string that will print both the triggering Path and all updated files
+// to the logger
+var templateHook = `
+- if:
+  - path: /var/home/user/
+    op: [created, updated]
+  run: /usr/bin/bash -c "/usr/bin/logger \"${ Path }\"; for file in ${ Files }; do /usr/bin/logger -f \"$file\"; done;"
+`
+
 var mode = 0644
 var modePointer = &mode
 var inlineConfigSpec = v1alpha1.FileSpec{
@@ -290,7 +365,40 @@ var inlineConfigSpec7 = v1alpha1.FileSpec{
 	Content: beforeUpdatingContent,
 }
 
+var inlineTemplateHookConfigSpec = v1alpha1.FileSpec{
+	Path:    hookPath,
+	Mode:    modePointer,
+	Content: templateHook,
+}
+
 var inlineConfigValidLifecycle = v1alpha1.InlineConfigProviderSpec{
 	Inline: []v1alpha1.FileSpec{inlineConfigSpec4, inlineConfigSpec5, inlineConfigSpec6, inlineConfigSpec7},
 	Name:   inlineConfigLifecycleName,
+}
+
+var inlineConfigValidTemplateLifeCycle = v1alpha1.InlineConfigProviderSpec{
+	Inline: []v1alpha1.FileSpec{inlineTemplateHookConfigSpec},
+	Name:   inlineConfigLifecycleName,
+}
+
+const (
+	templateHookDirectory = "/var/home/user"
+)
+
+func newTemplateSpecProvider(name string, path string, contents string) (v1alpha1.ConfigProviderSpec, error) {
+	var inlineResourceFileSpec = v1alpha1.FileSpec{
+		Path:    fmt.Sprintf("%s/%s", templateHookDirectory, path),
+		Mode:    modePointer,
+		Content: contents,
+	}
+	inlineSpec := v1alpha1.InlineConfigProviderSpec{
+		Inline: []v1alpha1.FileSpec{inlineResourceFileSpec},
+		Name:   name,
+	}
+	var provider v1alpha1.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(inlineSpec)
+	if err != nil {
+		return provider, err
+	}
+	return provider, nil
 }
