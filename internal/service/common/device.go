@@ -110,7 +110,7 @@ func isRebootingServerSideDeviceStatus(device *api.Device, oldStatus api.DeviceS
 	return ResourceUpdates{}
 }
 
-func resourcesCpu(cpu, oldCpu api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, allDevicesWereUnknown bool, deviceUpdates *ResourceUpdates) {
+func resourcesCpu(cpu, oldCpu api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, deviceUpdates *ResourceUpdates) {
 	var deviceUpdate ResourceUpdate
 	switch cpu {
 	case api.DeviceResourceStatusCritical:
@@ -131,12 +131,13 @@ func resourcesCpu(cpu, oldCpu api.DeviceResourceStatusType, resourceErrors *[]st
 			UpdateDetails: CPUIsNormal,
 		}
 	}
-	if !allDevicesWereUnknown && oldCpu != cpu {
+	// Generate events for all transitions except Unknown -> Healthy (normal startup)
+	if oldCpu != cpu && !(oldCpu == api.DeviceResourceStatusUnknown && cpu == api.DeviceResourceStatusHealthy) {
 		*deviceUpdates = append(*deviceUpdates, deviceUpdate)
 	}
 }
 
-func resourcesMemory(memory, oldMemory api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, allDevicesWereUnknown bool, deviceUpdates *ResourceUpdates) {
+func resourcesMemory(memory, oldMemory api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, deviceUpdates *ResourceUpdates) {
 	var deviceUpdate ResourceUpdate
 	switch memory {
 	case api.DeviceResourceStatusCritical:
@@ -157,21 +158,20 @@ func resourcesMemory(memory, oldMemory api.DeviceResourceStatusType, resourceErr
 			UpdateDetails: MemoryIsNormal,
 		}
 	}
-	if !allDevicesWereUnknown && oldMemory != memory {
+	// Generate events for all transitions except Unknown -> Healthy (normal startup)
+	if oldMemory != memory && !(oldMemory == api.DeviceResourceStatusUnknown && memory == api.DeviceResourceStatusHealthy) {
 		*deviceUpdates = append(*deviceUpdates, deviceUpdate)
 	}
 }
 
-func resourcesDisk(disk, oldDisk api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, allDevicesWereUnknown bool, deviceUpdates *ResourceUpdates) {
+func resourcesDisk(disk, oldDisk api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, deviceUpdates *ResourceUpdates) {
 	var deviceUpdate ResourceUpdate
 	switch disk {
 	case api.DeviceResourceStatusCritical:
 		*resourceErrors = append(*resourceErrors, DiskIsCritical) // TODO: add current threshold (>X% for more than Y minutes)
-		if !allDevicesWereUnknown && oldDisk != disk {
-			deviceUpdate = ResourceUpdate{
-				Reason:        api.EventReasonDeviceDiskCritical,
-				UpdateDetails: DiskIsCritical,
-			}
+		deviceUpdate = ResourceUpdate{
+			Reason:        api.EventReasonDeviceDiskCritical,
+			UpdateDetails: DiskIsCritical,
 		}
 	case api.DeviceResourceStatusWarning:
 		*resourceDegradations = append(*resourceDegradations, DiskIsWarning) // TODO: add current threshold (>X% for more than Y minutes)
@@ -185,7 +185,8 @@ func resourcesDisk(disk, oldDisk api.DeviceResourceStatusType, resourceErrors *[
 			UpdateDetails: DiskIsNormal,
 		}
 	}
-	if !allDevicesWereUnknown && oldDisk != disk {
+	// Generate events for all transitions except Unknown -> Healthy (normal startup)
+	if oldDisk != disk && !(oldDisk == api.DeviceResourceStatusUnknown && disk == api.DeviceResourceStatusHealthy) {
 		*deviceUpdates = append(*deviceUpdates, deviceUpdate)
 	}
 }
@@ -206,22 +207,20 @@ func updateServerSideDeviceStatus(device, oldDevice *api.Device) (bool, Resource
 	resourceErrors := []string{}
 	resourceDegradations := []string{}
 	var (
-		allDevicesWereUnknown = false
-		oldCpu                = api.DeviceResourceStatusUnknown
-		oldMemory             = api.DeviceResourceStatusUnknown
-		oldDisk               = api.DeviceResourceStatusUnknown
-		deviceUpdates         ResourceUpdates
+		oldCpu        = api.DeviceResourceStatusUnknown
+		oldMemory     = api.DeviceResourceStatusUnknown
+		oldDisk       = api.DeviceResourceStatusUnknown
+		deviceUpdates ResourceUpdates
 	)
 	if oldDevice != nil && oldDevice.Status != nil {
 		oldCpu = oldDevice.Status.Resources.Cpu
 		oldMemory = oldDevice.Status.Resources.Memory
 		oldDisk = oldDevice.Status.Resources.Disk
-		allDevicesWereUnknown = oldCpu == api.DeviceResourceStatusUnknown && oldMemory == api.DeviceResourceStatusUnknown && oldDisk == api.DeviceResourceStatusUnknown
 	}
 
-	resourcesCpu(device.Status.Resources.Cpu, oldCpu, &resourceErrors, &resourceDegradations, allDevicesWereUnknown, &deviceUpdates)
-	resourcesMemory(device.Status.Resources.Memory, oldMemory, &resourceErrors, &resourceDegradations, allDevicesWereUnknown, &deviceUpdates)
-	resourcesDisk(device.Status.Resources.Disk, oldDisk, &resourceErrors, &resourceDegradations, allDevicesWereUnknown, &deviceUpdates)
+	resourcesCpu(device.Status.Resources.Cpu, oldCpu, &resourceErrors, &resourceDegradations, &deviceUpdates)
+	resourcesMemory(device.Status.Resources.Memory, oldMemory, &resourceErrors, &resourceDegradations, &deviceUpdates)
+	resourcesDisk(device.Status.Resources.Disk, oldDisk, &resourceErrors, &resourceDegradations, &deviceUpdates)
 
 	switch {
 	case len(resourceErrors) > 0:
@@ -378,6 +377,7 @@ func updateServerSideApplicationStatus(device, oldDevice *api.Device) (bool, Res
 	if oldDevice != nil && oldDevice.Status != nil {
 		oldStatus = oldDevice.Status.ApplicationsSummary.Status
 	}
+
 	lastApplicationSummaryStatus := device.Status.ApplicationsSummary.Status
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusUnknown
@@ -413,6 +413,7 @@ func updateServerSideApplicationStatus(device, oldDevice *api.Device) (bool, Res
 			appDegradations = append(appDegradations, fmt.Sprintf("%s is in status %s", app.Name, string(app.Status)))
 		}
 	}
+
 	switch {
 	case len(device.Status.Applications) == 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
@@ -451,6 +452,7 @@ func updateServerSideApplicationStatus(device, oldDevice *api.Device) (bool, Res
 			})
 		}
 	}
+
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus, deviceUpdates
 }
 
