@@ -12,6 +12,11 @@ permissions:
   contents: read
   pull-requests: read
 
+env:
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+
 jobs:
   # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
   smoke:
@@ -33,13 +38,46 @@ jobs:
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
+      - name: Cache Go modules
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache DNF packages
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-smoke
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
+      - name: Cache bootc-image-builder
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-smoke-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-smoke-
+
       - name: Create cluster
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make cluster
 
       - name: Deploy
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: DISABLE_FIPS="true" make deploy
+        run: DISABLE_FIPS="true" GITHUB_ACTIONS=false make deploy
 
       - name: Check
         if: ${{ steps.filter.outputs.notdocs == 'true' }}

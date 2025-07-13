@@ -1,6 +1,6 @@
 <domain type="kvm" xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0">
   <name>{{.Name}}</name>
-  <memory unit="MiB">512</memory>
+  <memory unit="MiB">1024</memory>
   <memoryBacking>
     <source type="memfd"/>
     <access mode="shared"/>
@@ -40,11 +40,10 @@
       <target type='serial' port='0'/>
       <alias name='serial0'/>
     </console>
-    <disk device="disk" type="file">
+    <disk device="disk" type="file" snapshot='external'>
       <driver name="qemu" type="qcow2"></driver>
       <source file="{{.DiskImagePath}}"></source>
       <target bus="virtio" dev="vda"></target>
-      <transient/>
     </disk>
     {{.CloudInitCDRom}}
     <rng model='virtio'>

@@ -1,18 +1,47 @@
+# Enable BuildKit for all container builds
+export DOCKER_BUILDKIT=1
+export BUILDKIT_PROGRESS=plain
+
+# --- Container Registry Configuration ---
+# Use environment variables if they exist, otherwise use these defaults.
+# This allows the CI pipeline to easily override them.
+REGISTRY      ?= localhost
+REGISTRY_OWNER ?= flightctl
+GITHUB_ACTIONS ?= false
+
+# --- Cache Configuration ---
+# Always use caching with localhost defaults for local builds
+# In CI, REGISTRY and REGISTRY_OWNER will be overridden
+CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
+
+# Function to generate cache flags for a specific image
+# Only returns cache flags if GITHUB_ACTIONS is true
+ ifeq ($(GITHUB_ACTIONS),true)
+ define CACHE_FLAGS_FOR_IMAGE
+ $(subst %,$(1),$(CACHE_FLAGS_TEMPLATE))
+ endef
+ else
+ define CACHE_FLAGS_FOR_IMAGE
+ 
+ endef
+ endif
+
+
+
 GOBASE=$(shell pwd)
 GOBIN=$(GOBASE)/bin/
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
 GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*")
-GO_CACHE := -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -v $${HOME}/go/flightctl-go-cache/.cache:/opt/app-root/src/.cache:Z
 TIMEOUT ?= 30m
 GOOS := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell git describe --tags --exclude latest)
+SOURCE_GIT_TAG ?=$(shell git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
-SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null)
+SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
 SOURCE_GIT_TAG_NO_V := $(shell echo $(SOURCE_GIT_TAG) | sed 's/^v//')
 MAJOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
@@ -75,10 +104,27 @@ help:
 	@echo "    deploy-quadlets: deploy the complete Flight Control service using Quadlets"
 	@echo "                     (includes proper startup ordering: DB -> KV -> other services)"
 	@echo "    clean:           clean up all containers and volumes"
+	@echo "    clean-all:       full cleanup including containers and bin directory"
+	@echo "    rebuild-containers: force rebuild all containers"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
+	@echo ""
+	@echo "CI/CD Targets:"
+	@echo "    login:           login to container registry (requires REGISTRY_USER env var)"
+	@echo "    push-containers: push all containers to registry"
+	@echo "    ci-build:        full CI build and push process"
+	@echo ""
+	@echo "Environment Variables for CI:"
+	@echo "    REGISTRY:        container registry (default: localhost)"
+	@echo "    REGISTRY_OWNER:  registry owner/organization (default: flightctl)"
+	@echo "    REGISTRY_USER:   registry username for login"
+	@echo "    GITHUB_ACTIONS:  set to 'true' to enable container build caching"
+	@echo ""
+	@echo "Caching Strategy:"
+	@echo "    Uses GitHub Actions cache (type=gha) for CI builds"
+	@echo "    Cache flags only added when GITHUB_ACTIONS=true"
 
 .PHONY: publish
 publish: build-containers
@@ -141,77 +187,107 @@ build-userinfo-proxy: bin
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
 
-# rebuild container only on source changes
-bin/.flightctl-base-container: bin hack/build_flightctl-base.sh
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	buildah unshare hack/build_flightctl-base.sh
-	touch bin/.flightctl-base-container
-
-bin/.flightctl-api-container: bin Containerfile.api go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build \
+# Container builds - Environment-aware caching
+flightctl-api-container: Containerfile.api go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-api) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.api $(GO_CACHE) -t flightctl-api:latest
-	touch bin/.flightctl-api-container
+		-f Containerfile.api -t flightctl-api:latest
 
-bin/.flightctl-db-setup-container: bin Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
-	podman build \
+flightctl-db-setup-container: Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-db-setup) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.db-setup \
 		-t flightctl-db-setup:latest .
-	touch bin/.flightctl-db-setup-container
 
-bin/.flightctl-worker-container: bin Containerfile.worker go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.worker $(GO_CACHE) -t flightctl-worker:latest
-	touch bin/.flightctl-worker-container
+flightctl-worker-container: Containerfile.worker go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-worker) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.worker -t flightctl-worker:latest
 
-bin/.flightctl-periodic-container: bin Containerfile.periodic go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.periodic $(GO_CACHE) -t flightctl-periodic:latest
-	touch bin/.flightctl-periodic-container
+flightctl-periodic-container: Containerfile.periodic go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-periodic) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.periodic -t flightctl-periodic:latest
 
-bin/.flightctl-alert-exporter-container: bin Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.alert-exporter $(GO_CACHE) -t flightctl-alert-exporter:latest
-	touch bin/.flightctl-alert-exporter-container
+flightctl-alert-exporter-container: Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-alert-exporter) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.alert-exporter -t flightctl-alert-exporter:latest
 
-bin/.flightctl-alertmanager-proxy-container: bin Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.alertmanager-proxy $(GO_CACHE) -t flightctl-alertmanager-proxy:latest
-	touch bin/.flightctl-alertmanager-proxy-container
+flightctl-alertmanager-proxy-container: Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-alertmanager-proxy) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.alertmanager-proxy -t flightctl-alertmanager-proxy:latest
 
-bin/.flightctl-multiarch-cli-container: bin Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
-	touch bin/.flightctl-multiarch-cli-container
+flightctl-multiarch-cli-container: Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-cli-artifacts) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.cli-artifacts -t flightctl-cli-artifacts:latest
 
-bin/.flightctl-userinfo-proxy-container: bin Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.userinfo-proxy $(GO_CACHE) -t flightctl-userinfo-proxy:latest
-	touch bin/.flightctl-userinfo-proxy-container
+flightctl-userinfo-proxy-container: Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-userinfo-proxy) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.userinfo-proxy -t flightctl-userinfo-proxy:latest
 
-flightctl-base-container: bin/.flightctl-base-container
+.PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
 
-flightctl-api-container: bin/.flightctl-api-container
+# --- Registry Operations ---
+# The login target expects REGISTRY_USER via environment variable and
+# REGISTRY_PASSWORD via standard input for security.
+login:
+	@echo "--- Logging into registry: $(REGISTRY) ---"
+	@if [ -z "$(REGISTRY_USER)" ]; then \
+		echo "Error: REGISTRY_USER environment variable not set."; \
+		exit 1; \
+	fi
+	@echo "Piping password to podman login for user $(REGISTRY_USER)..."
+	@cat /dev/stdin | podman login -u "$(REGISTRY_USER)" --password-stdin $(REGISTRY)
 
-flightctl-db-setup-container: bin/.flightctl-db-setup-container
+# Push all containers to registry
+push-containers: login
+	@echo "--- Pushing all containers to registry ---"
+	podman push flightctl-api:latest
+	podman push flightctl-db-setup:latest
+	podman push flightctl-worker:latest
+	podman push flightctl-periodic:latest
+	podman push flightctl-alert-exporter:latest
+	podman push flightctl-alertmanager-proxy:latest
+	podman push flightctl-cli-artifacts:latest
+	podman push flightctl-userinfo-proxy:latest
 
-flightctl-worker-container: bin/.flightctl-worker-container
+# A convenience target to run the full CI process.
+ci-build: build-containers push-containers
+	@echo "--- CI Build & Push Complete ---"
 
-flightctl-periodic-container: bin/.flightctl-periodic-container
+# Force rebuild all containers
+rebuild-containers: clean-containers build-containers
 
-flightctl-alert-exporter-container: bin/.flightctl-alert-exporter-container
-
-flightctl-alertmanager-proxy-container: bin/.flightctl-alertmanager-proxy-container
-
-flightctl-multiarch-cli-container: bin/.flightctl-multiarch-cli-container
-
-flightctl-userinfo-proxy-container: bin/.flightctl-userinfo-proxy-container
+# Clean only containers (preserve cluster and other artifacts)
+clean-containers:
+	- podman rmi flightctl-api:latest || true
+	- podman rmi flightctl-db-setup:latest || true
+	- podman rmi flightctl-worker:latest || true
+	- podman rmi flightctl-periodic:latest || true
+	- podman rmi flightctl-alert-exporter:latest || true
+	- podman rmi flightctl-alertmanager-proxy:latest || true
+	- podman rmi flightctl-cli-artifacts:latest || true
+	- podman rmi flightctl-userinfo-proxy:latest || true
 
 build-containers: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
 
@@ -259,10 +335,15 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 clean: clean-agent-vm clean-e2e-agent-images clean-quadlets
 	- kind delete cluster
 	- rm -r ~/.flightctl
-	- rm -f -r bin
 	- rm -f -r $(shell uname -m)
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
+# Qcow2 disk depends on the touch file
+bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
+
+# Full cleanup including bin directory and all artifacts
+clean-all: clean clean-containers
+	- rm -f -r bin
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
