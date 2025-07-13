@@ -44,7 +44,6 @@ type Service interface {
 	GetDeviceCompletionCounts(ctx context.Context, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, api.Status)
 	CountDevicesByLabels(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status)
 	GetDevicesSummary(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status)
-	UpdateDeviceSummaryStatusBatch(ctx context.Context, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) api.Status
 	UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool
 
 	// EnrollmentConfig
