@@ -337,7 +337,7 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 
 	// Wait for the device to pickup the new config and report measurements on device status.
 	logrus.Infof("Waiting for the device to pick the config")
-	h.WaitForDeviceContents(deviceId, "Waiting fot the device generation",
+	h.WaitForDeviceContents(deviceId, fmt.Sprintf("Waiting fot the device generation %d", newGeneration),
 		func(device *v1alpha1.Device) bool {
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
@@ -486,7 +486,8 @@ func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) 
 			device.Metadata.Labels = nil
 			return
 		}
-		devLabels := make(map[string]string, len(labels))
+		devLabels := make(map[string]string, len(labels)+1)
+		devLabels["test-id"] = h.GetTestIDFromContext()
 		for key, value := range labels {
 			devLabels[key] = value
 		}

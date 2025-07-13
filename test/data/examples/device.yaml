@@ -1,7 +1,7 @@
 apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
-  name: f62dfb4f5d2cdbb9339362b5f18f2ce268d75649bdc80003f0e04292a7ef8c3
+  name: f62dfb4f5d2cdbb9339362b5f18f2ce268d75649bdc80003f0e04292a7ef8c3-{{test_id}}
   labels:
     fleet: default
     region: eu-west-1

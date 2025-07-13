@@ -30,9 +30,18 @@ RUN if [[ -z $RPM_COPR ]]; then \
     fi && \
     systemctl enable flightctl-agent.service
 
-RUN dnf install -y epel-release epel-next-release
-RUN dnf install -y python-dotenv
-RUN dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y epel-release epel-next-release
+
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y python-dotenv
+
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service
@@ -61,3 +70,5 @@ RUN mkdir -p /etc/containers/registries.conf.d/ && \
     echo "[[registry]]" > /etc/containers/registries.conf.d/custom-registry.conf && \
     echo "location = \"${REGISTRY_ADDRESS}\"" >> /etc/containers/registries.conf.d/custom-registry.conf && \
     echo "insecure = true" >> /etc/containers/registries.conf.d/custom-registry.conf
+
+RUN echo -e "\nlog-level: trace" >> /etc/flightctl/config.yaml

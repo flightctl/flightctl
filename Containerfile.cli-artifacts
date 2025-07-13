@@ -1,24 +1,48 @@
 FROM registry.access.redhat.com/ubi9/go-toolset:1.23.9-1751538372 as builder
 WORKDIR /app
-COPY ./api api
-COPY ./cmd cmd
-COPY ./deploy deploy
-COPY ./hack hack
-COPY ./internal internal
-COPY ./go.* ./
-COPY ./pkg pkg
-COPY ./test test
-COPY ./packaging packaging
-COPY ./Makefile .
-# make sure that version extraction works
-COPY .git .git
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
 
+# Switch to root for build operations
 USER 0
-RUN dnf install --nodocs -y jq
-RUN make build-multiarch-clis
+
+# Copy dependencies first (most stable)
+COPY go.* ./
+COPY go.mod go.sum ./
+
+# Download dependencies (cached layer)
+RUN --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    go mod download
+
+# Copy build tools and configs
+COPY Makefile .
+
+# Copy source code directories
+COPY ./api ./api
+COPY ./cmd ./cmd
+COPY ./deploy ./deploy
+COPY ./hack ./hack
+COPY ./internal ./internal
+COPY ./pkg ./pkg
+COPY ./test ./test
+COPY ./packaging ./packaging
+
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install --nodocs -y jq
+
+# Use BuildKit cache mounts for Go caching
+RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
+    --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    make build-multiarch-clis
 
 FROM registry.access.redhat.com/ubi9/ubi as certs
-RUN dnf install --nodocs -y nginx && \
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install --nodocs -y nginx && \
     rm -f /etc/nginx/nginx.conf /etc/nginx/conf.d/default.conf && \
     dnf clean all
 
