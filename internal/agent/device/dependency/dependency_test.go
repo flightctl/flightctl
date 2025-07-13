@@ -106,10 +106,91 @@ func TestEnsureScheduled(t *testing.T) {
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "podman", []string{"image", "exists", "quay.io/test/artifact:latest"},
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/artifact:latest"},
 				).Return("", "", 1)
 			},
 			expectedError: errors.ErrPrefetchNotReady,
+		},
+		{
+			name: "artifact already exists returns ready",
+			targets: []OCIPullTarget{
+				{
+					Type:       OCITypeArtifact,
+					Reference:  "quay.io/test/existing-artifact:latest",
+					PullPolicy: v1alpha1.PullIfNotPresent,
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/existing-artifact:latest"},
+				).Return("", "", 0)
+			},
+		},
+		{
+			name: "mixed image and artifact targets with some missing",
+			targets: []OCIPullTarget{
+				{
+					Type:       OCITypeImage,
+					Reference:  "quay.io/test/existing-image:latest",
+					PullPolicy: v1alpha1.PullIfNotPresent,
+				},
+				{
+					Type:       OCITypeArtifact,
+					Reference:  "quay.io/test/missing-artifact:latest",
+					PullPolicy: v1alpha1.PullIfNotPresent,
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				// image exists
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"image", "exists", "quay.io/test/existing-image:latest"},
+				).Return("", "", 0)
+				// artifact doesn't exist
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/missing-artifact:latest"},
+				).Return("", "", 1)
+			},
+			expectedError: errors.ErrPrefetchNotReady,
+		},
+		{
+			name: "mixed image and artifact targets all existing",
+			targets: []OCIPullTarget{
+				{
+					Type:       OCITypeImage,
+					Reference:  "quay.io/test/existing-image:latest",
+					PullPolicy: v1alpha1.PullIfNotPresent,
+				},
+				{
+					Type:       OCITypeArtifact,
+					Reference:  "quay.io/test/existing-artifact:latest",
+					PullPolicy: v1alpha1.PullIfNotPresent,
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				// image exists
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"image", "exists", "quay.io/test/existing-image:latest"},
+				).Return("", "", 0)
+				// artifact exists
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/existing-artifact:latest"},
+				).Return("", "", 0)
+			},
+		},
+		{
+			name: "pull always policy with existing artifact returns ready",
+			targets: []OCIPullTarget{
+				{
+					Type:       OCITypeArtifact,
+					Reference:  "quay.io/test/always-artifact:latest",
+					PullPolicy: v1alpha1.PullAlways,
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/always-artifact:latest"},
+				).Return("", "", 0)
+			},
 		},
 		{
 			name: "pull always policy with existing image returns ready",
@@ -303,29 +384,22 @@ func TestStatus(t *testing.T) {
 }
 
 func TestBeforeUpdate(t *testing.T) {
-
 	tests := []struct {
 		name       string
-		current    *v1alpha1.DeviceSpec
-		desired    *v1alpha1.DeviceSpec
-		collectors []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)
+		collectors []func() ([]OCIPullTarget, error)
 		setupMocks func(*executer.MockExecuter)
 		wantErr    error
 	}{
 		{
-			name:    "no collectors registered",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
+			name: "no collectors registered",
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				// no mock calls expected
 			},
 		},
 		{
-			name:    "empty device specs with registered collectors",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
-			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+			name: "empty device specs with registered collectors",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
 					return []OCIPullTarget{}, nil
 				},
 			},
@@ -334,11 +408,9 @@ func TestBeforeUpdate(t *testing.T) {
 			},
 		},
 		{
-			name:    "single collector with missing images",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
-			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+			name: "single collector with missing images",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
@@ -364,11 +436,9 @@ func TestBeforeUpdate(t *testing.T) {
 			wantErr: errors.ErrPrefetchNotReady,
 		},
 		{
-			name:    "single collector with all images present",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
-			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+			name: "single collector with all images present",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
@@ -393,11 +463,9 @@ func TestBeforeUpdate(t *testing.T) {
 			},
 		},
 		{
-			name:    "single collector with mixed image availability",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
-			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+			name: "single collector with mixed image availability",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
@@ -423,12 +491,10 @@ func TestBeforeUpdate(t *testing.T) {
 			wantErr: errors.ErrPrefetchNotReady,
 		},
 		{
-			name:    "multiple collectors with different image sets",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
-			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
+			name: "multiple collectors with different image sets",
+			collectors: []func() ([]OCIPullTarget, error){
 				// app collector
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+				func() ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
@@ -443,7 +509,7 @@ func TestBeforeUpdate(t *testing.T) {
 					}, nil
 				},
 				// os collector
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+				func() ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
@@ -466,11 +532,9 @@ func TestBeforeUpdate(t *testing.T) {
 			},
 		},
 		{
-			name:    "collector returns error",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
-			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+			name: "collector returns error",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
 					return nil, fmt.Errorf("failed to collect OCI targets")
 				},
 			},
@@ -480,11 +544,9 @@ func TestBeforeUpdate(t *testing.T) {
 			wantErr: fmt.Errorf("prefetch collector 0 failed: failed to collect OCI targets"),
 		},
 		{
-			name:    "artifact target with missing image",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
-			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+			name: "artifact target with missing image",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
 							Type:       OCITypeArtifact,
@@ -496,17 +558,108 @@ func TestBeforeUpdate(t *testing.T) {
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "podman", []string{"image", "exists", "quay.io/test/artifact:latest"},
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/artifact:latest"},
 				).Return("", "", 1) // artifact doesn't exist
 			},
 			wantErr: errors.ErrPrefetchNotReady,
 		},
 		{
-			name:    "pull always policy with existing image",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
-			collectors: []func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error){
-				func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+			name: "artifact target with existing artifact",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
+					return []OCIPullTarget{
+						{
+							Type:       OCITypeArtifact,
+							Reference:  "quay.io/test/existing-artifact:latest",
+							PullPolicy: v1alpha1.PullIfNotPresent,
+						},
+					}, nil
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/existing-artifact:latest"},
+				).Return("", "", 0) // artifact exists
+			},
+		},
+		{
+			name: "mixed image and artifact targets with some missing",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
+					return []OCIPullTarget{
+						{
+							Type:       OCITypeImage,
+							Reference:  "quay.io/test/existing-image:latest",
+							PullPolicy: v1alpha1.PullIfNotPresent,
+						},
+						{
+							Type:       OCITypeArtifact,
+							Reference:  "quay.io/test/missing-artifact:latest",
+							PullPolicy: v1alpha1.PullIfNotPresent,
+						},
+					}, nil
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"image", "exists", "quay.io/test/existing-image:latest"},
+				).Return("", "", 0) // image exists
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/missing-artifact:latest"},
+				).Return("", "", 1) // artifact doesn't exist
+			},
+			wantErr: errors.ErrPrefetchNotReady,
+		},
+		{
+			name: "mixed image and artifact targets all existing",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
+					return []OCIPullTarget{
+						{
+							Type:       OCITypeImage,
+							Reference:  "quay.io/test/existing-image:latest",
+							PullPolicy: v1alpha1.PullIfNotPresent,
+						},
+						{
+							Type:       OCITypeArtifact,
+							Reference:  "quay.io/test/existing-artifact:latest",
+							PullPolicy: v1alpha1.PullIfNotPresent,
+						},
+					}, nil
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"image", "exists", "quay.io/test/existing-image:latest"},
+				).Return("", "", 0) // image exists
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/existing-artifact:latest"},
+				).Return("", "", 0) // artifact exists
+			},
+		},
+		{
+			name: "pull always policy with existing artifact",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
+					return []OCIPullTarget{
+						{
+							Type:       OCITypeArtifact,
+							Reference:  "quay.io/test/always-artifact:latest",
+							PullPolicy: v1alpha1.PullAlways,
+						},
+					}, nil
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/always-artifact:latest"},
+				).Return("", "", 0) // artifact exists, but PullAlways means we still need to pull
+			},
+		},
+		{
+			name: "pull always policy with existing image",
+			collectors: []func() ([]OCIPullTarget, error){
+				func() ([]OCIPullTarget, error) {
 					return []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
@@ -545,13 +698,15 @@ func TestBeforeUpdate(t *testing.T) {
 
 			// Register collectors
 			for _, collector := range tt.collectors {
-				manager.RegisterOCICollector(newTestOCICollector(collector))
+				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+					return collector()
+				}))
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			err := manager.BeforeUpdate(ctx, tt.current, tt.desired)
+			err := manager.BeforeUpdate(ctx, &v1alpha1.DeviceSpec{}, &v1alpha1.DeviceSpec{})
 			if tt.wantErr != nil {
 				require.Error(err)
 				if errors.Is(tt.wantErr, errors.ErrPrefetchNotReady) {

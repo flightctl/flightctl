@@ -212,6 +212,16 @@ func (p *Podman) ImageExists(ctx context.Context, image string) bool {
 	return exitCode == 0
 }
 
+// ArtifactExists returns true if the artifact exists in storage otherwise false.
+func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"artifact", "inspect", artifact}
+	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	return exitCode == 0
+}
+
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().
 // When the events are in sync with the current time a sync event is emitted.
 func (p *Podman) EventsSinceCmd(ctx context.Context, events []string, sinceTime string) *exec.Cmd {
