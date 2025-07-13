@@ -1,12 +1,9 @@
 package hooks
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -14,21 +11,11 @@ import (
 
 var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceId string
 	)
 
 	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-		deviceId = harness.StartVMAndEnroll()
-	})
-
-	AfterEach(func() {
-		harness.Cleanup(true)
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
+		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
 	Context("hooks", func() {
@@ -167,12 +154,16 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that in the device logs the hooks were triggered")
-			logs, err := harness.ReadPrimaryVMAgentLogs("")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(logs).To(ContainSubstring("this is a test message from afterupdating hook"))
-			Expect(logs).To(ContainSubstring("this is a test message from afterrebooting hook"))
-			Expect(logs).To(ContainSubstring("this is a test message from beforerebooting hook"))
-			Expect(logs).To(ContainSubstring("this is a test message from beforeupdating hook"))
+			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
+				WithArguments("").
+				Should(
+					SatisfyAll(
+						ContainSubstring("this is a test message from afterupdating hook"),
+						ContainSubstring("this is a test message from afterrebooting hook"),
+						ContainSubstring("this is a test message from beforerebooting hook"),
+						ContainSubstring("this is a test message from beforeupdating hook"),
+					),
+				)
 		})
 		It("Verifies that lifecycle hooks can be defined with template variables", Label("80022"), func() {
 			const (
@@ -214,9 +205,14 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 			// ensure we see our expected messages
-			logs, err := harness.ReadPrimaryVMAgentLogs("")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(logs).To(And(ContainSubstring(templateHookDirectory), ContainSubstring(firstFileContents)))
+			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
+				WithArguments("").
+				Should(
+					SatisfyAll(
+						ContainSubstring(templateHookDirectory),
+						ContainSubstring(firstFileContents),
+					),
+				)
 
 			By("adding a second file, and updating the first file to the hooks watch directory")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -240,9 +236,14 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// ensure we see our expected messages
-			logs, err = harness.ReadPrimaryVMAgentLogs("")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(logs).To(And(ContainSubstring(firstFileUpdatedContents), ContainSubstring(secondFileContents)))
+			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
+				WithArguments("").
+				Should(
+					SatisfyAll(
+						ContainSubstring(firstFileUpdatedContents),
+						ContainSubstring(secondFileContents),
+					),
+				)
 		})
 	})
 })

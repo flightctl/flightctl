@@ -1,6 +1,9 @@
 FROM registry.access.redhat.com/ubi9/ubi:latest
 
-RUN dnf install -y git git-core openssh-server
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y git git-core openssh-server
 RUN ssh-keygen -A
 
 

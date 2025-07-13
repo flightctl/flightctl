@@ -1,53 +1,24 @@
 package label_selectors
 
 import (
-	"context"
 	"fmt"
 	"strings"
-	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-var (
-	suiteCtx context.Context
-	ctx      context.Context
-)
-
-var _ = BeforeSuite(func() {
-	suiteCtx = testutil.InitSuiteTracerForGinkgo("Label Selectors E2E Suite")
-})
-
-func TestLabelSelectors(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Label Selectors E2E Suite")
-}
-
 var _ = Describe("Label Selectors", Label("integration", "78751"), func() {
 	var (
-		harness         *e2e.Harness
 		expectedDevices []*api.Device
-	)
-
-	const (
-		uniqueLabelKey = "unique"
-		deviceCount    = 10
 	)
 
 	BeforeEach(func() {
 		expectedDevices = nil
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-	})
-
-	AfterEach(func() {
-		Expect(resources.DeleteAll(harness, expectedDevices, nil, nil)).To(Succeed())
 	})
 
 	Context("Filter devices by label value", func() {

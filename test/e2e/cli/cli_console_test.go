@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,8 +9,8 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/login"
-	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -27,23 +26,17 @@ const (
 // Console test-suite
 // -----------------------------------------------------------------------------
 
-var _ = Describe("CLI - device console", Serial, func() {
+var _ = Describe("CLI - device console", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceID string
 	)
 
 	BeforeEach(func() {
-		ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
 		login.LoginToAPIWithToken(harness)
 
-		By("booting a VM and enrolling the device")
-		deviceID = harness.StartVMAndEnroll()
+		By("enrolling the device")
+		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
-
-	AfterEach(func() { harness.Cleanup(false) })
 
 	It("connects to a device and executes a simple command", Label("80483", "sanity"), func() {
 		cs := harness.NewConsoleSession(deviceID)
@@ -146,8 +139,13 @@ var _ = Describe("CLI - device console", Serial, func() {
 
 		By("waiting for publisher logs with the new interval")
 		// Wait for the target log messages to appear
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
+		opts := vm.JournalOpts{
+			Unit:     "flightctl-agent",
+			Since:    logLookbackDuration,
+			LastBoot: true,
+		}
+		eventuallySlow(harness.VM.JournalLogs).
+			WithArguments(opts).
 			Should(And(
 				ContainSubstring("No new template version from management service"),
 				ContainSubstring("publisher.go"),

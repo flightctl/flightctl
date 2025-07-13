@@ -10,6 +10,7 @@ ifeq ($(SPEC_FETCH_INTERVAL),)
 	SPEC_FETCH_INTERVAL := 0m2s
 endif
 
+# Create kind cluster if it doesn't exist (idempotent)
 cluster: bin/e2e-certs/ca.pem
 	test/scripts/install_kind.sh
 	kind get clusters | grep kind || test/scripts/create_cluster.sh
@@ -17,7 +18,7 @@ cluster: bin/e2e-certs/ca.pem
 clean-cluster:
 	kind delete cluster
 
-deploy: cluster build-cli deploy-helm deploy-e2e-extras prepare-agent-config
+deploy: cluster build-containers build-cli deploy-helm prepare-agent-config
 
 redeploy-api: flightctl-api-container
 	test/scripts/redeploy.sh api
@@ -34,7 +35,7 @@ redeploy-alert-exporter: flightctl-alert-exporter-container
 redeploy-alertmanager-proxy: flightctl-alertmanager-proxy-container
 	test/scripts/redeploy.sh alertmanager-proxy
 
-deploy-helm: git-server-container flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container
+deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
