@@ -3,15 +3,12 @@ package field_selectors
 import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
-	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Field Selectors Extension", Label("integration", "82219"), func() {
 	var (
-		harness              *e2e.Harness
 		expectedDevices      []*api.Device
 		expectedFleets       []*api.Fleet
 		expectedRepositories []*api.Repository
@@ -21,12 +18,6 @@ var _ = Describe("Field Selectors Extension", Label("integration", "82219"), fun
 		expectedDevices = nil
 		expectedFleets = nil
 		expectedRepositories = nil
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-	})
-
-	AfterEach(func() {
-		Expect(resources.DeleteAll(harness, expectedDevices, expectedFleets, expectedRepositories)).To(Succeed())
 	})
 
 	Context("Supported fields validation", func() {

@@ -23,6 +23,13 @@ func CreateDevice(harness *e2e.Harness, name string, labels *map[string]string) 
 		},
 	}
 
+	// Ensure test-id label is preserved
+	if labels != nil {
+		harness.SetLabelsForDeviceMetadata(&device.Metadata, *labels)
+	} else {
+		harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{})
+	}
+
 	yamlStr, err := marshalToString(device)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal device: %w", err)
@@ -64,6 +71,13 @@ func CreateFleet(harness *e2e.Harness, name string, templateImage string, labels
 				},
 			},
 		},
+	}
+
+	// Ensure test-id label is preserved
+	if labels != nil {
+		harness.SetLabelsForFleetMetadata(&fleet.Metadata, *labels)
+	} else {
+		harness.SetLabelsForFleetMetadata(&fleet.Metadata, map[string]string{})
 	}
 
 	yamlStr, err := marshalToString(fleet)

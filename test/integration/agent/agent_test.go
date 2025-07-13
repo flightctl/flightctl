@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	TIMEOUT = "60s"
+	TIMEOUT = "5m"
 	POLLING = "250ms"
 )
 

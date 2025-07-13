@@ -29,6 +29,7 @@ _integration_test: $(REPORTS)
 
 _e2e_test: $(REPORTS)
 	sudo chown $(shell whoami):$(shell whoami) -R bin/output
+	test/scripts/setup_e2e_environment.sh
 	test/scripts/run_e2e_tests.sh "$(REPORTS)" $(GO_E2E_DIRS)
 
 _unit_test: $(REPORTS)
@@ -71,8 +72,25 @@ deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 deploy-e2e-ocp-test-vm:
 	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
 
-prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
+prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2 build-e2e-containers
 	./test/scripts/prepare_cli.sh
+
+# Build E2E containers with Docker caching
+build-e2e-containers: git-server-container e2e-agent-images
+	@echo "Building E2E containers with Docker caching..."
+
+# Ensure git-server container is built with proper caching
+git-server-container: bin/e2e-certs/ca.pem
+	@echo "Building git-server container with Docker caching..."
+	test/scripts/prepare_git_server.sh
+	@if test/scripts/functions in_kind; then \
+		echo "Loading git-server into kind cluster..."; \
+		source test/scripts/functions && kind_load_image localhost/git-server:latest; \
+	fi
+
+# Build E2E agent images with proper caching
+e2e-agent-images: bin/.e2e-agent-images
+	@echo "E2E agent images already built and up to date"
 
 in-cluster-e2e-test: prepare-e2e-test
 	$(MAKE) _e2e_test
@@ -80,9 +98,13 @@ in-cluster-e2e-test: prepare-e2e-test
 e2e-test: deploy bin/output/qcow2/disk.qcow2
 	$(MAKE) _e2e_test
 
+# Run e2e tests with optional parallel execution
+# Set GINKGO_PROCS to control number of parallel processes (defaults to number of CPU cores)
+# Set GINKGO_OUTPUT_INTERCEPTOR_MODE to control parallel output (defaults to "dup" for full output)
+# Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_PROCS=4
+# Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_OUTPUT_INTERCEPTOR_MODE=swap
 run-e2e-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
-
 
 view-coverage: $(REPORTS)/unit-coverage.out $(REPORTS)/unit-coverage.out
 	# TODO: merge unit and integration coverage reports
@@ -92,11 +114,11 @@ test: unit-test integration-test e2e-test
 
 run-test: unit-test run-intesgration-test
 
+# Create E2E certificates and SSH keys
 bin/e2e-certs/ca.pem bin/.ssh/id_rsa.pub:
 	test/scripts/create_e2e_certs.sh
 
-git-server-container: bin/.ssh/id_rsa.pub
-	test/scripts/prepare_git_server.sh
+
 
 .PHONY: test run-test git-server-container
 
