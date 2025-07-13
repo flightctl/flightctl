@@ -17,11 +17,27 @@ import (
 
 var (
 	suiteCtx context.Context
-	ctx      context.Context
+	harness  *e2e.Harness
 )
 
 var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Label Selectors E2E Suite")
+
+	// Create harness using VM pool function but without getting a VM
+	var err error
+	harness, err = e2e.NewTestHarnessWithVMPool(suiteCtx, 0)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Remove the VM since this test doesn't need it
+	harness.VM = nil
+})
+
+var _ = AfterSuite(func() {
+	if harness != nil {
+		harness.Cleanup(false)
+		err := harness.CleanUpAllResources()
+		Expect(err).ToNot(HaveOccurred())
+	}
 })
 
 func TestLabelSelectors(t *testing.T) {
@@ -42,8 +58,6 @@ var _ = Describe("Label Selectors", Label("integration", "78751"), func() {
 
 	BeforeEach(func() {
 		expectedDevices = nil
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
 	})
 
 	AfterEach(func() {

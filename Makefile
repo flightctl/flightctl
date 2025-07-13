@@ -1,9 +1,12 @@
+# Enable BuildKit for all container builds
+export DOCKER_BUILDKIT=1
+export BUILDKIT_PROGRESS=plain
+
 GOBASE=$(shell pwd)
 GOBIN=$(GOBASE)/bin/
 GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
 GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*")
-GO_CACHE := -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -v $${HOME}/go/flightctl-go-cache/.cache:/opt/app-root/src/.cache:Z
 TIMEOUT ?= 30m
 GOOS := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
@@ -19,26 +22,7 @@ MAJOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
 MINOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$2}')
 PATCH := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$3}')
 
-# If a FIPS-validated Go toolset is found, build in FIPS mode unless explicitly disabled by the user using DISABLE_FIPS="true"
-FIPS_VALIDATED_TOOLSET := $(shell go env GOVERSION | grep -q "Red Hat"; if [ $$? -eq 0 ]; then echo "true"; fi)
-GOENV := CGO_ENABLED=0
-ifeq ($(FIPS_VALIDATED_TOOLSET),true)
-	ifneq ($(DISABLE_FIPS),true)
-		GOENV := CGO_ENABLED=1 CGO_CFLAGS=-flto GOEXPERIMENT=strictfipsruntime
-	endif
-endif
-
-ifeq ($(DEBUG),true)
-	# throw all the debug info in!
-	LD_FLAGS :=
-	GC_FLAGS := -gcflags "all=-N -l"
-else
-	# strip everything we can
-	LD_FLAGS := -w -s
-	GC_FLAGS :=
-endif
-
-GO_LD_FLAGS := $(GC_FLAGS) -ldflags "\
+GO_LD_FLAGS := -ldflags "\
 	-X github.com/flightctl/flightctl/pkg/version.majorFromGit=$(MAJOR) \
 	-X github.com/flightctl/flightctl/pkg/version.minorFromGit=$(MINOR) \
 	-X github.com/flightctl/flightctl/pkg/version.patchFromGit=$(PATCH) \
@@ -75,6 +59,8 @@ help:
 	@echo "    deploy-quadlets: deploy the complete Flight Control service using Quadlets"
 	@echo "                     (includes proper startup ordering: DB -> KV -> other services)"
 	@echo "    clean:           clean up all containers and volumes"
+	@echo "    clean-all:       full cleanup including containers and bin directory"
+	@echo "    rebuild-containers: force rebuild all containers"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
@@ -94,7 +80,7 @@ tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy -v'
 
 build: bin build-cli
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
+	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
 		./cmd/devicesimulator \
 		./cmd/flightctl-agent \
 		./cmd/flightctl-api \
@@ -106,112 +92,112 @@ build: bin build-cli
 		./cmd/flightctl-db-migrate
 
 bin/flightctl-agent: bin $(GO_FILES)
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
+	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
+		./cmd/flightctl-agent
 
 build-cli: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
 
 build-multiarch-clis: bin
 	./hack/build_multiarch_clis.sh
 
 build-agent: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
 
 build-api: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
 
 build-db-migrate: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-db-migrate
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-db-migrate
 
 build-worker: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
 
 build-periodic: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-periodic
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-periodic
 
 build-alert-exporter: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alert-exporter
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alert-exporter
 
 build-alertmanager-proxy: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alertmanager-proxy
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alertmanager-proxy
 
 build-userinfo-proxy: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-userinfo-proxy
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-userinfo-proxy
 
-build-devicesimulator: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
-
-# rebuild container only on source changes
-bin/.flightctl-base-container: bin hack/build_flightctl-base.sh
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	buildah unshare hack/build_flightctl-base.sh
-	touch bin/.flightctl-base-container
-
-bin/.flightctl-api-container: bin Containerfile.api go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
+# Container builds - Podman handles caching automatically
+flightctl-api-container: Containerfile.api go.mod go.sum $(GO_FILES)
 	podman build \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.api $(GO_CACHE) -t flightctl-api:latest
-	touch bin/.flightctl-api-container
+		-f Containerfile.api -t flightctl-api:latest
 
-bin/.flightctl-db-setup-container: bin Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
+flightctl-db-setup-container: Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
 	podman build \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.db-setup \
 		-t flightctl-db-setup:latest .
-	touch bin/.flightctl-db-setup-container
 
-bin/.flightctl-worker-container: bin Containerfile.worker go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.worker $(GO_CACHE) -t flightctl-worker:latest
-	touch bin/.flightctl-worker-container
+flightctl-worker-container: Containerfile.worker go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.worker -t flightctl-worker:latest
 
-bin/.flightctl-periodic-container: bin Containerfile.periodic go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.periodic $(GO_CACHE) -t flightctl-periodic:latest
-	touch bin/.flightctl-periodic-container
+flightctl-periodic-container: Containerfile.periodic go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.periodic -t flightctl-periodic:latest
 
-bin/.flightctl-alert-exporter-container: bin Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.alert-exporter $(GO_CACHE) -t flightctl-alert-exporter:latest
-	touch bin/.flightctl-alert-exporter-container
+flightctl-alert-exporter-container: Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.alert-exporter -t flightctl-alert-exporter:latest
 
-bin/.flightctl-alertmanager-proxy-container: bin Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.alertmanager-proxy $(GO_CACHE) -t flightctl-alertmanager-proxy:latest
-	touch bin/.flightctl-alertmanager-proxy-container
+flightctl-alertmanager-proxy-container: Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.alertmanager-proxy -t flightctl-alertmanager-proxy:latest
 
-bin/.flightctl-multiarch-cli-container: bin Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
-	touch bin/.flightctl-multiarch-cli-container
+flightctl-multiarch-cli-container: Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.cli-artifacts -t flightctl-cli-artifacts:latest
 
-bin/.flightctl-userinfo-proxy-container: bin Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
-	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.userinfo-proxy $(GO_CACHE) -t flightctl-userinfo-proxy:latest
-	touch bin/.flightctl-userinfo-proxy-container
+flightctl-userinfo-proxy-container: Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.userinfo-proxy -t flightctl-userinfo-proxy:latest
 
-flightctl-base-container: bin/.flightctl-base-container
+.PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
 
-flightctl-api-container: bin/.flightctl-api-container
+# Force rebuild all containers
+rebuild-containers: clean-containers build-containers
 
-flightctl-db-setup-container: bin/.flightctl-db-setup-container
-
-flightctl-worker-container: bin/.flightctl-worker-container
-
-flightctl-periodic-container: bin/.flightctl-periodic-container
-
-flightctl-alert-exporter-container: bin/.flightctl-alert-exporter-container
-
-flightctl-alertmanager-proxy-container: bin/.flightctl-alertmanager-proxy-container
-
-flightctl-multiarch-cli-container: bin/.flightctl-multiarch-cli-container
-
-flightctl-userinfo-proxy-container: bin/.flightctl-userinfo-proxy-container
+# Clean only containers (preserve cluster and other artifacts)
+clean-containers:
+	- podman rmi flightctl-api:latest || true
+	- podman rmi flightctl-db-setup:latest || true
+	- podman rmi flightctl-worker:latest || true
+	- podman rmi flightctl-periodic:latest || true
+	- podman rmi flightctl-alert-exporter:latest || true
+	- podman rmi flightctl-alertmanager-proxy:latest || true
+	- podman rmi flightctl-cli-artifacts:latest || true
+	- podman rmi flightctl-userinfo-proxy:latest || true
 
 build-containers: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
 
@@ -259,10 +245,13 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 clean: clean-agent-vm clean-e2e-agent-images clean-quadlets
 	- kind delete cluster
 	- rm -r ~/.flightctl
-	- rm -f -r bin
 	- rm -f -r $(shell uname -m)
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
+
+# Full cleanup including bin directory and all artifacts
+clean-all: clean clean-containers
+	- rm -f -r bin
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh

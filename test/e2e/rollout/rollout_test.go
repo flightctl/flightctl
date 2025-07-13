@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -22,12 +23,6 @@ var _ = Describe("Rollout Policies", func() {
 		// Initialize the test context
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		tc = setupTestContext(ctx)
-	})
-
-	AfterEach(func() {
-		// Cleanup the test context
-		err := tc.cleanup()
-		Expect(err).ToNot(HaveOccurred(), "Failed to clean up test context")
 	})
 
 	Context("Multi Device Selection", Label("79648"), func() {
@@ -503,7 +498,6 @@ type TestContext struct {
 }
 
 func setupTestContext(ctx context.Context) *TestContext {
-	harness := e2e.NewTestHarness(ctx)
 	extIP := harness.RegistryEndpoint()
 	sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
 
@@ -532,17 +526,21 @@ func (tc *TestContext) setupFleetAndDevices(numDevices int, labelsList []map[str
 		return err
 	}
 
-	tc.deviceIDs, err = tc.harness.StartMultipleVMAndEnroll(numDevices)
-	if err != nil {
-		return err
+	// Create multiple devices using the resources package
+	tc.deviceIDs = make([]string, numDevices)
+	for i := 0; i < numDevices; i++ {
+		deviceName := fmt.Sprintf("device-%d", i)
+		labels := labelsList[i]
+		labels["fleet"] = fleetName
+
+		device, err := resources.CreateDevice(tc.harness, deviceName, &labels)
+		if err != nil {
+			return err
+		}
+		tc.deviceIDs[i] = *device.Metadata.Name
 	}
 
 	newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
-	if err != nil {
-		return err
-	}
-
-	err = tc.harness.SetLabelsForDevicesByIndex(tc.deviceIDs, labelsList, fleetName)
 	if err != nil {
 		return err
 	}
@@ -597,9 +595,4 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 	}
 
 	return nil
-}
-
-func (tc *TestContext) cleanup() error {
-	tc.harness.Cleanup(true)
-	return tc.harness.CleanUpAllResources()
 }

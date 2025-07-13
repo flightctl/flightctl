@@ -77,6 +77,26 @@ jobs:
       - name: Install Dependencies
         run: go mod tidy
 
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache DNF packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-cli
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
       - name: Build
         run: |
           DISABLE_FIPS="true" GOOS="${{ matrix.os }}" GOARCH="${{ matrix.arch }}" make build-cli

@@ -1,0 +1,94 @@
+apiVersion: flightctl.io/v1alpha1
+kind: EnrollmentRequest
+metadata:
+  annotations: {}
+  creationTimestamp: "2025-07-29T16:00:14.109453Z"
+  labels:
+    a: asd
+  name: 52tvc2ddo9pfv7n3n36nnur4nhta2t7j73ffp8r8bjskl7fpsg3g
+  resourceVersion: "2"
+spec:
+  csr: |
+    -----BEGIN CERTIFICATE REQUEST-----
+    MIH5MIGhAgEAMD8xPTA7BgNVBAMTNDUydHZjMmRkbzlwZnY3bjNuMzZubnVyNG5o
+    dGEydDdqNzNmZnA4cjhianNrbDdmcHNnM2cwWTATBgcqhkjOPQIBBggqhkjOPQMB
+    BwNCAAQ/jW2nAgLb2oEDZVDSEm2Kx0rBzVgjgVKyMfeOc/rDzMfqZR1mcGlwgWTl
+    OESR7M2KyYGIktNOjgBx/M1dEYdMoAAwCgYIKoZIzj0EAwIDRwAwRAIgO+seJiRZ
+    AUKWC+nGLmWCH3D7O0hJOwRz9xVculYgVcMCIDqmmIXPlFeyrDeCrQ5hX5Q78cNy
+    aBuRdwz8EnN0G0rc
+    -----END CERTIFICATE REQUEST-----
+  deviceStatus:
+    applications: []
+    applicationsSummary:
+      status: Unknown
+    conditions:
+    - lastTransitionTime: "0001-01-01T00:00:00Z"
+      message: ""
+      reason: ""
+      status: Unknown
+      type: Updating
+    config:
+      renderedVersion: "0"
+    integrity:
+      status: Unknown
+    lastSeen: "0001-01-01T00:00:00Z"
+    lifecycle:
+      status: Unknown
+    os:
+      image: 10.100.102.70:5000/flightctl-device:base
+      imageDigest: sha256:41b9cc756fcb47e909a3a19ff31b83dfe0a519e17ee1916d342073f191141f8b
+    resources:
+      cpu: Healthy
+      disk: Healthy
+      memory: Healthy
+    summary:
+      status: Online
+    systemInfo:
+      agentVersion: 0.9.0-main-317-gddc49ef3
+      architecture: amd64
+      bootID: f71522b6-1daf-40a2-8386-b0415a728dd4
+      distroName: CentOS Stream
+      distroVersion: "9"
+      hostname: localhost.localdomain
+      kernel: 5.14.0-598.el9.x86_64
+      netInterfaceDefault: enp0s16
+      netIpDefault: 10.0.2.15/24
+      netMacDefault: "52:54:00:12:34:56"
+      operatingSystem: linux
+      productName: Standard PC (Q35 + ICH9, 2009)
+      productSerial: ""
+      productUuid: 1f924195-0b15-4abc-ae3a-c2556274d930
+    updated:
+      status: Unknown
+  labels: {}
+status:
+  approval:
+    approved: true
+    approvedAt: "2025-07-29T16:00:31.970514662Z"
+    approvedBy: unknown
+    labels:
+      label: value
+      test-id: test-1753804831969530064-fdim5v4z
+  certificate: |
+    -----BEGIN CERTIFICATE-----
+    MIICYjCCAgigAwIBAgIIRKA9JRhtCE0wCgYIKoZIzj0EAwIwDTELMAkGA1UEAxMC
+    Y2EwHhcNMjUwNzI5MTYwMDMwWhcNMjYwNzI5MTYwMDMxWjBGMUQwQgYDVQQDEztk
+    ZXZpY2U6NTJ0dmMyZGRvOXBmdjduM24zNm5udXI0bmh0YTJ0N2o3M2ZmcDhyOGJq
+    c2tsN2Zwc2czZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABD+NbacCAtvagQNl
+    UNISbYrHSsHNWCOBUrIx945z+sPMx+plHWZwaXCBZOU4RJHszYrJgYiS006OAHH8
+    zV0Rh0yjggEXMIIBEzAOBgNVHQ8BAf8EBAMCBaAwEwYDVR0lBAwwCgYIKwYBBQUH
+    AwIwDAYDVR0TAQH/BAIwADArBgNVHSMEJDAigCAnQC7tL18GL+40dq+c1/FP3ThN
+    583rCm8U57UEQ3RyITA0BgorBgEEAYaNHwECBCYTJDAwMDAwMDAwLTAwMDAtMDAw
+    MC0wMDAwLTAwMDAwMDAwMDAwMDBLBgorBgEEAYaNHwEDBD0TO2RldmljZTo1MnR2
+    YzJkZG85cGZ2N24zbjM2bm51cjRuaHRhMnQ3ajczZmZwOHI4Ympza2w3ZnBzZzNn
+    MC4GCisGAQQBho0fAQEEIBMeZmxpZ2h0Y3RsLmlvL2RldmljZS1lbnJvbGxtZW50
+    MAoGCCqGSM49BAMCA0gAMEUCIQDv4gNQIMzs1BQT9lm3iJw/B1Vc98JVZmrSXkJS
+    nHJ6qQIgE4GuVIfU5nh+H5KYs9KElhOnDFBollCgZQU8C9Tm80g=
+    -----END CERTIFICATE-----
+  conditions:
+  - lastTransitionTime: "2025-07-29T16:00:31.970957318Z"
+    message: Approved by unknown
+    reason: ManuallyApproved
+    status: "True"
+    type: Approved
+

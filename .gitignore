@@ -12,3 +12,5 @@ flightctl-*.rpm
 *.tar
 .claude/
 .cursor/
+/packaging/rpm/flightctl-*/
+***/*.test

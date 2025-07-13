@@ -2,7 +2,7 @@
 apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
-  name: default
+  name: default-{{test_id}}
 spec:
   selector:
     matchLabels:

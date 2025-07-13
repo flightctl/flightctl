@@ -62,6 +62,9 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 		},
 	}
 
+	// Add test label to fleet metadata
+	h.addTestLabelToResource(&testFleet.Metadata)
+
 	switch spec := fleetSpecOrSelector.(type) {
 	case v1alpha1.FleetSpec:
 		testFleet.Spec = spec

@@ -3,21 +3,34 @@ WORKDIR /app
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
-COPY ./api api
-COPY ./cmd cmd
-COPY ./deploy deploy
-COPY ./hack hack
-COPY ./internal internal
-COPY ./go.* ./
-COPY ./pkg pkg
-COPY ./test test
-COPY ./Makefile .
-# make sure that version extraction works
-COPY .git .git
 
+# Switch to root for build operations
 USER 0
-RUN git config --global --add safe.directory /app
-RUN make build-db-migrate
+
+# Copy dependencies first (most stable)
+COPY go.* ./
+COPY go.mod go.sum ./
+
+# Download dependencies (cached layer)
+RUN --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    go mod download
+
+# Copy build tools and configs
+COPY Makefile .
+
+# Copy source code directories
+COPY ./api ./api
+COPY ./cmd ./cmd
+COPY ./deploy ./deploy
+COPY ./hack ./hack
+COPY ./internal ./internal
+COPY ./pkg ./pkg
+COPY ./test ./test
+
+# Use BuildKit cache mounts for Go caching
+RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
+    --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    make build-db-migrate
 
 FROM registry.access.redhat.com/ubi9/ubi
 
@@ -32,7 +45,10 @@ LABEL \
   summary="Flight Control Database Setup Tools"
 
 # Install required tools for database operations
-RUN dnf install -y postgresql gettext && dnf clean all
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y postgresql gettext && dnf clean all
 
 # Copy the migration binary from the build stage
 COPY --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate

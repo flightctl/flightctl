@@ -10,9 +10,42 @@ packages:
     upstream_package_name: flightctl
     downstream_package_name: flightctl
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
+
+# Add caching configuration for faster builds
+copr_build:
+  # Enable caching for Go modules and DNF packages
+  enable_net: True # this is necessary for go modules to download the sources
+  # Add build environment variables for caching
+  environment:
+    # Go module cache
+    GOCACHE: /tmp/go-build-cache
+    GOMODCACHE: /tmp/go-mod-cache
+    # DNF cache
+    DNF_CACHE_DIR: /tmp/dnf-cache
+    # RPM build cache
+    RPM_CACHE_DIR: /tmp/rpm-cache
+
 actions:
   get-current-version:
     - bash -c '(git describe --tags --match "v*-main" || git describe --tags) | sed "s/^v//; s/-/~/g"'
+  
+  # Add pre-build actions for caching setup
+  pre-build:
+    - bash -c |
+        # Setup cache directories
+        mkdir -p /tmp/go-build-cache /tmp/go-mod-cache /tmp/dnf-cache /tmp/rpm-cache
+        
+        # Configure Go to use cache directories
+        export GOCACHE=/tmp/go-build-cache
+        export GOMODCACHE=/tmp/go-mod-cache
+        
+        # Configure DNF to use cache
+        mkdir -p /var/cache/dnf /var/lib/dnf
+        ln -sf /tmp/dnf-cache /var/cache/dnf/cache
+        ln -sf /tmp/dnf-cache /var/lib/dnf/cache
+        
+        echo "Cache directories configured for faster builds"
+
 jobs:
   - job: copr_build
     trigger: pull_request
@@ -21,6 +54,13 @@ jobs:
       - fedora-42-x86_64
       - epel-9-aarch64
     module_hotfixes: true
+    # Add caching configuration
+    copr_build:
+      environment:
+        GOCACHE: /tmp/go-build-cache
+        GOMODCACHE: /tmp/go-mod-cache
+        DNF_CACHE_DIR: /tmp/dnf-cache
+        RPM_CACHE_DIR: /tmp/rpm-cache
     notifications:
       failure_comment:
         message: "/packit build"
@@ -40,10 +80,16 @@ jobs:
       - fedora-rawhide-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
+    # Add caching configuration
+    copr_build:
+      environment:
+        GOCACHE: /tmp/go-build-cache
+        GOMODCACHE: /tmp/go-mod-cache
+        DNF_CACHE_DIR: /tmp/dnf-cache
+        RPM_CACHE_DIR: /tmp/rpm-cache
     notifications:
       failure_comment:
         message: "/packit build"
-
 
   - job: copr_build
     trigger: release
@@ -60,6 +106,13 @@ jobs:
       - fedora-rawhide-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
+    # Add caching configuration
+    copr_build:
+      environment:
+        GOCACHE: /tmp/go-build-cache
+        GOMODCACHE: /tmp/go-mod-cache
+        DNF_CACHE_DIR: /tmp/dnf-cache
+        RPM_CACHE_DIR: /tmp/rpm-cache
     notifications:
       failure_comment:
         message: "/packit build"

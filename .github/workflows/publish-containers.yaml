@@ -12,6 +12,9 @@ on:
 env:
   QUAY_ORG: quay.io/flightctl
   QUAY_CHARTS: quay.io/flightctl/charts
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
 
 jobs:
   generate-tags:
@@ -104,6 +107,32 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:v0.12.4
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache DNF packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-${{ matrix.image }}
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
@@ -118,6 +147,10 @@ jobs:
             org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
           extra-args: |
             --ulimit nofile=10000:10000
+            --mount=type=cache,target=/opt/app-root/src/go/pkg/mod
+            --mount=type=cache,target=/opt/app-root/src/.cache/go-build
+            --mount=type=cache,target=/var/cache/dnf
+            --mount=type=cache,target=/var/lib/dnf
           containerfiles: Containerfile.${{ matrix.image }}
           context: .
 
