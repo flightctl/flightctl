@@ -6,12 +6,13 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/testutils"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
 func verifyRepoPatchFailed(require *require.Assertions, status api.Status) {
-	require.Equal(statusBadRequestCode, status.Code)
+	require.Equal(testutils.StatusBadRequestCode, status.Code)
 }
 
 func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest, expectEvents bool) (*api.Repository, api.Repository, api.Status) {
@@ -31,14 +32,14 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest, ex
 		Spec: spec,
 	}
 	serviceHandler := ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store:           &testutils.TestStore{},
+		callbackManager: testutils.DummyCallbackManager(),
 	}
 	ctx := context.Background()
 	_, err = serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &repository, nil)
 	require.NoError(err)
 	resp, status := serviceHandler.PatchRepository(ctx, "foo", patch)
-	require.NotEqual(statusFailedCode, status.Code)
+	require.NotEqual(testutils.StatusFailedCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
 	if expectEvents {
 		require.NotEmpty(event.Items)
@@ -146,7 +147,7 @@ func TestRepositoryPatchLabels(t *testing.T) {
 
 	resp, orig, status := testRepositoryPatch(require, pr, true)
 	orig.Metadata.Labels = &addLabels
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
 	pr = api.PatchRequest{
@@ -155,7 +156,7 @@ func TestRepositoryPatchLabels(t *testing.T) {
 
 	resp, orig, status = testRepositoryPatch(require, pr, true)
 	orig.Metadata.Labels = &map[string]string{}
-	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(testutils.StatusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 }
 
@@ -167,7 +168,7 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &TestStore{},
+		store: &testutils.TestStore{},
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &api.Repository{
@@ -175,7 +176,7 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 	}, nil)
 	require.NoError(err)
 	_, status := serviceHandler.PatchRepository(ctx, "bar", pr)
-	require.Equal(statusNotFoundCode, status.Code)
+	require.Equal(testutils.StatusNotFoundCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.Len(event.Items, 0)
 }
