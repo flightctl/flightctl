@@ -65,16 +65,55 @@ The `RepositoryCollector` gathers repository-related business metrics:
 
 - `flightctl_repositories_total`: Total number of repositories managed, grouped by organization and version
 
-#### How it works
+#### Usage
 
-The collector:
-1. Samples repository metrics every 30 seconds
-2. Uses the store's `CountByOrgAndVersion()` method to get repository counts grouped by organization and version
-3. Updates Prometheus gauges with the current values
+```go
+import (
+    "context"
+    "github.com/flightctl/flightctl/internal/instrumentation/metrics/business"
+    "github.com/flightctl/flightctl/internal/store"
+    "github.com/sirupsen/logrus"
+)
+
+// Create the collector
+ctx := context.Background()
+store := // your store instance
+log := logrus.New()
+repositoryCollector := business.NewRepositoryCollector(ctx, store, log)
+
+// Use with the metrics handler
+handler := metrics.NewHandler(repositoryCollector)
+```
 
 #### Repository Version Logic
 
 Repositories are grouped by their `spec.revision` field. If no revision is specified, they are grouped under the "unknown" version label.
+
+### ResourceSyncCollector
+
+The `ResourceSyncCollector` gathers resourcesync-related business metrics:
+
+- `flightctl_resourcesyncs_total`: Total number of resource syncs managed, with status labels
+
+#### Usage
+
+```go
+import (
+    "context"
+    "github.com/flightctl/flightctl/internal/instrumentation/metrics/business"
+    "github.com/flightctl/flightctl/internal/store"
+    "github.com/sirupsen/logrus"
+)
+
+// Create the collector
+ctx := context.Background()
+store := // your store instance
+log := logrus.New()
+resourceSyncCollector := business.NewResourceSyncCollector(ctx, store, log)
+
+// Use with the metrics handler
+handler := metrics.NewHandler(resourceSyncCollector)
+```
 
 ## Adding New Collectors
 
