@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
@@ -85,10 +84,7 @@ type Config struct {
 	// testRootDir is the root directory of the test agent
 	testRootDir string
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
-	enrollmentMetricsCallback client.RPCMetricsCallback
-
-	// managementMetricsCallback is a callback to report metrics about the management process.
-	managementMetricsCallback client.RPCMetricsCallback
+	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
 
 	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
 	DefaultLabels map[string]string `json:"default-labels,omitempty"`
@@ -168,20 +164,8 @@ func (cfg *Config) PathFor(filePath string) string {
 	return path.Join(cfg.testRootDir, filePath)
 }
 
-func (cfg *Config) SetEnrollmentMetricsCallback(cb client.RPCMetricsCallback) {
+func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duractionSeconds float64, err error)) {
 	cfg.enrollmentMetricsCallback = cb
-}
-
-func (cfg *Config) GetEnrollmentMetricsCallback() client.RPCMetricsCallback {
-	return cfg.enrollmentMetricsCallback
-}
-
-func (cfg *Config) SetManagementMetricsCallback(cb client.RPCMetricsCallback) {
-	cfg.managementMetricsCallback = cb
-}
-
-func (cfg *Config) GetManagementMetricsCallback() client.RPCMetricsCallback {
-	return cfg.managementMetricsCallback
 }
 
 // Complete fills in defaults for fields not set by the config file
