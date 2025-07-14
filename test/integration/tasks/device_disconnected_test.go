@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
@@ -114,8 +115,6 @@ var _ = Describe("DeviceDisconnected", func() {
 				// Set an old last seen time (more than DeviceDisconnectedTimeout ago)
 				device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 			}
@@ -131,8 +130,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusUnknown))
 				Expect(device.Status.Summary.Info).ToNot(BeNil())
-				Expect(*device.Status.Summary.Info).To(ContainSubstring("The device is disconnected"))
-				Expect(device.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusUnknown))
+				Expect(*device.Status.Summary.Info).To(ContainSubstring("Did not check in for more than"))
 			}
 		})
 	})
@@ -150,8 +148,6 @@ var _ = Describe("DeviceDisconnected", func() {
 
 				device.Status.LastSeen = time.Now().Add(-1 * time.Minute)
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 			}
@@ -167,8 +163,6 @@ var _ = Describe("DeviceDisconnected", func() {
 
 				device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
 				Expect(err).ToNot(HaveOccurred())
 			}
@@ -183,8 +177,6 @@ var _ = Describe("DeviceDisconnected", func() {
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
-				Expect(device.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUpToDate))
-				Expect(device.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusHealthy))
 			}
 
 			// Check disconnected devices are marked as unknown
@@ -193,7 +185,70 @@ var _ = Describe("DeviceDisconnected", func() {
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusUnknown))
-				Expect(device.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusUnknown))
+			}
+		})
+	})
+
+	Context("when devices are already marked as unknown", func() {
+		BeforeEach(func() {
+			// Create devices that are already unknown and haven't checked in
+			for i := 1; i <= 2; i++ {
+				deviceName := fmt.Sprintf("already-unknown-%d", i)
+				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, nil)
+
+				// Get the device and update its status
+				device, err := deviceStore.Get(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+
+				device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
+				device.Status.Summary.Status = api.DeviceSummaryStatusUnknown
+				device.Status.Summary.Info = lo.ToPtr("Already unknown")
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
+				Expect(err).ToNot(HaveOccurred())
+			}
+		})
+
+		It("should not unnecessarily update already unknown devices", func() {
+			disconnectedTask.Poll(ctx)
+
+			// Devices should remain unknown but their info might be updated
+			for i := 1; i <= 2; i++ {
+				deviceName := fmt.Sprintf("already-unknown-%d", i)
+				device, err := deviceStore.Get(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusUnknown))
+			}
+		})
+	})
+
+	Context("when there are many devices testing pagination", func() {
+		BeforeEach(func() {
+			// Create more devices than typical page size to test pagination
+			for i := 1; i <= 7; i++ {
+				deviceName := fmt.Sprintf("paginated-device-%d", i)
+				testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, nil)
+
+				// Get the device and update its status
+				device, err := deviceStore.Get(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+
+				// Make all devices disconnected
+				device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
+				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
+				Expect(err).ToNot(HaveOccurred())
+			}
+		})
+
+		It("should handle pagination correctly and process all devices", func() {
+			disconnectedTask.Poll(ctx)
+
+			// Check that all devices across pages are processed
+			for i := 1; i <= 7; i++ {
+				deviceName := fmt.Sprintf("paginated-device-%d", i)
+				device, err := deviceStore.Get(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusUnknown))
 			}
 		})
 	})
@@ -234,8 +289,6 @@ var _ = Describe("DeviceDisconnected", func() {
 			Expect(err).ToNot(HaveOccurred())
 			recentDevice.Status.LastSeen = time.Now().Add(-1 * time.Minute)
 			recentDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
-			recentDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-			recentDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			_, err = deviceStore.UpdateStatus(ctx, orgId, recentDevice)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -245,8 +298,6 @@ var _ = Describe("DeviceDisconnected", func() {
 			Expect(err).ToNot(HaveOccurred())
 			oldDevice.Status.LastSeen = time.Now().Add(-10 * time.Minute)
 			oldDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
-			oldDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
-			oldDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			_, err = deviceStore.UpdateStatus(ctx, orgId, oldDevice)
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -258,15 +309,11 @@ var _ = Describe("DeviceDisconnected", func() {
 			recentDevice, err := deviceStore.Get(ctx, orgId, "recent-device")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(recentDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
-			Expect(recentDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUpToDate))
-			Expect(recentDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusHealthy))
 
 			// Old device should be marked as unknown
 			oldDevice, err := deviceStore.Get(ctx, orgId, "old-device")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(oldDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusUnknown))
-			Expect(oldDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
-			Expect(oldDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusUnknown))
 		})
 	})
 })

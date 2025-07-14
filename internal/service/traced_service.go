@@ -232,6 +232,12 @@ func (t *TracedService) GetDevicesSummary(ctx context.Context, p api.ListDevices
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) UpdateDeviceSummaryStatusBatch(ctx context.Context, names []string, status api.DeviceSummaryStatusType, info string) api.Status {
+	ctx, span := startSpan(ctx, "UpdateDeviceSummaryStatusBatch")
+	st := t.inner.UpdateDeviceSummaryStatusBatch(ctx, names, status, info)
+	endSpan(span, st)
+	return st
+}
 func (t *TracedService) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
 	ctx, span := startSpan(ctx, "UpdateServiceSideDeviceStatus")
 	resp := t.inner.UpdateServiceSideDeviceStatus(ctx, device)

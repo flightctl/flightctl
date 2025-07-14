@@ -46,6 +46,9 @@ type Device interface {
 	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 
+	// Used only by device_disconnected
+	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
+
 	// Used by fleet selector
 	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams ListParams) (*api.DeviceList, error)
 
@@ -514,6 +517,36 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 		SummaryStatus:     summaryStatus,
 		UpdateStatus:      updateStatus,
 	}, nil
+}
+
+func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
+	if len(deviceNames) == 0 {
+		return nil
+	}
+
+	tokens := strings.Repeat("?,", len(deviceNames))
+	// trim tailing comma
+	tokens = tokens[:len(tokens)-1]
+
+	// https://www.postgresql.org/docs/current/functions-json.html
+	// jsonb_set(target jsonb, path text[], new_value jsonb, create_missing boolean)
+	createMissing := "false"
+	query := fmt.Sprintf(`
+        UPDATE devices
+        SET
+            status = jsonb_set(
+                jsonb_set(status, '{summary,status}', '"%s"', %s),
+                '{summary,info}', '"%s"'
+            ),
+            resource_version = resource_version + 1
+        WHERE name IN (%s)`, status, createMissing, statusInfo, tokens)
+
+	args := make([]interface{}, len(deviceNames))
+	for i, name := range deviceNames {
+		args[i] = name
+	}
+
+	return s.getDB(ctx).Exec(query, args...).Error
 }
 
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {

@@ -200,7 +200,8 @@ func (s *DummyDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.D
 func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error) {
 	for i, dev := range *s.devices {
 		if *device.Metadata.Name == *dev.Metadata.Name {
-			(*s.devices)[i].Status = device.Status
+			oldDevice := (*s.devices)[i]
+			oldDevice.Status = device.Status
 			return device, nil
 		}
 	}

@@ -110,7 +110,7 @@ func isRebootingServerSideDeviceStatus(device *api.Device, oldStatus api.DeviceS
 	return ResourceUpdates{}
 }
 
-func resourcesCpu(cpu, oldCpu api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, deviceUpdates *ResourceUpdates) {
+func resourcesCpu(cpu, oldCpu api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, allDevicesWereUnknown bool, deviceUpdates *ResourceUpdates) {
 	var deviceUpdate ResourceUpdate
 	switch cpu {
 	case api.DeviceResourceStatusCritical:
@@ -131,13 +131,12 @@ func resourcesCpu(cpu, oldCpu api.DeviceResourceStatusType, resourceErrors *[]st
 			UpdateDetails: CPUIsNormal,
 		}
 	}
-	// Generate events for all transitions except Unknown -> Healthy (normal startup)
-	if oldCpu != cpu && !(oldCpu == api.DeviceResourceStatusUnknown && cpu == api.DeviceResourceStatusHealthy) {
+	if !allDevicesWereUnknown && oldCpu != cpu {
 		*deviceUpdates = append(*deviceUpdates, deviceUpdate)
 	}
 }
 
-func resourcesMemory(memory, oldMemory api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, deviceUpdates *ResourceUpdates) {
+func resourcesMemory(memory, oldMemory api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, allDevicesWereUnknown bool, deviceUpdates *ResourceUpdates) {
 	var deviceUpdate ResourceUpdate
 	switch memory {
 	case api.DeviceResourceStatusCritical:
@@ -158,20 +157,21 @@ func resourcesMemory(memory, oldMemory api.DeviceResourceStatusType, resourceErr
 			UpdateDetails: MemoryIsNormal,
 		}
 	}
-	// Generate events for all transitions except Unknown -> Healthy (normal startup)
-	if oldMemory != memory && !(oldMemory == api.DeviceResourceStatusUnknown && memory == api.DeviceResourceStatusHealthy) {
+	if !allDevicesWereUnknown && oldMemory != memory {
 		*deviceUpdates = append(*deviceUpdates, deviceUpdate)
 	}
 }
 
-func resourcesDisk(disk, oldDisk api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, deviceUpdates *ResourceUpdates) {
+func resourcesDisk(disk, oldDisk api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string, allDevicesWereUnknown bool, deviceUpdates *ResourceUpdates) {
 	var deviceUpdate ResourceUpdate
 	switch disk {
 	case api.DeviceResourceStatusCritical:
 		*resourceErrors = append(*resourceErrors, DiskIsCritical) // TODO: add current threshold (>X% for more than Y minutes)
-		deviceUpdate = ResourceUpdate{
-			Reason:        api.EventReasonDeviceDiskCritical,
-			UpdateDetails: DiskIsCritical,
+		if !allDevicesWereUnknown && oldDisk != disk {
+			deviceUpdate = ResourceUpdate{
+				Reason:        api.EventReasonDeviceDiskCritical,
+				UpdateDetails: DiskIsCritical,
+			}
 		}
 	case api.DeviceResourceStatusWarning:
 		*resourceDegradations = append(*resourceDegradations, DiskIsWarning) // TODO: add current threshold (>X% for more than Y minutes)
@@ -185,8 +185,7 @@ func resourcesDisk(disk, oldDisk api.DeviceResourceStatusType, resourceErrors *[
 			UpdateDetails: DiskIsNormal,
 		}
 	}
-	// Generate events for all transitions except Unknown -> Healthy (normal startup)
-	if oldDisk != disk && !(oldDisk == api.DeviceResourceStatusUnknown && disk == api.DeviceResourceStatusHealthy) {
+	if !allDevicesWereUnknown && oldDisk != disk {
 		*deviceUpdates = append(*deviceUpdates, deviceUpdate)
 	}
 }
@@ -207,20 +206,22 @@ func updateServerSideDeviceStatus(device, oldDevice *api.Device) (bool, Resource
 	resourceErrors := []string{}
 	resourceDegradations := []string{}
 	var (
-		oldCpu        = api.DeviceResourceStatusUnknown
-		oldMemory     = api.DeviceResourceStatusUnknown
-		oldDisk       = api.DeviceResourceStatusUnknown
-		deviceUpdates ResourceUpdates
+		allDevicesWereUnknown = false
+		oldCpu                = api.DeviceResourceStatusUnknown
+		oldMemory             = api.DeviceResourceStatusUnknown
+		oldDisk               = api.DeviceResourceStatusUnknown
+		deviceUpdates         ResourceUpdates
 	)
 	if oldDevice != nil && oldDevice.Status != nil {
 		oldCpu = oldDevice.Status.Resources.Cpu
 		oldMemory = oldDevice.Status.Resources.Memory
 		oldDisk = oldDevice.Status.Resources.Disk
+		allDevicesWereUnknown = oldCpu == api.DeviceResourceStatusUnknown && oldMemory == api.DeviceResourceStatusUnknown && oldDisk == api.DeviceResourceStatusUnknown
 	}
 
-	resourcesCpu(device.Status.Resources.Cpu, oldCpu, &resourceErrors, &resourceDegradations, &deviceUpdates)
-	resourcesMemory(device.Status.Resources.Memory, oldMemory, &resourceErrors, &resourceDegradations, &deviceUpdates)
-	resourcesDisk(device.Status.Resources.Disk, oldDisk, &resourceErrors, &resourceDegradations, &deviceUpdates)
+	resourcesCpu(device.Status.Resources.Cpu, oldCpu, &resourceErrors, &resourceDegradations, allDevicesWereUnknown, &deviceUpdates)
+	resourcesMemory(device.Status.Resources.Memory, oldMemory, &resourceErrors, &resourceDegradations, allDevicesWereUnknown, &deviceUpdates)
+	resourcesDisk(device.Status.Resources.Disk, oldDisk, &resourceErrors, &resourceDegradations, allDevicesWereUnknown, &deviceUpdates)
 
 	switch {
 	case len(resourceErrors) > 0:
@@ -276,29 +277,29 @@ func updateServerSideDeviceUpdatedStatus(device, oldDevice *api.Device, ctx cont
 		oldStatus = oldDevice.Status.Updated.Status
 	}
 	lastUpdateStatus := device.Status.Updated.Status
-	if device.IsDisconnected(api.DeviceDisconnectedTimeout) && !device.Status.LastSeen.IsZero() {
-		device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
-		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
-		if oldStatus != device.Status.Updated.Status {
-			deviceUpdates = append(deviceUpdates, ResourceUpdate{
-				Reason:        api.EventReasonDeviceDisconnected,
-				UpdateDetails: *device.Status.Updated.Info,
-			})
-		}
-		return device.Status.Updated.Status != lastUpdateStatus, deviceUpdates
-	}
 	if device.IsUpdating() {
-		var agentInfoMessage string
-		if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceUpdating); updateCondition != nil {
-			agentInfoMessage = updateCondition.Message
-		}
-		device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
-		device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "The device is updating to the latest device spec."))
-		if oldStatus != device.Status.Updated.Status {
-			deviceUpdates = append(deviceUpdates, ResourceUpdate{
-				Reason:        api.EventReasonDeviceContentUpdating,
-				UpdateDetails: *device.Status.Updated.Info,
-			})
+		if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
+			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
+			device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("The device is disconnected (last seen more than %s) and had an update in progress at that time.", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
+			if oldStatus != device.Status.Updated.Status {
+				deviceUpdates = append(deviceUpdates, ResourceUpdate{
+					Reason:        api.EventReasonDeviceDisconnected,
+					UpdateDetails: *device.Status.Updated.Info,
+				})
+			}
+		} else {
+			var agentInfoMessage string
+			if updateCondition := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceUpdating); updateCondition != nil {
+				agentInfoMessage = updateCondition.Message
+			}
+			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
+			device.Status.Updated.Info = lo.ToPtr(util.DefaultString(agentInfoMessage, "The device is updating to the latest device spec."))
+			if oldStatus != device.Status.Updated.Status {
+				deviceUpdates = append(deviceUpdates, ResourceUpdate{
+					Reason:        api.EventReasonDeviceContentUpdating,
+					UpdateDetails: *device.Status.Updated.Info,
+				})
+			}
 		}
 		return device.Status.Updated.Status != lastUpdateStatus, deviceUpdates
 	}
@@ -377,7 +378,6 @@ func updateServerSideApplicationStatus(device, oldDevice *api.Device) (bool, Res
 	if oldDevice != nil && oldDevice.Status != nil {
 		oldStatus = oldDevice.Status.ApplicationsSummary.Status
 	}
-
 	lastApplicationSummaryStatus := device.Status.ApplicationsSummary.Status
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusUnknown
@@ -413,7 +413,6 @@ func updateServerSideApplicationStatus(device, oldDevice *api.Device) (bool, Res
 			appDegradations = append(appDegradations, fmt.Sprintf("%s is in status %s", app.Name, string(app.Status)))
 		}
 	}
-
 	switch {
 	case len(device.Status.Applications) == 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
@@ -452,7 +451,6 @@ func updateServerSideApplicationStatus(device, oldDevice *api.Device) (bool, Res
 			})
 		}
 	}
-
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus, deviceUpdates
 }
 

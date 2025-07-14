@@ -59,7 +59,7 @@ global:
     enabled: true
   tracing:
     enabled: false
-    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    endpoint: jaeger-collector.flightctl-internal.svc.cluster.local:4318
     insecure: true
   internalNamespace: ""
   clusterLevelSecretAccess: false
