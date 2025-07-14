@@ -543,13 +543,13 @@ func (h *ServiceHandler) emitMultipleOwnersEvents(ctx context.Context, device *a
 		// Multiple owners resolved
 		h.log.Infof("Device %s: Emitting DeviceMultipleOwnersResolvedEvent", deviceName)
 		// Determine resolution type and assigned owner
-		resolutionType := api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch
+		resolutionType := api.NoMatch
 		var assignedOwner *string
 
 		if device.Metadata.Owner != nil {
 			ownerFleet, isOwnerAFleet, err := getOwnerFleet(device)
 			if err == nil && isOwnerAFleet && ownerFleet != "" {
-				resolutionType = api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch
+				resolutionType = api.SingleMatch
 				assignedOwner = &ownerFleet
 			}
 		}
