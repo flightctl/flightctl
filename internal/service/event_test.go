@@ -605,19 +605,19 @@ func TestGetDeviceMultipleOwnersResolvedEvent(t *testing.T) {
 	}{
 		{
 			name:           "SingleMatch",
-			resolutionType: api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch,
+			resolutionType: api.SingleMatch,
 			assignedOwner:  lo.ToPtr("fleet1"),
 			expectedMsg:    "Device multiple owners conflict was resolved: single fleet match, assigned to fleet 'fleet1'.",
 		},
 		{
 			name:           "NoMatch",
-			resolutionType: api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch,
+			resolutionType: api.NoMatch,
 			assignedOwner:  nil,
 			expectedMsg:    "Device multiple owners conflict was resolved: no fleet matches, owner was removed.",
 		},
 		{
 			name:           "FleetDeleted",
-			resolutionType: api.DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted,
+			resolutionType: api.FleetDeleted,
 			assignedOwner:  nil,
 			expectedMsg:    "Device multiple owners conflict was resolved: fleet was deleted.",
 		},
@@ -678,63 +678,6 @@ func TestGetInternalTaskFailedEvent(t *testing.T) {
 	require.Equal(errorMessage, detailsStruct.ErrorMessage)
 	require.Equal(retryCount, detailsStruct.RetryCount)
 	require.Equal(&taskParameters, detailsStruct.TaskParameters)
-}
-
-func TestGetFleetSelectorProcessingCompletedEvent(t *testing.T) {
-	require := require.New(t)
-	logger := logrus.New()
-
-	ctx := context.Background()
-	fleetName := "test-fleet"
-	processingType := api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated
-	devicesProcessed := 10
-	processingDuration := 250 * time.Millisecond
-
-	t.Run("WithoutErrors", func(t *testing.T) {
-		devicesWithErrors := 0
-
-		event := GetFleetSelectorProcessingCompletedEvent(ctx, fleetName, processingType, devicesProcessed, devicesWithErrors, processingDuration, logger)
-
-		require.NotNil(event)
-		require.Equal(string(api.FleetKind), event.InvolvedObject.Kind)
-		require.Equal(fleetName, event.InvolvedObject.Name)
-		require.Equal(api.EventReasonFleetSelectorProcessingCompleted, event.Reason)
-		require.Equal(api.Normal, event.Type)
-		require.Contains(event.Message, "Fleet selector processing was completed: 10 devices processed, 0 errors in 250.00 ms.")
-		require.NotNil(event.Metadata.Name)
-		require.NotNil(event.Details)
-
-		// Verify the event details
-		detailsStruct, err := event.Details.AsFleetSelectorProcessingCompletedDetails()
-		require.NoError(err)
-		require.Equal(processingType, detailsStruct.ProcessingType)
-		require.Equal(devicesProcessed, detailsStruct.DevicesProcessed)
-		require.Equal(&devicesWithErrors, detailsStruct.DevicesWithErrors)
-		require.Equal(lo.ToPtr(processingDuration.String()), detailsStruct.ProcessingDuration)
-	})
-
-	t.Run("WithErrors", func(t *testing.T) {
-		devicesWithErrors := 2
-
-		event := GetFleetSelectorProcessingCompletedEvent(ctx, fleetName, processingType, devicesProcessed, devicesWithErrors, processingDuration, logger)
-
-		require.NotNil(event)
-		require.Equal(string(api.FleetKind), event.InvolvedObject.Kind)
-		require.Equal(fleetName, event.InvolvedObject.Name)
-		require.Equal(api.EventReasonFleetSelectorProcessingCompleted, event.Reason)
-		require.Equal(api.Normal, event.Type)
-		require.Contains(event.Message, "Fleet selector processing was completed: 10 devices processed, 2 errors in 250.00 ms.")
-		require.NotNil(event.Metadata.Name)
-		require.NotNil(event.Details)
-
-		// Verify the event details
-		detailsStruct, err := event.Details.AsFleetSelectorProcessingCompletedDetails()
-		require.NoError(err)
-		require.Equal(processingType, detailsStruct.ProcessingType)
-		require.Equal(devicesProcessed, detailsStruct.DevicesProcessed)
-		require.Equal(&devicesWithErrors, detailsStruct.DevicesWithErrors)
-		require.Equal(lo.ToPtr(processingDuration.String()), detailsStruct.ProcessingDuration)
-	})
 }
 
 func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
