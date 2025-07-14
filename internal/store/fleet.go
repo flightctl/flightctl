@@ -37,6 +37,9 @@ type Fleet interface {
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+
+	// Used by business metrics
+	CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, version *string) ([]CountByRolloutStatusResult, error)
 }
 
 type FleetStore struct {
@@ -487,4 +490,49 @@ func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, nam
 		return nil, err
 	}
 	return &repositories, nil
+}
+
+// CountByRolloutStatusResult holds the result of the group by query
+// for fleet rollout status.
+type CountByRolloutStatusResult struct {
+	OrgID   string
+	Status  string
+	Version string
+	Count   int64
+}
+
+// CountByRolloutStatus returns the count of fleets grouped by org_id, rollout status and version.
+func (s *FleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, version *string) ([]CountByRolloutStatusResult, error) {
+	var query *gorm.DB
+	var err error
+
+	if orgId != nil {
+		query, err = ListQuery(&model.Fleet{}).BuildNoOrder(ctx, s.getDB(ctx), *orgId, ListParams{})
+	} else {
+		// When orgId is nil, we don't filter by org_id
+		query = s.getDB(ctx).Model(&model.Fleet{})
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Add version filter if provided
+	if version != nil {
+		query = query.Where("annotations->>? = ?", api.FleetAnnotationTemplateVersion, *version)
+	}
+
+	query = query.Select(
+		"org_id as org_id",
+		"COALESCE(status->'rollout'->>'currentBatch', 'none') as status",
+		"COALESCE(annotations->>'"+api.FleetAnnotationTemplateVersion+"', 'unknown') as version",
+		"COUNT(*) as count",
+	).Group("org_id, status, version")
+
+	var results []CountByRolloutStatusResult
+	err = query.Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
 }
