@@ -19,7 +19,17 @@ MAJOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
 MINOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$2}')
 PATCH := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$3}')
 
-GO_LD_FLAGS := -ldflags "\
+ifeq ($(DEBUG),true)
+	# throw all the debug info in!
+	LD_FLAGS =
+	GC_FLAGS := "-gcflags=all=-N -l"
+else
+	# strip everything we can
+	LD_FLAGS =-w -s
+	GC_FLAGS =
+endif
+
+GO_LD_FLAGS := $(GC_FLAGS) -ldflags "\
 	-X github.com/flightctl/flightctl/pkg/version.majorFromGit=$(MAJOR) \
 	-X github.com/flightctl/flightctl/pkg/version.minorFromGit=$(MINOR) \
 	-X github.com/flightctl/flightctl/pkg/version.patchFromGit=$(PATCH) \
