@@ -1,0 +1,47 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.23.6-1747333074 as build
+WORKDIR /app
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+COPY ./api api
+COPY ./cmd cmd
+COPY ./deploy deploy
+COPY ./hack hack
+COPY ./internal internal
+COPY ./go.* ./
+COPY ./pkg pkg
+COPY ./test test
+COPY ./Makefile .
+# make sure that version extraction works
+COPY .git .git
+
+USER 0
+RUN git config --global --add safe.directory /app
+RUN make build-db-migrate
+
+FROM registry.access.redhat.com/ubi9/ubi
+
+WORKDIR /app
+
+LABEL \
+  com.redhat.component="flightctl-db-setup-container" \
+  description="Flight Control Database Setup Tools" \
+  io.k8s.description="Flight Control Database Setup Tools" \
+  io.k8s.display-name="Flight Control Database Setup" \
+  name="flightctl-db-setup" \
+  summary="Flight Control Database Setup Tools"
+
+# Install required tools for database operations
+RUN dnf install -y postgresql gettext && dnf clean all
+
+# Copy the migration binary from the build stage
+COPY --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
+
+# Copy the database setup scripts
+COPY ./deploy/scripts/setup_database_users.sh ./deploy/scripts/setup_database_users.sh
+COPY ./deploy/scripts/setup_database_users.sql ./deploy/scripts/setup_database_users.sql
+
+# Make the setup script executable
+RUN chmod +x ./deploy/scripts/setup_database_users.sh
+
+CMD ["./deploy/scripts/setup_database_users.sh"]

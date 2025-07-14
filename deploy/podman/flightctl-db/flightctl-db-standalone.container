@@ -3,7 +3,7 @@ Description=PostgreSQL Database for Flightctl
 
 [Container]
 ContainerName=flightctl-db
-Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=demouser POSTGRESQL_MASTER_USER=admin
+Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=flightctl_app POSTGRESQL_MASTER_USER=admin
 Image=quay.io/sclorg/postgresql-16-c9s:20250214
 PublishPort=5432:5432
 Volume=flightctl-db:/var/lib/pgsql/data:Z
