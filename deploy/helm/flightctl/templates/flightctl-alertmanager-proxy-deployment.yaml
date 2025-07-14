@@ -20,6 +20,20 @@ spec:
       labels:
         flightctl.service: flightctl-alertmanager-proxy
     spec:
+      initContainers:
+        - name: init-certs
+          image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /root/.flightctl/certs /tmp/certs /tmp/ca-certs
+              chmod 700 /root/.flightctl/certs /tmp/certs /tmp/ca-certs
+          volumeMounts:
+            - mountPath: /root/.flightctl
+              name: flightctl-config-dir
+            - mountPath: /tmp
+              name: tmp-dir
       containers:
         - name: alertmanager-proxy
           image: "{{ .Values.alertmanagerProxy.image.image }}:{{ default .Chart.AppVersion .Values.alertmanagerProxy.image.tag }}"
@@ -38,12 +52,16 @@ spec:
               value: "true"
             {{- end }}
           volumeMounts:
-            - mountPath: /root/.flightctl-certs/
+            - mountPath: /app/certs
               name: flightctl-alertmanager-proxy-certs
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-alertmanager-proxy-config
               subPath: config.yaml
               readOnly: true
+            - mountPath: /root/.flightctl
+              name: flightctl-config-dir
+            - mountPath: /tmp
+              name: tmp-dir
           livenessProbe:
             httpGet:
               path: /health
@@ -71,9 +89,22 @@ spec:
       restartPolicy: Always
       volumes:
         - name: flightctl-alertmanager-proxy-certs
-          persistentVolumeClaim:
-            claimName: flightctl-alertmanager-proxy-certs
+          secret:
+            secretName: flightctl-alertmanager-proxy-certs
+            defaultMode: 0440
+            items:
+              - key: ca.crt
+                path: ca.crt
+              {{- if or (and .Values.global.auth .Values.global.auth.caCert) (and .Values.auth .Values.auth.caCert) }}
+              - key: ca_oidc.crt
+                path: ca_oidc.crt
+                optional: true
+              {{- end }}
         - name: flightctl-alertmanager-proxy-config
           configMap:
             name: flightctl-alertmanager-proxy-config
+        - name: flightctl-config-dir
+          emptyDir: {}
+        - name: tmp-dir
+          emptyDir: {}
 {{- end }}

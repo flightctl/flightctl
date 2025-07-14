@@ -102,9 +102,9 @@ const (
 
 // Defines values for DeviceMultipleOwnersResolvedDetailsResolutionType.
 const (
-	DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted DeviceMultipleOwnersResolvedDetailsResolutionType = "FleetDeleted"
-	DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch      DeviceMultipleOwnersResolvedDetailsResolutionType = "NoMatch"
-	DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch  DeviceMultipleOwnersResolvedDetailsResolutionType = "SingleMatch"
+	FleetDeleted DeviceMultipleOwnersResolvedDetailsResolutionType = "FleetDeleted"
+	NoMatch      DeviceMultipleOwnersResolvedDetailsResolutionType = "NoMatch"
+	SingleMatch  DeviceMultipleOwnersResolvedDetailsResolutionType = "SingleMatch"
 )
 
 // Defines values for DeviceOwnershipChangedDetailsDetailType.
@@ -147,39 +147,38 @@ const (
 
 // Defines values for EventReason.
 const (
-	EventReasonDeviceApplicationDegraded        EventReason = "DeviceApplicationDegraded"
-	EventReasonDeviceApplicationError           EventReason = "DeviceApplicationError"
-	EventReasonDeviceApplicationHealthy         EventReason = "DeviceApplicationHealthy"
-	EventReasonDeviceCPUCritical                EventReason = "DeviceCPUCritical"
-	EventReasonDeviceCPUNormal                  EventReason = "DeviceCPUNormal"
-	EventReasonDeviceCPUWarning                 EventReason = "DeviceCPUWarning"
-	EventReasonDeviceConnected                  EventReason = "DeviceConnected"
-	EventReasonDeviceContentOutOfDate           EventReason = "DeviceContentOutOfDate"
-	EventReasonDeviceContentUpToDate            EventReason = "DeviceContentUpToDate"
-	EventReasonDeviceContentUpdating            EventReason = "DeviceContentUpdating"
-	EventReasonDeviceDecommissionFailed         EventReason = "DeviceDecommissionFailed"
-	EventReasonDeviceDecommissioned             EventReason = "DeviceDecommissioned"
-	EventReasonDeviceDisconnected               EventReason = "DeviceDisconnected"
-	EventReasonDeviceDiskCritical               EventReason = "DeviceDiskCritical"
-	EventReasonDeviceDiskNormal                 EventReason = "DeviceDiskNormal"
-	EventReasonDeviceDiskWarning                EventReason = "DeviceDiskWarning"
-	EventReasonDeviceMemoryCritical             EventReason = "DeviceMemoryCritical"
-	EventReasonDeviceMemoryNormal               EventReason = "DeviceMemoryNormal"
-	EventReasonDeviceMemoryWarning              EventReason = "DeviceMemoryWarning"
-	EventReasonDeviceMultipleOwnersDetected     EventReason = "DeviceMultipleOwnersDetected"
-	EventReasonDeviceMultipleOwnersResolved     EventReason = "DeviceMultipleOwnersResolved"
-	EventReasonDeviceSpecInvalid                EventReason = "DeviceSpecInvalid"
-	EventReasonDeviceSpecValid                  EventReason = "DeviceSpecValid"
-	EventReasonEnrollmentRequestApprovalFailed  EventReason = "EnrollmentRequestApprovalFailed"
-	EventReasonEnrollmentRequestApproved        EventReason = "EnrollmentRequestApproved"
-	EventReasonFleetSelectorProcessingCompleted EventReason = "FleetSelectorProcessingCompleted"
-	EventReasonInternalTaskFailed               EventReason = "InternalTaskFailed"
-	EventReasonResourceCreated                  EventReason = "ResourceCreated"
-	EventReasonResourceCreationFailed           EventReason = "ResourceCreationFailed"
-	EventReasonResourceDeleted                  EventReason = "ResourceDeleted"
-	EventReasonResourceDeletionFailed           EventReason = "ResourceDeletionFailed"
-	EventReasonResourceUpdateFailed             EventReason = "ResourceUpdateFailed"
-	EventReasonResourceUpdated                  EventReason = "ResourceUpdated"
+	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
+	EventReasonDeviceApplicationError          EventReason = "DeviceApplicationError"
+	EventReasonDeviceApplicationHealthy        EventReason = "DeviceApplicationHealthy"
+	EventReasonDeviceCPUCritical               EventReason = "DeviceCPUCritical"
+	EventReasonDeviceCPUNormal                 EventReason = "DeviceCPUNormal"
+	EventReasonDeviceCPUWarning                EventReason = "DeviceCPUWarning"
+	EventReasonDeviceConnected                 EventReason = "DeviceConnected"
+	EventReasonDeviceContentOutOfDate          EventReason = "DeviceContentOutOfDate"
+	EventReasonDeviceContentUpToDate           EventReason = "DeviceContentUpToDate"
+	EventReasonDeviceContentUpdating           EventReason = "DeviceContentUpdating"
+	EventReasonDeviceDecommissionFailed        EventReason = "DeviceDecommissionFailed"
+	EventReasonDeviceDecommissioned            EventReason = "DeviceDecommissioned"
+	EventReasonDeviceDisconnected              EventReason = "DeviceDisconnected"
+	EventReasonDeviceDiskCritical              EventReason = "DeviceDiskCritical"
+	EventReasonDeviceDiskNormal                EventReason = "DeviceDiskNormal"
+	EventReasonDeviceDiskWarning               EventReason = "DeviceDiskWarning"
+	EventReasonDeviceMemoryCritical            EventReason = "DeviceMemoryCritical"
+	EventReasonDeviceMemoryNormal              EventReason = "DeviceMemoryNormal"
+	EventReasonDeviceMemoryWarning             EventReason = "DeviceMemoryWarning"
+	EventReasonDeviceMultipleOwnersDetected    EventReason = "DeviceMultipleOwnersDetected"
+	EventReasonDeviceMultipleOwnersResolved    EventReason = "DeviceMultipleOwnersResolved"
+	EventReasonDeviceSpecInvalid               EventReason = "DeviceSpecInvalid"
+	EventReasonDeviceSpecValid                 EventReason = "DeviceSpecValid"
+	EventReasonEnrollmentRequestApprovalFailed EventReason = "EnrollmentRequestApprovalFailed"
+	EventReasonEnrollmentRequestApproved       EventReason = "EnrollmentRequestApproved"
+	EventReasonInternalTaskFailed              EventReason = "InternalTaskFailed"
+	EventReasonResourceCreated                 EventReason = "ResourceCreated"
+	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
+	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
+	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
+	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
+	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
 )
 
 // Defines values for EventType.
@@ -193,18 +192,6 @@ const (
 	FileOperationCreated FileOperation = "created"
 	FileOperationRemoved FileOperation = "removed"
 	FileOperationUpdated FileOperation = "updated"
-)
-
-// Defines values for FleetSelectorProcessingCompletedDetailsDetailType.
-const (
-	FleetSelectorProcessingCompleted FleetSelectorProcessingCompletedDetailsDetailType = "FleetSelectorProcessingCompleted"
-)
-
-// Defines values for FleetSelectorProcessingCompletedDetailsProcessingType.
-const (
-	FleetSelectorProcessingCompletedDetailsProcessingTypeDeviceLabelsUpdated FleetSelectorProcessingCompletedDetailsProcessingType = "DeviceLabelsUpdated"
-	FleetSelectorProcessingCompletedDetailsProcessingTypeFleetDeleted        FleetSelectorProcessingCompletedDetailsProcessingType = "FleetDeleted"
-	FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated     FleetSelectorProcessingCompletedDetailsProcessingType = "SelectorUpdated"
 )
 
 // Defines values for ImagePullPolicy.
@@ -1137,30 +1124,6 @@ type FleetRolloutStatus struct {
 	// CurrentBatch The batch number currently being rolled out.
 	CurrentBatch *int `json:"currentBatch,omitempty"`
 }
-
-// FleetSelectorProcessingCompletedDetails defines model for FleetSelectorProcessingCompletedDetails.
-type FleetSelectorProcessingCompletedDetails struct {
-	// DetailType The type of detail for discriminator purposes.
-	DetailType FleetSelectorProcessingCompletedDetailsDetailType `json:"detailType"`
-
-	// DevicesProcessed Number of devices processed.
-	DevicesProcessed int `json:"devicesProcessed"`
-
-	// DevicesWithErrors Number of devices that had processing errors.
-	DevicesWithErrors *int `json:"devicesWithErrors,omitempty"`
-
-	// ProcessingDuration Duration of the processing operation.
-	ProcessingDuration *string `json:"processingDuration,omitempty"`
-
-	// ProcessingType The type of processing that was completed.
-	ProcessingType FleetSelectorProcessingCompletedDetailsProcessingType `json:"processingType"`
-}
-
-// FleetSelectorProcessingCompletedDetailsDetailType The type of detail for discriminator purposes.
-type FleetSelectorProcessingCompletedDetailsDetailType string
-
-// FleetSelectorProcessingCompletedDetailsProcessingType The type of processing that was completed.
-type FleetSelectorProcessingCompletedDetailsProcessingType string
 
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
@@ -2718,34 +2681,6 @@ func (t *EventDetails) MergeInternalTaskFailedDetails(v InternalTaskFailedDetail
 	return err
 }
 
-// AsFleetSelectorProcessingCompletedDetails returns the union data inside the EventDetails as a FleetSelectorProcessingCompletedDetails
-func (t EventDetails) AsFleetSelectorProcessingCompletedDetails() (FleetSelectorProcessingCompletedDetails, error) {
-	var body FleetSelectorProcessingCompletedDetails
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromFleetSelectorProcessingCompletedDetails overwrites any union data inside the EventDetails as the provided FleetSelectorProcessingCompletedDetails
-func (t *EventDetails) FromFleetSelectorProcessingCompletedDetails(v FleetSelectorProcessingCompletedDetails) error {
-	v.DetailType = "FleetSelectorProcessingCompleted"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeFleetSelectorProcessingCompletedDetails performs a merge with any union data inside the EventDetails, using the provided FleetSelectorProcessingCompletedDetails
-func (t *EventDetails) MergeFleetSelectorProcessingCompletedDetails(v FleetSelectorProcessingCompletedDetails) error {
-	v.DetailType = "FleetSelectorProcessingCompleted"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -2766,8 +2701,6 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 		return t.AsDeviceMultipleOwnersResolvedDetails()
 	case "DeviceOwnershipChanged":
 		return t.AsDeviceOwnershipChangedDetails()
-	case "FleetSelectorProcessingCompleted":
-		return t.AsFleetSelectorProcessingCompletedDetails()
 	case "InternalTaskFailed":
 		return t.AsInternalTaskFailedDetails()
 	case "ResourceUpdated":

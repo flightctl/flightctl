@@ -259,6 +259,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		lifecycleManager,
 		&a.config.ManagementService.Config,
 		systemInfoManager,
+		a.config.GetManagementMetricsCallback(),
 		podmanClient,
 		a.log,
 	)
@@ -343,7 +344,7 @@ func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
 	if err != nil {
 		return nil, err
 	}
-	return client.NewEnrollment(httpClient), nil
+	return client.NewEnrollment(httpClient, cfg.GetEnrollmentMetricsCallback()), nil
 }
 
 func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClient, error) {

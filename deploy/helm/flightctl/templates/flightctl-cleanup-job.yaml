@@ -34,6 +34,9 @@ spec:
               echo "Deleting orphaned PVCs..."
               {{- range $ns := $namespaces }}
               oc delete pvc -l flightctl.service=flightctl-kv -n {{ $ns }} --ignore-not-found
+              oc get pvc -n {{ $ns }} -o name \
+                | grep "flightctl-alertmanager-data-flightctl-alertmanager-" \
+                | xargs -r oc delete -n {{ $ns }} --ignore-not-found
               {{- end }}
               echo "Cleanup completed successfully!"
               exit 0

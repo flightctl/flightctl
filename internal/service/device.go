@@ -242,31 +242,41 @@ func validateDeviceStatus(d *api.Device) []error {
 	return allErrs
 }
 
-func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, device api.Device) (*api.Device, api.Status) {
+func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, incomingDevice api.Device) (*api.Device, api.Status) {
 	orgId := store.NullOrgId
 
-	if errs := validateDeviceStatus(&device); len(errs) > 0 {
+	if errs := validateDeviceStatus(&incomingDevice); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if name != *device.Metadata.Name {
+	if incomingDevice.Metadata.Name == nil || *incomingDevice.Metadata.Name == "" {
+		return nil, api.StatusBadRequest("device name is required")
+	}
+	if name != *incomingDevice.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
-	device.Status.LastSeen = time.Now()
+	isNotInternal := !IsInternalRequest(ctx)
+	if isNotInternal {
+		incomingDevice.Status.LastSeen = time.Now()
+	}
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
-	oldDevice, err := h.store.Device().Get(ctx, orgId, name)
+	originalDevice, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
-	common.KeepDBDeviceStatus(&device, oldDevice)
-	oldDevice.Status = device.Status
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *device.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	updated := common.UpdateServiceSideStatus(ctx, orgId, oldDevice, oldDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
 
-	result, err := h.store.Device().UpdateStatus(ctx, orgId, oldDevice)
+	deviceToStore := &api.Device{}
+	*deviceToStore = *originalDevice
+
+	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
+	deviceToStore.Status = incomingDevice.Status
+	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
+		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *incomingDevice.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
+	}
+	updated := common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, originalDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+
+	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore)
 	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	if updated && err != nil {
 		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, nil, h.log))
@@ -358,17 +368,9 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	if errs := newObj.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return nil, api.StatusBadRequest("metadata.name is immutable")
-	}
-	if currentObj.ApiVersion != newObj.ApiVersion {
-		return nil, api.StatusBadRequest("apiVersion is immutable")
-	}
-	if currentObj.Kind != newObj.Kind {
-		return nil, api.StatusBadRequest("kind is immutable")
-	}
-	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return nil, api.StatusBadRequest("status is immutable")
+
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
 		return nil, api.StatusBadRequest("spec.decommissioning cannot be changed via patch request")
@@ -533,13 +535,13 @@ func (h *ServiceHandler) emitMultipleOwnersEvents(ctx context.Context, device *a
 		// Multiple owners resolved
 		h.log.Infof("Device %s: Emitting DeviceMultipleOwnersResolvedEvent", deviceName)
 		// Determine resolution type and assigned owner
-		resolutionType := api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch
+		resolutionType := api.NoMatch
 		var assignedOwner *string
 
 		if device.Metadata.Owner != nil {
 			ownerFleet, isOwnerAFleet, err := getOwnerFleet(device)
 			if err == nil && isOwnerAFleet && ownerFleet != "" {
-				resolutionType = api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch
+				resolutionType = api.SingleMatch
 				assignedOwner = &ownerFleet
 			}
 		}
@@ -653,12 +655,6 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 	}
 	result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
-}
-
-func (h *ServiceHandler) UpdateDeviceSummaryStatusBatch(ctx context.Context, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) api.Status {
-	orgId := store.NullOrgId
-	err := h.store.Device().UpdateSummaryStatusBatch(ctx, orgId, deviceNames, status, statusInfo)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {

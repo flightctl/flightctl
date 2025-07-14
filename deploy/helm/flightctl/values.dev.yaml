@@ -3,6 +3,10 @@ global:
     type: "none"
     oidc:
       oidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8081/realms/flightctl
+  tracing:
+    enabled: true
+    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    insecure: true
   internalNamespace: flightctl-internal
   storageClassName: standard
   exposeServicesMethod: "nodePort"
@@ -58,12 +62,6 @@ alertmanagerProxy:
     tag: latest
 prometheus:
   enabled: true
-jaeger:
-  enabled: true
-  storageType: memory
-  maxTraces: 50000
-  otlpEnabled: true
-  logLevel: info
 ui:
   enabled: false
 
