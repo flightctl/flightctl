@@ -6,6 +6,40 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
+# Function to switch container images from quay.io to locally built ones for development
+switch_to_local_images() {
+    echo "Switching container images to locally built ones for development..."
+    local services=("api" "worker" "periodic" "alert-exporter" "alertmanager-proxy" "cli-artifacts")
+
+    for service in "${services[@]}"; do
+        container_file="${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service}.container"
+        if [[ -f "$container_file" ]] && grep -q "Image=quay.io/flightctl/" "$container_file"; then
+            sed -i "s|Image=quay.io/flightctl/flightctl-${service}:latest|Image=flightctl-${service}:latest|" "$container_file"
+            echo "Updated $container_file to use local image"
+        else
+            echo "Skipping $container_file (not found or no matching image reference)"
+        fi
+    done
+
+    # Update db-setup image in service files to use locally built image
+    db_migrate_service="${SYSTEMD_UNIT_OUTPUT_DIR}/flightctl-db-migrate.service"
+    if [[ -f "$db_migrate_service" ]] && grep -q "flightctl-db-setup:" "$db_migrate_service"; then
+        sed -i "s|flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_service"
+        echo "Updated $db_migrate_service to use local db-setup image"
+    else
+        echo "Skipping $db_migrate_service (not found or no matching image reference)"
+    fi
+
+    # Update db-setup image in container files to use locally built image
+    db_migrate_container="${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container"
+    if [[ -f "$db_migrate_container" ]] && grep -q "flightctl-db-setup:" "$db_migrate_container"; then
+        sed -i "s|flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_container"
+        echo "Updated $db_migrate_container to use local db-setup image"
+    else
+        echo "Skipping $db_migrate_container (not found or no matching image reference)"
+    fi
+}
+
 echo "Starting Deployment"
 
 # Run installation script
@@ -13,6 +47,9 @@ if ! deploy/scripts/install.sh; then
     echo "Error: Installation failed"
     exit 1
 fi
+
+# Switch to locally built container images for development
+switch_to_local_images
 
 echo "Ensuring secrets are available..."
 # Always ensure secrets exist before starting services
@@ -38,26 +75,18 @@ timeout --foreground 120s bash -c '
     done
 '
 
-# Sync database password with secrets
-echo "Synchronizing database password with secrets..."
-DB_ACTUAL_PASSWORD=$(sudo podman exec flightctl-db printenv POSTGRESQL_MASTER_PASSWORD)
-if ! sudo podman run --rm --network flightctl \
-    --secret flightctl-postgresql-master-password,type=env,target=DB_PASSWORD \
-    quay.io/sclorg/postgresql-16-c9s:latest \
-    bash -c 'PGPASSWORD="$DB_PASSWORD" psql -h flightctl-db -U admin -d flightctl -c "SELECT 1" >/dev/null 2>&1'; then
-    
-    echo "Password mismatch detected! Fixing secret..."
-    sudo podman secret rm flightctl-postgresql-master-password
-    echo "$DB_ACTUAL_PASSWORD" | sudo podman secret create flightctl-postgresql-master-password -
-    echo "Secret updated to match database password"
-fi
-
-# Ensure admin has superuser privileges
-echo "Ensuring database admin has superuser privileges..."
-if sudo podman exec flightctl-db psql -U postgres -tAc "SELECT rolsuper FROM pg_roles WHERE rolname = 'admin'" | grep -q "f"; then
-    echo "Granting superuser privileges to admin user..."
-    sudo podman exec flightctl-db psql -U postgres -c "ALTER USER admin WITH SUPERUSER;"
-fi
+# Wait for database migration to complete
+echo "Waiting for database migration to complete..."
+timeout --foreground 120s bash -c '
+    while true; do
+        if systemctl is-active --quiet flightctl-db-migrate.service; then
+            echo "Database migration completed"
+            break
+        fi
+        echo "Waiting for database migration to complete..."
+        sleep 3
+    done
+'
 
 # Wait for key-value service
 timeout --foreground 60s bash -c '
@@ -72,10 +101,6 @@ timeout --foreground 60s bash -c '
     done
 '
 
-# Restart any failed services due to initial password/permission issues
-echo "Restarting API services to apply fixes..."
-sudo systemctl restart flightctl-api.service flightctl-worker.service flightctl-periodic.service
-
 echo "Waiting for all services to be fully ready..."
 # Get all services from flightctl.target
 ALL_SERVICES=$(systemctl show flightctl.target -p Wants --value | tr ' ' '\n' | grep -E '^flightctl-.*\.service$' | sort)
@@ -87,19 +112,19 @@ timeout_seconds=120
 while true; do
     current_time=$(date +%s)
     elapsed=$((current_time - start_time))
-    
+
     if [ $elapsed -ge $timeout_seconds ]; then
         echo "Timeout: Core services did not become ready within ${timeout_seconds} seconds"
         exit 1
     fi
-    
+
     # Check if target is active
     if ! systemctl is-active --quiet flightctl.target; then
         echo "Waiting for flightctl.target to become active..."
         sleep 3
         continue
     fi
-    
+
     # Check each service
     all_active=true
     for service in ${ALL_SERVICES}; do
@@ -109,12 +134,12 @@ while true; do
             break
         fi
     done
-    
+
     if $all_active; then
         echo "All services are active and ready"
         break
     fi
-    
+
     sleep 3
 done
 
