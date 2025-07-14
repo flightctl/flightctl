@@ -3131,6 +3131,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/users/me/organizations:
+    get:
+      tags:
+        - organization
+      summary: List organizations
+      description: Retrieves a list of organizations a user is a member of.
+      operationId: listUserOrganizations
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationList'
 components:
   securitySchemes:
     bearerAuth:
@@ -5298,3 +5312,70 @@ components:
           additionalProperties:
             type: string
           description: Parameters needed to retry the task.
+    FleetSelectorProcessingCompletedDetails:
+      type: object
+      required:
+        - detailType
+        - processingType
+        - devicesProcessed
+      properties:
+        detailType:
+          type: string
+          enum: [FleetSelectorProcessingCompleted]
+          description: The type of detail for discriminator purposes.
+        processingType:
+          type: string
+          enum: [SelectorUpdated, FleetDeleted, DeviceLabelsUpdated]
+          description: The type of processing that was completed.
+        devicesProcessed:
+          type: integer
+          description: Number of devices processed.
+        devicesWithErrors:
+          type: integer
+          description: Number of devices that had processing errors.
+        processingDuration:
+          type: string
+          description: Duration of the processing operation.
+    Organization:
+      type: object
+      required:
+        - apiVersion
+        - kind
+        - id
+        - displayName
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        id:
+          type: string
+          format: uuid
+          description: The unique identifier for the organization.
+        displayName:
+          type: string
+          description: Human readable name shown to users.
+    OrganizationList:
+      type: object
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of Organizations.'
+          items:
+            $ref: '#/components/schemas/Organization'
+      description: OrganizationList is a list of Organizations.

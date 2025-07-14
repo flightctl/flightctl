@@ -569,3 +569,11 @@ func (t *TracedService) GetDatabaseTime(ctx context.Context) (time.Time, api.Sta
 	endSpan(span, st)
 	return resp, st
 }
+
+// --- Organization ---
+func (t *TracedService) ListUserOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
+	ctx, span := startSpan(ctx, "ListUserOrganizations")
+	resp, st := t.inner.ListUserOrganizations(ctx)
+	endSpan(span, st)
+	return resp, st
+}

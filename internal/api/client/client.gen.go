@@ -315,6 +315,9 @@ type ClientInterface interface {
 
 	ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListUserOrganizations request
+	ListUserOrganizations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetVersion request
 	GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
@@ -1317,6 +1320,18 @@ func (c *Client) ReplaceResourceSyncWithBody(ctx context.Context, name string, c
 
 func (c *Client) ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceResourceSyncRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListUserOrganizations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUserOrganizationsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -4262,6 +4277,33 @@ func NewReplaceResourceSyncRequestWithBody(server string, name string, contentTy
 	return req, nil
 }
 
+// NewListUserOrganizationsRequest generates requests for ListUserOrganizations
+func NewListUserOrganizationsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/users/me/organizations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetVersionRequest generates requests for GetVersion
 func NewGetVersionRequest(server string) (*http.Request, error) {
 	var err error
@@ -4556,6 +4598,9 @@ type ClientWithResponsesInterface interface {
 	ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
 
 	ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
+
+	// ListUserOrganizationsWithResponse request
+	ListUserOrganizationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListUserOrganizationsResponse, error)
 
 	// GetVersionWithResponse request
 	GetVersionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetVersionResponse, error)
@@ -6088,6 +6133,28 @@ func (r ReplaceResourceSyncResponse) StatusCode() int {
 	return 0
 }
 
+type ListUserOrganizationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *OrganizationList
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUserOrganizationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUserOrganizationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -6839,6 +6906,15 @@ func (c *ClientWithResponses) ReplaceResourceSyncWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseReplaceResourceSyncResponse(rsp)
+}
+
+// ListUserOrganizationsWithResponse request returning *ListUserOrganizationsResponse
+func (c *ClientWithResponses) ListUserOrganizationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListUserOrganizationsResponse, error) {
+	rsp, err := c.ListUserOrganizations(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUserOrganizationsResponse(rsp)
 }
 
 // GetVersionWithResponse request returning *GetVersionResponse
@@ -10237,6 +10313,32 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListUserOrganizationsResponse parses an HTTP response from a ListUserOrganizationsWithResponse call
+func ParseListUserOrganizationsResponse(rsp *http.Response) (*ListUserOrganizationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUserOrganizationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OrganizationList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

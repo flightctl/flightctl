@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for AppType.
@@ -102,9 +103,9 @@ const (
 
 // Defines values for DeviceMultipleOwnersResolvedDetailsResolutionType.
 const (
-	FleetDeleted DeviceMultipleOwnersResolvedDetailsResolutionType = "FleetDeleted"
-	NoMatch      DeviceMultipleOwnersResolvedDetailsResolutionType = "NoMatch"
-	SingleMatch  DeviceMultipleOwnersResolvedDetailsResolutionType = "SingleMatch"
+	DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted DeviceMultipleOwnersResolvedDetailsResolutionType = "FleetDeleted"
+	DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch      DeviceMultipleOwnersResolvedDetailsResolutionType = "NoMatch"
+	DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch  DeviceMultipleOwnersResolvedDetailsResolutionType = "SingleMatch"
 )
 
 // Defines values for DeviceOwnershipChangedDetailsDetailType.
@@ -192,6 +193,18 @@ const (
 	FileOperationCreated FileOperation = "created"
 	FileOperationRemoved FileOperation = "removed"
 	FileOperationUpdated FileOperation = "updated"
+)
+
+// Defines values for FleetSelectorProcessingCompletedDetailsDetailType.
+const (
+	FleetSelectorProcessingCompleted FleetSelectorProcessingCompletedDetailsDetailType = "FleetSelectorProcessingCompleted"
+)
+
+// Defines values for FleetSelectorProcessingCompletedDetailsProcessingType.
+const (
+	FleetSelectorProcessingCompletedDetailsProcessingTypeDeviceLabelsUpdated FleetSelectorProcessingCompletedDetailsProcessingType = "DeviceLabelsUpdated"
+	FleetSelectorProcessingCompletedDetailsProcessingTypeFleetDeleted        FleetSelectorProcessingCompletedDetailsProcessingType = "FleetDeleted"
+	FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated     FleetSelectorProcessingCompletedDetailsProcessingType = "SelectorUpdated"
 )
 
 // Defines values for ImagePullPolicy.
@@ -1125,6 +1138,30 @@ type FleetRolloutStatus struct {
 	CurrentBatch *int `json:"currentBatch,omitempty"`
 }
 
+// FleetSelectorProcessingCompletedDetails defines model for FleetSelectorProcessingCompletedDetails.
+type FleetSelectorProcessingCompletedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetSelectorProcessingCompletedDetailsDetailType `json:"detailType"`
+
+	// DevicesProcessed Number of devices processed.
+	DevicesProcessed int `json:"devicesProcessed"`
+
+	// DevicesWithErrors Number of devices that had processing errors.
+	DevicesWithErrors *int `json:"devicesWithErrors,omitempty"`
+
+	// ProcessingDuration Duration of the processing operation.
+	ProcessingDuration *string `json:"processingDuration,omitempty"`
+
+	// ProcessingType The type of processing that was completed.
+	ProcessingType FleetSelectorProcessingCompletedDetailsProcessingType `json:"processingType"`
+}
+
+// FleetSelectorProcessingCompletedDetailsDetailType The type of detail for discriminator purposes.
+type FleetSelectorProcessingCompletedDetailsDetailType string
+
+// FleetSelectorProcessingCompletedDetailsProcessingType The type of processing that was completed.
+type FleetSelectorProcessingCompletedDetailsProcessingType string
+
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {
 	// RolloutPolicy RolloutPolicy is the rollout policy of the fleet.
@@ -1447,6 +1484,36 @@ type ObjectReference struct {
 
 	// Name The name of the referenced object.
 	Name string `json:"name"`
+}
+
+// Organization defines model for Organization.
+type Organization struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// DisplayName Human readable name shown to users.
+	DisplayName string `json:"displayName"`
+
+	// Id The unique identifier for the organization.
+	Id openapi_types.UUID `json:"id"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+}
+
+// OrganizationList OrganizationList is a list of Organizations.
+type OrganizationList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of Organizations.
+	Items []Organization `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
 }
 
 // PatchRequest defines model for PatchRequest.

@@ -12,6 +12,7 @@ type Organization interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, org *model.Organization) (*model.Organization, error)
+	List(ctx context.Context) ([]*model.Organization, error)
 }
 
 type OrganizationStore struct {
@@ -60,4 +61,15 @@ func (s *OrganizationStore) Create(ctx context.Context, org *model.Organization)
 	}
 
 	return org, nil
+}
+
+func (s *OrganizationStore) List(ctx context.Context) ([]*model.Organization, error) {
+	db := s.getDB(ctx)
+
+	var orgs []*model.Organization
+	if err := db.Find(&orgs).Error; err != nil {
+		return nil, err
+	}
+
+	return orgs, nil
 }

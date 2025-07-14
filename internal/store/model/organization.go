@@ -9,6 +9,12 @@ import (
 type Organization struct {
 	ID uuid.UUID `gorm:"type:uuid;primary_key"`
 
+	// Whether this is the default organization.
+	Default bool `json:"default"`
+
+	// External ID of the organization.
+	ExternalID string `json:"external_id"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

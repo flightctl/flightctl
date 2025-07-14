@@ -185,6 +185,9 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/resourcesyncs/{name})
 	ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string)
+	// List organizations
+	// (GET /api/v1/users/me/organizations)
+	ListUserOrganizations(w http.ResponseWriter, r *http.Request)
 
 	// (GET /api/version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
@@ -476,6 +479,12 @@ func (_ Unimplemented) PatchResourceSync(w http.ResponseWriter, r *http.Request,
 
 // (PUT /api/v1/resourcesyncs/{name})
 func (_ Unimplemented) ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List organizations
+// (GET /api/v1/users/me/organizations)
+func (_ Unimplemented) ListUserOrganizations(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2221,6 +2230,21 @@ func (siw *ServerInterfaceWrapper) ReplaceResourceSync(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// ListUserOrganizations operation middleware
+func (siw *ServerInterfaceWrapper) ListUserOrganizations(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUserOrganizations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // GetVersion operation middleware
 func (siw *ServerInterfaceWrapper) GetVersion(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -2519,6 +2543,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/resourcesyncs/{name}", wrapper.ReplaceResourceSync)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/users/me/organizations", wrapper.ListUserOrganizations)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/version", wrapper.GetVersion)
