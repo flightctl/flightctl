@@ -203,12 +203,12 @@ func (s *RepositoryStore) CountByOrgAndVersion(ctx context.Context, orgId *uuid.
 
 	// Add version filter if provided
 	if version != nil {
-		query = query.Where("spec->>'revision' = ?", *version)
+		query = query.Where("generation = ?", *version)
 	}
 
 	query = query.Select(
 		"org_id as org_id",
-		"COALESCE(spec->>'revision', 'unknown') as version",
+		"COALESCE(generation::text, '0') as version",
 		"COUNT(*) as count",
 	).Group("org_id, version")
 

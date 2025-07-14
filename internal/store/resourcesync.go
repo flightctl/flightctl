@@ -23,6 +23,16 @@ type ResourceSync interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error)
+	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
+	CountByOrgStatusAndVersion(ctx context.Context, orgId *uuid.UUID, status *string, version *string) ([]CountByOrgStatusAndVersionResult, error)
+}
+
+// CountByOrgStatusAndVersionResult holds the result of the group by query for organization, status, and version.
+type CountByOrgStatusAndVersionResult struct {
+	OrgID   string
+	Status  string
+	Version string
+	Count   int64
 }
 
 type ResourceSyncStore struct {
@@ -135,4 +145,35 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 
 func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
+}
+
+func (s *ResourceSyncStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {
+	query, err := ListQuery(&model.ResourceSync{}).Build(ctx, s.getDB(ctx), orgId, listParams)
+	if err != nil {
+		return 0, err
+	}
+	var resourceSyncsCount int64
+	if err := query.Count(&resourceSyncsCount).Error; err != nil {
+		return 0, ErrorFromGormError(err)
+	}
+	return resourceSyncsCount, nil
+}
+
+func (s *ResourceSyncStore) CountByOrgStatusAndVersion(ctx context.Context, orgId *uuid.UUID, status *string, version *string) ([]CountByOrgStatusAndVersionResult, error) {
+	db := s.getDB(ctx).Model(&model.ResourceSync{})
+	if orgId != nil {
+		db = db.Where("org_id = ?", *orgId)
+	}
+	if status != nil {
+		db = db.Where("status = ?", *status)
+	}
+	if version != nil {
+		db = db.Where("generation' = ?", *version)
+	}
+	var results []CountByOrgStatusAndVersionResult
+	err := db.Select("org_id, status, COALESCE(generation::text, '0') as version, COUNT(*) as count").Group("org_id, status, version").Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
 }

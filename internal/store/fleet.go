@@ -519,13 +519,13 @@ func (s *FleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID,
 
 	// Add version filter if provided
 	if version != nil {
-		query = query.Where("annotations->>? = ?", api.FleetAnnotationTemplateVersion, *version)
+		query = query.Where("generation = ?", *version)
 	}
 
 	query = query.Select(
 		"org_id as org_id",
 		"COALESCE(status->'rollout'->>'currentBatch', 'none') as status",
-		"COALESCE(annotations->>'"+api.FleetAnnotationTemplateVersion+"', 'unknown') as version",
+		"COALESCE(generation::text, '0') as version",
 		"COUNT(*) as count",
 	).Group("org_id, status, version")
 
