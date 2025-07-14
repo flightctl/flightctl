@@ -17,7 +17,7 @@ cluster: bin/e2e-certs/ca.pem
 clean-cluster:
 	kind delete cluster
 
-deploy: cluster build deploy-helm deploy-e2e-extras prepare-agent-config
+deploy: cluster build-cli deploy-helm deploy-e2e-extras prepare-agent-config
 
 redeploy-api: flightctl-api-container
 	test/scripts/redeploy.sh api
