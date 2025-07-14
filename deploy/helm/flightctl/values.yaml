@@ -28,7 +28,6 @@
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
 ## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
-## @param global.generateSecrets Generate secrets when deploying FCTL. This should be set to false if you want to provide your own secrets or when upgrading FCTL to avoid overriding the existing secrets
 ## @param global.imagePullPolicy Image pull policy for all containers
 
 global:
@@ -76,7 +75,6 @@ global:
   gatewayPorts:
     tls: 443
     http: 80
-  generateSecrets: true
   imagePullPolicy: IfNotPresent
 
 
@@ -91,6 +89,12 @@ db:
     pullPolicy: ""
   masterUser: admin
   user: demouser
+  # password: Leave empty to auto-generate secure password, or set to use a specific password.
+  password: ""
+  # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  masterPassword: ""
+  # userPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  userPassword: ""
   maxConnections: 200
   storage:
     size: "60Gi"
@@ -105,7 +109,8 @@ kv:
     image: quay.io/sclorg/redis-7-c9s
     tag: "20250108"
     pullPolicy: ""
-  password: adminpass
+  # password: Leave empty to auto-generate secure password, or set to use a specific password.
+  password: ""
   # Save if at least 1 key changed in 5 minutes
   save: 300 1
   loglevel: warning
