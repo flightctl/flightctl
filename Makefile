@@ -151,9 +151,9 @@ bin/.flightctl-multiarch-cli-container: bin Containerfile.cli-artifacts go.mod g
 	podman build -f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
 	touch bin/.flightctl-multiarch-cli-container
 
-bin/.flightctl-userinfo-proxy-container: bin Containerfile.userinfo go.mod go.sum $(GO_FILES)
+bin/.flightctl-userinfo-proxy-container: bin Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.userinfo $(GO_CACHE) -t flightctl-userinfo-proxy:latest
+	podman build -f Containerfile.userinfo-proxy $(GO_CACHE) -t flightctl-userinfo-proxy:latest
 	touch bin/.flightctl-userinfo-proxy-container
 
 flightctl-api-container: bin/.flightctl-api-container
