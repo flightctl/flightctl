@@ -138,6 +138,74 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			verifyContainerCount(harness, 0)
 		})
 
+		It("Should handle application volumes from images correctly", Label("83000"), func() {
+			By("Update the application to include artifact volumes")
+
+			imageName := sleepAppImageName(harness, "v3")
+
+			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
+				volumeConfig := v1alpha1.ApplicationVolume{
+					Name: "testvol",
+				}
+				err := volumeConfig.FromImageVolumeProviderSpec(
+					v1alpha1.ImageVolumeProviderSpec{
+						Image: v1alpha1.ImageVolumeSource{
+							// This contains a single tar.gz file layer called sqlite--3.50.2.x86_64_linux.bottle.tar.gz
+							Reference:  "ghcr.io/homebrew/core/sqlite:3.50.2",
+							PullPolicy: lo.ToPtr(v1alpha1.PullIfNotPresent),
+						},
+					})
+				Expect(err).ToNot(HaveOccurred())
+
+				appConfig := v1alpha1.ImageApplicationProviderSpec{
+					Image:   imageName,
+					Volumes: &[]v1alpha1.ApplicationVolume{volumeConfig},
+				}
+
+				var appSpec v1alpha1.ApplicationProviderSpec
+				err = appSpec.FromImageApplicationProviderSpec(appConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+			})
+
+			By("Wait for the application running status")
+			WaitForApplicationRunningStatus(harness, deviceId, imageName)
+
+			By("Check that the new application containers are running")
+			verifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
+			containerName := extractSingleContainerNameFromVM(harness)
+
+			verifyCommandOutputsSubstring(
+				harness,
+				[]string{"sudo", "podman", "inspect", "--format", `"{{.Mounts}}"`, containerName},
+				"testvol")
+
+			By("downgrading to v2 we should not have the mount anymore")
+			imageName = sleepAppImageName(harness, "v2")
+
+			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
+				appConfig := v1alpha1.ImageApplicationProviderSpec{
+					Image: imageName,
+				}
+
+				var appSpec v1alpha1.ApplicationProviderSpec
+				err := appSpec.FromImageApplicationProviderSpec(appConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+			})
+			WaitForApplicationRunningStatus(harness, deviceId, imageName)
+
+			verifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
+			containerName = extractSingleContainerNameFromVM(harness)
+
+			verifyCommandLacksSubstring(
+				harness,
+				[]string{"sudo", "podman", "inspect", "--format", `"{{.Mounts}}"`, containerName},
+				"testvol")
+		})
+
 		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990"), func() {
 			By("Creating the first application")
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)

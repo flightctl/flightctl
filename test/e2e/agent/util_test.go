@@ -6,9 +6,8 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/sirupsen/logrus"
-
 	. "github.com/onsi/gomega"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -85,4 +84,10 @@ func verifyCommandOutputsSubstring(harness *e2e.Harness, args []string, s string
 	stdout, err := harness.VM.RunSSH(args, nil)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(stdout.String()).To(ContainSubstring(s))
+}
+
+func verifyCommandLacksSubstring(harness *e2e.Harness, args []string, s string) {
+	stdout, err := harness.VM.RunSSH(args, nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(stdout.String()).To(Not(ContainSubstring(s)))
 }
