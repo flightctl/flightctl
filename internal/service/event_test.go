@@ -527,3 +527,259 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 }
+
+func TestGetDeviceSpecInvalidEvent(t *testing.T) {
+	require := require.New(t)
+	logger := logrus.New()
+
+	ctx := context.Background()
+	deviceName := "test-device"
+	message := "validation failed"
+
+	event := GetDeviceSpecInvalidEvent(ctx, deviceName, message, logger)
+
+	require.NotNil(event)
+	require.Equal(string(api.DeviceKind), event.InvolvedObject.Kind)
+	require.Equal(deviceName, event.InvolvedObject.Name)
+	require.Equal(api.EventReasonDeviceSpecInvalid, event.Reason)
+	require.Equal(api.Warning, event.Type)
+	require.Equal("Device specification is invalid: validation failed.", event.Message)
+	require.NotNil(event.Metadata.Name)
+}
+
+func TestGetDeviceSpecValidEvent(t *testing.T) {
+	require := require.New(t)
+	logger := logrus.New()
+
+	ctx := context.Background()
+	deviceName := "test-device"
+
+	event := GetDeviceSpecValidEvent(ctx, deviceName, logger)
+
+	require.NotNil(event)
+	require.Equal(string(api.DeviceKind), event.InvolvedObject.Kind)
+	require.Equal(deviceName, event.InvolvedObject.Name)
+	require.Equal(api.EventReasonDeviceSpecValid, event.Reason)
+	require.Equal(api.Normal, event.Type)
+	require.Equal("Device specification is valid.", event.Message)
+	require.NotNil(event.Metadata.Name)
+}
+
+func TestGetDeviceMultipleOwnersDetectedEvent(t *testing.T) {
+	require := require.New(t)
+	logger := logrus.New()
+
+	ctx := context.Background()
+	deviceName := "test-device"
+	matchingFleets := []string{"fleet1", "fleet2", "fleet3"}
+
+	event := GetDeviceMultipleOwnersDetectedEvent(ctx, deviceName, matchingFleets, logger)
+
+	require.NotNil(event)
+	require.Equal(string(api.DeviceKind), event.InvolvedObject.Kind)
+	require.Equal(deviceName, event.InvolvedObject.Name)
+	require.Equal(api.EventReasonDeviceMultipleOwnersDetected, event.Reason)
+	require.Equal(api.Warning, event.Type)
+	require.Equal("Device matches multiple fleets: fleet1, fleet2, fleet3.", event.Message)
+	require.NotNil(event.Metadata.Name)
+	require.NotNil(event.Details)
+
+	// Verify the event details
+	detailsStruct, err := event.Details.AsDeviceMultipleOwnersDetectedDetails()
+	require.NoError(err)
+	require.Equal(matchingFleets, detailsStruct.MatchingFleets)
+}
+
+func TestGetDeviceMultipleOwnersResolvedEvent(t *testing.T) {
+	require := require.New(t)
+	logger := logrus.New()
+
+	ctx := context.Background()
+	deviceName := "test-device"
+
+	testCases := []struct {
+		name           string
+		resolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType
+		assignedOwner  *string
+		expectedMsg    string
+	}{
+		{
+			name:           "SingleMatch",
+			resolutionType: api.SingleMatch,
+			assignedOwner:  lo.ToPtr("fleet1"),
+			expectedMsg:    "Device multiple owners conflict was resolved: single fleet match, assigned to fleet 'fleet1'.",
+		},
+		{
+			name:           "NoMatch",
+			resolutionType: api.NoMatch,
+			assignedOwner:  nil,
+			expectedMsg:    "Device multiple owners conflict was resolved: no fleet matches, owner was removed.",
+		},
+		{
+			name:           "FleetDeleted",
+			resolutionType: api.FleetDeleted,
+			assignedOwner:  nil,
+			expectedMsg:    "Device multiple owners conflict was resolved: fleet was deleted.",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			previousFleets := []string{"fleet1", "fleet2"}
+
+			event := GetDeviceMultipleOwnersResolvedEvent(ctx, deviceName, tc.resolutionType, tc.assignedOwner, previousFleets, logger)
+
+			require.NotNil(event)
+			require.Equal(string(api.DeviceKind), event.InvolvedObject.Kind)
+			require.Equal(deviceName, event.InvolvedObject.Name)
+			require.Equal(api.EventReasonDeviceMultipleOwnersResolved, event.Reason)
+			require.Equal(api.Normal, event.Type)
+			require.Equal(tc.expectedMsg, event.Message)
+			require.NotNil(event.Metadata.Name)
+			require.NotNil(event.Details)
+
+			// Verify the event details
+			detailsStruct, err := event.Details.AsDeviceMultipleOwnersResolvedDetails()
+			require.NoError(err)
+			require.Equal(tc.resolutionType, detailsStruct.ResolutionType)
+			require.Equal(tc.assignedOwner, detailsStruct.AssignedOwner)
+			require.Equal(&previousFleets, detailsStruct.PreviousMatchingFleets)
+		})
+	}
+}
+
+func TestGetInternalTaskFailedEvent(t *testing.T) {
+	require := require.New(t)
+	logger := logrus.New()
+
+	ctx := context.Background()
+	resourceKind := api.ResourceKind(api.DeviceKind)
+	resourceName := "test-device"
+	taskType := "sync"
+	errorMessage := "connection timeout"
+	retryCount := lo.ToPtr(3)
+	taskParameters := map[string]string{"param1": "value1", "param2": "value2"}
+
+	event := GetInternalTaskFailedEvent(ctx, resourceKind, resourceName, taskType, errorMessage, retryCount, taskParameters, logger)
+
+	require.NotNil(event)
+	require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
+	require.Equal(resourceName, event.InvolvedObject.Name)
+	require.Equal(api.EventReasonInternalTaskFailed, event.Reason)
+	require.Equal(api.Warning, event.Type)
+	require.Equal("Device internal task failed: sync - connection timeout.", event.Message)
+	require.NotNil(event.Metadata.Name)
+	require.NotNil(event.Details)
+
+	// Verify the event details
+	detailsStruct, err := event.Details.AsInternalTaskFailedDetails()
+	require.NoError(err)
+	require.Equal(taskType, detailsStruct.TaskType)
+	require.Equal(errorMessage, detailsStruct.ErrorMessage)
+	require.Equal(retryCount, detailsStruct.RetryCount)
+	require.Equal(&taskParameters, detailsStruct.TaskParameters)
+}
+
+func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
+	require := require.New(t)
+	logger := logrus.New()
+
+	ctx := context.Background()
+	resourceKind := api.ResourceKind(api.DeviceKind)
+	resourceName := "test-device"
+	updateDetails := &api.ResourceUpdatedDetails{
+		NewOwner:      lo.ToPtr("fleet2"),
+		PreviousOwner: lo.ToPtr("fleet1"),
+	}
+
+	t.Run("Created", func(t *testing.T) {
+		event := GetResourceCreatedOrUpdatedEvent(ctx, true, resourceKind, resourceName, api.StatusOK(), nil, logger)
+
+		require.NotNil(event)
+		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
+		require.Equal(resourceName, event.InvolvedObject.Name)
+		require.Equal(api.EventReasonResourceCreated, event.Reason)
+		require.Equal(api.Normal, event.Type)
+		require.Equal("Device was created successfully.", event.Message)
+		require.NotNil(event.Metadata.Name)
+		require.Nil(event.Details)
+	})
+
+	t.Run("Updated", func(t *testing.T) {
+		event := GetResourceCreatedOrUpdatedEvent(ctx, false, resourceKind, resourceName, api.StatusOK(), updateDetails, logger)
+
+		require.NotNil(event)
+		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
+		require.Equal(resourceName, event.InvolvedObject.Name)
+		require.Equal(api.EventReasonResourceUpdated, event.Reason)
+		require.Equal(api.Normal, event.Type)
+		require.Equal("Device was updated successfully.", event.Message)
+		require.NotNil(event.Metadata.Name)
+		require.NotNil(event.Details)
+
+		// Verify the event details
+		detailsStruct, err := event.Details.AsResourceUpdatedDetails()
+		require.NoError(err)
+		require.Equal(updateDetails.NewOwner, detailsStruct.NewOwner)
+		require.Equal(updateDetails.PreviousOwner, detailsStruct.PreviousOwner)
+	})
+
+	t.Run("CreatedFailed", func(t *testing.T) {
+		event := GetResourceCreatedOrUpdatedEvent(ctx, true, resourceKind, resourceName, api.StatusInternalServerError("creation failed"), nil, logger)
+
+		require.NotNil(event)
+		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
+		require.Equal(resourceName, event.InvolvedObject.Name)
+		require.Equal(api.EventReasonResourceCreationFailed, event.Reason)
+		require.Equal(api.Warning, event.Type)
+		require.Equal("Device creation failed: creation failed.", event.Message)
+		require.NotNil(event.Metadata.Name)
+		require.Nil(event.Details)
+	})
+
+	t.Run("UpdatedFailed", func(t *testing.T) {
+		event := GetResourceCreatedOrUpdatedEvent(ctx, false, resourceKind, resourceName, api.StatusInternalServerError("update failed"), updateDetails, logger)
+
+		require.NotNil(event)
+		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
+		require.Equal(resourceName, event.InvolvedObject.Name)
+		require.Equal(api.EventReasonResourceUpdateFailed, event.Reason)
+		require.Equal(api.Warning, event.Type)
+		require.Equal("Device update failed: update failed.", event.Message)
+		require.NotNil(event.Metadata.Name)
+		require.NotNil(event.Details)
+	})
+}
+
+func TestGetResourceDeletedEvent(t *testing.T) {
+	require := require.New(t)
+	logger := logrus.New()
+
+	ctx := context.Background()
+	resourceKind := api.ResourceKind(api.DeviceKind)
+	resourceName := "test-device"
+
+	t.Run("Success", func(t *testing.T) {
+		event := GetResourceDeletedEvent(ctx, resourceKind, resourceName, api.StatusOK(), logger)
+
+		require.NotNil(event)
+		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
+		require.Equal(resourceName, event.InvolvedObject.Name)
+		require.Equal(api.EventReasonResourceDeleted, event.Reason)
+		require.Equal(api.Normal, event.Type)
+		require.Equal("Device was deleted successfully.", event.Message)
+		require.NotNil(event.Metadata.Name)
+	})
+
+	t.Run("Failed", func(t *testing.T) {
+		event := GetResourceDeletedEvent(ctx, resourceKind, resourceName, api.StatusInternalServerError("deletion failed"), logger)
+
+		require.NotNil(event)
+		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
+		require.Equal(resourceName, event.InvolvedObject.Name)
+		require.Equal(api.EventReasonResourceDeletionFailed, event.Reason)
+		require.Equal(api.Warning, event.Type)
+		require.Equal("Device deletion failed: deletion failed.", event.Message)
+		require.NotNil(event.Metadata.Name)
+	})
+}

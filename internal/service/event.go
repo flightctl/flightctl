@@ -57,11 +57,11 @@ func formatDeviceMultipleOwnersMessage(matchingFleets []string) string {
 // formatDeviceMultipleOwnersResolvedMessage creates a standardized message for multiple owners resolved
 func formatDeviceMultipleOwnersResolvedMessage(resolutionType api.DeviceMultipleOwnersResolvedDetailsResolutionType, assignedOwner *string) string {
 	switch resolutionType {
-	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch:
+	case api.SingleMatch:
 		return fmt.Sprintf("Device multiple owners conflict was resolved: single fleet match, assigned to fleet '%s'.", lo.FromPtr(assignedOwner))
-	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch:
+	case api.NoMatch:
 		return "Device multiple owners conflict was resolved: no fleet matches, owner was removed."
-	case api.DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted:
+	case api.FleetDeleted:
 		return "Device multiple owners conflict was resolved: fleet was deleted."
 	default:
 		return "Device multiple owners conflict was resolved."
@@ -74,10 +74,6 @@ func formatInternalTaskFailedMessage(resourceKind api.ResourceKind, taskType, er
 }
 
 // formatFleetSelectorProcessingMessage creates a standardized message for fleet selector processing
-func formatFleetSelectorProcessingMessage(devicesProcessed, devicesWithErrors int, processingDuration time.Duration) string {
-	durationMs := float64(processingDuration.Nanoseconds()) / 1000000
-	return fmt.Sprintf("Fleet selector processing was completed: %d devices processed, %d errors in %.2f ms.", devicesProcessed, devicesWithErrors, durationMs)
-}
 
 func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
 	if event == nil {
@@ -371,42 +367,4 @@ func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKi
 		Status:         api.StatusInternalServerError("Internal task failed"),
 		CustomDetails:  &details,
 	}, log)
-}
-
-// GetFleetSelectorProcessingCompletedEvent creates an event for fleet selector processing completion
-func GetFleetSelectorProcessingCompletedEvent(ctx context.Context, fleetName string, processingType api.FleetSelectorProcessingCompletedDetailsProcessingType, devicesProcessed, devicesWithErrors int, processingDuration time.Duration, log logrus.FieldLogger) *api.Event {
-	message := formatFleetSelectorProcessingMessage(devicesProcessed, devicesWithErrors, processingDuration)
-
-	details := api.EventDetails{}
-	durationStr := processingDuration.String()
-	detailsStruct := api.FleetSelectorProcessingCompletedDetails{
-		ProcessingType:     processingType,
-		DevicesProcessed:   devicesProcessed,
-		DevicesWithErrors:  &devicesWithErrors,
-		ProcessingDuration: &durationStr,
-	}
-	if err := details.FromFleetSelectorProcessingCompletedDetails(detailsStruct); err != nil {
-		log.WithError(err).Error("Failed to serialize fleet selector processing completed event details")
-		return nil
-	}
-
-	if devicesWithErrors > 0 {
-		return getBaseEvent(ctx, resourceEvent{
-			ResourceKind:   api.FleetKind,
-			ResourceName:   fleetName,
-			ReasonFailure:  api.EventReasonFleetSelectorProcessingCompleted,
-			OutcomeFailure: func() string { return message },
-			Status:         api.StatusInternalServerError("Fleet selector processing completed with errors"),
-			CustomDetails:  &details,
-		}, log)
-	} else {
-		return getBaseEvent(ctx, resourceEvent{
-			ResourceKind:   api.FleetKind,
-			ResourceName:   fleetName,
-			ReasonSuccess:  api.EventReasonFleetSelectorProcessingCompleted,
-			OutcomeSuccess: message,
-			Status:         api.StatusOK(),
-			CustomDetails:  &details,
-		}, log)
-	}
 }

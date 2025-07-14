@@ -113,7 +113,7 @@ var _ = Describe("cli operation", func() {
 		It("should prevent reapplying enrollment request with same name after device creation", Label("83301", "sanity"), func() {
 
 			By("Applying enrollment request initially")
-			out, err := harness.ManageResource("apply", erYaml)
+			out, err := harness.ManageResource("apply", erYAMLPath)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 
@@ -122,7 +122,7 @@ var _ = Describe("cli operation", func() {
 			erName := *er.Metadata.Name
 
 			By("Approving the enrollment request")
-			_, err = harness.CLI("approve", fmt.Sprintf("er/%s", erName))
+			_, err = harness.ManageResource("approve", fmt.Sprintf("er/%s", erName))
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Verifying device was created")
@@ -136,7 +136,7 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(ContainSubstring("completed"))
 
 			By("Attempting to reapply the same enrollment request")
-			out, err = harness.ManageResource("apply", erYaml)
+			out, err = harness.ManageResource("apply", erYAMLPath)
 			Expect(err).To(HaveOccurred())
 			badRequestMessage := fmt.Sprintf("%d %s", http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 			Expect(out).To(ContainSubstring(badRequestMessage))
@@ -835,14 +835,13 @@ spec:
 `
 
 var (
-	erYaml                      = "enrollmentrequest.yaml"
 	deviceYamlPath              = util.GetTestExamplesYamlPath("device.yaml")
 	deviceBYamlPath             = util.GetTestExamplesYamlPath("device-b.yaml")
 	fleetBYamlPath              = util.GetTestExamplesYamlPath("fleet-b.yaml")
 	badFleetRequestYamlPath     = util.GetTestExamplesYamlPath("badfleetrequest.yaml")
 	repositoryFlightctlYamlPath = util.GetTestExamplesYamlPath("repository-flightctl.yaml")
 	resourceSyncYamlPath        = util.GetTestExamplesYamlPath("resourcesync.yaml")
-	enrollmentRequestYamlPath   = util.GetTestExamplesYamlPath(erYaml)
+	enrollmentRequestYamlPath   = util.GetTestExamplesYamlPath("enrollmentrequest.yaml")
 	csrYamlPath                 = util.GetTestExamplesYamlPath("csr.yaml")
 )
 
