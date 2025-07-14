@@ -155,7 +155,6 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 		Metadata: api.ObjectMeta{
 			Name: lo.ToPtr(eventName),
 		},
-		Type: api.Normal,
 		InvolvedObject: api.ObjectReference{
 			Kind: string(resourceEvent.ResourceKind),
 			Name: resourceEvent.ResourceName,
@@ -181,8 +180,9 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent, log logrus.F
 		} else {
 			event.Message = "generic failure"
 		}
-		event.Type = api.Warning
 	}
+
+	event.Type = getEventType(event.Reason)
 
 	// Handle custom details first, then fall back to UpdateDetails
 	if resourceEvent.CustomDetails != nil {
@@ -259,6 +259,35 @@ func GetResourceDecommissionedEvent(ctx context.Context, resourceKind api.Resour
 		FailureTemplate: formatResourceActionFailedTemplate(resourceKind, "decommission"),
 		UpdateDetails:   updateDetails,
 	}, log)
+}
+
+// getEventType determines the event type based on the event reason
+func getEventType(reason api.EventReason) api.EventType {
+	warningReasons := []api.EventReason{
+		api.EventReasonResourceCreationFailed,
+		api.EventReasonResourceUpdateFailed,
+		api.EventReasonResourceDeletionFailed,
+		api.EventReasonDeviceDecommissionFailed,
+		api.EventReasonEnrollmentRequestApprovalFailed,
+		api.EventReasonDeviceApplicationDegraded,
+		api.EventReasonDeviceApplicationError,
+		api.EventReasonDeviceCPUCritical,
+		api.EventReasonDeviceCPUWarning,
+		api.EventReasonDeviceMemoryCritical,
+		api.EventReasonDeviceMemoryWarning,
+		api.EventReasonDeviceDiskCritical,
+		api.EventReasonDeviceDiskWarning,
+		api.EventReasonDeviceDisconnected,
+		api.EventReasonDeviceSpecInvalid,
+		api.EventReasonDeviceMultipleOwnersDetected,
+		api.EventReasonInternalTaskFailed,
+	}
+
+	if lo.Contains(warningReasons, reason) {
+		return api.Warning
+	}
+
+	return api.Normal
 }
 
 func GetResourceEventFromUpdateDetails(ctx context.Context, resourceKind api.ResourceKind, resourceName string, reasonSuccess api.EventReason, updateDetails string, log logrus.FieldLogger) *api.Event {
