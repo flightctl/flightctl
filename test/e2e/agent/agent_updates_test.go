@@ -363,6 +363,65 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					strings.Contains(cond.Message, "update policy not ready")
 			}, TIMEOUT)
 		})
+		It("Should not crash in case of unexpected services configs", Label("78711", "sanity"), func() {
+			const (
+				rapidFilesCount  = 10
+				firewallZonesDir = "/etc/firewalld/zones"
+				badZoneFile      = firewallZonesDir + "/bad-zone.xml"
+				conflictFile     = firewallZonesDir + "/conflict.json"
+			)
+
+			// ------------------------------------------------------------------
+			// Malformed XML — should cause firewall reload hook to fail
+			// ------------------------------------------------------------------
+			By(fmt.Sprintf("Applying malformed XML to %s", badZoneFile))
+			err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigForPath("bad-zone", badZoneFile, "<invalid")}
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1alpha1.Device) bool {
+				return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError))
+			}, TIMEOUT)
+
+			// ------------------------------------------------------------------
+			// Rapidly add, remove, or update multiple files
+			// ------------------------------------------------------------------
+			By("Rapidly applying multiple config changes in quick succession")
+			for i := 1; i <= rapidFilesCount; i++ {
+				logrus.Infof("Applying update %d", i)
+				path := fmt.Sprintf("%s/rapid-%d.json", firewallZonesDir, i)
+				name := fmt.Sprintf("rapid-%d", i)
+				err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+					device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigForPath(name, path, name)}
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+			By("Verifying the last file remains after rapid updates")
+			listFiles := func() ([]string, error) {
+				stdout, err := harness.VM.RunSSH([]string{"sudo", "ls", firewallZonesDir}, nil)
+				if err != nil {
+					return nil, err
+				}
+				return strings.Fields(stdout.String()), nil
+			}
+			lastFile := fmt.Sprintf("rapid-%d.json", rapidFilesCount)
+			// Can take a few seconds to process all updates
+			Eventually(listFiles, TIMEOUT, POLLING).
+				Should(ConsistOf(lastFile))
+
+			// ------------------------------------------------------------------
+			// Conflicting inline configs targeting the same path
+			// ------------------------------------------------------------------
+			By("Applying two inline configs that write to the same file path - through UpdateDevice")
+			cfg1 := newInlineConfigForPath("c1", conflictFile, "cfg1")
+			cfg2 := newInlineConfigForPath("c2", conflictFile, "cfg2")
+
+			Expect(harness.UpdateDevice(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{cfg1, cfg2}
+			})).To(MatchError(ContainSubstring("must be unique")))
+
+		})
 	})
 })
 
@@ -409,6 +468,22 @@ func newInlineConfigVersion(version int) v1alpha1.ConfigProviderSpec {
 	cfg := v1alpha1.InlineConfigProviderSpec{
 		Inline: []v1alpha1.FileSpec{configCopy},
 		Name:   validInlineConfig.Name,
+	}
+	var provider v1alpha1.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(cfg)
+	Expect(err).NotTo(HaveOccurred())
+	return provider
+}
+
+func newInlineConfigForPath(name string, path string, content string) v1alpha1.ConfigProviderSpec {
+	var inlineConfig = v1alpha1.FileSpec{
+		Content: content,
+		Mode:    modePointer,
+		Path:    path,
+	}
+	cfg := v1alpha1.InlineConfigProviderSpec{
+		Inline: []v1alpha1.FileSpec{inlineConfig},
+		Name:   name,
 	}
 	var provider v1alpha1.ConfigProviderSpec
 	err := provider.FromInlineConfigProviderSpec(cfg)
