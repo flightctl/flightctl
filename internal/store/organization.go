@@ -42,7 +42,8 @@ func (s *OrganizationStore) InitialMigration(ctx context.Context) error {
 	// If there are no organizations, create a default one
 	if count == 0 {
 		db.Create(&model.Organization{
-			ID: NullOrgId,
+			ID:      NullOrgId,
+			Default: true,
 		})
 	}
 

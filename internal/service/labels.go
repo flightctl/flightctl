@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 )
 
@@ -13,7 +12,7 @@ import (
 func (h *ServiceHandler) ListLabels(ctx context.Context, params api.ListLabelsParams) (*api.LabelList, api.Status) {
 	var err error
 
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 	kind := params.Kind
 
 	listParams, status := prepareListParams(nil, params.LabelSelector, params.FieldSelector, params.Limit)

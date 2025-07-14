@@ -8,8 +8,11 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	chi "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 )
 
 // RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
@@ -54,6 +57,29 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 			}
 		}
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, fmt.Sprintf("user:%s", userName))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func AddOrgIDToCtx(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		orgIDParam := r.URL.Query().Get("org_id")
+
+		var orgID uuid.UUID
+		if orgIDParam != "" {
+			parsedID, err := uuid.Parse(orgIDParam)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Invalid org_id parameter: %s", err.Error()), http.StatusBadRequest)
+				return
+			}
+			orgID = parsedID
+		} else {
+			// Fall back to the default organization.
+			orgID = store.NullOrgId
+		}
+
+		ctx = util.WithOrganizationID(ctx, orgID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

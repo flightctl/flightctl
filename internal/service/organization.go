@@ -13,8 +13,9 @@ var organizationApiVersion = fmt.Sprintf("%s/%s", api.APIGroup, api.Organization
 
 func (h *ServiceHandler) ListUserOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
 	orgs, err := h.store.Organization().List(ctx)
+	status := StoreErrorToApiStatus(err, false, OrganizationKind, nil)
 	if err != nil {
-		return nil, StoreErrorToApiStatus(err, false, OrganizationKind, nil)
+		return nil, status
 	}
 
 	apiOrgs := make([]api.Organization, len(orgs))
@@ -39,5 +40,5 @@ func (h *ServiceHandler) ListUserOrganizations(ctx context.Context) (*api.Organi
 		ApiVersion: organizationApiVersion,
 		Kind:       api.OrganizationListKind,
 		Metadata:   api.ListMeta{},
-	}, api.Status{}
+	}, status
 }

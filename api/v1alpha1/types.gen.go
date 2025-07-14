@@ -103,9 +103,9 @@ const (
 
 // Defines values for DeviceMultipleOwnersResolvedDetailsResolutionType.
 const (
-	DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted DeviceMultipleOwnersResolvedDetailsResolutionType = "FleetDeleted"
-	DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch      DeviceMultipleOwnersResolvedDetailsResolutionType = "NoMatch"
-	DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch  DeviceMultipleOwnersResolvedDetailsResolutionType = "SingleMatch"
+	FleetDeleted DeviceMultipleOwnersResolvedDetailsResolutionType = "FleetDeleted"
+	NoMatch      DeviceMultipleOwnersResolvedDetailsResolutionType = "NoMatch"
+	SingleMatch  DeviceMultipleOwnersResolvedDetailsResolutionType = "SingleMatch"
 )
 
 // Defines values for DeviceOwnershipChangedDetailsDetailType.
@@ -193,18 +193,6 @@ const (
 	FileOperationCreated FileOperation = "created"
 	FileOperationRemoved FileOperation = "removed"
 	FileOperationUpdated FileOperation = "updated"
-)
-
-// Defines values for FleetSelectorProcessingCompletedDetailsDetailType.
-const (
-	FleetSelectorProcessingCompleted FleetSelectorProcessingCompletedDetailsDetailType = "FleetSelectorProcessingCompleted"
-)
-
-// Defines values for FleetSelectorProcessingCompletedDetailsProcessingType.
-const (
-	FleetSelectorProcessingCompletedDetailsProcessingTypeDeviceLabelsUpdated FleetSelectorProcessingCompletedDetailsProcessingType = "DeviceLabelsUpdated"
-	FleetSelectorProcessingCompletedDetailsProcessingTypeFleetDeleted        FleetSelectorProcessingCompletedDetailsProcessingType = "FleetDeleted"
-	FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated     FleetSelectorProcessingCompletedDetailsProcessingType = "SelectorUpdated"
 )
 
 // Defines values for ImagePullPolicy.
@@ -1137,30 +1125,6 @@ type FleetRolloutStatus struct {
 	// CurrentBatch The batch number currently being rolled out.
 	CurrentBatch *int `json:"currentBatch,omitempty"`
 }
-
-// FleetSelectorProcessingCompletedDetails defines model for FleetSelectorProcessingCompletedDetails.
-type FleetSelectorProcessingCompletedDetails struct {
-	// DetailType The type of detail for discriminator purposes.
-	DetailType FleetSelectorProcessingCompletedDetailsDetailType `json:"detailType"`
-
-	// DevicesProcessed Number of devices processed.
-	DevicesProcessed int `json:"devicesProcessed"`
-
-	// DevicesWithErrors Number of devices that had processing errors.
-	DevicesWithErrors *int `json:"devicesWithErrors,omitempty"`
-
-	// ProcessingDuration Duration of the processing operation.
-	ProcessingDuration *string `json:"processingDuration,omitempty"`
-
-	// ProcessingType The type of processing that was completed.
-	ProcessingType FleetSelectorProcessingCompletedDetailsProcessingType `json:"processingType"`
-}
-
-// FleetSelectorProcessingCompletedDetailsDetailType The type of detail for discriminator purposes.
-type FleetSelectorProcessingCompletedDetailsDetailType string
-
-// FleetSelectorProcessingCompletedDetailsProcessingType The type of processing that was completed.
-type FleetSelectorProcessingCompletedDetailsProcessingType string
 
 // FleetSpec FleetSpec is a description of a fleet's target state.
 type FleetSpec struct {

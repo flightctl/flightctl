@@ -28,6 +28,8 @@ tags:
     description: Operations on Fleet resources.
   - name: label
     description: Operations for retrieving labels across different resources.
+  - name: organization
+    description: Operations for retrieving Organization resources.
   - name: repository
     description: Operations on Repository resources.
   - name: resourcesync
@@ -3151,6 +3153,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    orgId:
+      type: apiKey
+      in: query
+      name: org_id
+      description: The ID of the organization that owns the resource.
   schemas:
     ResourceKind:
       type: string
@@ -5312,30 +5319,6 @@ components:
           additionalProperties:
             type: string
           description: Parameters needed to retry the task.
-    FleetSelectorProcessingCompletedDetails:
-      type: object
-      required:
-        - detailType
-        - processingType
-        - devicesProcessed
-      properties:
-        detailType:
-          type: string
-          enum: [FleetSelectorProcessingCompleted]
-          description: The type of detail for discriminator purposes.
-        processingType:
-          type: string
-          enum: [SelectorUpdated, FleetDeleted, DeviceLabelsUpdated]
-          description: The type of processing that was completed.
-        devicesProcessed:
-          type: integer
-          description: Number of devices processed.
-        devicesWithErrors:
-          type: integer
-          description: Number of devices that had processing errors.
-        processingDuration:
-          type: string
-          description: Duration of the processing operation.
     Organization:
       type: object
       required:
