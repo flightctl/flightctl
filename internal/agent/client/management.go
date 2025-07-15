@@ -111,3 +111,57 @@ func (m *management) GetRenderedDevice(ctx context.Context, name string, params 
 
 	return nil, resp.StatusCode(), nil
 }
+
+// CreateCertificateSigningRequest submits a new CSR to the management server for certificate approval.
+// It handles the initial CSR submission and returns the created CSR object with server-assigned metadata.
+// The CSR will be processed asynchronously by the server's certificate approval workflow.
+func (m *management) CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error) {
+	start := time.Now()
+	resp, err := m.client.CreateCertificateSigningRequestWithResponse(ctx, csr, rcb...)
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("create_certificate_signing_request_duration", time.Since(start).Seconds(), err)
+	}
+
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	if resp.HTTPResponse != nil {
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
+	}
+
+	if resp.JSON400 != nil {
+		return nil, resp.StatusCode(), fmt.Errorf("create certificate signing request failed: %s", resp.JSON400.Message)
+	}
+
+	if resp.JSON201 != nil {
+		return resp.JSON201, resp.StatusCode(), nil
+	}
+
+	return nil, resp.StatusCode(), nil
+}
+
+// GetCertificateSigningRequest retrieves the current status of a CSR from the management server.
+// This method is used to poll for CSR approval status and retrieve the issued certificate when ready.
+// The CSR status includes approval/denial state and the signed certificate when approved.
+func (m *management) GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error) {
+	start := time.Now()
+	resp, err := m.client.GetCertificateSigningRequestWithResponse(ctx, name, rcb...)
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("get_certificate_signing_request_duration", time.Since(start).Seconds(), err)
+	}
+
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	if resp.HTTPResponse != nil {
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
+	}
+
+	if resp.JSON200 != nil {
+		return resp.JSON200, resp.StatusCode(), nil
+	}
+
+	return nil, resp.StatusCode(), nil
+}
