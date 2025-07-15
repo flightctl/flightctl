@@ -14,24 +14,31 @@ import (
 type ResourceSyncCollector struct {
 	resourceSyncsGauge *prometheus.GaugeVec
 
-	store store.Store
-	log   logrus.FieldLogger
-	mu    sync.RWMutex
-	ctx   context.Context
+	store          store.Store
+	log            logrus.FieldLogger
+	mu             sync.RWMutex
+	ctx            context.Context
+	tickerInterval time.Duration
 }
 
-func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger) *ResourceSyncCollector {
+// NewResourceSyncCollector creates a ResourceSyncCollector. If tickerInterval is 0, defaults to 30s.
+func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, tickerInterval ...time.Duration) *ResourceSyncCollector {
+	interval := 30 * time.Second
+	if len(tickerInterval) > 0 && tickerInterval[0] > 0 {
+		interval = tickerInterval[0]
+	}
 	collector := &ResourceSyncCollector{
 		resourceSyncsGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "flightctl_resourcesyncs_total",
 			Help: "Total number of resource syncs managed",
-		}, []string{"organization_id", "status", "version"}),
-
-		store: store,
-		log:   log,
-		ctx:   ctx,
+		}, []string{"organization_id", "status"}),
+		store:          store,
+		log:            log,
+		ctx:            ctx,
+		tickerInterval: interval,
 	}
 
+	collector.log.Info("Starting resourcesync metrics collector with interval", "interval", interval)
 	collector.updateResourceSyncMetrics() // immediate update
 	go collector.sampleResourceSyncMetrics()
 
@@ -54,14 +61,17 @@ func (c *ResourceSyncCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (c *ResourceSyncCollector) sampleResourceSyncMetrics() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(c.tickerInterval)
 	defer ticker.Stop()
 
+	c.log.Info("ResourceSync metrics collector sampling started")
 	for {
 		select {
 		case <-c.ctx.Done():
+			c.log.Info("ResourceSync metrics collector context cancelled, stopping")
 			return
 		case <-ticker.C:
+			c.log.Debug("Collecting resourcesync metrics")
 			c.updateResourceSyncMetrics()
 		}
 	}
@@ -74,24 +84,31 @@ func (c *ResourceSyncCollector) updateResourceSyncMetrics() {
 	// Use bypass span check for metrics collection to avoid tracing context errors
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Reset all metrics
-	c.resourceSyncsGauge.Reset()
-
-	// Get resource sync counts grouped by organization, status, and version
-	results, err := c.store.ResourceSync().CountByOrgStatusAndVersion(ctx, nil, nil, nil)
+	// Get resource sync counts grouped by org and status
+	resourceSyncCounts, err := c.store.ResourceSync().CountByOrgAndStatus(ctx, nil, nil)
 	if err != nil {
-		c.log.WithError(err).Error("Failed to get resource sync count for metrics")
+		c.log.WithError(err).Error("Failed to get resource sync counts for metrics")
 		return
 	}
 
-	// Update metrics with actual organization, status, and version values
-	for _, r := range results {
-		orgIdLabel := r.OrgID
-		statusLabel := r.Status
-		versionLabel := r.Version
-		c.resourceSyncsGauge.WithLabelValues(orgIdLabel, statusLabel, versionLabel).Set(float64(r.Count))
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Update resource syncs metric
+	c.resourceSyncsGauge.Reset()
+	for _, result := range resourceSyncCounts {
+		orgIdLabel := result.OrgID
+		if orgIdLabel == "" {
+			orgIdLabel = "unknown"
+		}
+		status := result.Status
+		if status == "" {
+			status = "none"
+		}
+		c.resourceSyncsGauge.WithLabelValues(orgIdLabel, status).Set(float64(result.Count))
 	}
+
+	c.log.WithFields(logrus.Fields{
+		"org_count": len(resourceSyncCounts),
+	}).Debug("Updated resourcesync metrics")
 }
