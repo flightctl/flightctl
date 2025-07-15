@@ -12,12 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func createServiceHandlerWithMockStore(t *testing.T, mockStore *TestStore) *ServiceHandler {
-	return &ServiceHandler{
-		store: mockStore,
-	}
-}
-
 func createServiceHandlerWithOrgMockStore(t *testing.T) (*ServiceHandler, *TestStore) {
 	mockStore := &TestStore{}
 	handler := &ServiceHandler{
@@ -29,7 +23,7 @@ func createServiceHandlerWithOrgMockStore(t *testing.T) (*ServiceHandler, *TestS
 func createTestOrganizationModel(id uuid.UUID, isDefault bool, externalID string) *model.Organization {
 	return &model.Organization{
 		ID:         id,
-		Default:    isDefault,
+		IsDefault:  isDefault,
 		ExternalID: externalID,
 	}
 }

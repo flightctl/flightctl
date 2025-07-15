@@ -23,7 +23,7 @@ func (h *ServiceHandler) ListUserOrganizations(ctx context.Context) (*api.Organi
 		// In the future, displayName will be populated from information from the IdP.
 		// For now, there should only be the default organization so any others that might exist are unknown.
 		displayName := "Unknown"
-		if org.Default {
+		if org.IsDefault {
 			displayName = "Default"
 		}
 

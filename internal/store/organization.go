@@ -36,18 +36,24 @@ func (s *OrganizationStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
-	var count int64
-	db.Model(&model.Organization{}).Count(&count)
+	return db.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&model.Organization{}).Count(&count).Error; err != nil {
+			return err
+		}
 
-	// If there are no organizations, create a default one
-	if count == 0 {
-		db.Create(&model.Organization{
-			ID:      NullOrgId,
-			Default: true,
-		})
-	}
+		// If there are no organizations, create a default one
+		if count == 0 {
+			if err := tx.Create(&model.Organization{
+				ID:        NullOrgId,
+				IsDefault: true,
+			}).Error; err != nil {
+				return err
+			}
+		}
 
-	return nil
+		return nil
+	})
 }
 
 func (s *OrganizationStore) Create(ctx context.Context, org *model.Organization) (*model.Organization, error) {
