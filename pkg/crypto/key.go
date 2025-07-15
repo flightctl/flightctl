@@ -249,3 +249,27 @@ func GetExtensionValue(cert *x509.Certificate, oid asn1.ObjectIdentifier) (strin
 
 	return "", fmt.Errorf("extension with OID %v not found", oid)
 }
+
+// ParsePEMCertificate parses a PEM-encoded certificate and returns an *x509.Certificate.
+// It validates the PEM block type and ensures the certificate is properly formatted.
+func ParsePEMCertificate(pemData []byte) (*x509.Certificate, error) {
+	if len(pemData) == 0 {
+		return nil, fmt.Errorf("empty PEM data")
+	}
+
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+
+	if block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("PEM block is not a certificate (type: %s)", block.Type)
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	return cert, nil
+}

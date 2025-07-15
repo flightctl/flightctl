@@ -278,6 +278,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	certManager, err := certmanager.NewManager(a.log,
 		certmanager.WithStateStorageProvider(cm_state.NewFileStorage(filepath.Join(agent_config.DefaultConfigDir, "cert-state.json"))),
 		certmanager.WithConfigProvider(cm_config.NewAgentConfigProvider(ctx, a.configFile)),
+		certmanager.WithProvisionerProvider(cm_provisioner.NewCSRProvisionerFactory(deviceName, bootstrap.ManagementClient())),
+		certmanager.WithStorageProvider(cm_storage.NewFileSystemStorageFactory(deviceReadWriter)),
 
 		// Empty providers for testing and placeholder scenarios
 		certmanager.WithProvisionerProvider(cm_provisioner.NewEmptyProvisionerFactory()),

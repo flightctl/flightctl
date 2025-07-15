@@ -302,3 +302,8 @@ func (b *Bootstrap) setManagementClient() error {
 	b.log.Info("Management client set")
 	return nil
 }
+
+// ManagementClient returns the management client for use by other components.
+func (b *Bootstrap) ManagementClient() client.Management {
+	return b.managementClient
+}
