@@ -174,7 +174,21 @@ func main() {
 
 	if cfg.Prometheus != nil {
 		go func() {
-			metricsServer := instrumentation.NewMetricsServer(log, cfg, metrics.NewSystemCollector(ctx))
+			collectors := []metrics.NamedCollector{
+				metrics.NewSystemCollector(ctx),
+			}
+			
+			// Add HTTP metrics collector if Prometheus is enabled
+			if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", log); httpMetricsCollector != nil {
+				collectors = append(collectors, httpMetricsCollector)
+				defer func() {
+					if err := httpMetricsCollector.Shutdown(); err != nil {
+						log.Errorf("failed to shut down HTTP metrics collector: %v", err)
+					}
+				}()
+			}
+
+			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
 			if err := metricsServer.Run(ctx); err != nil {
 				log.Fatalf("Error running server: %s", err)
 			}
