@@ -74,7 +74,6 @@ Requires: podman
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
-
 %package otel-collector
 Summary: OpenTelemetry Collector for FlightCtl
 Requires:       podman
@@ -498,8 +497,6 @@ echo "Flightctl Observability Stack uninstalled."
      # Copy static configuration files (those not templated)
      install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/
      install -m 0644 packaging/observability/otelcol-config.yaml %{buildroot}/etc/otelcol/
-
-
 
      # Copy template source files to a temporary staging area for processing in %post
      install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/
