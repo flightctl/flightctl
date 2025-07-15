@@ -9,6 +9,9 @@ import (
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager"
+	cm_provisioner "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/provisioner"
+	cm_storage "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/storage"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
@@ -259,6 +262,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("bootstrap failed: %w", err)
 	}
 
+	// Initialize certificate
+	certManager, err := certmanager.NewManager(a.log,
+		// Empty providers for testing and placeholder scenarios
+		certmanager.WithProvisionerProvider(cm_provisioner.NewEmptyProvisionerFactory()),
+		certmanager.WithStorageProvider(cm_storage.NewEmptyStorageFactory()),
+	)
+	if err != nil {
+		return fmt.Errorf("certificate manager initialization failed: %w", err)
+	}
+
 	// create the gRPC client this must be done after bootstrap
 	grpcClient, err := identityProvider.CreateGRPCClient(&a.config.ManagementService.Config)
 	if err != nil {
@@ -325,6 +338,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
 	go prefetchManager.Run(ctx)
+	go certManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
