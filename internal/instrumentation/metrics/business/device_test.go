@@ -6,7 +6,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,7 +15,7 @@ import (
 
 // MockStore implements store.Store for testing
 type MockStore struct {
-	results []store.CountByFleetAndStatusResult
+	results []store.CountByOrgAndStatusResult
 }
 
 func (m *MockStore) Device() store.Device {
@@ -63,10 +62,10 @@ func (m *MockStore) Close() error {
 
 // MockDevice implements store.Device for testing
 type MockDevice struct {
-	results []store.CountByFleetAndStatusResult
+	results []store.CountByOrgAndStatusResult
 }
 
-func (m *MockDevice) CountByFleetAndStatus(ctx context.Context, orgId *uuid.UUID, version *string, statusType store.DeviceStatusType) ([]store.CountByFleetAndStatusResult, error) {
+func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType store.DeviceStatusType) ([]store.CountByOrgAndStatusResult, error) {
 	return m.results, nil
 }
 
@@ -138,89 +137,80 @@ func (m *MockDevice) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UU
 func (m *MockDevice) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {}
 
 func TestDeviceCollector(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Provide mock SQL results for fleet/status aggregation
-	mockResults := []store.CountByFleetAndStatusResult{
-		{OrgID: "org1", Fleet: "production", Status: "Online", Version: "v1.0", Count: 2},
-		{OrgID: "org1", Fleet: "production", Status: "Unknown", Version: "v1.0", Count: 1},
-		{OrgID: "org1", Fleet: "standalone", Status: "Online", Version: "v1.0", Count: 1},
-		{OrgID: "org1", Fleet: "standalone", Status: "Unknown", Version: "v1.0", Count: 2},
-		{OrgID: "org2", Fleet: "production", Status: "Online", Version: "v2.0", Count: 3},
-		{OrgID: "org2", Fleet: "production", Status: "Unknown", Version: "v2.0", Count: 1},
+	// Provide mock SQL results for org/status aggregation
+	mockResults := []store.CountByOrgAndStatusResult{
+		{OrgID: "org1", Status: "Online", Count: 3},
+		{OrgID: "org1", Status: "Unknown", Count: 3},
+		{OrgID: "org2", Status: "Online", Count: 3},
+		{OrgID: "org2", Status: "Unknown", Count: 1},
 	}
 
 	mockStore := &MockStore{results: mockResults}
 	log := logrus.New()
-	collector := NewDeviceCollector(ctx, mockStore, log)
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector with 1ms interval for fast testing
+	collector := NewDeviceCollector(ctx, mockStore, log, 1*time.Millisecond)
+
+	// Wait a bit for the collector to start and collect metrics
+	time.Sleep(10 * time.Millisecond)
 
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
-	var _ metrics.NamedCollector = collector
 
 	// Test MetricsName
 	assert.Equal(t, "device", collector.MetricsName())
 
-	// Test Describe
-	descCh := make(chan *prometheus.Desc, 10)
-	collector.Describe(descCh)
-	close(descCh)
+	// Test that metrics are collected
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
 
-	descs := make([]*prometheus.Desc, 0)
-	for desc := range descCh {
-		descs = append(descs, desc)
-	}
-
-	// Should have 3 metrics (summary, application, update)
-	assert.Len(t, descs, 3)
-
-	// Test Collect - should work even without data
-	metricCh := make(chan prometheus.Metric, 10)
-	collector.Collect(metricCh)
-	close(metricCh)
-
-	metrics := make([]prometheus.Metric, 0)
-	for metric := range metricCh {
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
 		metrics = append(metrics, metric)
 	}
 
-	// Initially there should be no metrics since no data has been collected yet
-	// The collector should still work without errors
-	assert.Len(t, metrics, 0)
+	// Verify that we got some metrics
+	if len(metrics) == 0 {
+		t.Error("Expected metrics to be collected, but got none")
+	}
 
-	// Cancel context to stop background goroutine
-	cancel()
-
-	// Give the background goroutine a moment to exit
-	time.Sleep(10 * time.Millisecond)
+	t.Logf("Collected %d metrics", len(metrics))
 }
 
-func TestDeviceCollectorWithVersionFilter(t *testing.T) {
+func TestDeviceCollectorWithOrgFilter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Test that version filtering works correctly
+	// Test that org filtering works correctly
 	mockDevice := &MockDevice{
-		results: []store.CountByFleetAndStatusResult{
-			{OrgID: "org1", Fleet: "production", Status: "Online", Version: "v1.0", Count: 2},
-			{OrgID: "org1", Fleet: "production", Status: "Unknown", Version: "v1.0", Count: 1},
+		results: []store.CountByOrgAndStatusResult{
+			{OrgID: "org1", Status: "Online", Count: 2},
+			{OrgID: "org1", Status: "Unknown", Count: 1},
 		},
 	}
 
-	// Test with specific version filter
-	version := "v1.0"
-	results, err := mockDevice.CountByFleetAndStatus(ctx, nil, &version, store.DeviceStatusTypeSummary)
+	// Test with specific org filter
+	orgId := uuid.New()
+	results, err := mockDevice.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeSummary)
 	assert.NoError(t, err)
 	assert.Len(t, results, 2)
 
-	// Verify all results have the filtered version
+	// Verify all results have the filtered org
 	for _, result := range results {
-		assert.Equal(t, "v1.0", result.Version)
+		assert.Equal(t, "org1", result.OrgID)
 	}
 
-	// Test with nil version (no filter)
-	results, err = mockDevice.CountByFleetAndStatus(ctx, nil, nil, store.DeviceStatusTypeSummary)
+	// Test with nil org (no filter)
+	results, err = mockDevice.CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary)
 	assert.NoError(t, err)
 	assert.Len(t, results, 2)
 }

@@ -75,7 +75,7 @@ type Device interface {
 
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
-	CountByFleetAndStatus(ctx context.Context, orgId *uuid.UUID, version *string, statusType DeviceStatusType) ([]CountByFleetAndStatusResult, error)
+	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType) ([]CountByOrgAndStatusResult, error)
 }
 
 type DeviceStore struct {
@@ -709,18 +709,16 @@ func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, na
 	return &repositories, nil
 }
 
-// CountByFleetAndStatusResult holds the result of the group by query
-// for fleet and status.
-type CountByFleetAndStatusResult struct {
-	OrgID   string
-	Fleet   string
-	Status  string
-	Version string
-	Count   int64
+// CountByOrgAndStatusResult holds the result of the group by query
+// for organization and status.
+type CountByOrgAndStatusResult struct {
+	OrgID  string
+	Status string
+	Count  int64
 }
 
-// CountByFleetAndStatus returns the count of devices grouped by org_id, fleet, status and version.
-func (s *DeviceStore) CountByFleetAndStatus(ctx context.Context, orgId *uuid.UUID, version *string, statusType DeviceStatusType) ([]CountByFleetAndStatusResult, error) {
+// CountByOrgAndStatus returns the count of devices grouped by org_id and status.
+func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType) ([]CountByOrgAndStatusResult, error) {
 	var query *gorm.DB
 	var err error
 
@@ -733,11 +731,6 @@ func (s *DeviceStore) CountByFleetAndStatus(ctx context.Context, orgId *uuid.UUI
 
 	if err != nil {
 		return nil, err
-	}
-
-	// Add version filter if provided
-	if version != nil {
-		query = query.Where("annotations->>'"+api.DeviceAnnotationRenderedVersion+"' = ?", *version)
 	}
 
 	// Validate the status type
@@ -760,13 +753,11 @@ func (s *DeviceStore) CountByFleetAndStatus(ctx context.Context, orgId *uuid.UUI
 
 	query = query.Select(
 		"org_id as org_id",
-		"COALESCE(NULLIF(SPLIT_PART(owner, '/', 2), ''), 'standalone') as fleet",
 		statusField+" as status",
-		"COALESCE(annotations->>'"+api.DeviceAnnotationRenderedVersion+"', 'unknown') as version",
 		"COUNT(*) as count",
-	).Group("org_id, fleet, status, version")
+	).Group("org_id, status")
 
-	var results []CountByFleetAndStatusResult
+	var results []CountByOrgAndStatusResult
 	err = query.Scan(&results).Error
 	if err != nil {
 		return nil, ErrorFromGormError(err)

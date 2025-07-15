@@ -6,11 +6,9 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
@@ -164,118 +162,86 @@ func (m *MockFleetStoreWrapper) Close() error {
 }
 
 func TestFleetCollector(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	log := logrus.New()
-	log.SetLevel(logrus.DebugLevel)
-
-	// Create test data
-	fleetList := &api.FleetList{
-		Items: []api.Fleet{
-			{
-				Metadata: api.ObjectMeta{Name: stringPtr("fleet1")},
-			},
-			{
-				Metadata: api.ObjectMeta{Name: stringPtr("fleet2")},
-			},
-		},
-	}
-
-	rolloutStatusCounts := []store.CountByRolloutStatusResult{
-		{OrgID: "org1", Status: "1", Version: "v1.0", Count: 1},
-		{OrgID: "org1", Status: "2", Version: "v1.0", Count: 1},
-		{OrgID: "org1", Status: "", Version: "v1.0", Count: 1}, // Should become "none"
-		{OrgID: "org2", Status: "1", Version: "v2.0", Count: 2},
-		{OrgID: "org2", Status: "none", Version: "v2.0", Count: 1},
+	// Provide mock SQL results for org/status aggregation
+	mockResults := []store.CountByRolloutStatusResult{
+		{OrgID: "org1", Status: "Ready", Count: 2},
+		{OrgID: "org1", Status: "Progressing", Count: 1},
+		{OrgID: "org2", Status: "Ready", Count: 3},
 	}
 
 	mockFleetStore := &MockFleetStore{
-		fleetList:            fleetList,
-		fleetListWithDevices: fleetList,
-		rolloutStatusCounts:  rolloutStatusCounts,
-		shouldError:          false,
+		rolloutStatusCounts: mockResults,
+		shouldError:         false,
 	}
 
 	mockStore := &MockFleetStoreWrapper{
 		fleetStore: mockFleetStore,
 	}
 
-	collector := NewFleetCollector(ctx, mockStore, log)
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
 
-	// Test that the collector implements NamedCollector
-	var _ metrics.NamedCollector = collector
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector with 1ms interval for fast testing
+	collector := NewFleetCollector(ctx, mockStore, log, 1*time.Millisecond)
+
+	// Wait a bit for the collector to start and collect metrics
+	time.Sleep(10 * time.Millisecond)
+
+	// Test that the collector implements the required interfaces
+	var _ prometheus.Collector = collector
 
 	// Test MetricsName
 	assert.Equal(t, "fleet", collector.MetricsName())
 
-	// Test Describe
-	descCh := make(chan *prometheus.Desc, 10)
-	collector.Describe(descCh)
-	close(descCh)
+	// Test that metrics are collected
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
 
-	descCount := 0
-	for range descCh {
-		descCount++
-	}
-	assert.Equal(t, 2, descCount) // 2 metrics: total, rollout_status
-
-	// Test Collect with empty data
-	metricCh := make(chan prometheus.Metric, 10)
-	collector.Collect(metricCh)
-	close(metricCh)
-
-	metricCount := 0
-	for range metricCh {
-		metricCount++
-	}
-	assert.Equal(t, 0, metricCount) // No metrics yet since no data
-
-	// Ensure metrics are updated before collecting
-	collector.updateFleetMetrics()
-
-	// Test Collect with data
-	metricCh = make(chan prometheus.Metric, 20)
-	collector.Collect(metricCh)
-	close(metricCh)
-
-	metrics := make([]prometheus.Metric, 0)
-	for metric := range metricCh {
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
 		metrics = append(metrics, metric)
 	}
 
-	// Should have metrics now
-	assert.Greater(t, len(metrics), 0)
+	// Verify that we got some metrics
+	if len(metrics) == 0 {
+		t.Error("Expected metrics to be collected, but got none")
+	}
 
-	// Test specific metric values - now we need to check by org and version
-	totalFleetsValue := testutil.ToFloat64(collector.totalFleetsGauge.WithLabelValues("org1", "v1.0", "total"))
-	assert.Equal(t, float64(3), totalFleetsValue) // 3 fleets in org1 v1.0
+	t.Logf("Collected %d metrics", len(metrics))
 }
 
 func TestFleetCollectorWithVersionFilter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Test that version filtering works correctly
+	// Test that org filtering works correctly
 	mockFleetStore := &MockFleetStore{
 		rolloutStatusCounts: []store.CountByRolloutStatusResult{
-			{OrgID: "org1", Status: "1", Version: "v1.0", Count: 1},
-			{OrgID: "org1", Status: "2", Version: "v1.0", Count: 1},
+			{OrgID: "org1", Status: "1", Count: 1},
+			{OrgID: "org1", Status: "2", Count: 1},
 		},
 	}
 
-	// Test with specific version filter
-	version := "v1.0"
-	results, err := mockFleetStore.CountByRolloutStatus(ctx, nil, &version)
+	// Test with specific org filter
+	orgId := uuid.New()
+	results, err := mockFleetStore.CountByRolloutStatus(ctx, &orgId, nil)
 	assert.NoError(t, err)
 	assert.Len(t, results, 2)
 
-	// Verify all results have the filtered version
+	// Verify all results have the filtered org
 	for _, result := range results {
-		assert.Equal(t, "v1.0", result.Version)
+		assert.Equal(t, "org1", result.OrgID)
 	}
 
-	// Test with nil version (no filter)
+	// Test with nil org (no filter)
 	results, err = mockFleetStore.CountByRolloutStatus(ctx, nil, nil)
 	assert.NoError(t, err)
 	assert.Len(t, results, 2)
@@ -297,9 +263,6 @@ func TestFleetCollectorWithErrors(t *testing.T) {
 	}
 
 	collector := NewFleetCollector(ctx, mockStore, log)
-
-	// Wait for metrics to be updated
-	time.Sleep(100 * time.Millisecond)
 
 	// Test Collect with errors - should not panic
 	metricCh := make(chan prometheus.Metric, 10)

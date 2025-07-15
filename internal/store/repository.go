@@ -26,7 +26,7 @@ type Repository interface {
 
 	// Used by business metrics
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
-	CountByOrgAndVersion(ctx context.Context, orgId *uuid.UUID, version *string) ([]CountByOrgAndVersionResult, error)
+	CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]CountByOrgResult, error)
 }
 
 type RepositoryStore struct {
@@ -177,16 +177,15 @@ func (s *RepositoryStore) Count(ctx context.Context, orgId uuid.UUID, listParams
 	return repositoriesCount, nil
 }
 
-// CountByOrgAndVersionResult holds the result of the group by query
-// for organization and version.
-type CountByOrgAndVersionResult struct {
-	OrgID   string
-	Version string
-	Count   int64
+// CountByOrgResult holds the result of the group by query
+// for organization.
+type CountByOrgResult struct {
+	OrgID string
+	Count int64
 }
 
-// CountByOrgAndVersion returns the count of repositories grouped by org_id and version.
-func (s *RepositoryStore) CountByOrgAndVersion(ctx context.Context, orgId *uuid.UUID, version *string) ([]CountByOrgAndVersionResult, error) {
+// CountByOrg returns the count of repositories grouped by org_id.
+func (s *RepositoryStore) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]CountByOrgResult, error) {
 	var query *gorm.DB
 	var err error
 
@@ -201,18 +200,12 @@ func (s *RepositoryStore) CountByOrgAndVersion(ctx context.Context, orgId *uuid.
 		return nil, err
 	}
 
-	// Add version filter if provided
-	if version != nil {
-		query = query.Where("generation = ?", *version)
-	}
-
 	query = query.Select(
 		"org_id as org_id",
-		"COALESCE(generation::text, '0') as version",
 		"COUNT(*) as count",
-	).Group("org_id, version")
+	).Group("org_id")
 
-	var results []CountByOrgAndVersionResult
+	var results []CountByOrgResult
 	err = query.Scan(&results).Error
 	if err != nil {
 		return nil, ErrorFromGormError(err)

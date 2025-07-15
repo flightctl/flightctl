@@ -39,7 +39,7 @@ type Fleet interface {
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 
 	// Used by business metrics
-	CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, version *string) ([]CountByRolloutStatusResult, error)
+	CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, _ *string) ([]CountByRolloutStatusResult, error)
 }
 
 type FleetStore struct {
@@ -495,14 +495,13 @@ func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, nam
 // CountByRolloutStatusResult holds the result of the group by query
 // for fleet rollout status.
 type CountByRolloutStatusResult struct {
-	OrgID   string
-	Status  string
-	Version string
-	Count   int64
+	OrgID  string
+	Status string
+	Count  int64
 }
 
-// CountByRolloutStatus returns the count of fleets grouped by org_id, rollout status and version.
-func (s *FleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, version *string) ([]CountByRolloutStatusResult, error) {
+// CountByRolloutStatus returns the count of fleets grouped by org_id and rollout status.
+func (s *FleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, _ *string) ([]CountByRolloutStatusResult, error) {
 	var query *gorm.DB
 	var err error
 
@@ -517,17 +516,11 @@ func (s *FleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID,
 		return nil, err
 	}
 
-	// Add version filter if provided
-	if version != nil {
-		query = query.Where("generation = ?", *version)
-	}
-
 	query = query.Select(
 		"org_id as org_id",
 		"COALESCE(status->'rollout'->>'currentBatch', 'none') as status",
-		"COALESCE(generation::text, '0') as version",
 		"COUNT(*) as count",
-	).Group("org_id, status, version")
+	).Group("org_id, status")
 
 	var results []CountByRolloutStatusResult
 	err = query.Scan(&results).Error

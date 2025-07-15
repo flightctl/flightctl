@@ -21,18 +21,17 @@ type ResourceSync interface {
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RemoveOwnerCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error)
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
-	CountByOrgStatusAndVersion(ctx context.Context, orgId *uuid.UUID, status *string, version *string) ([]CountByOrgStatusAndVersionResult, error)
+	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, status *string) ([]CountByResourceSyncOrgAndStatusResult, error)
 }
 
-// CountByOrgStatusAndVersionResult holds the result of the group by query for organization, status, and version.
-type CountByOrgStatusAndVersionResult struct {
-	OrgID   string
-	Status  string
-	Version string
-	Count   int64
+// CountByResourceSyncOrgAndStatusResult holds the result of the group by query for organization and status.
+type CountByResourceSyncOrgAndStatusResult struct {
+	OrgID  string
+	Status string
+	Count  int64
 }
 
 type ResourceSyncStore struct {
@@ -44,7 +43,7 @@ type ResourceSyncStore struct {
 // Make sure we conform to ResourceSync interface
 var _ ResourceSync = (*ResourceSyncStore)(nil)
 
-type removeOwnerCallback func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
+type RemoveOwnerCallback func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 
 func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 	genericStore := NewGenericStore[*model.ResourceSync, model.ResourceSync, api.ResourceSync, api.ResourceSyncList](
@@ -117,7 +116,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback) error {
+func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback RemoveOwnerCallback) error {
 	existingRecord := model.ResourceSync{Resource: model.Resource{OrgID: orgId, Name: name}}
 	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		result := innerTx.First(&existingRecord)
@@ -159,7 +158,8 @@ func (s *ResourceSyncStore) Count(ctx context.Context, orgId uuid.UUID, listPara
 	return resourceSyncsCount, nil
 }
 
-func (s *ResourceSyncStore) CountByOrgStatusAndVersion(ctx context.Context, orgId *uuid.UUID, status *string, version *string) ([]CountByOrgStatusAndVersionResult, error) {
+// CountByOrgAndStatus returns the count of resource syncs grouped by org_id and status.
+func (s *ResourceSyncStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, status *string) ([]CountByResourceSyncOrgAndStatusResult, error) {
 	db := s.getDB(ctx).Model(&model.ResourceSync{})
 	if orgId != nil {
 		db = db.Where("org_id = ?", *orgId)
@@ -167,11 +167,8 @@ func (s *ResourceSyncStore) CountByOrgStatusAndVersion(ctx context.Context, orgI
 	if status != nil {
 		db = db.Where("status = ?", *status)
 	}
-	if version != nil {
-		db = db.Where("generation' = ?", *version)
-	}
-	var results []CountByOrgStatusAndVersionResult
-	err := db.Select("org_id, status, COALESCE(generation::text, '0') as version, COUNT(*) as count").Group("org_id, status, version").Scan(&results).Error
+	var results []CountByResourceSyncOrgAndStatusResult
+	err := db.Select("org_id, status, COUNT(*) as count").Group("org_id, status").Scan(&results).Error
 	if err != nil {
 		return nil, ErrorFromGormError(err)
 	}

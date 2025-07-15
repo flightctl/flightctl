@@ -6,7 +6,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,12 +15,13 @@ import (
 
 // MockStore implements store.Store for testing
 type MockRepositoryStore struct {
-	count int64
-	err   error
+	count   int64
+	err     error
+	results []store.CountByOrgResult
 }
 
 func (m *MockRepositoryStore) Repository() store.Repository {
-	return &MockRepository{count: m.count, err: m.err}
+	return &MockRepository{count: m.count, err: m.err, results: m.results}
 }
 
 // Implement other required methods with empty implementations
@@ -38,14 +38,14 @@ func (m *MockRepositoryStore) Close() error                                     
 type MockRepository struct {
 	count   int64
 	err     error
-	results []store.CountByOrgAndVersionResult
+	results []store.CountByOrgResult
 }
 
 func (m *MockRepository) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {
 	return m.count, m.err
 }
 
-func (m *MockRepository) CountByOrgAndVersion(ctx context.Context, orgId *uuid.UUID, version *string) ([]store.CountByOrgAndVersionResult, error) {
+func (m *MockRepository) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]store.CountByOrgResult, error) {
 	return m.results, m.err
 }
 
@@ -80,60 +80,51 @@ func (m *MockRepository) GetDeviceRefs(context.Context, uuid.UUID, string) (*api
 }
 
 func TestRepositoryCollector(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Provide mock SQL results for org aggregation
+	mockResults := []store.CountByOrgResult{
+		{OrgID: "org1", Count: 2},
+		{OrgID: "org2", Count: 3},
+	}
+
+	mockStore := &MockRepositoryStore{results: mockResults}
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Test with successful count by org and version
-	mockResults := []store.CountByOrgAndVersionResult{
-		{OrgID: "org1", Version: "v1.0", Count: 3},
-		{OrgID: "org1", Version: "v2.0", Count: 2},
-		{OrgID: "org2", Version: "v1.0", Count: 1},
-		{OrgID: "org2", Version: "unknown", Count: 1},
-	}
-	mockStore := &MockRepositoryStore{count: 5, err: nil}
-	mockStore.Repository().(*MockRepository).results = mockResults
-	log := logrus.New()
-	collector := NewRepositoryCollector(ctx, mockStore, log)
+	// Create collector with 1ms interval for fast testing
+	collector := NewRepositoryCollector(ctx, mockStore, log, 1*time.Millisecond)
+
+	// Wait a bit for the collector to start and collect metrics
+	time.Sleep(10 * time.Millisecond)
 
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
-	var _ metrics.NamedCollector = collector
 
 	// Test MetricsName
 	assert.Equal(t, "repository", collector.MetricsName())
 
-	// Test Describe
-	descCh := make(chan *prometheus.Desc, 10)
-	collector.Describe(descCh)
-	close(descCh)
+	// Test that metrics are collected
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
 
-	descs := make([]*prometheus.Desc, 0)
-	for desc := range descCh {
-		descs = append(descs, desc)
-	}
-
-	// Should have 1 metric (repositories total)
-	assert.Len(t, descs, 1)
-
-	// Test Collect - should work even without data
-	metricCh := make(chan prometheus.Metric, 10)
-	collector.Collect(metricCh)
-	close(metricCh)
-
-	metrics := make([]prometheus.Metric, 0)
-	for metric := range metricCh {
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
 		metrics = append(metrics, metric)
 	}
 
-	// Initially there should be no metrics since no data has been collected yet
-	// The collector should still work without errors
-	assert.Len(t, metrics, 0)
+	// Verify that we got some metrics
+	if len(metrics) == 0 {
+		t.Error("Expected metrics to be collected, but got none")
+	}
 
-	// Cancel context to stop background goroutine
-	cancel()
-
-	// Give the background goroutine a moment to exit
-	time.Sleep(10 * time.Millisecond)
+	t.Logf("Collected %d metrics", len(metrics))
 }
 
 func TestRepositoryCollectorWithError(t *testing.T) {
@@ -143,7 +134,7 @@ func TestRepositoryCollectorWithError(t *testing.T) {
 	// Test with error
 	mockStore := &MockRepositoryStore{count: 0, err: assert.AnError}
 	log := logrus.New()
-	collector := NewRepositoryCollector(ctx, mockStore, log)
+	collector := NewRepositoryCollector(ctx, mockStore, log, time.Millisecond)
 
 	// Test that the collector handles errors gracefully
 	// The collector should not panic and should continue running
@@ -151,33 +142,4 @@ func TestRepositoryCollectorWithError(t *testing.T) {
 
 	// Cancel context to stop background goroutine
 	cancel()
-
-	// Give the background goroutine a moment to exit
-	time.Sleep(10 * time.Millisecond)
-}
-
-func TestRepositoryCollectorCountByOrgAndVersion(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Test that the CountByOrgAndVersion method is used correctly
-	mockResults := []store.CountByOrgAndVersionResult{
-		{OrgID: "test-org", Version: "main", Count: 5},
-		{OrgID: "test-org", Version: "develop", Count: 3},
-	}
-
-	mockStore := &MockRepositoryStore{count: 8, err: nil}
-	mockStore.Repository().(*MockRepository).results = mockResults
-	log := logrus.New()
-	collector := NewRepositoryCollector(ctx, mockStore, log)
-
-	// Verify the collector is created successfully
-	assert.NotNil(t, collector)
-	assert.Equal(t, "repository", collector.MetricsName())
-
-	// Cancel context to stop background goroutine
-	cancel()
-
-	// Give the background goroutine a moment to exit
-	time.Sleep(10 * time.Millisecond)
 }

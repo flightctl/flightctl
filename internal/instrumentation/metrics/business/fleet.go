@@ -14,30 +14,33 @@ const defaultVersion = "unknown"
 
 // FleetCollector implements NamedCollector and gathers fleet-related business metrics.
 type FleetCollector struct {
-	totalFleetsGauge        *prometheus.GaugeVec
-	fleetRolloutStatusGauge *prometheus.GaugeVec
+	totalFleetsGauge *prometheus.GaugeVec
 
-	store store.Store
-	log   logrus.FieldLogger
-	mu    sync.RWMutex
-	ctx   context.Context
+	store          store.Store
+	log            logrus.FieldLogger
+	mu             sync.RWMutex
+	ctx            context.Context
+	tickerInterval time.Duration
 }
 
-func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldLogger) *FleetCollector {
+// NewFleetCollector creates a FleetCollector. If tickerInterval is 0, defaults to 30s.
+func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, tickerInterval ...time.Duration) *FleetCollector {
+	interval := 30 * time.Second
+	if len(tickerInterval) > 0 && tickerInterval[0] > 0 {
+		interval = tickerInterval[0]
+	}
 	collector := &FleetCollector{
 		totalFleetsGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "flightctl_fleets_total",
-			Help: "Total number of fleets managed",
-		}, []string{"organization_id", "version"}),
-		fleetRolloutStatusGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "flightctl_fleet_rollout_status",
-			Help: "Status of ongoing fleet rollouts",
-		}, []string{"organization_id", "version", "status"}),
-		store: store,
-		log:   log,
-		ctx:   ctx,
+			Help: "Total number of fleets managed (by status)",
+		}, []string{"organization_id", "status"}),
+		store:          store,
+		log:            log,
+		ctx:            ctx,
+		tickerInterval: interval,
 	}
 
+	collector.log.Info("Starting fleet metrics collector with interval", "interval", interval)
 	collector.updateFleetMetrics() // immediate update
 	go collector.sampleFleetMetrics()
 
@@ -50,25 +53,26 @@ func (c *FleetCollector) MetricsName() string {
 
 func (c *FleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.totalFleetsGauge.Describe(ch)
-	c.fleetRolloutStatusGauge.Describe(ch)
 }
 
 func (c *FleetCollector) Collect(ch chan<- prometheus.Metric) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	c.totalFleetsGauge.Collect(ch)
-	c.fleetRolloutStatusGauge.Collect(ch)
 }
 
 func (c *FleetCollector) sampleFleetMetrics() {
-	ticker := time.NewTicker(30 * time.Second) // Sample every 30 seconds
+	ticker := time.NewTicker(c.tickerInterval)
 	defer ticker.Stop()
 
+	c.log.Info("Fleet metrics collector sampling started")
 	for {
 		select {
 		case <-c.ctx.Done():
+			c.log.Info("Fleet metrics collector context cancelled, stopping")
 			return
 		case <-ticker.C:
+			c.log.Debug("Collecting fleet metrics")
 			c.updateFleetMetrics()
 		}
 	}
@@ -81,35 +85,11 @@ func (c *FleetCollector) updateFleetMetrics() {
 	// Use bypass span check for metrics collection to avoid tracing context errors
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	// Pass nil to get all organizations and all versions
-	// Get rollout status counts
-	rolloutStatusCounts, err := c.store.Fleet().CountByRolloutStatus(ctx, nil, nil)
+	// Get status counts grouped by org and status
+	statusCounts, err := c.store.Fleet().CountByRolloutStatus(ctx, nil, nil)
 	if err != nil {
-		c.log.WithError(err).Error("Failed to get fleet rollout status counts for metrics")
+		c.log.WithError(err).Error("Failed to get fleet status counts for metrics")
 		return
-	}
-
-	// Aggregate by organization and version
-	totals := map[string]map[string]int64{}                  // orgId -> version -> count
-	statusCounts := map[string]map[string]map[string]int64{} // orgId -> version -> status -> count
-
-	for _, result := range rolloutStatusCounts {
-		if totals[result.OrgID] == nil {
-			totals[result.OrgID] = make(map[string]int64)
-		}
-		if statusCounts[result.OrgID] == nil {
-			statusCounts[result.OrgID] = make(map[string]map[string]int64)
-		}
-		if statusCounts[result.OrgID][result.Version] == nil {
-			statusCounts[result.OrgID][result.Version] = make(map[string]int64)
-		}
-
-		totals[result.OrgID][result.Version] += result.Count
-		status := result.Status
-		if status == "" {
-			status = "none"
-		}
-		statusCounts[result.OrgID][result.Version][status] = result.Count
 	}
 
 	c.mu.Lock()
@@ -117,27 +97,16 @@ func (c *FleetCollector) updateFleetMetrics() {
 
 	// Update total fleets metric
 	c.totalFleetsGauge.Reset()
-	for _, result := range rolloutStatusCounts {
+	for _, result := range statusCounts {
 		orgIdLabel := result.OrgID
-		version := result.Version
-		total := totals[orgIdLabel][version]
-		c.totalFleetsGauge.WithLabelValues(orgIdLabel, version).Set(float64(total))
-	}
-
-	// Update fleet rollout status metrics
-	c.fleetRolloutStatusGauge.Reset()
-	for _, result := range rolloutStatusCounts {
 		status := result.Status
 		if status == "" {
 			status = "none"
 		}
-		orgIdLabel := result.OrgID
-		version := result.Version
-		c.fleetRolloutStatusGauge.WithLabelValues(orgIdLabel, version, status).Set(float64(result.Count))
+		c.totalFleetsGauge.WithLabelValues(orgIdLabel, status).Set(float64(result.Count))
 	}
 
 	c.log.WithFields(logrus.Fields{
-		"org_count":    len(totals),
-		"status_count": len(rolloutStatusCounts),
+		"org_count": len(statusCounts),
 	}).Debug("Updated fleet metrics")
 }
