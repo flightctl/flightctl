@@ -35,7 +35,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	tasks_client "github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -111,16 +111,8 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 		return nil
 	}
 
-	// If the device now has no labels, make sure it has no owner
-	if device.Metadata.Labels == nil || len(*device.Metadata.Labels) == 0 {
-		if len(currentOwnerFleet) != 0 {
-			err := f.updateDeviceOwner(ctx, device, "")
-			if err != nil {
-				f.log.Warnf("Device-specific error: failed to update device owner for device %s: %v", f.resourceRef.Name, err)
-				return err
-			}
-		}
-		return nil
+	if !f.hasLabels(device) {
+		return f.handleUnlabeledDevice(ctx, device)
 	}
 
 	// Find all fleets that match the device's labels
@@ -429,18 +421,28 @@ func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Conte
 	return devicesProcessed, errors
 }
 
+// hasLabels returns true if the device has labels assigned to it
+func (f FleetSelectorMatchingLogic) hasLabels(device *api.Device) bool {
+	return device.Metadata.Labels != nil && len(*device.Metadata.Labels) != 0
+}
+
+// handleUnlabeledDevice handles the necessary logic for processing a device that has no labels
+func (f FleetSelectorMatchingLogic) handleUnlabeledDevice(ctx context.Context, device *api.Device) error {
+	// remove owner if it exists
+	if lo.FromPtr(device.Metadata.Owner) != "" {
+		err := f.updateDeviceOwner(ctx, device, "")
+		if err != nil {
+			return err
+		}
+	}
+	// Set MultipleOwners condition to false (matching fleets == empty)
+	return f.setDeviceMultipleOwnersCondition(ctx, device, []string{})
+}
+
 // Helper function to recompute device ownership given all fleets
 func (f FleetSelectorMatchingLogic) recomputeDeviceOwnership(ctx context.Context, device *api.Device, allFleets []api.Fleet) error {
-	if device.Metadata.Labels == nil || len(*device.Metadata.Labels) == 0 {
-		// Device has no labels, remove owner if it exists
-		if lo.FromPtr(device.Metadata.Owner) != "" {
-			err := f.updateDeviceOwner(ctx, device, "")
-			if err != nil {
-				return err
-			}
-		}
-		// Set MultipleOwners condition to false
-		return f.setDeviceMultipleOwnersCondition(ctx, device, []string{})
+	if !f.hasLabels(device) {
+		return f.handleUnlabeledDevice(ctx, device)
 	}
 
 	// Find all fleets that match the device's labels

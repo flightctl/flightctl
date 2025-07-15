@@ -128,6 +128,8 @@ build_qcow2_image() {
     if is_acm_installed; then
         sudo qemu-img resize "$(pwd)"/bin/output/qcow2/disk.qcow2 +5G # increasing disk size for microshift registration to acm test only
     fi
+    # Reset the owner to the user running make
+    sudo chown -R "${USER}:$(id -gn ${USER})" "$(pwd)"/bin/output
 }
 
 case "$BUILD_TYPE" in
