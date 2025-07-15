@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
@@ -26,6 +27,11 @@ const (
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
+	// DefaultPullRetrySteps is the default retry attempts are allowed for pulling an OCI target.
+	DefaultPullRetrySteps = 6
+	// DefaultPullTimeout is the default timeout for pulling a single OCI
+	// targets. Pull Timeout can not be greater that the prefetch timeout.
+	DefaultPullTimeout = util.Duration(10 * time.Minute)
 	// MinSyncInterval is the minimum interval allowed for the spec fetch and status update
 	MinSyncInterval = util.Duration(2 * time.Second)
 	// DefaultConfigDir is the default directory where the device's configuration is stored
@@ -79,7 +85,10 @@ type Config struct {
 	// testRootDir is the root directory of the test agent
 	testRootDir string
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
-	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
+	enrollmentMetricsCallback client.RPCMetricsCallback
+
+	// managementMetricsCallback is a callback to report metrics about the management process.
+	managementMetricsCallback client.RPCMetricsCallback
 
 	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
 	DefaultLabels map[string]string `json:"default-labels,omitempty"`
@@ -97,6 +106,12 @@ type Config struct {
 
 	// SystemInfoTimeout is the timeout for collecting system info.
 	SystemInfoTimeout util.Duration `json:"system-info-timeout,omitempty"`
+
+	// PullTimeout is the max duration a single OCI target will try to pull.
+	PullTimeout util.Duration `json:"pull-timeout,omitempty"`
+
+	// PullRetrySteps defines how many retry attempts are allowed for pulling an OCI target.
+	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
 
 	readWriter fileio.ReadWriter
 }
@@ -128,6 +143,8 @@ func NewDefault() *Config {
 		ServiceConfig:        config.NewServiceConfig(),
 		SystemInfo:           DefaultSystemInfo,
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
+		PullTimeout:          DefaultPullTimeout,
+		PullRetrySteps:       DefaultPullRetrySteps,
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -151,8 +168,20 @@ func (cfg *Config) PathFor(filePath string) string {
 	return path.Join(cfg.testRootDir, filePath)
 }
 
-func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duractionSeconds float64, err error)) {
+func (cfg *Config) SetEnrollmentMetricsCallback(cb client.RPCMetricsCallback) {
 	cfg.enrollmentMetricsCallback = cb
+}
+
+func (cfg *Config) GetEnrollmentMetricsCallback() client.RPCMetricsCallback {
+	return cfg.enrollmentMetricsCallback
+}
+
+func (cfg *Config) SetManagementMetricsCallback(cb client.RPCMetricsCallback) {
+	cfg.managementMetricsCallback = cb
+}
+
+func (cfg *Config) GetManagementMetricsCallback() client.RPCMetricsCallback {
+	return cfg.managementMetricsCallback
 }
 
 // Complete fills in defaults for fields not set by the config file

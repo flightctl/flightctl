@@ -32,11 +32,15 @@ func (f *TableFormatter) Format(data interface{}, options FormatOptions) error {
 		err = f.formatSingle(w, data, options)
 	}
 
+	if err != nil {
+		return err
+	}
+
 	// ensure that after this call headers are suppressed on subsequent calls
 	// noHeaders is set to true after the first successful formatting run
 	f.noHeaders = true
 
-	return err
+	return nil
 }
 
 // formatList handles formatting for list endpoints (TYPE)
@@ -334,7 +338,7 @@ func (f *TableFormatter) printCSRTable(w *tabwriter.Writer, csrs ...api.Certific
 }
 
 func (f *TableFormatter) printEventsTable(w *tabwriter.Writer, events ...api.Event) error {
-	f.printHeaderRowLn(w, "AGE", "KIND", "NAME", "TYPE", "MESSAGE")
+	f.printHeaderRowLn(w, "AGE", "INVOLVEDOBJECT.KIND", "INVOLVEDOBJECT.NAME", "TYPE", "MESSAGE")
 	for _, e := range events {
 		f.printTableRowLn(w,
 			humanize.Time(*e.Metadata.CreationTimestamp),

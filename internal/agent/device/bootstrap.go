@@ -38,8 +38,9 @@ type Bootstrap struct {
 
 	lifecycle lifecycle.Initializer
 
-	managementServiceConfig *baseclient.Config
-	managementClient        client.Management
+	managementServiceConfig   *baseclient.Config
+	managementClient          client.Management
+	managementMetricsCallback client.RPCMetricsCallback
 
 	log *log.PrefixLogger
 }
@@ -55,22 +56,24 @@ func NewBootstrap(
 	lifecycleInitializer lifecycle.Initializer,
 	managementServiceConfig *baseclient.Config,
 	systemInfoManager systeminfo.Manager,
+	managementMetricsCallback client.RPCMetricsCallback,
 	podmanClient *client.Podman,
 	log *log.PrefixLogger,
 ) *Bootstrap {
 	return &Bootstrap{
-		deviceName:              deviceName,
-		executer:                executer,
-		deviceReadWriter:        deviceReadWriter,
-		specManager:             specManager,
-		devicePublisher:         devicePublisher,
-		statusManager:           statusManager,
-		hookManager:             hookManager,
-		lifecycle:               lifecycleInitializer,
-		managementServiceConfig: managementServiceConfig,
-		systemInfoManager:       systemInfoManager,
-		podmanClient:            podmanClient,
-		log:                     log,
+		deviceName:                deviceName,
+		executer:                  executer,
+		deviceReadWriter:          deviceReadWriter,
+		specManager:               specManager,
+		devicePublisher:           devicePublisher,
+		statusManager:             statusManager,
+		hookManager:               hookManager,
+		lifecycle:                 lifecycleInitializer,
+		managementServiceConfig:   managementServiceConfig,
+		systemInfoManager:         systemInfoManager,
+		managementMetricsCallback: managementMetricsCallback,
+		podmanClient:              podmanClient,
+		log:                       log,
 	}
 }
 
@@ -291,7 +294,7 @@ func (b *Bootstrap) setManagementClient() error {
 	if err != nil {
 		return fmt.Errorf("create management client: %w", err)
 	}
-	b.managementClient = client.NewManagement(managementHTTPClient)
+	b.managementClient = client.NewManagement(managementHTTPClient, b.managementMetricsCallback)
 
 	// initialize the management client for spec and status managers
 	b.statusManager.SetClient(b.managementClient)

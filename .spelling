@@ -5,6 +5,7 @@
 # where filename is relative to this configuration file
 AAP
 ACM
+Alertmanager
 amd64
 API
 APIs
@@ -33,6 +34,7 @@ e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
+env
 EPEL
 FIDO
 filesystem
@@ -86,6 +88,7 @@ Quadlet
 Quadlets
 quay.io
 RBAC
+read-only
 resource-unintensive
 ResourceSync
 ResourceSyncs
@@ -94,6 +97,7 @@ RHACM
 RHEL
 rollbacks
 rollout
+rootful
 runtime
 schemas
 Sigstore
@@ -151,6 +155,19 @@ OpenTelemetry
 OTLP
 crontab
 datasets
+grafana
+oauth
+grpc
+dns
+zipkin
+backends
+ansible
+openid
+pki
+uid
+idp
+systemctl
+enablement
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -241,3 +258,16 @@ yaml
  - docs/user/rollout-policies.md
 rollouts
 BatchSequence
+ - docs/user/alerts.md
+alertmanager
+DeviceDisconnected
+DeviceCPUCritical
+programmatically
+ - docs/user/standalone-observability.md
+UserInfo
+Pre-configured
+is_superuser
+is_platform_auditor
+flightctl-api
+flightctl-kv
+IdPs

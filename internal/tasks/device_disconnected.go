@@ -3,7 +3,6 @@ package tasks
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -35,34 +34,69 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	statusInfoMessage := fmt.Sprintf("Did not check in for more than %d minutes", int(api.DeviceDisconnectedTimeout.Minutes()))
+	// Calculate the cutoff time for disconnected devices
+	cutoffTime := time.Now().Add(-api.DeviceDisconnectedTimeout)
 
-	listParams := api.ListDevicesParams{Limit: lo.ToPtr(int32(ItemsPerPage))}
+	// Create a field selector to only get devices that haven't been seen for more than DeviceDisconnectedTimeout
+	// and don't already have "Unknown" status to avoid reprocessing the same devices
+	fieldSelectorStr := fmt.Sprintf("status.lastSeen<%s,status.summary.status!=Unknown", cutoffTime.Format(time.RFC3339))
+
+	// List devices that match the disconnection criteria with pagination
+	listParams := api.ListDevicesParams{
+		FieldSelector: &fieldSelectorStr,
+		Limit:         lo.ToPtr(int32(ItemsPerPage)),
+	}
+
+	totalProcessed := 0
 	for {
+		// Check for context cancellation in long-running loops
+		if ctx.Err() != nil {
+			t.log.Warnf("Context cancelled during device disconnection processing, stopping early. Processed %d devices so far", totalProcessed)
+			return
+		}
+
 		devices, status := t.serviceHandler.ListDevices(ctx, listParams, nil)
-		if status.Code != http.StatusOK {
-			t.log.WithError(service.ApiStatusToErr(status)).Error("failed to list devices")
+		if status.Code != 200 {
+			t.log.Errorf("Failed to list devices: %s", status.Message)
 			return
 		}
 
-		var batch []string
+		if len(devices.Items) == 0 {
+			break
+		}
+
+		t.log.Infof("Processing %d devices for disconnection status (page total: %d)", len(devices.Items), totalProcessed+len(devices.Items))
+
 		for _, device := range devices.Items {
-			changed := t.serviceHandler.UpdateServiceSideDeviceStatus(ctx, device)
-			if changed {
-				batch = append(batch, *device.Metadata.Name)
+			// Check for context cancellation in long-running loops
+			if ctx.Err() != nil {
+				t.log.Warnf("Context cancelled during device processing, stopping early. Processed %d devices so far", totalProcessed)
+				return
 			}
+
+			changed := t.serviceHandler.UpdateServiceSideDeviceStatus(ctx, device)
+			if !changed {
+				continue
+			}
+
+			_, status := t.serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, device)
+			if status.Code != 200 {
+				t.log.Errorf("Failed to replace device status for %s: %s", *device.Metadata.Name, status.Message)
+				continue
+			}
+
+			t.log.Debugf("Successfully updated device %s to disconnected status", *device.Metadata.Name)
 		}
 
-		t.log.Infof("Updating %d devices to unknown status", len(batch))
-		// TODO: This is MVP and needs to be properly evaluated for performance and race conditions
-		if status = t.serviceHandler.UpdateDeviceSummaryStatusBatch(ctx, batch, api.DeviceSummaryStatusUnknown, statusInfoMessage); status.Code != http.StatusOK {
-			t.log.WithError(service.ApiStatusToErr(status)).Error("failed to update device summary status")
-			return
-		}
+		totalProcessed += len(devices.Items)
 
 		if devices.Metadata.Continue == nil {
 			break
 		}
 		listParams.Continue = devices.Metadata.Continue
+	}
+
+	if totalProcessed > 0 {
+		t.log.Infof("Completed processing %d devices for disconnection status", totalProcessed)
 	}
 }

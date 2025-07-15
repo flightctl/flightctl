@@ -44,7 +44,6 @@ type Service interface {
 	GetDeviceCompletionCounts(ctx context.Context, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, api.Status)
 	CountDevicesByLabels(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status)
 	GetDevicesSummary(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status)
-	UpdateDeviceSummaryStatusBatch(ctx context.Context, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) api.Status
 	UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool
 
 	// EnrollmentConfig
@@ -111,4 +110,9 @@ type Service interface {
 	CreateEvent(ctx context.Context, event *api.Event)
 	ListEvents(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status)
 	DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status)
+
+	// Checkpoint
+	GetCheckpoint(ctx context.Context, consumer string, key string) ([]byte, api.Status)
+	SetCheckpoint(ctx context.Context, consumer string, key string, value []byte) api.Status
+	GetDatabaseTime(ctx context.Context) (time.Time, api.Status)
 }

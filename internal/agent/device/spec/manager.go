@@ -29,6 +29,7 @@ type manager struct {
 	devicePublisher  publisher.Subscription
 	cache            *cache
 	queue            PriorityQueue
+	policyManager    policy.Manager
 
 	lastConsumedDevice *v1alpha1.Device
 	log                *log.PrefixLogger
@@ -61,6 +62,7 @@ func NewManager(
 		osClient:         osClient,
 		cache:            newCache(log),
 		devicePublisher:  devicePublisher,
+		policyManager:    policyManager,
 		queue:            queue,
 		log:              log,
 	}
@@ -319,6 +321,13 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 			break
 		}
 		s.log.Debugf("New template version received from management service: %s", newDesired.Version())
+		// as the queue maintains some policy state we need to sync the policy state prior to adding versions to the queue
+		// otherwise policy state is delayed by a version and could lead to instances in which updating is stuck for a long time.
+		// we log an error if policy syncing fails, but we don't return an error as the mechanism for indicating to users
+		// that a spec is poorly defined doesn't exist here.
+		if err = s.policyManager.Sync(ctx, newDesired.Spec); err != nil {
+			s.log.Errorf("Failed to sync new device version %s policy manager: %v", newDesired.Version(), err)
+		}
 		s.queue.Add(ctx, newDesired)
 		s.lastConsumedDevice = newDesired
 		consumed = true
@@ -370,13 +379,21 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 
 	// if this is a new version ensure we persist it to disk
 	if desired.Version() != s.cache.getRenderedVersion(Desired) {
-		s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
+		if s.isNewDesiredVersion(desired) {
+			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
+		}
+
 		if err := s.write(Desired, desired); err != nil {
 			return nil, false, err
 		}
 	}
 
 	return desired, false, nil
+}
+
+// isNewDesiredVersion returns true if this is the first time observing this desired version.
+func (s *manager) isNewDesiredVersion(desired *v1alpha1.Device) bool {
+	return s.lastConsumedDevice == nil || s.lastConsumedDevice.Version() != desired.Version()
 }
 
 func (s *manager) IsOSUpdate() bool {

@@ -82,6 +82,18 @@ func (mr *MockManagementMockRecorder) PatchDeviceStatus(ctx, name, patch any, rc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDeviceStatus", reflect.TypeOf((*MockManagement)(nil).PatchDeviceStatus), varargs...)
 }
 
+// SetRPCMetricsCallback mocks base method.
+func (m *MockManagement) SetRPCMetricsCallback(cb RPCMetricsCallback) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetRPCMetricsCallback", cb)
+}
+
+// SetRPCMetricsCallback indicates an expected call of SetRPCMetricsCallback.
+func (mr *MockManagementMockRecorder) SetRPCMetricsCallback(cb any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRPCMetricsCallback", reflect.TypeOf((*MockManagement)(nil).SetRPCMetricsCallback), cb)
+}
+
 // UpdateDeviceStatus mocks base method.
 func (m *MockManagement) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
 	m.ctrl.T.Helper()
@@ -165,7 +177,7 @@ func (mr *MockEnrollmentMockRecorder) GetEnrollmentRequest(ctx, id any, cb ...an
 }
 
 // SetRPCMetricsCallback mocks base method.
-func (m *MockEnrollment) SetRPCMetricsCallback(cb func(string, float64, error)) {
+func (m *MockEnrollment) SetRPCMetricsCallback(cb RPCMetricsCallback) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetRPCMetricsCallback", cb)
 }

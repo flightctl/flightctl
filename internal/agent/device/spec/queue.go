@@ -118,10 +118,12 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	requeue := m.getOrCreateRequeueState(ctx, version)
 	if now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
-		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339))
+		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339Nano))
 		return nil, false
 	}
 
+	// currently it's useful to allow specs to be consumed if the download policy is satisfied
+	// even if the updatePolicy isn't
 	if !requeue.downloadPolicySatisfied && !requeue.updatePolicySatisfied {
 		m.log.Debugf("Template version %d policies are not satisfied skipping...", version)
 		m.queue.Add(item)
@@ -200,7 +202,7 @@ func (m *queueManager) getOrCreateRequeueState(ctx context.Context, version int6
 }
 
 func (m *queueManager) shouldEnforceDelay(state *requeueState) bool {
-	if !m.queue.IsEmpty() || state.tries == 0 {
+	if state.tries == 0 {
 		return false
 	}
 

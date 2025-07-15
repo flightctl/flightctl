@@ -40,6 +40,12 @@ spec:
                 secretKeyRef:
                   name: flightctl-db-secret
                   key: masterUser
+            {{- if .Values.periodic.env }}
+            {{- range $key, $value := .Values.periodic.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-periodic-config

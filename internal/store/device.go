@@ -34,7 +34,7 @@ type Device interface {
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
-	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
+	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 
@@ -45,9 +45,6 @@ type Device interface {
 	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, error)
 	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
-
-	// Used only by device_disconnected
-	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
 
 	// Used by fleet selector
 	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams ListParams) (*api.DeviceList, error)
@@ -65,6 +62,8 @@ type DeviceStore struct {
 type DeviceStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device)
 type DeviceStoreValidationCallback func(ctx context.Context, before *api.Device, after *api.Device) error
 type DeviceStoreAllDeletedCallback func(ctx context.Context, orgId uuid.UUID)
+
+type ServiceConditionsCallback func(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition)
 
 // Make sure we conform to Device interface
 var _ Device = (*DeviceStore)(nil)
@@ -517,36 +516,6 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 	}, nil
 }
 
-func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
-	if len(deviceNames) == 0 {
-		return nil
-	}
-
-	tokens := strings.Repeat("?,", len(deviceNames))
-	// trim tailing comma
-	tokens = tokens[:len(tokens)-1]
-
-	// https://www.postgresql.org/docs/current/functions-json.html
-	// jsonb_set(target jsonb, path text[], new_value jsonb, create_missing boolean)
-	createMissing := "false"
-	query := fmt.Sprintf(`
-        UPDATE devices
-        SET
-            status = jsonb_set(
-                jsonb_set(status, '{summary,status}', '"%s"', %s),
-                '{summary,info}', '"%s"'
-            ),
-            resource_version = resource_version + 1
-        WHERE name IN (%s)`, status, createMissing, statusInfo, tokens)
-
-	args := make([]interface{}, len(deviceNames))
-	for i, name := range deviceNames {
-		args[i] = name
-	}
-
-	return s.getDB(ctx).Exec(query, args...).Error
-}
-
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
@@ -657,13 +626,21 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
 }
 
-func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (retry bool, err error) {
+func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).First(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
 
+	// Capture old conditions with deep copy
+	var oldConditions []api.Condition
+	if existingRecord.ServiceConditions != nil && existingRecord.ServiceConditions.Data.Conditions != nil {
+		// Deep copy the conditions to avoid shared memory issues
+		oldConditions = append(oldConditions, *existingRecord.ServiceConditions.Data.Conditions...)
+	}
+
+	// Initialize service conditions if needed
 	if existingRecord.ServiceConditions == nil {
 		existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
 	}
@@ -671,10 +648,12 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 		existingRecord.ServiceConditions.Data.Conditions = &[]api.Condition{}
 	}
 
+	// Set new conditions
 	for _, condition := range conditions {
 		api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
 	}
 
+	// Update using the original pattern with specific field updates and optimistic locking
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"service_conditions": existingRecord.ServiceConditions,
 		"resource_version":   gorm.Expr("resource_version + 1"),
@@ -686,12 +665,40 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
 	}
+
+	// Call callback if provided (but don't fail the operation if callback fails)
+	if callback != nil {
+		// Convert the updated model to API resource for the callback
+		apiDevice, convertErr := existingRecord.ToApiResource()
+		if convertErr != nil {
+			// Log the error but don't fail the operation
+			s.log.Errorf("Failed to convert device to API resource for callback: %v", convertErr)
+		} else {
+			// Call callback in a defer with error recovery to prevent callback failures from affecting the main operation
+			defer func() {
+				if r := recover(); r != nil {
+					s.log.Errorf("Callback panicked during service conditions update: %v", r)
+				}
+			}()
+
+			// Call the callback - if it fails, log the error but don't propagate it
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						s.log.Errorf("Service conditions callback panicked: %v", r)
+					}
+				}()
+				callback(ctx, orgId, apiDevice, oldConditions, *existingRecord.ServiceConditions.Data.Conditions)
+			}()
+		}
+	}
+
 	return false, nil
 }
 
-func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error {
 	return retryUpdate(func() (bool, error) {
-		return s.setServiceConditions(ctx, orgId, name, conditions)
+		return s.setServiceConditions(ctx, orgId, name, conditions, callback)
 	})
 }
 

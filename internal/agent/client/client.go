@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -18,6 +19,9 @@ import (
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+// RPCMetricsCallback defines the signature for RPC metrics callback functions.
+type RPCMetricsCallback func(operation string, durationSeconds float64, err error)
 
 // NewFromConfig returns a new Flight Control API client from the given config.
 func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, error) {
@@ -41,11 +45,12 @@ type Management interface {
 	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
 	GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error)
 	PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error
+	SetRPCMetricsCallback(cb RPCMetricsCallback)
 }
 
 // Enrollment is client the interface for managing device enrollment.
 type Enrollment interface {
-	SetRPCMetricsCallback(cb func(operation string, durationSeconds float64, err error))
+	SetRPCMetricsCallback(cb RPCMetricsCallback)
 	CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error)
 	GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error)
 }
@@ -172,15 +177,8 @@ func authFromSpec(log *log.PrefixLogger, device *v1alpha1.DeviceSpec, authPath s
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	retry          bool
 	pullSecretPath string
-}
-
-// WithRetry enables enables retry based on the backoff config provided.
-func WithRetry() ClientOption {
-	return func(opts *clientOptions) {
-		opts.retry = true
-	}
+	timeout        time.Duration
 }
 
 // WithPullSecret sets the path to the pull secret. If unset uses the default
@@ -188,5 +186,13 @@ func WithRetry() ClientOption {
 func WithPullSecret(path string) ClientOption {
 	return func(opts *clientOptions) {
 		opts.pullSecretPath = path
+	}
+}
+
+// Timeout sets a custom timeout for the client operation.
+// When defined, this value overrides the default client timeout.
+func Timeout(timeout time.Duration) ClientOption {
+	return func(opts *clientOptions) {
+		opts.timeout = timeout
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -15,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 )
@@ -240,31 +242,41 @@ func validateDeviceStatus(d *api.Device) []error {
 	return allErrs
 }
 
-func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, device api.Device) (*api.Device, api.Status) {
+func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, incomingDevice api.Device) (*api.Device, api.Status) {
 	orgId := store.NullOrgId
 
-	if errs := validateDeviceStatus(&device); len(errs) > 0 {
+	if errs := validateDeviceStatus(&incomingDevice); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if name != *device.Metadata.Name {
+	if incomingDevice.Metadata.Name == nil || *incomingDevice.Metadata.Name == "" {
+		return nil, api.StatusBadRequest("device name is required")
+	}
+	if name != *incomingDevice.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
-	device.Status.LastSeen = time.Now()
+	isNotInternal := !IsInternalRequest(ctx)
+	if isNotInternal {
+		incomingDevice.Status.LastSeen = time.Now()
+	}
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
-	oldDevice, err := h.store.Device().Get(ctx, orgId, name)
+	originalDevice, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
-	common.KeepDBDeviceStatus(&device, oldDevice)
-	oldDevice.Status = device.Status
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *device.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	updated := common.UpdateServiceSideStatus(ctx, orgId, oldDevice, oldDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
 
-	result, err := h.store.Device().UpdateStatus(ctx, orgId, oldDevice)
+	deviceToStore := &api.Device{}
+	*deviceToStore = *originalDevice
+
+	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
+	deviceToStore.Status = incomingDevice.Status
+	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
+		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *incomingDevice.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
+	}
+	updated := common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, originalDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+
+	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore)
 	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	if updated && err != nil {
 		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, nil, h.log))
@@ -356,17 +368,9 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	if errs := newObj.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return nil, api.StatusBadRequest("metadata.name is immutable")
-	}
-	if currentObj.ApiVersion != newObj.ApiVersion {
-		return nil, api.StatusBadRequest("apiVersion is immutable")
-	}
-	if currentObj.Kind != newObj.Kind {
-		return nil, api.StatusBadRequest("kind is immutable")
-	}
-	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return nil, api.StatusBadRequest("status is immutable")
+
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
 		return nil, api.StatusBadRequest("spec.decommissioning cannot be changed via patch request")
@@ -441,8 +445,152 @@ func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, rendere
 
 func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, name string, conditions []api.Condition) api.Status {
 	orgId := store.NullOrgId
-	err := h.store.Device().SetServiceConditions(ctx, orgId, name, conditions)
+
+	// Create callback to handle condition changes
+	callback := func(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition) {
+		h.diffAndEmitConditionEvents(ctx, device, oldConditions, newConditions)
+	}
+
+	err := h.store.Device().SetServiceConditions(ctx, orgId, name, conditions, callback)
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+// diffAndEmitConditionEvents compares old and new conditions and emits events for condition changes
+func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, device *api.Device, oldConditions, newConditions []api.Condition) {
+	// Track condition changes for MultipleOwners
+	oldMultipleOwnersCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeDeviceMultipleOwners)
+	newMultipleOwnersCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceMultipleOwners)
+
+	// Check if MultipleOwners condition changed
+	multipleOwnersConditionChanged := h.hasConditionChanged(oldMultipleOwnersCondition, newMultipleOwnersCondition)
+
+	if multipleOwnersConditionChanged {
+		h.emitMultipleOwnersEvents(ctx, device, oldMultipleOwnersCondition, newMultipleOwnersCondition)
+	}
+
+	// Track condition changes for SpecValid
+	oldSpecValidCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeDeviceSpecValid)
+	newSpecValidCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceSpecValid)
+
+	// Check if SpecValid condition changed
+	specValidConditionChanged := h.hasConditionChanged(oldSpecValidCondition, newSpecValidCondition)
+
+	if specValidConditionChanged {
+		h.emitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition)
+	}
+}
+
+// hasConditionChanged checks if a condition actually changed between old and new
+func (h *ServiceHandler) hasConditionChanged(oldCondition, newCondition *api.Condition) bool {
+	if oldCondition == nil && newCondition == nil {
+		return false
+	}
+	if oldCondition == nil || newCondition == nil {
+		return true
+	}
+
+	changed := oldCondition.Status != newCondition.Status ||
+		oldCondition.Reason != newCondition.Reason ||
+		oldCondition.Message != newCondition.Message
+
+	return changed
+}
+
+// getOwnerFleet extracts the fleet name from a device's owner reference
+func getOwnerFleet(device *api.Device) (string, bool, error) {
+	if device.Metadata.Owner == nil {
+		return "", true, nil
+	}
+
+	ownerType, ownerName, err := util.GetResourceOwner(device.Metadata.Owner)
+	if err != nil {
+		return "", false, err
+	}
+
+	if ownerType != api.FleetKind {
+		return "", false, nil
+	}
+
+	return ownerName, true, nil
+}
+
+// emitMultipleOwnersEvents emits events for MultipleOwners condition changes
+func (h *ServiceHandler) emitMultipleOwnersEvents(ctx context.Context, device *api.Device, oldCondition, newCondition *api.Condition) {
+	deviceName := *device.Metadata.Name
+	wasMultipleOwners := oldCondition != nil && oldCondition.Status == api.ConditionStatusTrue
+	isMultipleOwners := newCondition != nil && newCondition.Status == api.ConditionStatusTrue
+
+	h.log.Infof("Device %s: MultipleOwners transition: was=%v, is=%v", deviceName, wasMultipleOwners, isMultipleOwners)
+
+	if !wasMultipleOwners && isMultipleOwners {
+		// Multiple owners detected
+		matchingFleets := []string{}
+		if newCondition.Message != "" {
+			matchingFleets = strings.Split(newCondition.Message, ",")
+		}
+		h.log.Infof("Device %s: Emitting DeviceMultipleOwnersDetectedEvent", deviceName)
+		event := GetDeviceMultipleOwnersDetectedEvent(ctx, deviceName, matchingFleets, h.log)
+		h.CreateEvent(ctx, event)
+	} else if wasMultipleOwners && !isMultipleOwners {
+		// Multiple owners resolved
+		h.log.Infof("Device %s: Emitting DeviceMultipleOwnersResolvedEvent", deviceName)
+		// Determine resolution type and assigned owner
+		resolutionType := api.NoMatch
+		var assignedOwner *string
+
+		if device.Metadata.Owner != nil {
+			ownerFleet, isOwnerAFleet, err := getOwnerFleet(device)
+			if err == nil && isOwnerAFleet && ownerFleet != "" {
+				resolutionType = api.SingleMatch
+				assignedOwner = &ownerFleet
+			}
+		}
+
+		// Parse previous matching fleets from old condition message
+		var previousMatchingFleets []string
+		if oldCondition != nil && oldCondition.Message != "" {
+			previousMatchingFleets = strings.Split(oldCondition.Message, ",")
+		}
+
+		event := GetDeviceMultipleOwnersResolvedEvent(ctx, deviceName, resolutionType, assignedOwner, previousMatchingFleets, h.log)
+		h.CreateEvent(ctx, event)
+	}
+}
+
+// emitSpecValidEvents emits events for SpecValid condition changes
+func (h *ServiceHandler) emitSpecValidEvents(ctx context.Context, device *api.Device, oldCondition, newCondition *api.Condition) {
+	deviceName := *device.Metadata.Name
+	wasSpecValid := oldCondition != nil && oldCondition.Status == api.ConditionStatusTrue
+	isSpecValid := newCondition != nil && newCondition.Status == api.ConditionStatusTrue
+
+	h.log.Infof("Device %s: SpecValid transition: was=%v, is=%v", deviceName, wasSpecValid, isSpecValid)
+
+	if !wasSpecValid && isSpecValid {
+		// Spec became valid (or was valid from the start)
+		h.log.Infof("Device %s: Emitting DeviceSpecValidEvent", deviceName)
+		event := GetDeviceSpecValidEvent(ctx, deviceName, h.log)
+		h.CreateEvent(ctx, event)
+	} else if wasSpecValid && !isSpecValid {
+		// Spec became invalid (was valid before)
+		h.log.Infof("Device %s: Emitting DeviceSpecInvalidEvent", deviceName)
+		// Get the message from the new condition if available
+		message := "Unknown"
+		if newCondition != nil && newCondition.Message != "" {
+			message = newCondition.Message
+		}
+		event := GetDeviceSpecInvalidEvent(ctx, deviceName, message, h.log)
+		h.CreateEvent(ctx, event)
+	} else if oldCondition == nil && newCondition != nil && !isSpecValid {
+		// Special case: device created with invalid spec (no previous condition, but new condition is invalid)
+		h.log.Infof("Device %s: Emitting DeviceSpecInvalidEvent for initial invalid spec", deviceName)
+		// Get the message from the new condition if available
+		message := "Unknown"
+		if newCondition.Message != "" {
+			message = newCondition.Message
+		}
+		event := GetDeviceSpecInvalidEvent(ctx, deviceName, message, h.log)
+		h.CreateEvent(ctx, event)
+	}
 }
 
 func (h *ServiceHandler) OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status {
@@ -507,12 +655,6 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 	}
 	result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
-}
-
-func (h *ServiceHandler) UpdateDeviceSummaryStatusBatch(ctx context.Context, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) api.Status {
-	orgId := store.NullOrgId
-	err := h.store.Device().UpdateSummaryStatusBatch(ctx, orgId, deviceNames, status, statusInfo)
-	return StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {

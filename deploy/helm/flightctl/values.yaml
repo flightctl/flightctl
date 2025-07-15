@@ -57,6 +57,10 @@ global:
       externalApiUrl: ""
   metrics:
     enabled: true
+  tracing:
+    enabled: false
+    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    insecure: true
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
@@ -68,6 +72,7 @@ global:
     agent: 7443
     ui: 9000
     keycloak: 8081
+    alertmanagerProxy: 8443
   gatewayPorts:
     tls: 443
     http: 80
@@ -105,6 +110,12 @@ kv:
   save: 300 1
   loglevel: warning
   fsGroup: ""
+alertmanager:
+  enabled: true
+  image:
+    image: quay.io/prometheus/alertmanager
+    tag: "v0.28.1"
+    pullPolicy: ""
 keycloak:
   db:
     fsGroup: ""
@@ -132,6 +143,18 @@ periodic:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-periodic
+    tag: ""
+    pullPolicy: ""
+alertExporter:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alert-exporter
+    tag: ""
+    pullPolicy: ""
+alertmanagerProxy:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alertmanager-proxy
     tag: ""
     pullPolicy: ""
 prometheus:

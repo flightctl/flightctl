@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os/exec"
 	"path"
 	"strings"
 	"testing"
@@ -480,4 +481,92 @@ func (m *mockProvider) Install(ctx context.Context) error {
 
 func (m *mockProvider) Remove(ctx context.Context) error {
 	return nil
+}
+
+func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+
+	readWriter := fileio.NewReadWriter()
+	tmpDir := t.TempDir()
+	readWriter.SetRootdir(tmpDir)
+
+	// Setup mock expectations for start/stop monitor commands
+	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).
+		DoAndReturn(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, "echo", `{}`)
+		}).AnyTimes()
+
+	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, "", readWriter)
+
+	// Create test applications
+	app1 := createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing)
+	app2 := createTestApplication(require, "app2", v1alpha1.ApplicationStatusPreparing)
+
+	// Application IDs for tracking
+	app1ID := app1.ID()
+	app2ID := app2.ID()
+
+	// 1. Start with no applications - verify monitor is not running
+	require.False(podmanMonitor.isRunning())
+	require.Equal(0, len(podmanMonitor.apps))
+
+	// 2. Add two applications
+	err := podmanMonitor.Ensure(app1)
+	require.NoError(err)
+	err = podmanMonitor.Ensure(app2)
+	require.NoError(err)
+
+	// Execute actions - monitor should start because we have apps
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.True(podmanMonitor.isRunning())
+	require.True(podmanMonitor.Has(app1ID))
+	require.True(podmanMonitor.Has(app2ID))
+
+	// 3. Remove app1 - monitor should still be running
+	err = podmanMonitor.Remove(app1)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.True(podmanMonitor.isRunning()) // Still running because app2 exists
+	require.False(podmanMonitor.Has(app1ID))
+	require.True(podmanMonitor.Has(app2ID))
+
+	// 4. Remove app2 - monitor should stop
+	err = podmanMonitor.Remove(app2)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.False(podmanMonitor.isRunning()) // Stopped because no apps
+	require.False(podmanMonitor.Has(app1ID))
+	require.False(podmanMonitor.Has(app2ID))
+
+	// 5. Add app1 again - monitor should start
+	err = podmanMonitor.Ensure(app1)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.True(podmanMonitor.isRunning()) // Started again
+	require.True(podmanMonitor.Has(app1ID))
+
+	// 6. Remove app1 final time - monitor should stop
+	err = podmanMonitor.Remove(app1)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.False(podmanMonitor.isRunning()) // Stopped again
+	require.False(podmanMonitor.Has(app1ID))
+
+	// No events were processed so the event time should be empty
+	require.Empty(podmanMonitor.lastEventTime)
 }
