@@ -176,21 +176,24 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 		})
 		It("Verifies that lifecycle hooks can be defined with template variables", Label("80022"), func() {
 			const (
-				firstMessage   = "this is a test message from afteradding hook"
-				firstFile      = "temp-dir/file1.txt"
-				secondMessage  = "this is a second test message from afteradding hook"
-				secondFile     = "secondary-dir/file2.txt"
-				updatedMessage = "this has been updated"
+				firstFileContents        = "this is a test message from afteradding hook"
+				firstFilePath            = "temp-dir/file1.txt"
+				firstFileName            = "first-create"
+				secondFileContents       = "this is a second test message from afteradding hook"
+				secondFilePath           = "secondary-dir/file2.txt"
+				secondFileName           = "secondary-create"
+				firstFileUpdatedContents = "this has been updated"
 			)
 
 			By("Adding a template hook that prints the contents of all created/updated files")
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			inlineConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
-			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidTemplateLifeCycle)
+			configSpec, err := newHookSpec()
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.AddConfigToDeviceWithRetries(deviceId, inlineConfigProviderSpec)
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &configSpec
+			})
 			Expect(err).ToNot(HaveOccurred())
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
@@ -198,46 +201,48 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			By("adding a new file to the hooks watch directory")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-
-			provider, err := newTemplateSpecProvider("first-create", firstFile, firstMessage)
+			configSpec, err = newHookSpec(templateSpecProviderArgs{
+				name:    firstFileName,
+				path:    firstFilePath,
+				content: firstFileContents,
+			})
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.AddConfigToDeviceWithRetries(deviceId, provider)
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &configSpec
+			})
 			Expect(err).ToNot(HaveOccurred())
-
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 			// ensure we see our expected messages
 			logs, err := harness.ReadPrimaryVMAgentLogs("")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(logs).To(And(ContainSubstring(templateHookDirectory), ContainSubstring(firstMessage)))
+			Expect(logs).To(And(ContainSubstring(templateHookDirectory), ContainSubstring(firstFileContents)))
 
 			By("adding a second file, and updating the first file to the hooks watch directory")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			updatedProvider, err := newTemplateSpecProvider("first-create", firstFile, updatedMessage)
-			Expect(err).ToNot(HaveOccurred())
-			// create a second file
-			newProvider, err := newTemplateSpecProvider("second-create", secondFile, secondMessage)
-			Expect(err).ToNot(HaveOccurred())
-
-			modifiedSpec := []v1alpha1.ConfigProviderSpec{
-				inlineConfigProviderSpec, // original hook
-				updatedProvider,          // first file updated
-				newProvider,              // second file created
-			}
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				device.Spec.Config = &modifiedSpec
+			configSpec, err = newHookSpec(templateSpecProviderArgs{
+				name:    firstFileName,
+				path:    firstFilePath,
+				content: firstFileUpdatedContents,
+			}, templateSpecProviderArgs{
+				name:    secondFileName,
+				path:    secondFilePath,
+				content: secondFileContents,
 			})
 			Expect(err).ToNot(HaveOccurred())
-
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &configSpec
+			})
+			Expect(err).ToNot(HaveOccurred())
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			// ensure we see our expected messages
 			logs, err = harness.ReadPrimaryVMAgentLogs("")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(logs).To(And(ContainSubstring(updatedMessage), ContainSubstring(secondMessage)))
+			Expect(logs).To(And(ContainSubstring(firstFileUpdatedContents), ContainSubstring(secondFileContents)))
 		})
 	})
 })
@@ -384,6 +389,34 @@ var inlineConfigValidTemplateLifeCycle = v1alpha1.InlineConfigProviderSpec{
 const (
 	templateHookDirectory = "/var/home/user"
 )
+
+type templateSpecProviderArgs struct {
+	name    string
+	path    string
+	content string
+}
+
+func newHookSpec(args ...templateSpecProviderArgs) ([]v1alpha1.ConfigProviderSpec, error) {
+	var hookInlineSpec v1alpha1.ConfigProviderSpec
+	err := hookInlineSpec.FromInlineConfigProviderSpec(inlineConfigValidTemplateLifeCycle)
+	if err != nil {
+		return nil, err
+	}
+
+	spec := []v1alpha1.ConfigProviderSpec{
+		hookInlineSpec,
+	}
+
+	for _, arg := range args {
+		provider, err := newTemplateSpecProvider(arg.name, arg.path, arg.content)
+		if err != nil {
+			return nil, err
+		}
+		spec = append(spec, provider)
+	}
+
+	return spec, nil
+}
 
 func newTemplateSpecProvider(name string, path string, contents string) (v1alpha1.ConfigProviderSpec, error) {
 	var inlineResourceFileSpec = v1alpha1.FileSpec{
