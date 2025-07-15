@@ -21,15 +21,6 @@ type DeviceCollector struct {
 	// System update status metrics
 	devicesUpdateGauge *prometheus.GaugeVec
 
-	// Device lifecycle metrics
-	deviceEnrollmentsCounter      *prometheus.CounterVec
-	deviceDecommissioningsCounter *prometheus.CounterVec
-	deviceHeartbeatsCounter       *prometheus.CounterVec
-	deviceConfigurationDriftGauge *prometheus.GaugeVec
-	deviceUpdateSuccessCounter    *prometheus.CounterVec
-	deviceUpdateFailureCounter    *prometheus.CounterVec
-	deviceUpdateDurationHistogram *prometheus.HistogramVec
-
 	store          store.Store
 	log            logrus.FieldLogger
 	mu             sync.RWMutex

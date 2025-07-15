@@ -10,8 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const defaultVersion = "unknown"
-
 // FleetCollector implements NamedCollector and gathers fleet-related business metrics.
 type FleetCollector struct {
 	totalFleetsGauge *prometheus.GaugeVec
