@@ -409,11 +409,17 @@ var _ = Describe("FleetSelector", func() {
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-match", lo.ToPtr("Fleet/fleet2"), nil, &map[string]string{"key3": "val3"})
 			// Match no fleet with no labels
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-labels", lo.ToPtr("Fleet/fleet3"), nil, &map[string]string{})
+			// Match no fleet with no labels, but ensure the multiple owners condition is cleared
+			noLabelsNoOwnerDevice := "nolabels-noowner"
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, noLabelsNoOwnerDevice, nil, nil, &map[string]string{})
+			condition := api.Condition{Type: api.ConditionTypeDeviceMultipleOwners, Status: api.ConditionStatusTrue, Message: "fleet1,fleet2"}
+			err := deviceStore.SetServiceConditions(ctx, orgId, noLabelsNoOwnerDevice, []api.Condition{condition}, nil)
+			Expect(err).ToNot(HaveOccurred())
 
 			listParams := store.ListParams{Limit: 0}
 			devices, err := deviceStore.List(ctx, orgId, listParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(devices.Items)).To(Equal(5))
+			Expect(len(devices.Items)).To(Equal(6))
 
 			for _, device := range devices.Items {
 				resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: *device.Metadata.Name, Kind: api.DeviceKind}
@@ -449,6 +455,10 @@ var _ = Describe("FleetSelector", func() {
 					Expect(updatedDev.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(updatedDev.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
 					validateResourceUpdatedEvent(*device.Metadata.Name, events, lo.ToPtr("fleet3"), nil)
+				case noLabelsNoOwnerDevice:
+					Expect(updatedDev.Metadata.Owner).To(BeNil())
+					Expect(api.IsStatusConditionTrue(updatedDev.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
+					validateDeviceMultipleOwnersResolvedEvent(noLabelsNoOwnerDevice, events, api.NoMatch, nil)
 				}
 			}
 		})
