@@ -170,35 +170,6 @@ var _ = Describe("FleetSelector", func() {
 		Expect(found).To(BeTrue(), fmt.Sprintf("DeviceMultipleOwnersResolved event not found for device %s", deviceName))
 	}
 
-	// Helper function to validate FleetSelectorProcessingCompleted events
-	validateFleetSelectorProcessingCompletedEvent := func(events []api.Event, expectedProcessingType api.FleetSelectorProcessingCompletedDetailsProcessingType, expectedDevicesProcessed int, expectedDevicesWithErrors int) {
-		found := false
-		for _, event := range events {
-			if event.Reason == api.EventReasonFleetSelectorProcessingCompleted {
-				if expectedDevicesWithErrors > 0 {
-					Expect(event.Type).To(Equal(api.Warning))
-				} else {
-					Expect(event.Type).To(Equal(api.Normal))
-				}
-				Expect(event.Details).ToNot(BeNil())
-
-				details, err := event.Details.AsFleetSelectorProcessingCompletedDetails()
-				Expect(err).ToNot(HaveOccurred())
-
-				Expect(details.ProcessingType).To(Equal(expectedProcessingType))
-				Expect(details.DevicesProcessed).To(Equal(expectedDevicesProcessed))
-				if expectedDevicesWithErrors > 0 {
-					Expect(lo.FromPtr(details.DevicesWithErrors)).To(Equal(expectedDevicesWithErrors))
-				} else {
-					Expect(lo.FromPtr(details.DevicesWithErrors)).To(Equal(0))
-				}
-				found = true
-				break
-			}
-		}
-		Expect(found).To(BeTrue(), "FleetSelectorProcessingCompleted event not found")
-	}
-
 	// Helper function to validate InternalTaskFailed events
 	_ = func(events []api.Event, expectedTaskType string) {
 		found := false
@@ -275,10 +246,6 @@ var _ = Describe("FleetSelector", func() {
 				}
 			}
 
-			// Validate fleet processing completed event
-			fleetEvents := getEventsForResource(api.FleetKind, "fleet")
-			// Only 5 devices should be processed since the stay-in-fleet device is skipped
-			validateFleetSelectorProcessingCompletedEvent(fleetEvents, api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated, 5, 0)
 		})
 
 		It("Fleet deleted should remove device owners and emit events", func() {
@@ -294,9 +261,6 @@ var _ = Describe("FleetSelector", func() {
 			events := getEventsForResource(api.DeviceKind, "device")
 			validateResourceUpdatedEvent("device", events, lo.ToPtr("fleet"), nil)
 
-			// Validate fleet processing completed event
-			fleetEvents := getEventsForResource(api.FleetKind, "fleet")
-			validateFleetSelectorProcessingCompletedEvent(fleetEvents, api.FleetSelectorProcessingCompletedDetailsProcessingTypeFleetDeleted, 0, 0)
 		})
 
 		It("Nil fleet selector should match no devices and emit events", func() {
@@ -319,10 +283,6 @@ var _ = Describe("FleetSelector", func() {
 				events := getEventsForResource(api.DeviceKind, *device.Metadata.Name)
 				validateResourceUpdatedEvent(*device.Metadata.Name, events, lo.ToPtr("fleet"), nil)
 			}
-
-			// Validate fleet processing completed event
-			fleetEvents := getEventsForResource(api.FleetKind, "fleet")
-			validateFleetSelectorProcessingCompletedEvent(fleetEvents, api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated, 0, 0)
 		})
 
 		It("Empty fleet selector should match no devices and emit events", func() {
@@ -345,10 +305,6 @@ var _ = Describe("FleetSelector", func() {
 				events := getEventsForResource(api.DeviceKind, *device.Metadata.Name)
 				validateResourceUpdatedEvent(*device.Metadata.Name, events, lo.ToPtr("fleet"), nil)
 			}
-
-			// Validate fleet processing completed event
-			fleetEvents := getEventsForResource(api.FleetKind, "fleet")
-			validateFleetSelectorProcessingCompletedEvent(fleetEvents, api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated, 0, 0)
 		})
 
 		It("Fleet selector updated with multiple owners resolves conflicts and emits events", func() {
@@ -398,17 +354,17 @@ var _ = Describe("FleetSelector", func() {
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
 					validateResourceUpdatedEvent("fleet", events, lo.ToPtr("fleet2"), lo.ToPtr("fleet"))
-					validateDeviceMultipleOwnersResolvedEvent("fleet", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet"))
+					validateDeviceMultipleOwnersResolvedEvent("fleet", events, api.SingleMatch, lo.ToPtr("fleet"))
 				case "fleet2":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet2"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
 					validateResourceUpdatedEvent("fleet2", events, lo.ToPtr("fleet"), lo.ToPtr("fleet2"))
-					validateDeviceMultipleOwnersResolvedEvent("fleet2", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet2"))
+					validateDeviceMultipleOwnersResolvedEvent("fleet2", events, api.SingleMatch, lo.ToPtr("fleet2"))
 				case "fleet3":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet3"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
 					validateResourceUpdatedEvent("fleet3", events, lo.ToPtr("fleet2"), lo.ToPtr("fleet3"))
-					validateDeviceMultipleOwnersResolvedEvent("fleet3", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch, lo.ToPtr("fleet3"))
+					validateDeviceMultipleOwnersResolvedEvent("fleet3", events, api.SingleMatch, lo.ToPtr("fleet3"))
 				case "fleet2+3":
 					Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet2"))
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeTrue())
@@ -422,23 +378,21 @@ var _ = Describe("FleetSelector", func() {
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
 					validateResourceUpdatedEvent("nofleet", events, lo.ToPtr("fleet4"), nil)
-					validateDeviceMultipleOwnersResolvedEvent("nofleet", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
+					validateDeviceMultipleOwnersResolvedEvent("nofleet", events, api.NoMatch, nil)
 				case "nolabels":
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
 					validateResourceUpdatedEvent("nolabels", events, lo.ToPtr("fleet4"), nil)
-					validateDeviceMultipleOwnersResolvedEvent("nolabels", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
+					validateDeviceMultipleOwnersResolvedEvent("nolabels", events, api.NoMatch, nil)
 				case "nolabels-noowner":
 					Expect(device.Metadata.Owner).To(BeNil())
 					Expect(api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners)).To(BeFalse())
-					validateDeviceMultipleOwnersResolvedEvent("nolabels-noowner", events, api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch, nil)
+					validateDeviceMultipleOwnersResolvedEvent("nolabels-noowner", events, api.NoMatch, nil)
 				}
 			}
 
 			// Validate fleet processing completed event
-			fleetEvents := getEventsForResource(api.FleetKind, "fleet")
-			// Only 6 devices should be processed since the fleet2+3 device is skipped
-			validateFleetSelectorProcessingCompletedEvent(fleetEvents, api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated, 6, 0)
+
 		})
 
 		It("Device labels updated with comprehensive event validation", func() {
@@ -569,9 +523,6 @@ var _ = Describe("FleetSelector", func() {
 				Expect(*device.Metadata.Owner).To(Equal("Fleet/fleet"))
 			}
 
-			// Validate fleet processing completed event
-			fleetEvents := getEventsForResource(api.FleetKind, "fleet")
-			validateFleetSelectorProcessingCompletedEvent(fleetEvents, api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated, 0, 0)
 		})
 
 		It("Should handle device with no labels in DeviceLabelsUpdated", func() {

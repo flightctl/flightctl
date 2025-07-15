@@ -368,17 +368,9 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	if errs := newObj.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return nil, api.StatusBadRequest("metadata.name is immutable")
-	}
-	if currentObj.ApiVersion != newObj.ApiVersion {
-		return nil, api.StatusBadRequest("apiVersion is immutable")
-	}
-	if currentObj.Kind != newObj.Kind {
-		return nil, api.StatusBadRequest("kind is immutable")
-	}
-	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return nil, api.StatusBadRequest("status is immutable")
+
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
 		return nil, api.StatusBadRequest("spec.decommissioning cannot be changed via patch request")
@@ -543,13 +535,13 @@ func (h *ServiceHandler) emitMultipleOwnersEvents(ctx context.Context, device *a
 		// Multiple owners resolved
 		h.log.Infof("Device %s: Emitting DeviceMultipleOwnersResolvedEvent", deviceName)
 		// Determine resolution type and assigned owner
-		resolutionType := api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch
+		resolutionType := api.NoMatch
 		var assignedOwner *string
 
 		if device.Metadata.Owner != nil {
 			ownerFleet, isOwnerAFleet, err := getOwnerFleet(device)
 			if err == nil && isOwnerAFleet && ownerFleet != "" {
-				resolutionType = api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch
+				resolutionType = api.SingleMatch
 				assignedOwner = &ownerFleet
 			}
 		}

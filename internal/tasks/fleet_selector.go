@@ -241,7 +241,6 @@ func (f FleetSelectorMatchingLogic) validateAndGetFleet(ctx context.Context, all
 		if status.Code == http.StatusNotFound {
 			// Case 1: Fleet was deleted - recompute matching fleets for devices that had this fleet as owner
 			err := f.handleFleetDeleted(ctx, allFleetsFetcher)
-			f.emitProcessingCompletedEvent(ctx, f.resourceRef.Name, api.FleetSelectorProcessingCompletedDetailsProcessingTypeFleetDeleted, 0, 0, time.Since(startTime))
 			return FleetValidationResult{Fleet: nil, EventEmitted: true, Error: err}
 		}
 		errorMsg := f.formatCriticalError("fleet selector update", fmt.Sprintf("failed to get fleet: %s", status.Message))
@@ -252,7 +251,6 @@ func (f FleetSelectorMatchingLogic) validateAndGetFleet(ctx context.Context, all
 	// empty selector matches no devices - treat as if fleet was deleted
 	if len(getMatchLabelsSafe(fleet)) == 0 {
 		err := f.handleFleetDeleted(ctx, allFleetsFetcher)
-		f.emitProcessingCompletedEvent(ctx, f.resourceRef.Name, api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated, 0, 0, time.Since(startTime))
 		return FleetValidationResult{Fleet: nil, EventEmitted: true, Error: err}
 	}
 
@@ -287,11 +285,8 @@ func (f FleetSelectorMatchingLogic) processFleetSelectorUpdate(ctx context.Conte
 	return stats
 }
 
-// handleProcessingCompletion emits completion events and returns appropriate errors
+// handleProcessingCompletion returns appropriate errors
 func (f FleetSelectorMatchingLogic) handleProcessingCompletion(ctx context.Context, stats ProcessingStats, startTime time.Time) error {
-	// Emit fleet selector processing completed event
-	f.emitProcessingCompletedEvent(ctx, f.resourceRef.Name, api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated, stats.TotalDevicesProcessed, stats.TotalErrors, time.Since(startTime))
-
 	if stats.TotalErrors > 0 {
 		return fmt.Errorf("fleet selector processing completed with %d errors out of %d devices processed", stats.TotalErrors, stats.TotalDevicesProcessed)
 	}
@@ -630,12 +625,6 @@ func findMatchingFleets(labels map[string]string, fleets []api.Fleet) []string {
 		}
 	}
 	return matchingFleets
-}
-
-// Helper methods for event emission
-func (f FleetSelectorMatchingLogic) emitProcessingCompletedEvent(ctx context.Context, fleetName string, processingType api.FleetSelectorProcessingCompletedDetailsProcessingType, devicesProcessed, devicesWithErrors int, processingDuration time.Duration) {
-	event := service.GetFleetSelectorProcessingCompletedEvent(ctx, fleetName, processingType, devicesProcessed, devicesWithErrors, processingDuration, f.log)
-	f.serviceHandler.CreateEvent(ctx, event)
 }
 
 // Helper methods for consistent error formatting

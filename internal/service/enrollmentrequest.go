@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -100,7 +99,6 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 
 	// don't set fields that are managed by the service
 	er.Status = nil
-	NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
@@ -208,17 +206,8 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 	if errs := newObj.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return nil, api.StatusBadRequest("metadata.name is immutable")
-	}
-	if currentObj.ApiVersion != newObj.ApiVersion {
-		return nil, api.StatusBadRequest("apiVersion is immutable")
-	}
-	if currentObj.Kind != newObj.Kind {
-		return nil, api.StatusBadRequest("kind is immutable")
-	}
-	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return nil, api.StatusBadRequest("status is immutable")
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
