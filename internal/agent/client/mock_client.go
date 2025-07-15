@@ -42,6 +42,48 @@ func (m *MockManagement) EXPECT() *MockManagementMockRecorder {
 	return m.recorder
 }
 
+// CreateCertificateSigningRequest mocks base method.
+func (m *MockManagement) CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, csr}
+	for _, a := range rcb {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CreateCertificateSigningRequest", varargs...)
+	ret0, _ := ret[0].(*v1alpha1.CertificateSigningRequest)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// CreateCertificateSigningRequest indicates an expected call of CreateCertificateSigningRequest.
+func (mr *MockManagementMockRecorder) CreateCertificateSigningRequest(ctx, csr any, rcb ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, csr}, rcb...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCertificateSigningRequest", reflect.TypeOf((*MockManagement)(nil).CreateCertificateSigningRequest), varargs...)
+}
+
+// GetCertificateSigningRequest mocks base method.
+func (m *MockManagement) GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, name}
+	for _, a := range rcb {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetCertificateSigningRequest", varargs...)
+	ret0, _ := ret[0].(*v1alpha1.CertificateSigningRequest)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetCertificateSigningRequest indicates an expected call of GetCertificateSigningRequest.
+func (mr *MockManagementMockRecorder) GetCertificateSigningRequest(ctx, name any, rcb ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, name}, rcb...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCertificateSigningRequest", reflect.TypeOf((*MockManagement)(nil).GetCertificateSigningRequest), varargs...)
+}
+
 // GetRenderedDevice mocks base method.
 func (m *MockManagement) GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error) {
 	m.ctrl.T.Helper()
