@@ -45,12 +45,12 @@ func setupMockStoreWithError(mockStore *TestStore, err error) {
 	mockStore.Organization().(*DummyOrganization).err = err
 }
 
-func TestListUserOrganizations_EmptyResult(t *testing.T) {
+func TestListOrganizations_EmptyResult(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	setupMockStoreWithOrganizations(mockStore, []*model.Organization{})
 	ctx := context.Background()
 
-	result, status := handler.ListUserOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx)
 
 	require.Equal(t, api.StatusOK(), status)
 	require.NotNil(t, result)
@@ -60,7 +60,7 @@ func TestListUserOrganizations_EmptyResult(t *testing.T) {
 	require.Equal(t, api.ListMeta{}, result.Metadata)
 }
 
-func TestListUserOrganizations_DefaultOrganization(t *testing.T) {
+func TestListOrganizations_DefaultOrganization(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	orgID := uuid.New()
 	defaultOrg := createTestOrganizationModel(orgID, true, "default-external-id")
@@ -69,7 +69,7 @@ func TestListUserOrganizations_DefaultOrganization(t *testing.T) {
 
 	expectedOrg := createExpectedAPIOrganization(orgID, "Default")
 
-	result, status := handler.ListUserOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx)
 
 	require.Equal(t, api.StatusOK(), status)
 	require.NotNil(t, result)
@@ -80,7 +80,7 @@ func TestListUserOrganizations_DefaultOrganization(t *testing.T) {
 	require.Equal(t, api.ListMeta{}, result.Metadata)
 }
 
-func TestListUserOrganizations_NonDefaultOrganization(t *testing.T) {
+func TestListOrganizations_NonDefaultOrganization(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	orgID := uuid.New()
 	nonDefaultOrg := createTestOrganizationModel(orgID, false, "external-id-123")
@@ -89,7 +89,7 @@ func TestListUserOrganizations_NonDefaultOrganization(t *testing.T) {
 
 	expectedOrg := createExpectedAPIOrganization(orgID, "Unknown")
 
-	result, status := handler.ListUserOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx)
 
 	require.Equal(t, api.StatusOK(), status)
 	require.NotNil(t, result)
@@ -100,7 +100,7 @@ func TestListUserOrganizations_NonDefaultOrganization(t *testing.T) {
 	require.Equal(t, api.ListMeta{}, result.Metadata)
 }
 
-func TestListUserOrganizations_MultipleOrganizations(t *testing.T) {
+func TestListOrganizations_MultipleOrganizations(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 
 	defaultOrgID := uuid.New()
@@ -119,7 +119,7 @@ func TestListUserOrganizations_MultipleOrganizations(t *testing.T) {
 	expectedNonDefaultOrg1 := createExpectedAPIOrganization(nonDefaultOrgID1, "Unknown")
 	expectedNonDefaultOrg2 := createExpectedAPIOrganization(nonDefaultOrgID2, "Unknown")
 
-	result, status := handler.ListUserOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx)
 
 	require.Equal(t, api.StatusOK(), status)
 	require.NotNil(t, result)
@@ -133,14 +133,14 @@ func TestListUserOrganizations_MultipleOrganizations(t *testing.T) {
 	require.Equal(t, api.ListMeta{}, result.Metadata)
 }
 
-func TestListUserOrganizations_StoreError(t *testing.T) {
+func TestListOrganizations_StoreError(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	testError := errors.New("database connection failed")
 	setupMockStoreWithError(mockStore, testError)
 	ctx := context.Background()
 
 	// Act
-	result, status := handler.ListUserOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx)
 
 	// Assert
 	require.Nil(t, result)
@@ -148,26 +148,26 @@ func TestListUserOrganizations_StoreError(t *testing.T) {
 	require.Contains(t, status.Message, "database connection failed")
 }
 
-func TestListUserOrganizations_ResourceNotFoundError(t *testing.T) {
+func TestListOrganizations_ResourceNotFoundError(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	setupMockStoreWithError(mockStore, flterrors.ErrResourceNotFound)
 	ctx := context.Background()
 
-	result, status := handler.ListUserOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx)
 
 	require.Nil(t, result)
 	require.Equal(t, int32(404), status.Code)
 	require.Contains(t, status.Message, api.OrganizationKind)
 }
 
-func TestListUserOrganizations_APIResponseStructure(t *testing.T) {
+func TestListOrganizations_APIResponseStructure(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	orgID := uuid.New()
 	testOrg := createTestOrganizationModel(orgID, true, "test-external-id")
 	setupMockStoreWithOrganizations(mockStore, []*model.Organization{testOrg})
 	ctx := context.Background()
 
-	result, status := handler.ListUserOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx)
 
 	require.Equal(t, api.StatusOK(), status)
 	require.NotNil(t, result)
@@ -185,7 +185,7 @@ func TestListUserOrganizations_APIResponseStructure(t *testing.T) {
 	require.NotEmpty(t, org.DisplayName)
 }
 
-func TestListUserOrganizations_DisplayNameLogic(t *testing.T) {
+func TestListOrganizations_DisplayNameLogic(t *testing.T) {
 	tests := []struct {
 		name            string
 		isDefault       bool
@@ -211,7 +211,7 @@ func TestListUserOrganizations_DisplayNameLogic(t *testing.T) {
 			setupMockStoreWithOrganizations(mockStore, []*model.Organization{testOrg})
 			ctx := context.Background()
 
-			result, status := handler.ListUserOrganizations(ctx)
+			result, status := handler.ListOrganizations(ctx)
 
 			require.Equal(t, api.StatusOK(), status)
 			require.NotNil(t, result)

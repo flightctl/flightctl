@@ -11,7 +11,7 @@ const OrganizationKind = "Organization"
 
 var organizationApiVersion = fmt.Sprintf("%s/%s", api.APIGroup, api.OrganizationAPIVersion)
 
-func (h *ServiceHandler) ListUserOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
+func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
 	orgs, err := h.store.Organization().List(ctx)
 	status := StoreErrorToApiStatus(err, false, OrganizationKind, nil)
 	if err != nil {
