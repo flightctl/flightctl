@@ -174,6 +174,7 @@ func main() {
 
 	if cfg.Prometheus != nil {
 		go func() {
+			// Create collectors list
 			collectors := []metrics.NamedCollector{
 				metrics.NewSystemCollector(ctx),
 			}
