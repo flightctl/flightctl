@@ -180,12 +180,25 @@ func main() {
 			fleetCollector := business.NewFleetCollector(ctx, store, log)
 			repositoryCollector := business.NewRepositoryCollector(ctx, store, log)
 
-			metricsServer := instrumentation.NewMetricsServer(log, cfg,
+			// Create collectors list
+			collectors := []metrics.NamedCollector{
 				metrics.NewSystemCollector(ctx),
 				deviceCollector,
 				fleetCollector,
 				repositoryCollector,
-			)
+			}
+
+			// Add HTTP metrics collector if Prometheus is enabled
+			if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", log); httpMetricsCollector != nil {
+				collectors = append(collectors, httpMetricsCollector)
+				defer func() {
+					if err := httpMetricsCollector.Shutdown(); err != nil {
+						log.Errorf("failed to shut down HTTP metrics collector: %v", err)
+					}
+				}()
+			}
+
+			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
 			if err := metricsServer.Run(ctx); err != nil {
 				log.Fatalf("Error running server: %s", err)
 			}
