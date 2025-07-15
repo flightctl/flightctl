@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -106,6 +108,9 @@ func TestGetDefaultRouteIPv4(t *testing.T) {
 			rw := fileio.NewReadWriter()
 			rw.SetRootdir(tmpDir)
 
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.TraceLevel)
+
 			// Create directory structure
 			err := rw.MkdirAll("proc/net", fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
@@ -115,7 +120,7 @@ func TestGetDefaultRouteIPv4(t *testing.T) {
 			require.NoError(err)
 
 			// Test the function
-			result, err := getDefaultRouteIPv4(rw)
+			result, err := getDefaultRouteIPv4(logger, rw)
 
 			if tt.expectError {
 				require.Error(err)
@@ -185,6 +190,9 @@ func TestGetDefaultRouteIPv6(t *testing.T) {
 			rw := fileio.NewReadWriter()
 			rw.SetRootdir(tmpDir)
 
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.TraceLevel)
+
 			// Create directory structure
 			err := rw.MkdirAll("proc/net", fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
@@ -194,7 +202,7 @@ func TestGetDefaultRouteIPv6(t *testing.T) {
 			require.NoError(err)
 
 			// Test the function
-			result, err := getDefaultRouteIPv6(rw)
+			result, err := getDefaultRouteIPv6(logger, rw)
 
 			if tt.expectError {
 				require.Error(err)
@@ -260,6 +268,9 @@ func TestGetDefaultRoute(t *testing.T) {
 			rw := fileio.NewReadWriter()
 			rw.SetRootdir(tmpDir)
 
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.TraceLevel)
+
 			// Create directory structure
 			err := rw.MkdirAll("proc/net", fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
@@ -271,7 +282,7 @@ func TestGetDefaultRoute(t *testing.T) {
 			require.NoError(err)
 
 			// Test the function
-			result, err := getDefaultRoute(rw)
+			result, err := getDefaultRoute(logger, rw)
 
 			if tt.expectError {
 				require.Error(err)
