@@ -214,8 +214,3 @@ func TestDeviceCollectorWithOrgFilter(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, results, 2)
 }
-
-// Helper function to create string pointers
-func stringPtr(s string) *string {
-	return &s
-}
