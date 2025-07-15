@@ -180,7 +180,7 @@ func waitForDefaultRoute(ctx context.Context, log *log.PrefixLogger, reader file
 	var route *DefaultRoute
 
 	err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
-		r, err := getDefaultRoute(reader)
+		r, err := getDefaultRoute(log, reader)
 		if err != nil {
 			log.Infof("Waiting for default route...")
 			return false, nil
@@ -227,16 +227,16 @@ func waitForDefaultRoute(ctx context.Context, log *log.PrefixLogger, reader file
 }
 
 // getDefaultRoute attempts to determine the default gateway (IPv4 or IPv6)
-func getDefaultRoute(reader fileio.Reader) (*DefaultRoute, error) {
+func getDefaultRoute(log *log.PrefixLogger, reader fileio.Reader) (*DefaultRoute, error) {
 	// IPv4 first
-	route, err := getDefaultRouteIPv4(reader)
-	if err == nil && !isLoopback(route.Interface) {
+	route, err := getDefaultRouteIPv4(log, reader)
+	if err == nil {
 		return route, nil
 	}
 
 	// fallback to IPv6
-	route, err = getDefaultRouteIPv6(reader)
-	if err == nil && !isLoopback(route.Interface) {
+	route, err = getDefaultRouteIPv6(log, reader)
+	if err == nil {
 		return route, nil
 	}
 
@@ -244,7 +244,7 @@ func getDefaultRoute(reader fileio.Reader) (*DefaultRoute, error) {
 }
 
 // getDefaultRouteIPv4 attempts to determine the default IPv4 gateway
-func getDefaultRouteIPv4(reader fileio.Reader) (*DefaultRoute, error) {
+func getDefaultRouteIPv4(log *log.PrefixLogger, reader fileio.Reader) (*DefaultRoute, error) {
 	data, err := reader.ReadFile(ipv4RoutePath)
 	if err != nil {
 		return nil, err
@@ -268,14 +268,23 @@ func getDefaultRouteIPv4(reader fileio.Reader) (*DefaultRoute, error) {
 
 		// is the default route (destination 0.0.0.0)
 		if fields[1] == "00000000" {
+			interfaceName := fields[0]
+			gatewayHex := fields[2]
+
+			// skip loopback interfaces
+			if isLoopback(interfaceName) {
+				log.Tracef("Skipping loopback interface %s for default IPv4 route", interfaceName)
+				continue
+			}
+
 			// gateway hex to IPv4
-			gateway, err := hexToIPv4(fields[2])
+			gateway, err := hexToIPv4(gatewayHex)
 			if err != nil {
 				continue
 			}
 
 			return &DefaultRoute{
-				Interface: fields[0],
+				Interface: interfaceName,
 				Gateway:   gateway,
 				Family:    "ipv4",
 			}, nil
@@ -286,7 +295,7 @@ func getDefaultRouteIPv4(reader fileio.Reader) (*DefaultRoute, error) {
 }
 
 // getDefaultRouteIPv6 attempts to determine the default IPv6 gateway
-func getDefaultRouteIPv6(reader fileio.Reader) (*DefaultRoute, error) {
+func getDefaultRouteIPv6(log *log.PrefixLogger, reader fileio.Reader) (*DefaultRoute, error) {
 	data, err := reader.ReadFile(ipv6RoutePath)
 	if err != nil {
 		return nil, err
@@ -307,14 +316,23 @@ func getDefaultRouteIPv6(reader fileio.Reader) (*DefaultRoute, error) {
 		// check if this is the default route (destination ::/0, which is 00000000000000000000000000000000 with prefix 00)
 		// https://mirrors.deepspace6.net/Linux+IPv6-HOWTO/proc-net.html
 		if fields[0] == "00000000000000000000000000000000" && fields[1] == "00" {
+			interfaceName := fields[9]
+			gatewayHex := fields[4]
+
+			// skip loopback interfaces
+			if isLoopback(interfaceName) {
+				log.Tracef("Skipping loopback interface %s for default IPv6 route", interfaceName)
+				continue
+			}
+
 			// gateway hex to IPv6
-			gateway, err := hexToIPv6(fields[4])
+			gateway, err := hexToIPv6(gatewayHex)
 			if err != nil {
 				continue
 			}
 
 			route := &DefaultRoute{
-				Interface: fields[9],
+				Interface: interfaceName,
 				Gateway:   gateway,
 				Family:    "ipv6",
 			}
