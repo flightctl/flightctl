@@ -1,0 +1,35 @@
+database:
+  hostname: localhost
+  name: flightctl
+  password: fsVKl-iKt1B-cag9H-OxR9M
+  port: 8888
+  type: pgsql
+  user: admin
+prometheus:
+  address: :14690
+  apiLatencyBins:
+  - 1e-07
+  - 1e-06
+  - 1e-05
+  - 0.0001
+  - 0.001
+  - 0.01
+  - 0.1
+  - 1
+  sloMax: 4
+queue:
+  amqpUrl: amqp://user:password@localhost:5677
+  #amqpUrl: amqp://localhost:5672
+kv:
+  hostname: 127.0.0.1
+  port: 6379
+  password: DGE06-iyvNc-ahvwW-srnN5
+service:
+  address: :2443
+  agentEndpointAddress: :6444
+  agentGrpcAddress: :7444
+  baseAgentEndpointUrl: https://localhost:6444
+  baseAgentGrpcUrl: grpcs://localhost:7444
+  baseUrl: https://localhost:2443
+  cert: /home/abennata/.flightctl/certs
+  logLevel: info 
