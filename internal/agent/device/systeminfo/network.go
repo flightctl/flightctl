@@ -230,13 +230,13 @@ func waitForDefaultRoute(ctx context.Context, log *log.PrefixLogger, reader file
 func getDefaultRoute(reader fileio.Reader) (*DefaultRoute, error) {
 	// IPv4 first
 	route, err := getDefaultRouteIPv4(reader)
-	if err == nil && !isLoopback(route.Interface) {
+	if err == nil {
 		return route, nil
 	}
 
 	// fallback to IPv6
 	route, err = getDefaultRouteIPv6(reader)
-	if err == nil && !isLoopback(route.Interface) {
+	if err == nil {
 		return route, nil
 	}
 
@@ -268,14 +268,22 @@ func getDefaultRouteIPv4(reader fileio.Reader) (*DefaultRoute, error) {
 
 		// is the default route (destination 0.0.0.0)
 		if fields[1] == "00000000" {
+			interfaceName := fields[0]
+			gatewayHex := fields[2]
+
+			// skip loopback interfaces
+			if isLoopback(interfaceName) {
+				continue
+			}
+
 			// gateway hex to IPv4
-			gateway, err := hexToIPv4(fields[2])
+			gateway, err := hexToIPv4(gatewayHex)
 			if err != nil {
 				continue
 			}
 
 			return &DefaultRoute{
-				Interface: fields[0],
+				Interface: interfaceName,
 				Gateway:   gateway,
 				Family:    "ipv4",
 			}, nil
@@ -307,14 +315,22 @@ func getDefaultRouteIPv6(reader fileio.Reader) (*DefaultRoute, error) {
 		// check if this is the default route (destination ::/0, which is 00000000000000000000000000000000 with prefix 00)
 		// https://mirrors.deepspace6.net/Linux+IPv6-HOWTO/proc-net.html
 		if fields[0] == "00000000000000000000000000000000" && fields[1] == "00" {
+			interfaceName := fields[9]
+			gatewayHex := fields[4]
+
+			// skip loopback interfaces
+			if isLoopback(interfaceName) {
+				continue
+			}
+
 			// gateway hex to IPv6
-			gateway, err := hexToIPv6(fields[4])
+			gateway, err := hexToIPv6(gatewayHex)
 			if err != nil {
 				continue
 			}
 
 			route := &DefaultRoute{
-				Interface: fields[9],
+				Interface: interfaceName,
 				Gateway:   gateway,
 				Family:    "ipv6",
 			}
