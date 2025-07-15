@@ -41,6 +41,10 @@ if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
   AUTH_CLIENT_ID=$(extract_value "oAuthApplicationClientId" "$SERVICE_CONFIG_FILE")
   AUTH_URL=$(extract_value "apiUrl" "$SERVICE_CONFIG_FILE")
+elif [ "$AUTH_TYPE" == "oidc" ]; then
+  echo "Configuring OIDC authentication"
+  AUTH_CLIENT_ID=$(extract_value "oidcClientId" "$SERVICE_CONFIG_FILE")
+  AUTH_URL=$(extract_value "oidcAuthority" "$SERVICE_CONFIG_FILE")
 else
   echo "Auth not configured"
 fi

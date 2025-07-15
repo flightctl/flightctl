@@ -21,6 +21,12 @@ kv:
 auth:
   insecureSkipTlsVerify: {{INSECURE_SKIP_TLS_VERIFY}}
   caCert: {{AUTH_CA_CERT}}
+  {{if AAP}}
   aap:
     apiUrl: {{AAP_API_URL}}
     externalApiUrl: {{AAP_EXTERNAL_API_URL}}
+  {{elseif OIDC}}
+  oidc:
+    oidcAuthority: {{OIDC_URL}}
+    externalOidcAuthority: {{OIDC_EXTERNAL_URL}}
+  {{endif}}
