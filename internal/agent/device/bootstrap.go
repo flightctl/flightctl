@@ -2,11 +2,13 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -306,4 +308,40 @@ func (b *Bootstrap) setManagementClient() error {
 // ManagementClient returns the management client for use by other components.
 func (b *Bootstrap) ManagementClient() client.Management {
 	return b.managementClient
+}
+
+// Name returns the configuration provider name for the certificate manager.
+// This identifies the bootstrap provider in certificate manager logs and operations.
+func (p *Bootstrap) Name() string {
+	return "agent-bootstrap"
+}
+
+// GetCertificateConfigs provides the bootstrap certificate configuration to the certificate manager.
+// This tracks the existing device certificate used for management server communication.
+// The certificate is marked as non-renewable since it's managed outside the certificate manager.
+func (p *Bootstrap) GetCertificateConfigs() ([]provider.CertificateConfig, error) {
+	// Build storage config containing paths to the existing device certificate and key.
+	// This certificate is tracked for observability but not managed for renewal.
+	config := map[string]string{
+		"cert-path": p.managementServiceConfig.GetClientCertificatePath(),
+		"key-path":  p.managementServiceConfig.GetClientKeyPath(),
+	}
+
+	configBytes, err := json.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal storage config: %w", err)
+	}
+
+	return []provider.CertificateConfig{{
+		Name:       "device",        // Primary device certificate for management server communication
+		AllowRenew: lo.ToPtr(false), // Disable renewal: this certificate is managed externally
+		Provisioner: provider.ProvisionerConfig{
+			Type: "empty", // No provisioner needed for externally managed certificates
+		},
+		Storage: provider.StorageConfig{
+			Type:   "filesystem",
+			Config: json.RawMessage(configBytes),
+		},
+		// Future enhancement: enable AllowRenew and provide CSR provisioner for automatic renewal
+	}}, nil
 }
