@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager"
+	cm_config "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/config"
 	cm_provisioner "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/provisioner"
 	cm_state "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/state"
 	cm_storage "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/storage"
@@ -276,6 +277,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Initialize certificate
 	certManager, err := certmanager.NewManager(a.log,
 		certmanager.WithStateStorageProvider(cm_state.NewFileStorage(filepath.Join(agent_config.DefaultConfigDir, "cert-state.json"))),
+		certmanager.WithConfigProvider(cm_config.NewAgentConfigProvider(ctx, a.configFile)),
+
 		// Empty providers for testing and placeholder scenarios
 		certmanager.WithProvisionerProvider(cm_provisioner.NewEmptyProvisionerFactory()),
 		certmanager.WithStorageProvider(cm_storage.NewEmptyStorageFactory()),

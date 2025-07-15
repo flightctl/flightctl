@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
@@ -112,6 +113,11 @@ type Config struct {
 
 	// PullRetrySteps defines how many retry attempts are allowed for pulling an OCI target.
 	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
+
+	// Certificates defines the certificates to be managed by the certificate manager.
+	// These certificates are automatically provisioned, renewed, and stored based on their configuration.
+	// Each certificate can use different provisioners (CSR, self-signed) and storage backends (filesystem).
+	Certificates []provider.CertificateConfig `json:"certificates,omitempty"`
 
 	readWriter fileio.ReadWriter
 }
@@ -335,6 +341,9 @@ func mergeConfigs(base, override *Config) {
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
 	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
 	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+
+	// certificates
+	overrideSliceIfNotNil(&base.Certificates, override.Certificates)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
