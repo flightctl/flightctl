@@ -328,6 +328,37 @@ var _ = Describe("VM Agent behavior", func() {
 
 		})
 
+		It("K8s secret config source", func() {
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+
+			// Get the next expected rendered version
+			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("should report the correct device status after an inline config is added")
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+
+				// Create ConfigProviderSpec.
+				var configProviderSpec v1alpha1.ConfigProviderSpec
+				err := configProviderSpec.FromKubernetesSecretProviderSpec(k8sSecretConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			logrus.Infof("Waiting for the device to pick the config")
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			// The device should have the online config.
+			stdout, err := harness.VM.RunSSH([]string{"cat", "/etc/testfile.txt"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stdout.String()).To(ContainSubstring("This is used to test k8s secret config."))
+		})
+
 		It("System Info Timeout Tests", Label("81864"), func() {
 
 			By("Enroll and wait for image v9 to become online")
@@ -412,6 +443,19 @@ var gitConfigInvalidRepo = v1alpha1.GitConfigProviderSpec{
 		TargetRevision: "main",
 	},
 	Name: "example-git-config-provider",
+}
+
+var k8sSecretConfig = v1alpha1.KubernetesSecretProviderSpec{
+	Name: "example-k8s-secret-config-provider",
+	SecretRef: struct {
+		MountPath string "json:\"mountPath\""
+		Name      string "json:\"name\""
+		Namespace string "json:\"namespace\""
+	}{
+		MountPath: "/etc",
+		Name:      "test-config",
+		Namespace: "flightctl-e2e",
+	},
 }
 
 // suffix specifies a default path segment or query parameter that can be appended to a URL in HTTP configuration.
