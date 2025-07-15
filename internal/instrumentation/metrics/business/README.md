@@ -1,56 +1,73 @@
 # Business Metrics Collectors
 
-This directory contains business metrics collectors that follow the same pattern as the system metrics collector in `../system.go`. These collectors gather business-specific metrics from the Flight Control system.
+This directory contains business metrics collectors that gather business-specific metrics from the Flight Control system.
 
 ## Available Collectors
 
 ### DeviceCollector
 
-The `DeviceCollector` gathers device-related business metrics:
+The `DeviceCollector` gathers device-related business metrics from the `Device` model (`internal/store/model/device.go`).
 
-- `flightctl_devices_total`: Total number of devices managed
-- `flightctl_devices_online_total`: Number of currently online/connected devices  
-- `flightctl_devices_offline_total`: Number of currently offline devices
+#### Metrics
 
-#### Usage
+##### Summary Status Metrics
+- **`flightctl_devices_summary_total`**: Total number of devices managed (by summary status)
+  - **Labels**:
+    - `organization_id`: From `Device.OrgID` (UUID field)
+    - `version`: From `Device.Status.Data.Summary.Status` (DeviceSummaryStatusType enum)
+    - `fleet`: From device's fleet association (if any)
+    - `status`: From `Device.Status.Data.Summary.Status` (DeviceSummaryStatusType enum)
+      - Values: `Online`, `Degraded`, `Error`, `Rebooting`, `PoweredOff`, `Unknown`
 
-```go
-import (
-    "context"
-    "github.com/flightctl/flightctl/internal/instrumentation/metrics/business"
-    "github.com/flightctl/flightctl/internal/store"
-    "github.com/sirupsen/logrus"
-)
+##### Application Status Metrics
+- **`flightctl_devices_application_total`**: Total number of devices managed (by application status)
+  - **Labels**:
+    - `organization_id`: From `Device.OrgID` (UUID field)
+    - `version`: From `Device.Status.Data.ApplicationsSummary.Status` (ApplicationsSummaryStatusType enum)
+    - `fleet`: From device's fleet association (if any)
+    - `status`: From `Device.Status.Data.ApplicationsSummary.Status` (ApplicationsSummaryStatusType enum)
+      - Values: `Healthy`, `Degraded`, `Error`, `Unknown`
 
-// Create the collector
-ctx := context.Background()
-store := // your store instance
-log := logrus.New()
-deviceCollector := business.NewDeviceCollector(ctx, store, log)
-
-// Use with the metrics handler
-handler := metrics.NewHandler(deviceCollector)
-```
+##### System Update Status Metrics
+- **`flightctl_devices_update_total`**: Total number of devices managed (by system update status)
+  - **Labels**:
+    - `organization_id`: From `Device.OrgID` (UUID field)
+    - `version`: From `Device.Status.Data.Updated.Status` (DeviceUpdatedStatusType enum)
+    - `fleet`: From device's fleet association (if any)
+    - `status`: From `Device.Status.Data.Updated.Status` (DeviceUpdatedStatusType enum)
+      - Values: `UpToDate`, `OutOfDate`, `Updating`, `Unknown`
 
 #### How it works
 
 The collector:
 1. Samples device metrics every 30 seconds
-2. Uses the store's `Count()` method to get total device count
-3. Uses the store's `Summary()` method to efficiently count online devices
-4. Calculates offline devices as `total - online`
-5. Updates Prometheus gauges with the current values
+2. Uses the store's `CountByFleetAndStatus()` method to get device counts grouped by organization, version, fleet, and status
+3. Updates Prometheus gauges with the current values
+4. Provides methods for incrementing counters for lifecycle events
 
 #### Device Status Logic
 
-A device is considered **online** if its summary status is not "Unknown". The "Unknown" status indicates that the device is disconnected (hasn't reported in within the disconnection timeout).
+A device's status is determined by the following fields in `Device.Status.Data`:
+- **Summary Status**: `Device.Status.Data.Summary.Status` - Overall device health
+- **Application Status**: `Device.Status.Data.ApplicationsSummary.Status` - Health of applications running on the device
+- **Update Status**: `Device.Status.Data.Updated.Status` - Status of system updates
 
 ### FleetCollector
 
-The `FleetCollector` gathers fleet-related business metrics:
+The `FleetCollector` gathers fleet-related business metrics from the `Fleet` model (`internal/store/model/fleet.go`).
 
-- `flightctl_fleets_total`: Total number of fleets managed
-- `flightctl_fleet_rollout_status`: Status of ongoing fleet rollouts
+#### Metrics
+
+- **`flightctl_fleets_total`**: Total number of fleets managed
+  - **Labels**:
+    - `organization_id`: From `Fleet.OrgID` (UUID field)
+    - `version`: From fleet's template version or "unknown" if not specified
+
+- **`flightctl_fleet_rollout_status`**: Status of ongoing fleet rollouts
+  - **Labels**:
+    - `organization_id`: From `Fleet.OrgID` (UUID field)
+    - `version`: From fleet's template version or "unknown" if not specified
+    - `status`: From `Fleet.Status.Data.Rollout` status or "none" if no rollout in progress
 
 #### How it works
 
@@ -59,31 +76,30 @@ The collector:
 2. Uses the store's `CountByRolloutStatus()` method to get fleet counts grouped by organization, version, and rollout status
 3. Updates Prometheus gauges with the current values
 
+#### Fleet Status Logic
+
+Fleet status is determined by:
+- **Rollout Status**: `Fleet.Status.Data.Rollout` - Current rollout state
+- **Conditions**: `Fleet.Status.Data.Conditions` - Array of condition objects indicating fleet health
+- **Devices Summary**: `Fleet.Status.Data.DevicesSummary` - Summary of devices in the fleet
+
 ### RepositoryCollector
 
-The `RepositoryCollector` gathers repository-related business metrics:
+The `RepositoryCollector` gathers repository-related business metrics from the `Repository` model (`internal/store/model/repository.go`).
 
-- `flightctl_repositories_total`: Total number of repositories managed, grouped by organization and version
+#### Metrics
 
-#### Usage
+- **`flightctl_repositories_total`**: Total number of repositories managed
+  - **Labels**:
+    - `organization_id`: From `Repository.OrgID` (UUID field)
+    - `version`: From `Repository.Spec.Data.Revision` or "unknown" if not specified
 
-```go
-import (
-    "context"
-    "github.com/flightctl/flightctl/internal/instrumentation/metrics/business"
-    "github.com/flightctl/flightctl/internal/store"
-    "github.com/sirupsen/logrus"
-)
+#### How it works
 
-// Create the collector
-ctx := context.Background()
-store := // your store instance
-log := logrus.New()
-repositoryCollector := business.NewRepositoryCollector(ctx, store, log)
-
-// Use with the metrics handler
-handler := metrics.NewHandler(repositoryCollector)
-```
+The collector:
+1. Samples repository metrics every 30 seconds
+2. Uses the store's `CountByOrgAndVersion()` method to get repository counts grouped by organization and version
+3. Updates Prometheus gauges with the current values
 
 #### Repository Version Logic
 
@@ -91,29 +107,29 @@ Repositories are grouped by their `spec.revision` field. If no revision is speci
 
 ### ResourceSyncCollector
 
-The `ResourceSyncCollector` gathers resourcesync-related business metrics:
+The `ResourceSyncCollector` gathers resourcesync-related business metrics from the `ResourceSync` model (`internal/store/model/resourcesync.go`).
 
-- `flightctl_resourcesyncs_total`: Total number of resource syncs managed, with status labels
+#### Metrics
 
-#### Usage
+- **`flightctl_resourcesyncs_total`**: Total number of resource syncs managed
+  - **Labels**:
+    - `organization_id`: From `ResourceSync.OrgID` (UUID field)
+    - `status`: From `ResourceSync.Status.Data.Conditions` status or "unknown" if no conditions
+    - `version`: From `ResourceSync.Spec.Data.TargetRevision` or "unknown" if not specified
 
-```go
-import (
-    "context"
-    "github.com/flightctl/flightctl/internal/instrumentation/metrics/business"
-    "github.com/flightctl/flightctl/internal/store"
-    "github.com/sirupsen/logrus"
-)
+#### How it works
 
-// Create the collector
-ctx := context.Background()
-store := // your store instance
-log := logrus.New()
-resourceSyncCollector := business.NewResourceSyncCollector(ctx, store, log)
+The collector:
+1. Samples resource sync metrics every 30 seconds
+2. Uses the store's `CountByOrgStatusAndVersion()` method to get resource sync counts grouped by organization, status, and version
+3. Updates Prometheus gauges with the current values
 
-// Use with the metrics handler
-handler := metrics.NewHandler(resourceSyncCollector)
-```
+#### ResourceSync Status Logic
+
+ResourceSync status is determined by:
+- **Conditions**: `ResourceSync.Status.Data.Conditions` - Array of condition objects indicating sync status
+- **Observed Commit**: `ResourceSync.Status.Data.ObservedCommit` - Last commit hash that was synced
+- **Observed Generation**: `ResourceSync.Status.Data.ObservedGeneration` - Last generation that was synced
 
 ## Adding New Collectors
 
