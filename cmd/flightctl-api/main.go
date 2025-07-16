@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/business"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -174,7 +175,19 @@ func main() {
 
 	if cfg.Prometheus != nil {
 		go func() {
-			metricsServer := instrumentation.NewMetricsServer(log, cfg, metrics.NewSystemCollector(ctx))
+			// Create business metrics collectors
+			deviceCollector := business.NewDeviceCollector(ctx, store, log)
+			fleetCollector := business.NewFleetCollector(ctx, store, log)
+			repositoryCollector := business.NewRepositoryCollector(ctx, store, log)
+			resourceSyncCollector := business.NewResourceSyncCollector(ctx, store, log)
+
+			metricsServer := instrumentation.NewMetricsServer(log, cfg,
+				metrics.NewSystemCollector(ctx),
+				deviceCollector,
+				fleetCollector,
+				repositoryCollector,
+				resourceSyncCollector,
+			)
 			if err := metricsServer.Run(ctx); err != nil {
 				log.Fatalf("Error running server: %s", err)
 			}
