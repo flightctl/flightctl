@@ -1,0 +1,26 @@
+dist:
+  name: otelcol-custom
+  description: Custom OpenTelemetry Collector with CN Authenticator
+  output_path: ./dist
+  otelcol_version: 0.110.0
+
+extensions:
+  - import: github.com/example/cnauthenticator
+    gomod: github.com/example/cnauthenticator v0.0.0
+    path: ./cnauthenticator
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.110.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.110.0
+
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.110.0
+
+providers:
+  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v0.111.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v0.111.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/httpprovider v0.111.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/httpsprovider v0.111.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v0.111.0
