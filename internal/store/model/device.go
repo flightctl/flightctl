@@ -26,7 +26,7 @@ type Device struct {
 	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
 
 	// Conditions set by the service, as opposed to the agent.
-	ServiceConditions *JSONField[ServiceConditions] `gorm:"type:jsonb"`
+	ServiceConditions *JSONField[ServiceConditions]
 
 	// The rendered device config
 	RenderedConfig *JSONField[*[]api.ConfigProviderSpec] `gorm:"type:jsonb"`

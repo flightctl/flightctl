@@ -17,30 +17,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// DeviceStatusType represents the type of device status to query
-type DeviceStatusType string
-
-const (
-	DeviceStatusTypeSummary     DeviceStatusType = "summary"
-	DeviceStatusTypeApplication DeviceStatusType = "application"
-	DeviceStatusTypeUpdate      DeviceStatusType = "update"
-)
-
-// String returns the string representation of the status type
-func (d DeviceStatusType) String() string {
-	return string(d)
-}
-
-// Validate ensures the status type is valid
-func (d DeviceStatusType) Validate() error {
-	switch d {
-	case DeviceStatusTypeSummary, DeviceStatusTypeApplication, DeviceStatusTypeUpdate:
-		return nil
-	default:
-		return fmt.Errorf("invalid device status type: %s", d)
-	}
-}
-
 type Device interface {
 	InitialMigration(ctx context.Context) error
 
@@ -75,7 +51,6 @@ type Device interface {
 
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
-	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType) ([]CountByOrgAndStatusResult, error)
 }
 
 type DeviceStore struct {
@@ -707,60 +682,4 @@ func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, na
 		return nil, err
 	}
 	return &repositories, nil
-}
-
-// CountByOrgAndStatusResult holds the result of the group by query
-// for organization and status.
-type CountByOrgAndStatusResult struct {
-	OrgID  string
-	Status string
-	Count  int64
-}
-
-// CountByOrgAndStatus returns the count of devices grouped by org_id and status.
-func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType) ([]CountByOrgAndStatusResult, error) {
-	var query *gorm.DB
-	var err error
-
-	if orgId != nil {
-		query, err = ListQuery(&model.Device{}).BuildNoOrder(ctx, s.getDB(ctx), *orgId, ListParams{})
-	} else {
-		// When orgId is nil, we don't filter by org_id
-		query = s.getDB(ctx).Model(&model.Device{})
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate the status type
-	if err := statusType.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Determine which status field to use
-	var statusField string
-	switch statusType {
-	case DeviceStatusTypeSummary:
-		statusField = "status->'summary'->>'status'"
-	case DeviceStatusTypeApplication:
-		statusField = "status->'applicationSummary'->>'status'"
-	case DeviceStatusTypeUpdate:
-		statusField = "status->'updated'->>'status'"
-	default:
-		statusField = "status->'summary'->>'status'" // default to summary
-	}
-
-	query = query.Select(
-		"org_id as org_id",
-		statusField+" as status",
-		"COUNT(*) as count",
-	).Group("org_id, status")
-
-	var results []CountByOrgAndStatusResult
-	err = query.Scan(&results).Error
-	if err != nil {
-		return nil, ErrorFromGormError(err)
-	}
-	return results, nil
 }
