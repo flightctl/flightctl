@@ -24,7 +24,7 @@ USER_HOME="/home/${USER}"   # user $HOME in the vm
 SSH_PRIVATE_KEY_PATH="/home/${USER}/.ssh/id_rsa"
 SSH_PUBLIC_KEY_PATH="/home/${USER}/.ssh/id_rsa.pub"
 USER_DATA_FILE="user-data.yaml"
-FLIGHTCTL_PATH="/home/${USER}/flightctl"
+REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "https://github.com/flightctl/flightctl.git")
 
 # Generate user-data file
 echo "Generating user-data file..."
@@ -111,6 +111,9 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
   echo "Installing OpenShift client..."
   curl https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux-amd64-rhel9.tar.gz | sudo tar xvz -C /usr/local/bin
 
+  echo "Cloning $REMOTE_URL to $USER_HOME/..."
+  git clone $REMOTE_URL $USER_HOME/flightctl
+
   # Enable libvirtd service
   sudo systemctl enable --now libvirtd
 
@@ -122,10 +125,6 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
 Delegate=yes
 EOF2
 EOF
-
-# Sync the necessary folders
-echo "Setting up synced folders..."
-scp -r -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${FLIGHTCTL_PATH} ${USER}@${VM_IP}:${USER_HOME}/
 
 # Clean up
 echo "Cleaning up stuff..."
