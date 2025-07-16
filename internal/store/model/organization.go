@@ -15,12 +15,15 @@ var (
 type Organization struct {
 	ID uuid.UUID `gorm:"type:uuid;primary_key"`
 
+	// Display name of the organization.
+	DisplayName string `json:"display_name"`
+
 	// Whether this is the default organization.
 	// There should only ever be one default organization.
 	IsDefault bool `gorm:"column:is_default" json:"is_default"`
 
 	// External identifier of the organization in the configured IdP.
-	ExternalID string `json:"external_id"`
+	ExternalID string `gorm:"index" json:"external_id"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

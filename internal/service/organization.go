@@ -18,19 +18,12 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.Organizati
 
 	apiOrgs := make([]api.Organization, len(orgs))
 	for i, org := range orgs {
-		// In the future, displayName will be populated from information from the IdP.
-		// For now, there should only be the default organization so any others that might exist are unknown.
-		displayName := "Unknown"
-		if org.IsDefault {
-			displayName = "Default"
-		}
-
 		name := org.ID.String()
 		apiOrgs[i] = api.Organization{
 			ApiVersion:  organizationApiVersion,
 			Kind:        api.OrganizationKind,
 			Metadata:    api.ObjectMeta{Name: &name},
-			DisplayName: displayName,
+			DisplayName: org.DisplayName,
 		}
 	}
 

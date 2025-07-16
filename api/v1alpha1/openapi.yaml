@@ -3158,13 +3158,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status' 
+                $ref: '#/components/schemas/Status'
         "403":
-            description: Forbidden
-            content:
-              application/json:
-                schema:
-                  $ref: '#/components/schemas/Status'
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
