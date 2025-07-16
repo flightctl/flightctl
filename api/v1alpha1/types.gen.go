@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/oapi-codegen/runtime"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for AppType.
@@ -1458,11 +1457,11 @@ type Organization struct {
 	// DisplayName Human readable name shown to users.
 	DisplayName string `json:"displayName"`
 
-	// Id The unique identifier for the organization.
-	Id openapi_types.UUID `json:"id"`
-
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
 }
 
 // OrganizationList OrganizationList is a list of Organizations.

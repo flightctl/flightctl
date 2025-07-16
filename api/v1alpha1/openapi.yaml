@@ -3141,18 +3141,30 @@ paths:
       description: Retrieves a list of organizations.
       operationId: listOrganizations
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrganizationList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: '#/components/schemas/Status' 
+        "403":
+            description: Forbidden
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -3165,11 +3177,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-    orgId:
+    orgName:
       type: apiKey
       in: query
-      name: org_id
-      description: The ID of the organization that owns the resource.
+      name: org_name
+      description: The name (UUID) of the organization that owns the resource.
   schemas:
     ResourceKind:
       type: string
@@ -5336,7 +5348,7 @@ components:
       required:
         - apiVersion
         - kind
-        - id
+        - metadata
         - displayName
       properties:
         apiVersion:
@@ -5345,10 +5357,8 @@ components:
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
-        id:
-          type: string
-          format: uuid
-          description: The unique identifier for the organization.
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
         displayName:
           type: string
           description: Human readable name shown to users.

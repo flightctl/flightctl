@@ -64,13 +64,13 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 func AddOrgIDToCtx(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		orgIDParam := r.URL.Query().Get("org_id")
+		orgIDParam := r.URL.Query().Get("org_name")
 
 		var orgID uuid.UUID
 		if orgIDParam != "" {
 			parsedID, err := uuid.Parse(orgIDParam)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("Invalid org_id parameter: %s", err.Error()), http.StatusBadRequest)
+				http.Error(w, fmt.Sprintf("Invalid org_name parameter: %s", err.Error()), http.StatusBadRequest)
 				return
 			}
 			orgID = parsedID

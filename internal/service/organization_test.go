@@ -29,10 +29,11 @@ func createTestOrganizationModel(id uuid.UUID, isDefault bool, externalID string
 }
 
 func createExpectedAPIOrganization(id uuid.UUID, displayName string) api.Organization {
+	name := id.String()
 	return api.Organization{
 		ApiVersion:  organizationApiVersion,
 		Kind:        api.OrganizationKind,
-		Id:          id,
+		Metadata:    api.ObjectMeta{Name: &name},
 		DisplayName: displayName,
 	}
 }
@@ -181,7 +182,7 @@ func TestListOrganizations_APIResponseStructure(t *testing.T) {
 	org := result.Items[0]
 	require.Equal(t, organizationApiVersion, org.ApiVersion)
 	require.Equal(t, api.OrganizationKind, org.Kind)
-	require.Equal(t, orgID, org.Id)
+	require.Equal(t, orgID.String(), *org.Metadata.Name)
 	require.NotEmpty(t, org.DisplayName)
 }
 

@@ -7,13 +7,11 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
-const OrganizationKind = "Organization"
-
 var organizationApiVersion = fmt.Sprintf("%s/%s", api.APIGroup, api.OrganizationAPIVersion)
 
 func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
 	orgs, err := h.store.Organization().List(ctx)
-	status := StoreErrorToApiStatus(err, false, OrganizationKind, nil)
+	status := StoreErrorToApiStatus(err, false, api.OrganizationKind, nil)
 	if err != nil {
 		return nil, status
 	}
@@ -27,10 +25,11 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.Organizati
 			displayName = "Default"
 		}
 
+		name := org.ID.String()
 		apiOrgs[i] = api.Organization{
 			ApiVersion:  organizationApiVersion,
 			Kind:        api.OrganizationKind,
-			Id:          org.ID,
+			Metadata:    api.ObjectMeta{Name: &name},
 			DisplayName: displayName,
 		}
 	}
