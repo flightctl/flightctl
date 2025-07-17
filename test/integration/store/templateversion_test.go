@@ -115,9 +115,8 @@ var _ = Describe("TemplateVersion", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-			deleted, err := storeInst.Fleet().Delete(ctx, otherOrgId, "myfleet", callback)
+			err = storeInst.Fleet().Delete(ctx, otherOrgId, "myfleet", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeTrue())
 
 			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())

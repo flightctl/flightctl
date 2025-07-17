@@ -12,12 +12,17 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 const retryIterations = 10
 
 type CreateOrUpdateMode string
+
+type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error)
+type EventCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error)
+type EventDeviceCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldDevice, newDevice *api.Device, created bool, updateDesc *api.ResourceUpdatedDetails, err error)
 
 func ErrorFromGormError(err error) error {
 	switch {
@@ -293,18 +298,18 @@ func createParamsFromKey(key string) string {
 	return params
 }
 
-func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, api.ResourceUpdatedDetails, error)) (*A, bool, api.ResourceUpdatedDetails, error) {
+func retryCreateOrUpdate[A any](fn func() (*A, *A, bool, bool, api.ResourceUpdatedDetails, error)) (*A, *A, bool, api.ResourceUpdatedDetails, error) {
 	var (
-		a              *A
+		a, b           *A
 		created, retry bool
 		updateDesc     api.ResourceUpdatedDetails
 		err            error
 	)
 	i := 0
-	for a, created, retry, updateDesc, err = fn(); retry && i < retryIterations; a, created, retry, updateDesc, err = fn() {
+	for a, b, created, retry, updateDesc, err = fn(); retry && i < retryIterations; a, b, created, retry, updateDesc, err = fn() {
 		i++
 	}
-	return a, created, updateDesc, err
+	return a, b, created, updateDesc, err
 }
 
 func retryUpdate(fn func() (bool, error)) error {
@@ -317,4 +322,29 @@ func retryUpdate(fn func() (bool, error)) error {
 		i++
 	}
 	return err
+}
+
+func callEventCallback(resourceKind api.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
+	return func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
+		// Call callback if provided (but don't fail the operation if callback fails)
+		if callbackEvent == nil {
+			return
+		}
+		// Call callback in a defer with error recovery to prevent callback failures from affecting the main operation
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorf("Event Callback panicked during service status update: %v", r)
+			}
+		}()
+
+		// Call the callbackEvent - if it fails, log the error but don't propagate it
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Errorf("Event Callback panicked: %v", r)
+				}
+			}()
+			callbackEvent(ctx, resourceKind, orgId, name, created, updateDesc, err)
+		}()
+	}
 }
