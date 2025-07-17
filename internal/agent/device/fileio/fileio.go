@@ -55,7 +55,7 @@ type Reader interface {
 	PathFor(filePath string) string
 	ReadFile(filePath string) ([]byte, error)
 	ReadDir(dirPath string) ([]fs.DirEntry, error)
-	PathExists(path string) (bool, error)
+	PathExists(path string, opts ...PathExistsOption) (bool, error)
 }
 
 type ReadWriter interface {
