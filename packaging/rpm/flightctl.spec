@@ -7,9 +7,6 @@
 # SELinux specifics
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
-%define agent_relabel_files() \
-    semanage fcontext -a -t flightctl_agent_exec_t "/usr/bin/flightctl-agent" ; \
-    restorecon -v /usr/bin/flightctl-agent
 
 Name:           flightctl
 Version:        0.6.0
@@ -54,8 +51,16 @@ The flightctl-agent package provides the management agent for the Flight Control
 Summary: SELinux policies for the Flight Control management agent
 BuildRequires: selinux-policy >= %{selinux_policyver}
 BuildRequires: selinux-policy-devel >= %{selinux_policyver}
+BuildRequires: container-selinux
 BuildArch: noarch
 Requires: selinux-policy >= %{selinux_policyver}
+
+# For restorecon
+Requires: policycoreutils
+# For semanage
+Requires: policycoreutils-python-utils
+# For policy macros
+Requires: container-selinux
 
 %description selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
@@ -488,35 +493,33 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %post
      mkdir -p %{buildroot}/usr/local/bin # For the reloader script
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
-     
+
      # Copy static configuration files (those not templated)
      install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/
      install -m 0644 packaging/observability/otelcol-config.yaml %{buildroot}/etc/otelcol/
-     
 
-     
      # Copy template source files to a temporary staging area for processing in %post
      install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/
      install -m 0644 packaging/observability/flightctl-grafana.container.template %{buildroot}/opt/flightctl-observability/templates/
      install -m 0644 packaging/observability/flightctl-prometheus.container.template %{buildroot}/opt/flightctl-observability/templates/
      install -m 0644 packaging/observability/flightctl-otel-collector.container.template %{buildroot}/opt/flightctl-observability/templates/
      install -m 0644 packaging/observability/flightctl-userinfo-proxy.container.template %{buildroot}/opt/flightctl-observability/templates/
-     
+
      # Copy non-templated Grafana datasource provisioning file
      install -m 0644 packaging/observability/grafana-datasources.yaml %{buildroot}/etc/grafana/provisioning/datasources/prometheus.yaml
 
      install -m 0644 packaging/observability/grafana-dashboards.yaml %{buildroot}/etc/grafana/provisioning/dashboards/flightctl.yaml
-     
+
      # Copy the reloader script and its systemd units
      install -m 0755 packaging/observability/render-templates.sh %{buildroot}/etc/flightctl/scripts
-     
+
      install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/local/bin/
      install -m 0644 packaging/observability/observability.defs %{buildroot}/etc/flightctl/definitions/
      install -m 0644 packaging/observability/otel-collector.defs %{buildroot}/etc/flightctl/definitions/
-     
+
      # Copy the observability network quadlet
      install -m 0644 packaging/observability/flightctl-observability.network %{buildroot}/etc/containers/systemd/
-     
+
      # Install systemd targets for service grouping
      install -m 0644 packaging/observability/flightctl-otel-collector.target %{buildroot}/usr/lib/systemd/system/
      install -m 0644 packaging/observability/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
@@ -529,18 +532,18 @@ echo "Flightctl Observability Stack uninstalled."
 %selinux_relabel_pre -s %{selinuxtype}
 
 %post selinux
-
-%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
-%agent_relabel_files
+# Install SELinux module - fail RPM installation if this fails
+if ! semodule -s %{selinuxtype} -i %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2; then
+    echo "ERROR: Failed to install flightctl SELinux policy (AST failure or compatibility issue)" >&2
+    exit 1
+fi
 
 %postun selinux
-
 if [ $1 -eq 0 ]; then
-    %selinux_modules_uninstall -s %{selinuxtype} flightctl_agent
+    semodule -s %{selinuxtype} -r flightctl_agent 2>/dev/null || :
 fi
 
 %posttrans selinux
-
 %selinux_relabel_post -s %{selinuxtype}
 
 # File listings
@@ -622,6 +625,8 @@ rm -rf /usr/share/sosreport
     /usr/lib/systemd/system/flightctl.target
 
 %changelog
+* Tue Jul 15 2025 Sam Batschelet <sbatsche@redhat.com> - 0.9.0-2
+- Improve selinux policy deps and install
 * Sun Jul 6 2025 Ori Amizur <oamizur@redhat.com> - 0.9.0-1
 - Add support for Flight Control standalone observability stack
 * Tue Apr 15 2025 Dakota Crowder <dcrowder@redhat.com> - 0.6.0-4
