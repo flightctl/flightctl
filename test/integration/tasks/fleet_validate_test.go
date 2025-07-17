@@ -85,9 +85,9 @@ var _ = Describe("FleetValidate", func() {
 		}
 
 		repoCallback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
+		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback, nil)
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback)
+		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback, nil)
 		Expect(err).ToNot(HaveOccurred())
 
 		fleet = &api.Fleet{
@@ -171,7 +171,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -224,7 +224,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -275,7 +275,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -323,7 +323,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)

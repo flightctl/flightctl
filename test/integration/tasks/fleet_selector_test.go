@@ -472,7 +472,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			device.Spec.Decommissioning = &api.DeviceDecommission{}
 			callback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
-			_, _, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			_, _, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Change fleet selector so device no longer matches
@@ -480,7 +480,7 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Selector.MatchLabels = &map[string]string{"different": "value"}
 			fleetCallback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-			_, _, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, false, fleetCallback)
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, false, fleetCallback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.FleetSelectorUpdated(ctx)

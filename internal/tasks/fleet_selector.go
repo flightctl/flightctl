@@ -549,22 +549,18 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 	if status.Code == http.StatusOK {
 		// Emit ResourceUpdated event for owner change
 		var previousOwner, newOwner *string
-
 		if currentOwner != "" {
 			previousOwner = &currentOwnerFleet
 		}
 		if newOwnerFleet != "" {
 			newOwner = &newOwnerFleet
 		}
-
 		updateDetails := &api.ResourceUpdatedDetails{
 			PreviousOwner: previousOwner,
 			NewOwner:      newOwner,
 			UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{api.Owner},
 		}
-
-		event := service.GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, *device.Metadata.Name, api.StatusOK(), updateDetails, f.log)
-		f.serviceHandler.CreateEvent(ctx, event)
+		f.serviceHandler.CreateEvent(ctx, service.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, api.DeviceKind, *device.Metadata.Name, updateDetails, f.log))
 	}
 
 	return service.ApiStatusToErr(status)
