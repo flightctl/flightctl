@@ -3138,7 +3138,7 @@ paths:
       tags:
         - organization
       summary: List organizations
-      description: Retrieves a list of organizations.
+      description: Retrieves a list of organizations.  Only returns organizations that the user has access to.
       operationId: listOrganizations
       responses:
         "200":

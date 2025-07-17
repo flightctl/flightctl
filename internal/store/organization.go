@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -13,6 +14,7 @@ type Organization interface {
 
 	Create(ctx context.Context, org *model.Organization) (*model.Organization, error)
 	List(ctx context.Context) ([]*model.Organization, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*model.Organization, error)
 }
 
 type OrganizationStore struct {
@@ -69,6 +71,21 @@ func (s *OrganizationStore) Create(ctx context.Context, org *model.Organization)
 	}
 
 	return org, nil
+}
+
+func (s *OrganizationStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Organization, error) {
+	db := s.getDB(ctx)
+
+	var org model.Organization
+	result := db.Where("id = ?", id).First(&org)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			return nil, flterrors.ErrResourceNotFound
+		}
+		return nil, result.Error
+	}
+
+	return &org, nil
 }
 
 func (s *OrganizationStore) List(ctx context.Context) ([]*model.Organization, error) {

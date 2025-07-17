@@ -2,12 +2,14 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -61,25 +63,38 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 	})
 }
 
-func AddOrgIDToCtx(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		orgIDParam := r.URL.Query().Get("org_name")
+func AddOrgIDToCtx(orgStore store.Organization) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			orgIDParam := r.URL.Query().Get("org_name")
 
-		var orgID uuid.UUID
-		if orgIDParam != "" {
-			parsedID, err := uuid.Parse(orgIDParam)
+			var orgID uuid.UUID
+			if orgIDParam != "" {
+				parsedID, err := uuid.Parse(orgIDParam)
+				if err != nil {
+					http.Error(w, fmt.Sprintf("Invalid org_name parameter: %s", err.Error()), http.StatusBadRequest)
+					return
+				}
+				orgID = parsedID
+			} else {
+				// Fall back to the default organization.
+				orgID = store.NullOrgId
+			}
+
+			// Validate that the organization exists
+			_, err := orgStore.GetByID(ctx, orgID)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("Invalid org_name parameter: %s", err.Error()), http.StatusBadRequest)
+				if errors.Is(err, flterrors.ErrResourceNotFound) {
+					http.Error(w, fmt.Sprintf("Organization not found: %s", orgID), http.StatusNotFound)
+					return
+				}
+				http.Error(w, fmt.Sprintf("Failed to validate organization: %s", err.Error()), http.StatusInternalServerError)
 				return
 			}
-			orgID = parsedID
-		} else {
-			// Fall back to the default organization.
-			orgID = store.NullOrgId
-		}
 
-		ctx = util.WithOrganizationID(ctx, orgID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+			ctx = util.WithOrganizationID(ctx, orgID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
