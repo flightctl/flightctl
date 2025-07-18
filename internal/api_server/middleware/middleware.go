@@ -2,14 +2,19 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	chi "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 )
 
 // RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
@@ -56,4 +61,40 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, fmt.Sprintf("user:%s", userName))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func AddOrgIDToCtx(orgStore store.Organization) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			orgIDParam := r.URL.Query().Get("org_id")
+
+			var orgID uuid.UUID
+			if orgIDParam != "" {
+				parsedID, err := uuid.Parse(orgIDParam)
+				if err != nil {
+					http.Error(w, fmt.Sprintf("Invalid org_id parameter: %s", err.Error()), http.StatusBadRequest)
+					return
+				}
+				orgID = parsedID
+			} else {
+				// Fall back to the default organization.
+				orgID = store.NullOrgId
+			}
+
+			// Validate that the organization exists
+			_, err := orgStore.GetByID(ctx, orgID)
+			if err != nil {
+				if errors.Is(err, flterrors.ErrResourceNotFound) {
+					http.Error(w, fmt.Sprintf("Organization not found: %s", orgID), http.StatusNotFound)
+					return
+				}
+				http.Error(w, fmt.Sprintf("Failed to validate organization: %s", err.Error()), http.StatusInternalServerError)
+				return
+			}
+
+			ctx = util.WithOrganizationID(ctx, orgID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }

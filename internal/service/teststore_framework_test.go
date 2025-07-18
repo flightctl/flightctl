@@ -7,6 +7,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -26,6 +27,7 @@ type TestStore struct {
 	repositories       *DummyRepository
 	resourceSyncVals   *DummyResourceSync
 	enrollmentRequests *DummyEnrollmentRequest
+	organizations      *DummyOrganization
 }
 
 type DummyDevice struct {
@@ -58,6 +60,12 @@ type DummyEnrollmentRequest struct {
 	enrollmentRequests *[]api.EnrollmentRequest
 }
 
+type DummyOrganization struct {
+	store.Organization
+	organizations *[]*model.Organization
+	err           error
+}
+
 func (s *TestStore) init() {
 	if s.events == nil {
 		s.events = &DummyEvent{events: &[]api.Event{}}
@@ -76,6 +84,9 @@ func (s *TestStore) init() {
 	}
 	if s.enrollmentRequests == nil {
 		s.enrollmentRequests = &DummyEnrollmentRequest{enrollmentRequests: &[]api.EnrollmentRequest{}}
+	}
+	if s.organizations == nil {
+		s.organizations = &DummyOrganization{organizations: &[]*model.Organization{}}
 	}
 }
 
@@ -107,6 +118,11 @@ func (s *TestStore) Repository() store.Repository {
 func (s *TestStore) EnrollmentRequest() store.EnrollmentRequest {
 	s.init()
 	return s.enrollmentRequests
+}
+
+func (s *TestStore) Organization() store.Organization {
+	s.init()
+	return s.organizations
 }
 
 // --------------------------------------> Event
@@ -348,6 +364,36 @@ func (s *DummyEnrollmentRequest) UpdateStatus(ctx context.Context, orgId uuid.UU
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+// --------------------------------------> Organization
+
+func (s *DummyOrganization) InitialMigration(ctx context.Context) error {
+	if s.err != nil {
+		return s.err
+	}
+	return nil
+}
+
+func (s *DummyOrganization) Create(ctx context.Context, org *model.Organization) (*model.Organization, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.organizations == nil {
+		s.organizations = &[]*model.Organization{}
+	}
+	*s.organizations = append(*s.organizations, org)
+	return org, nil
+}
+
+func (s *DummyOrganization) List(ctx context.Context) ([]*model.Organization, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.organizations == nil {
+		return []*model.Organization{}, nil
+	}
+	return *s.organizations, nil
 }
 
 // --------------------------------------> CallbackManager

@@ -5,13 +5,12 @@ import (
 	"errors"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 )
 
 func (h *ServiceHandler) CreateRepository(ctx context.Context, repo api.Repository) (*api.Repository, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	// don't set fields that are managed by the service
 	repo.Status = nil
@@ -28,7 +27,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, repo api.Reposito
 }
 
 func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
@@ -51,14 +50,14 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRe
 }
 
 func (h *ServiceHandler) GetRepository(ctx context.Context, name string) (*api.Repository, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	result, err := h.store.Repository().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, repo api.Repository) (*api.Repository, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	// don't overwrite fields that are managed by the service
 	repo.Status = nil
@@ -78,7 +77,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, rep
 }
 
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.Status {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	deleted, err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback)
 	status := StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
@@ -90,7 +89,7 @@ func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch api.PatchRequest) (*api.Repository, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	currentObj, err := h.store.Repository().Get(ctx, orgId, name)
 	if err != nil {
@@ -126,7 +125,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch
 }
 
 func (h *ServiceHandler) ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	if name != *repository.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
@@ -137,14 +136,14 @@ func (h *ServiceHandler) ReplaceRepositoryStatus(ctx context.Context, name strin
 }
 
 func (h *ServiceHandler) GetRepositoryFleetReferences(ctx context.Context, name string) (*api.FleetList, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	result, err := h.store.Repository().GetFleetRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
 func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, name string) (*api.DeviceList, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	result, err := h.store.Repository().GetDeviceRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
