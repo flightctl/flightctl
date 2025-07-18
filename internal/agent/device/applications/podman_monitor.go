@@ -21,10 +21,12 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 const (
 	expectedPodmanSigTermExitCode = 1
+	stopMonitorWaitDuration       = 5 * time.Second
 )
 
 type PodmanMonitor struct {
@@ -32,6 +34,9 @@ type PodmanMonitor struct {
 	cmd      *exec.Cmd
 	cancelFn context.CancelFunc
 	running  bool
+	// listenerCloseChan is used to ensure that the event listening goroutine comes to completion
+	// during the stopMonitor invocation
+	listenerCloseChan chan struct{}
 	// lastEventTime tracks the timestamp at which the podman monitor should start listening to events for
 	lastEventTime string
 
@@ -75,6 +80,11 @@ func (m *PodmanMonitor) isRunning() bool {
 	defer m.mu.Unlock()
 	return m.running
 }
+func (m *PodmanMonitor) getLastEventTime() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastEventTime
+}
 
 // startMonitor starts the podman monitor if it's not already running
 func (m *PodmanMonitor) startMonitor(ctx context.Context) error {
@@ -104,13 +114,29 @@ func (m *PodmanMonitor) startMonitor(ctx context.Context) error {
 		return fmt.Errorf("failed to start podman events: %w", err)
 	}
 
+	listenerChannel := make(chan struct{})
 	m.cancelFn = cancelFn
 	m.cmd = cmd
 	m.running = true
+	m.listenerCloseChan = listenerChannel
 
-	go m.listenForEvents(ctx, stdoutPipe)
+	go func() {
+		defer close(listenerChannel)
+		m.listenForEvents(ctx, stdoutPipe)
+	}()
 
 	return nil
+}
+
+func waitForChannelWithTimeout(c <-chan struct{}, dur time.Duration) bool {
+	timer := time.NewTimer(dur)
+	defer timer.Stop()
+	select {
+	case <-c:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // stopMonitor stops the podman monitor and records the stop time
@@ -123,47 +149,55 @@ func (m *PodmanMonitor) stopMonitor() error {
 	}
 	cancelFn := m.cancelFn
 	cmd := m.cmd
+	listenerChan := m.listenerCloseChan
 	m.cmd = nil
 	m.cancelFn = nil
 	m.running = false
+	m.listenerCloseChan = nil
 	m.mu.Unlock()
 	if cmd == nil {
 		return nil
 	}
 	defer cancelFn()
 
+	// When a monitor is started, a separate goroutine is created to consume events from a stream
+	// To prevent unexpected errors from occurring in the reading routine, we attempt to let it
+	// gracefully exit before calling .Wait and cleaning up the commands resources
+	// see https://pkg.go.dev/os/exec#Cmd.StdoutPipe
 	m.log.Info("Stopping podman monitor")
+
+	killed := false
+	// send a graceful shutdown signal to the command
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		m.log.Warnf("Failed to send SIGTERM to podman monitor: %v", err)
 		// If we fail to term our only option is to kill
 		cancelFn()
+		killed = true
 	}
-	waitChan := make(chan error)
-	// either cmd.Wait will exit gracefully from sigterm, or it will be forcefully killed after a delay
-	go func() {
-		defer close(waitChan)
-		if err := cmd.Wait(); err != nil {
-			waitChan <- err
+
+	// wait for our consuming goroutine to complete
+	if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
+		timeoutMessage := "Timeout waiting for podman monitor reader to shutdown"
+		forceKilledMessage := fmt.Sprintf("%s after force killing the process", timeoutMessage)
+		message := timeoutMessage
+		logLevel := logrus.WarnLevel
+		if killed {
+			logLevel = logrus.ErrorLevel
+			message = forceKilledMessage
 		}
-	}()
-	buildShutdownError := func(err error) error {
-		return fmt.Errorf("unexpected error during podman monitor shutdown: %w", err)
-	}
-	select {
-	case err := <-waitChan:
-		if err != nil && !isExpectedShutdownError(err) {
-			return buildShutdownError(err)
-		}
-	case <-time.After(time.Second * 5):
-		m.log.Warnf("Timed out waiting for podman monitor to shutdown. Force killing it")
-		cancelFn()
-	}
-	if err := <-waitChan; err != nil {
-		if !isExpectedShutdownError(err) {
-			return buildShutdownError(err)
+		m.log.Log(logLevel, message)
+		if !killed {
+			cancelFn()
+			if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
+				m.log.Error(forceKilledMessage)
+			}
 		}
 	}
 
+	// wait for the command to exit.
+	if err := cmd.Wait(); err != nil && !isExpectedShutdownError(err) {
+		return fmt.Errorf("unexpected error during podman monitor shutdown: %w", err)
+	}
 	m.log.Info("Podman monitor stopped")
 	return nil
 }
@@ -432,9 +466,8 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 }
 
 func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {
-	defer func() {
-		stdoutPipe.Close()
-	}()
+	// the pipe will be closed by calling cmd.Wait
+	defer m.log.Debugf("Done listening for podman events")
 
 	scanner := bufio.NewScanner(stdoutPipe)
 	for scanner.Scan() {
@@ -446,8 +479,8 @@ func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadC
 			m.handleEvent(ctx, scanner.Bytes())
 		}
 	}
-
-	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) && ctx.Err() == nil {
+	// scanner won't emit an io.EOF error if it encounters one
+	if err := scanner.Err(); err != nil {
 		m.log.Errorf("Error reading podman events: %v", err)
 	}
 }
@@ -458,8 +491,11 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 		m.log.Errorf("Failed to decode podman event: %s %v", string(data), err)
 		return
 	}
-	m.lastEventTime = time.Unix(0, event.TimeNano).Format(time.RFC3339)
-	m.log.Tracef("Received podman event: %q at %s", event.Type, m.lastEventTime)
+	eventTime := time.Unix(0, event.TimeNano).Format(time.RFC3339)
+	m.mu.Lock()
+	m.lastEventTime = eventTime
+	m.mu.Unlock()
+	m.log.Tracef("Received podman event: %q at %s", event.Type, eventTime)
 	// sync event means we are now in sync with the current state of the containers
 	if event.Type == "sync" {
 		m.log.Debugf("Received bootSync event : %v", event)
