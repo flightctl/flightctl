@@ -61,7 +61,7 @@ build() {
   local GOARCH=$1
   local GOOS=$2
 
-  GOARCH="${GOARCH}" GOOS="${GOOS}" make build-cli
+  DISABLE_FIPS=true GOARCH="${GOARCH}" GOOS="${GOOS}" make build-cli
 
   local OS="${GOOS}"
   local TGZ=".tar.gz"
