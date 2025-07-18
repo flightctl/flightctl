@@ -436,8 +436,7 @@ func EmitMultipleOwnersEvents(ctx context.Context, device *api.Device, oldCondit
 			matchingFleets = strings.Split(newCondition.Message, ",")
 		}
 		log.Infof("Device %s: Emitting DeviceMultipleOwnersDetectedEvent", deviceName)
-		event := getDeviceMultipleOwnersDetectedEvent(ctx, deviceName, matchingFleets, log)
-		createEvent(ctx, event)
+		createEvent(ctx, getDeviceMultipleOwnersDetectedEvent(ctx, deviceName, matchingFleets, log))
 	} else if wasMultipleOwners && !isMultipleOwners {
 		// Multiple owners resolved
 		log.Infof("Device %s: Emitting DeviceMultipleOwnersResolvedEvent", deviceName)
@@ -459,8 +458,7 @@ func EmitMultipleOwnersEvents(ctx context.Context, device *api.Device, oldCondit
 			previousMatchingFleets = strings.Split(oldCondition.Message, ",")
 		}
 
-		event := getDeviceMultipleOwnersResolvedEvent(ctx, deviceName, resolutionType, assignedOwner, previousMatchingFleets, log)
-		createEvent(ctx, event)
+		createEvent(ctx, getDeviceMultipleOwnersResolvedEvent(ctx, deviceName, resolutionType, assignedOwner, previousMatchingFleets, log))
 	}
 }
 
@@ -499,8 +497,7 @@ func EmitSpecValidEvents(ctx context.Context, device *api.Device, oldCondition, 
 	if !wasSpecValid && isSpecValid {
 		// Spec became valid (or was valid from the start)
 		log.Infof("Device %s: Emitting DeviceSpecValidEvent", deviceName)
-		event := getDeviceSpecValidEvent(ctx, deviceName)
-		createEvent(ctx, event)
+		createEvent(ctx, getDeviceSpecValidEvent(ctx, deviceName))
 	} else if wasSpecValid && !isSpecValid {
 		// Spec became invalid (was valid before)
 		log.Infof("Device %s: Emitting DeviceSpecInvalidEvent", deviceName)
@@ -509,8 +506,7 @@ func EmitSpecValidEvents(ctx context.Context, device *api.Device, oldCondition, 
 		if newCondition != nil && newCondition.Message != "" {
 			message = newCondition.Message
 		}
-		event := getDeviceSpecInvalidEvent(ctx, deviceName, message)
-		createEvent(ctx, event)
+		createEvent(ctx, getDeviceSpecInvalidEvent(ctx, deviceName, message))
 	} else if oldCondition == nil && newCondition != nil {
 		// Special case: device created with invalid spec (no previous condition, but new condition is invalid)
 		log.Infof("Device %s: Emitting DeviceSpecInvalidEvent for initial invalid spec", deviceName)
@@ -519,7 +515,6 @@ func EmitSpecValidEvents(ctx context.Context, device *api.Device, oldCondition, 
 		if newCondition.Message != "" {
 			message = newCondition.Message
 		}
-		event := getDeviceSpecInvalidEvent(ctx, deviceName, message)
-		createEvent(ctx, event)
+		createEvent(ctx, getDeviceSpecInvalidEvent(ctx, deviceName, message))
 	}
 }

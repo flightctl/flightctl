@@ -91,7 +91,7 @@ func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, re
 }
 
 func (s *EnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error) {
-	er, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	er, _, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
 	s.callEventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
 	return er, err
 }

@@ -288,25 +288,16 @@ func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
 }
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (*api.Device, error) {
-	var oldDevice api.Device
 	device, err := s.genericStore.Create(ctx, orgId, resource, callback)
 	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, device, true, nil, err)
+	s.callEventCallback(ctx, eventCallback, orgId, name, nil, device, true, nil, err)
 	return device, err
 }
 
 func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (*api.Device, error) {
-	var oldDevice api.Device
-	dev, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
-	if err == nil && dev != nil {
-		// Capture old device with deep copy
-		var devices []api.Device
-		devices = append(devices, *dev)
-		oldDevice = devices[0]
-	}
-	device, updatedDescr, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+	device, oldDevice, updatedDescr, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
 	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, device, false, &updatedDescr, err)
+	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, false, &updatedDescr, err)
 	return device, err
 }
 

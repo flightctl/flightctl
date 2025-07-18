@@ -296,32 +296,31 @@ func GetDeviceDecommissionedFailureEvent(ctx context.Context, _ bool, _ api.Reso
 	}, nil)
 }
 
-var warningReasons = []api.EventReason{
-	api.EventReasonResourceCreationFailed,
-	api.EventReasonResourceUpdateFailed,
-	api.EventReasonResourceDeletionFailed,
-	api.EventReasonDeviceDecommissionFailed,
-	api.EventReasonEnrollmentRequestApprovalFailed,
-	api.EventReasonDeviceApplicationDegraded,
-	api.EventReasonDeviceApplicationError,
-	api.EventReasonDeviceCPUCritical,
-	api.EventReasonDeviceCPUWarning,
-	api.EventReasonDeviceMemoryCritical,
-	api.EventReasonDeviceMemoryWarning,
-	api.EventReasonDeviceDiskCritical,
-	api.EventReasonDeviceDiskWarning,
-	api.EventReasonDeviceDisconnected,
-	api.EventReasonDeviceSpecInvalid,
-	api.EventReasonDeviceMultipleOwnersDetected,
-	api.EventReasonInternalTaskFailed,
+var warningReasons = map[api.EventReason]struct{}{
+	api.EventReasonResourceCreationFailed:          {},
+	api.EventReasonResourceUpdateFailed:            {},
+	api.EventReasonResourceDeletionFailed:          {},
+	api.EventReasonDeviceDecommissionFailed:        {},
+	api.EventReasonEnrollmentRequestApprovalFailed: {},
+	api.EventReasonDeviceApplicationDegraded:       {},
+	api.EventReasonDeviceApplicationError:          {},
+	api.EventReasonDeviceCPUCritical:               {},
+	api.EventReasonDeviceCPUWarning:                {},
+	api.EventReasonDeviceMemoryCritical:            {},
+	api.EventReasonDeviceMemoryWarning:             {},
+	api.EventReasonDeviceDiskCritical:              {},
+	api.EventReasonDeviceDiskWarning:               {},
+	api.EventReasonDeviceDisconnected:              {},
+	api.EventReasonDeviceSpecInvalid:               {},
+	api.EventReasonDeviceMultipleOwnersDetected:    {},
+	api.EventReasonInternalTaskFailed:              {},
 }
 
 // getEventType determines the event type based on the event reason
 func getEventType(reason api.EventReason) api.EventType {
-	if lo.Contains(warningReasons, reason) {
+	if _, contains := warningReasons[reason]; contains {
 		return api.Warning
 	}
-
 	return api.Normal
 }
 
@@ -443,7 +442,7 @@ func (h *ServiceHandler) eventCallbackDevice(ctx context.Context, _ api.Resource
 	}
 }
 
-func (h *ServiceHandler) eventDeleteCallbackDevice(ctx context.Context, _ api.ResourceKind, orgId uuid.UUID, name string, _, _ *api.Device, created bool, _ *api.ResourceUpdatedDetails, err error) {
+func (h *ServiceHandler) eventCallbackDeviceDelete(ctx context.Context, _ api.ResourceKind, _ uuid.UUID, name string, _, _ *api.Device, created bool, _ *api.ResourceUpdatedDetails, err error) {
 	if err != nil {
 		status := StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
 		h.CreateEvent(ctx, GetResourceDeletedFailureEvent(ctx, api.DeviceKind, name, status))
@@ -452,16 +451,16 @@ func (h *ServiceHandler) eventDeleteCallbackDevice(ctx context.Context, _ api.Re
 	}
 }
 
-func (h *ServiceHandler) eventCallbackDeviceDecommission(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldDevice, newDevice *api.Device, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
+func (h *ServiceHandler) eventCallbackDeviceDecommission(ctx context.Context, _ api.ResourceKind, _ uuid.UUID, name string, _, _ *api.Device, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
 	if err != nil {
-		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.CreateEvent(ctx, GetDeviceDecommissionedFailureEvent(ctx, created, resourceKind, name, status))
+		status := StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
+		h.CreateEvent(ctx, GetDeviceDecommissionedFailureEvent(ctx, created, api.DeviceKind, name, status))
 	} else {
-		h.CreateEvent(ctx, GetDeviceDecommissionedSuccessEvent(ctx, created, resourceKind, name, updateDesc, nil))
+		h.CreateEvent(ctx, GetDeviceDecommissionedSuccessEvent(ctx, created, api.DeviceKind, name, updateDesc, nil))
 	}
 }
 
-func (h *ServiceHandler) eventCallback(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, created bool, updatedDetails *api.ResourceUpdatedDetails, err error) {
+func (h *ServiceHandler) eventCallback(ctx context.Context, resourceKind api.ResourceKind, _ uuid.UUID, name string, created bool, updatedDetails *api.ResourceUpdatedDetails, err error) {
 	if err != nil {
 		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
 		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, updatedDetails))
@@ -470,7 +469,7 @@ func (h *ServiceHandler) eventCallback(ctx context.Context, resourceKind api.Res
 	}
 }
 
-func (h *ServiceHandler) eventDeleteCallback(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, created bool, _ *api.ResourceUpdatedDetails, err error) {
+func (h *ServiceHandler) eventDeleteCallback(ctx context.Context, resourceKind api.ResourceKind, _ uuid.UUID, name string, created bool, _ *api.ResourceUpdatedDetails, err error) {
 	if err != nil {
 		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
 		h.CreateEvent(ctx, GetResourceDeletedFailureEvent(ctx, resourceKind, name, status))

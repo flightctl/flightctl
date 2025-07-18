@@ -97,14 +97,14 @@ func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource 
 }
 
 func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback, callbackEvent EventCallback) (*api.Repository, error) {
-	repo, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, callback)
+	repo, _, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, callback)
 	s.callEventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
 	return repo, err
 }
 
 func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback, callbackEvent EventCallback) (*api.Repository, bool, error) {
 	repo, _, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, callback)
-	s.callEventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
+	s.callEventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), created, &updatedDetails, err)
 	return repo, created, err
 }
 
