@@ -88,13 +88,15 @@ db:
     tag: "20250214"
     pullPolicy: ""
   masterUser: admin
-  user: demouser
+  user: flightctl_app
   # password: Leave empty to auto-generate secure password, or set to use a specific password.
   password: ""
   # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
   masterPassword: ""
   # userPassword: Leave empty to auto-generate secure password, or set to use a specific password.
   userPassword: ""
+  # migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  migrationPassword: ""
   maxConnections: 200
   storage:
     size: "60Gi"
@@ -172,4 +174,9 @@ secretsJob:
   image:
     image: quay.io/openshift/origin-cli
     tag: "4.20.0"
+    pullPolicy: ""
+dbSetup:
+  image:
+    image: quay.io/flightctl/flightctl-db-setup
+    tag: ""
     pullPolicy: ""

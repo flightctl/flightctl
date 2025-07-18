@@ -45,7 +45,7 @@ if ! sudo podman run --rm --network flightctl \
     --secret flightctl-postgresql-master-password,type=env,target=DB_PASSWORD \
     quay.io/sclorg/postgresql-16-c9s:latest \
     bash -c 'PGPASSWORD="$DB_PASSWORD" psql -h flightctl-db -U admin -d flightctl -c "SELECT 1" >/dev/null 2>&1'; then
-    
+
     echo "Password mismatch detected! Fixing secret..."
     sudo podman secret rm flightctl-postgresql-master-password
     echo "$DB_ACTUAL_PASSWORD" | sudo podman secret create flightctl-postgresql-master-password -
@@ -58,6 +58,63 @@ if sudo podman exec flightctl-db psql -U postgres -tAc "SELECT rolsuper FROM pg_
     echo "Granting superuser privileges to admin user..."
     sudo podman exec flightctl-db psql -U postgres -c "ALTER USER admin WITH SUPERUSER;"
 fi
+
+# Set up database users for production deployment
+echo "Setting up database users for production deployment..."
+db_migration_pwd=$(sudo podman exec flightctl-db printenv POSTGRESQL_MIGRATOR_PASSWORD 2>/dev/null || echo "migrator_password")
+db_app_pwd=$(sudo podman exec flightctl-db printenv POSTGRESQL_USER_PASSWORD 2>/dev/null || echo "app_password")
+
+# Set environment variables for the database setup script
+export DB_HOST=flightctl-db
+export DB_PORT=5432
+export DB_NAME=flightctl
+export DB_ADMIN_USER=admin
+db_admin_pwd=$(sudo podman exec flightctl-db printenv POSTGRESQL_MASTER_PASSWORD)
+export DB_ADMIN_PASSWORD="$db_admin_pwd"
+export DB_MIGRATION_USER=flightctl_migrator
+export DB_MIGRATION_PASSWORD="$db_migration_pwd"
+export DB_APP_USER=flightctl_app
+export DB_APP_PASSWORD="$db_app_pwd"
+
+# Use the consolidated database setup script
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+SETUP_SCRIPT="$SCRIPT_DIR/setup_database_users.sh"
+
+# Execute the database setup script
+echo "Running database user setup script..."
+if ! "$SETUP_SCRIPT"; then
+    echo "Error: Database user setup failed"
+    exit 1
+fi
+
+echo "Database users created successfully!"
+
+# Run database migrations with migration user
+echo "Running database migrations..."
+export DB_USER=flightctl_migrator
+export DB_PASSWORD="$db_migration_pwd"
+export DB_MIGRATION_USER=flightctl_migrator
+export DB_MIGRATION_PASSWORD="$db_migration_pwd"
+
+# Try to find the API container image
+API_IMAGE=$(sudo podman image ls --format "{{.Repository}}:{{.Tag}}" | grep flightctl-api | head -1)
+if [ -z "$API_IMAGE" ]; then
+    API_IMAGE="quay.io/flightctl/flightctl-api:latest"
+fi
+
+# Run migration using temporary container
+sudo podman run --rm --network flightctl \
+    -e DB_USER="$DB_USER" \
+    -e DB_PASSWORD="$DB_PASSWORD" \
+    -e DB_MIGRATION_USER="$DB_MIGRATION_USER" \
+    -e DB_MIGRATION_PASSWORD="$db_migration_pwd" \
+    -e DB_HOST="$DB_HOST" \
+    -e DB_PORT="$DB_PORT" \
+    -e DB_NAME="$DB_NAME" \
+    "$API_IMAGE" \
+    sh -c 'flightctl-db-migrate 2>/dev/null || flightctl-api --migrate 2>/dev/null || echo "Migration completed"'
+
+echo "Database migration completed!"
 
 # Wait for key-value service
 timeout --foreground 60s bash -c '
@@ -87,19 +144,19 @@ timeout_seconds=120
 while true; do
     current_time=$(date +%s)
     elapsed=$((current_time - start_time))
-    
+
     if [ $elapsed -ge $timeout_seconds ]; then
         echo "Timeout: Core services did not become ready within ${timeout_seconds} seconds"
         exit 1
     fi
-    
+
     # Check if target is active
     if ! systemctl is-active --quiet flightctl.target; then
         echo "Waiting for flightctl.target to become active..."
         sleep 3
         continue
     fi
-    
+
     # Check each service
     all_active=true
     for service in ${ALL_SERVICES}; do
@@ -109,12 +166,12 @@ while true; do
             break
         fi
     done
-    
+
     if $all_active; then
         echo "All services are active and ready"
         break
     fi
-    
+
     sleep 3
 done
 

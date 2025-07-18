@@ -48,9 +48,20 @@ run-integration-test:
 
 integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
+integration-test: export FLIGHTCTL_POSTGRESQL_USER_PASSWORD=adminpass
+integration-test: export DB_APP_PASSWORD=adminpass
+integration-test: export DB_MIGRATION_PASSWORD=adminpass
 integration-test:
 	@set -e; \
 	$(MAKE) deploy-db deploy-kv deploy-alertmanager; \
+	echo "Granting migration privileges to flightctl_app user for integration tests..."; \
+	timeout --foreground 60s bash -c ' \
+		while ! sudo podman exec flightctl-db psql -U admin -d flightctl -c "SELECT 1" >/dev/null 2>&1; do \
+			echo "Waiting for database to be ready..."; \
+			sleep 2; \
+		done \
+	'; \
+	sudo podman exec flightctl-db psql -U admin -d flightctl -c "ALTER USER flightctl_app CREATEDB; GRANT CREATE ON SCHEMA public TO flightctl_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO flightctl_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flightctl_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO flightctl_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO flightctl_app;" || true; \
 	trap '$(MAKE) -k kill-alertmanager kill-kv kill-db' EXIT; \
 	$(MAKE) run-integration-test
 

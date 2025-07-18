@@ -27,32 +27,27 @@ spec:
       {{- end }}
       containers:
         - env:
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: flightctl-db-secret
-                  key: password
             - name: POSTGRESQL_DATABASE
-              value: flightctl
+              value: {{ (default "flightctl" $.Values.db.name) }}
             - name: POSTGRESQL_MASTER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
+                  name: flightctl-db-admin-secret
                   key: masterPassword
             - name: POSTGRESQL_MASTER_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
+                  name: flightctl-db-admin-secret
                   key: masterUser
             - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
+                  name: flightctl-db-app-secret
                   key: userPassword
             - name: POSTGRESQL_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
+                  name: flightctl-db-app-secret
                   key: user
             - name: POSTGRESQL_MAX_CONNECTIONS
               value: {{ .Values.db.maxConnections | quote }}
