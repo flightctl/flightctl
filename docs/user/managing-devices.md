@@ -607,11 +607,15 @@ spec:
 Volume images must follow the OCI artifact specification:
 
 * Published as OCI images (media type: `application/vnd.oci.image.manifest.v1+json`).
-* Contain one or more tar layers representing the volume contents.
+* Contain one or more layers representing the volume file contents.
 * Hosted on any OCI-compatible registry accessible by the device.
 
 > [!TIP]
-> Typically, volume artifacts contain a single tar layer with the full extracted content.
+> If the artifact contains more than one layer, the mount path should be an already existing
+> directory, into which the layers will each be copied as a separate file using the name specified
+> in the layer's `org.opencontainers.image.title` field. For single layer archives if the mount path
+> does not exist as a directory the single layer will be extracted as a file at that path, otherwise
+> it will be placed into the existing directory using the file name in the name field for the layer.
 
 #### Device Requirements
 

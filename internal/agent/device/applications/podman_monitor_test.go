@@ -500,10 +500,11 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	tmpDir := t.TempDir()
 	readWriter.SetRootdir(tmpDir)
 
-	// Setup mock expectations for start/stop monitor commands
+	// Unlike the real podman events call, this will emit a single event and then close
 	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).
 		DoAndReturn(func(ctx context.Context, name string, args ...string) *exec.Cmd {
-			return exec.CommandContext(ctx, "echo", `{}`)
+			now := time.Now().UnixNano()
+			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
 		}).AnyTimes()
 
 	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, "", readWriter)
@@ -533,6 +534,11 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require.True(podmanMonitor.Has(app1ID))
 	require.True(podmanMonitor.Has(app2ID))
 
+	// Process an event
+	require.Eventually(func() bool {
+		return podmanMonitor.getLastEventTime() != ""
+	}, time.Millisecond*100, 5*time.Millisecond)
+
 	// 3. Remove app1 - monitor should still be running
 	err = podmanMonitor.Remove(app1)
 	require.NoError(err)
@@ -551,6 +557,11 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require.False(podmanMonitor.Has(app1ID))
 	require.False(podmanMonitor.Has(app2ID))
 
+	// ensure no panic occurs as the result of stopping an already stopped monitor
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.False(podmanMonitor.isRunning())
+
 	// 5. Add app1 again - monitor should start
 	err = podmanMonitor.Ensure(app1)
 	require.NoError(err)
@@ -566,7 +577,4 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require.NoError(err)
 	require.False(podmanMonitor.isRunning()) // Stopped again
 	require.False(podmanMonitor.Has(app1ID))
-
-	// No events were processed so the event time should be empty
-	require.Empty(podmanMonitor.lastEventTime)
 }
