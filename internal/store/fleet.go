@@ -105,19 +105,20 @@ func (s *FleetStore) InitialMigration(ctx context.Context) error {
 
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, error) {
 	fleet, err := s.genericStore.Create(ctx, orgId, resource, callback)
-	s.callEventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), true, nil, err)
+	name := lo.FromPtr(resource.Metadata.Name)
+	s.callEventCallbackCaller(ctx, eventCallback, orgId, name, true, nil, err)
 	return fleet, err
 }
 
 func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, error) {
-	fleet, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
+	fleet, _, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
 	s.callEventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
 	return fleet, err
 }
 
 func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, bool, error) {
 	fleet, _, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
-	s.callEventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
+	s.callEventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), created, &updatedDetails, err)
 	return fleet, created, err
 }
 

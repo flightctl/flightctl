@@ -96,7 +96,7 @@ func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resourc
 }
 
 func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, callbackEvent EventCallback) (*api.ResourceSync, error) {
-	rs, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	rs, _, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
 	s.callEventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
 	return rs, err
 }

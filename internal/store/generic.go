@@ -76,11 +76,11 @@ func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID,
 	return updated, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, api.ResourceUpdatedDetails, error) {
-	updated, _, _, updateDesc, err := retryCreateOrUpdate(func() (*A, *A, bool, bool, api.ResourceUpdatedDetails, error) {
+func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, *A, api.ResourceUpdatedDetails, error) {
+	updated, before, _, updateDesc, err := retryCreateOrUpdate(func() (*A, *A, bool, bool, api.ResourceUpdatedDetails, error) {
 		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, validationCallback, callback)
 	})
-	return updated, updateDesc, err
+	return updated, before, updateDesc, err
 }
 
 func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, *A, bool, api.ResourceUpdatedDetails, error) {

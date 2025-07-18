@@ -69,7 +69,7 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, rep
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repo, h.callbackManager.RepositoryUpdatedCallback, h.eventDeleteCallback)
+	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repo, h.callbackManager.RepositoryUpdatedCallback, h.eventCallback)
 	return result, StoreErrorToApiStatus(err, created, api.RepositoryKind, &name)
 }
 

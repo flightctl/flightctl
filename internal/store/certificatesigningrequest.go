@@ -97,7 +97,7 @@ func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.
 
 // Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error) {
-	csr, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	csr, _, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
 	s.callEventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
 	return csr, err
 }
