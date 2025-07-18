@@ -38,7 +38,6 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			orgs, err := storeInst.Organization().List(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(orgs).To(HaveLen(1))
-			Expect(orgs[0].IsDefault).To(BeTrue())
 			Expect(orgs[0].ID).To(Equal(store.NullOrgId))
 			Expect(orgs[0].DisplayName).To(Equal("Default"))
 		})
@@ -50,7 +49,6 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			orgs, err := storeInst.Organization().List(ctx)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(orgs).To(HaveLen(1))
-			Expect(orgs[0].IsDefault).To(BeTrue())
 		})
 
 		It("Should create a new organization with provided ID", func() {
@@ -61,7 +59,6 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			org := &model.Organization{
 				ID:          orgID,
 				DisplayName: displayName,
-				IsDefault:   false,
 				ExternalID:  externalID,
 			}
 
@@ -70,7 +67,6 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(createdOrg).ToNot(BeNil())
 			Expect(createdOrg.ID).To(Equal(orgID))
 			Expect(createdOrg.DisplayName).To(Equal(displayName))
-			Expect(createdOrg.IsDefault).To(BeFalse())
 			Expect(createdOrg.ExternalID).To(Equal(externalID))
 			Expect(createdOrg.CreatedAt).ToNot(BeZero())
 			Expect(createdOrg.UpdatedAt).ToNot(BeZero())
@@ -80,7 +76,6 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			displayName := "Auto UUID Test Org"
 			org := &model.Organization{
 				DisplayName: displayName,
-				IsDefault:   false,
 				ExternalID:  "auto-uuid-test",
 			}
 
@@ -96,13 +91,11 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			org1 := &model.Organization{
 				ID:          uuid.New(),
 				DisplayName: "Organization 1",
-				IsDefault:   false,
 				ExternalID:  "org-1",
 			}
 			org2 := &model.Organization{
 				ID:          uuid.New(),
 				DisplayName: "Organization 2",
-				IsDefault:   false,
 				ExternalID:  "org-2",
 			}
 
@@ -129,21 +122,9 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(orgMap[""].DisplayName).To(Equal("Default"))
 		})
 
-		It("Should prevent creating multiple default organizations", func() {
-			org1 := &model.Organization{
-				ID:          uuid.New(),
-				DisplayName: "Another Default",
-				IsDefault:   true,
-			}
-
-			_, err := storeInst.Organization().Create(ctx, org1)
-			Expect(err).To(Equal(model.ErrDefaultOrganizationExists))
-		})
-
 		It("Should handle organizations with empty DisplayName", func() {
 			org := &model.Organization{
 				ID:         uuid.New(),
-				IsDefault:  false,
 				ExternalID: "no-display-name",
 				// DisplayName is intentionally left empty
 			}

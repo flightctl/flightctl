@@ -20,10 +20,13 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.Organizati
 	for i, org := range orgs {
 		name := org.ID.String()
 		apiOrgs[i] = api.Organization{
-			ApiVersion:  organizationApiVersion,
-			Kind:        api.OrganizationKind,
-			Metadata:    api.ObjectMeta{Name: &name},
-			DisplayName: org.DisplayName,
+			ApiVersion: organizationApiVersion,
+			Kind:       api.OrganizationKind,
+			Metadata:   api.ObjectMeta{Name: &name},
+			Spec: &api.OrganizationSpec{
+				ExternalId:  &org.ExternalID,
+				DisplayName: &org.DisplayName,
+			},
 		}
 	}
 

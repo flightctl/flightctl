@@ -20,22 +20,24 @@ func createServiceHandlerWithOrgMockStore(t *testing.T) (*ServiceHandler, *TestS
 	return handler, mockStore
 }
 
-func createTestOrganizationModel(id uuid.UUID, isDefault bool, externalID string, displayName string) *model.Organization {
+func createTestOrganizationModel(id uuid.UUID, externalID string, displayName string) *model.Organization {
 	return &model.Organization{
 		ID:          id,
-		IsDefault:   isDefault,
 		ExternalID:  externalID,
 		DisplayName: displayName,
 	}
 }
 
-func createExpectedAPIOrganization(id uuid.UUID, displayName string) api.Organization {
+func createExpectedAPIOrganization(id uuid.UUID, displayName string, externalID string) api.Organization {
 	name := id.String()
 	return api.Organization{
-		ApiVersion:  organizationApiVersion,
-		Kind:        api.OrganizationKind,
-		Metadata:    api.ObjectMeta{Name: &name},
-		DisplayName: displayName,
+		ApiVersion: organizationApiVersion,
+		Kind:       api.OrganizationKind,
+		Metadata:   api.ObjectMeta{Name: &name},
+		Spec: &api.OrganizationSpec{
+			ExternalId:  &externalID,
+			DisplayName: &displayName,
+		},
 	}
 }
 
@@ -65,11 +67,11 @@ func TestListOrganizations_EmptyResult(t *testing.T) {
 func TestListOrganizations_SingleOrganization(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	orgID := uuid.New()
-	defaultOrg := createTestOrganizationModel(orgID, true, "default-external-id", "Default")
+	defaultOrg := createTestOrganizationModel(orgID, "default-external-id", "Default")
 	setupMockStoreWithOrganizations(mockStore, []*model.Organization{defaultOrg})
 	ctx := context.Background()
 
-	expectedOrg := createExpectedAPIOrganization(orgID, "Default")
+	expectedOrg := createExpectedAPIOrganization(orgID, "Default", "default-external-id")
 
 	result, status := handler.ListOrganizations(ctx)
 
@@ -88,15 +90,15 @@ func TestListOrganizations_MultipleOrganizations(t *testing.T) {
 	orgID1 := uuid.New()
 	orgID2 := uuid.New()
 
-	org1 := createTestOrganizationModel(orgID1, false, "external-id-1", "Organization One")
-	org2 := createTestOrganizationModel(orgID2, false, "external-id-2", "Organization Two")
+	org1 := createTestOrganizationModel(orgID1, "external-id-1", "Organization One")
+	org2 := createTestOrganizationModel(orgID2, "external-id-2", "Organization Two")
 
 	orgs := []*model.Organization{org1, org2}
 	setupMockStoreWithOrganizations(mockStore, orgs)
 	ctx := context.Background()
 
-	expectedOrg1 := createExpectedAPIOrganization(orgID1, "Organization One")
-	expectedOrg2 := createExpectedAPIOrganization(orgID2, "Organization Two")
+	expectedOrg1 := createExpectedAPIOrganization(orgID1, "Organization One", "external-id-1")
+	expectedOrg2 := createExpectedAPIOrganization(orgID2, "Organization Two", "external-id-2")
 
 	result, status := handler.ListOrganizations(ctx)
 

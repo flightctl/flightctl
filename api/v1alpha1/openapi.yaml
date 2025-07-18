@@ -3180,8 +3180,8 @@ components:
     orgName:
       type: apiKey
       in: query
-      name: org_name
-      description: The name (UUID) of the organization that owns the resource.
+      name: org_id
+      description: The UUID of the organization that owns the resource.  Maps to an organizations metadata.name.
   schemas:
     ResourceKind:
       type: string
@@ -5349,7 +5349,6 @@ components:
         - apiVersion
         - kind
         - metadata
-        - displayName
       properties:
         apiVersion:
           type: string
@@ -5359,9 +5358,18 @@ components:
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/OrganizationSpec'
+    OrganizationSpec:
+      type: object
+      description: OrganizationSpec describes an organization.
+      properties:
         displayName:
           type: string
           description: Human readable name shown to users.
+        externalId:
+          type: string
+          description: External ID of the organization.
     OrganizationList:
       type: object
       required:

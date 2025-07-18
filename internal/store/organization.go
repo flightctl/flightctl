@@ -49,7 +49,6 @@ func (s *OrganizationStore) InitialMigration(ctx context.Context) error {
 			if err := tx.Create(&model.Organization{
 				ID:          NullOrgId,
 				DisplayName: "Default",
-				IsDefault:   true,
 			}).Error; err != nil {
 				return err
 			}
