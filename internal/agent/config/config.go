@@ -73,8 +73,8 @@ type Config struct {
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
 
-	// TPMPath is the path to the TPM device
-	TPMPath string `json:"tpm-path,omitempty"`
+	// TPMConfig holds all TPM-related configuration
+	TPMConfig
 
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
@@ -225,6 +225,9 @@ func (cfg *Config) Validate() error {
 	if err := cfg.validateSyncIntervals(); err != nil {
 		return err
 	}
+	if err := cfg.TPMConfig.Validate(); err != nil {
+		return err
+	}
 
 	requiredFields := []struct {
 		value     string
@@ -335,6 +338,9 @@ func mergeConfigs(base, override *Config) {
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
 	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
 	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+
+	// TPM config
+	base.TPMConfig.MergeWith(&override.TPMConfig)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
