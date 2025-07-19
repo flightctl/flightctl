@@ -85,7 +85,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			},
 		}
 
-		f, err := storeInst.Fleet().Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := storeInst.Fleet().Create(ctx, store.NullOrgId, fleet, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -119,7 +119,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 	)
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, _, err := storeInst.Device().Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, err := storeInst.Device().Update(ctx, store.NullOrgId, device, nil, false, nil, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -172,7 +172,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d)
+					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 					annotations := make(map[string]string)
 					if annotateTv {
@@ -184,7 +184,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 					annotations[api.DeviceAnnotationRenderedVersion] = "5"
 					Expect(storeInst.Device().UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 					d.Status.Config.RenderedVersion = "5"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d)
+					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}

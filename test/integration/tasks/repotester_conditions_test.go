@@ -55,7 +55,7 @@ func createRepository(ctx context.Context, repostore store.Repository, orgId uui
 	}
 
 	callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-	_, err = repostore.Create(ctx, orgId, &resource, callback)
+	_, err = repostore.Create(ctx, orgId, &resource, callback, nil)
 	return err
 }
 

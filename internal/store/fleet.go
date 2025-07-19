@@ -21,12 +21,12 @@ import (
 type Fleet interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error)
-	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, api.ResourceUpdatedDetails, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, bool, api.ResourceUpdatedDetails, error)
+	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, error)
+	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) (bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback, eventCallback EventCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
 
 	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
@@ -40,9 +40,10 @@ type Fleet interface {
 }
 
 type FleetStore struct {
-	dbHandler    *gorm.DB
-	log          logrus.FieldLogger
-	genericStore *GenericStore[*model.Fleet, model.Fleet, api.Fleet, api.FleetList]
+	dbHandler               *gorm.DB
+	log                     logrus.FieldLogger
+	genericStore            *GenericStore[*model.Fleet, model.Fleet, api.Fleet, api.FleetList]
+	callEventCallbackCaller EventCallbackCaller
 }
 
 type FleetStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Fleet, after *api.Fleet)
@@ -59,7 +60,7 @@ func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
 		(*model.Fleet).ToApiResource,
 		model.FleetsToApiResource,
 	)
-	return &FleetStore{dbHandler: db, log: log, genericStore: genericStore}
+	return &FleetStore{dbHandler: db, log: log, genericStore: genericStore, callEventCallbackCaller: callEventCallback(api.FleetKind, log)}
 }
 
 func (s *FleetStore) getDB(ctx context.Context) *gorm.DB {
@@ -102,16 +103,23 @@ func (s *FleetStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback) (*api.Fleet, error) {
-	return s.genericStore.Create(ctx, orgId, resource, callback)
+func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, error) {
+	fleet, err := s.genericStore.Create(ctx, orgId, resource, callback)
+	name := lo.FromPtr(resource.Metadata.Name)
+	s.callEventCallbackCaller(ctx, eventCallback, orgId, name, true, nil, err)
+	return fleet, err
 }
 
-func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, api.ResourceUpdatedDetails, error) {
-	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
+func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, error) {
+	fleet, _, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
+	s.callEventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
+	return fleet, err
 }
 
-func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback) (*api.Fleet, bool, api.ResourceUpdatedDetails, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
+func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, bool, error) {
+	fleet, _, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
+	s.callEventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), created, &updatedDetails, err)
+	return fleet, created, err
 }
 
 type GetOption func(*getOptions)
@@ -346,13 +354,14 @@ func (s *FleetStore) ListIgnoreOrg(ctx context.Context) ([]model.Fleet, error) {
 	return fleets, nil
 }
 
-func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback) (bool, error) {
-	return s.genericStore.Delete(
+func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback FleetStoreCallback, eventCallback EventCallback) error {
+	_, err := s.genericStore.Delete(
 		ctx,
 		model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}},
 		callback)
+	s.callEventCallbackCaller(ctx, eventCallback, orgId, name, false, nil, err)
+	return err
 }
-
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
