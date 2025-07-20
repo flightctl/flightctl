@@ -28,7 +28,7 @@ type GlobalOptions struct {
 
 func DefaultGlobalOptions() GlobalOptions {
 	return GlobalOptions{
-		ConfigFilePath: filepath.Clean(ConfigFilePath("", "")),
+		ConfigFilePath: ConfigFilePath("", ""),
 		Context:        "",
 		RequestTimeout: 0,
 	}
@@ -51,17 +51,11 @@ func (o *GlobalOptions) Validate(args []string) error {
 		return fmt.Errorf("request-timeout must be greater than 0")
 	}
 
-	// If user provided --config-dir, validate it's actually a directory
 	if o.ConfigDir != "" {
-		stat, err := os.Stat(o.ConfigDir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("config directory %q does not exist", o.ConfigDir)
-			}
-			return fmt.Errorf("failed to check config directory %q: %w", o.ConfigDir, err)
-		}
-		if !stat.IsDir() {
-			return fmt.Errorf("config directory path %q exists but is not a directory", o.ConfigDir)
+		path := filepath.Clean(o.ConfigDir)
+		ext := filepath.Ext(path)
+		if ext != "" {
+			return fmt.Errorf("config-dir should specify a directory path")
 		}
 	}
 
