@@ -82,7 +82,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				// Set a recent last seen time
 				device.Status.LastSeen = time.Now().Add(-1 * time.Minute)
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 		})
@@ -116,7 +116,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 		})
@@ -152,7 +152,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -169,7 +169,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-				_, err = deviceStore.UpdateStatus(ctx, orgId, device)
+				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 		})
@@ -211,7 +211,7 @@ var _ = Describe("DeviceDisconnected", func() {
 			// Set last seen to exactly the disconnection timeout
 			device.Status.LastSeen = time.Now().Add(-api.DeviceDisconnectedTimeout)
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-			_, err = deviceStore.UpdateStatus(ctx, orgId, device)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -236,7 +236,7 @@ var _ = Describe("DeviceDisconnected", func() {
 			recentDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			recentDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			recentDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, orgId, recentDevice)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, recentDevice, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Old device
@@ -247,7 +247,7 @@ var _ = Describe("DeviceDisconnected", func() {
 			oldDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			oldDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			oldDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
-			_, err = deviceStore.UpdateStatus(ctx, orgId, oldDevice)
+			_, err = deviceStore.UpdateStatus(ctx, orgId, oldDevice, nil)
 			Expect(err).ToNot(HaveOccurred())
 		})
 

@@ -210,7 +210,7 @@ func NeedsSyncToHash(rs *api.ResourceSync, hash string) bool {
 	if rs.Status.ObservedGeneration != nil {
 		observedGen = *rs.Status.ObservedGeneration
 	}
-	var prevHash string = util.DefaultIfNil(rs.Status.ObservedCommit, "")
+	var prevHash = util.DefaultIfNil(rs.Status.ObservedCommit, "")
 	return hash != prevHash || observedGen != *rs.Metadata.Generation
 }
 
