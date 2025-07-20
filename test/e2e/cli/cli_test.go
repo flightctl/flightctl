@@ -579,6 +579,13 @@ var _ = Describe("cli login", func() {
 			invalidToken := "fake-token"
 			loginArgsToken := append(loginArgs, "--token", invalidToken)
 
+			By("Retry login using an empty config-dir flag")
+			loginArgs = append(loginArgs, "--config-dir")
+			logrus.Infof("Executing CLI with args: %v", loginArgs)
+			out, err = harness.CLI(loginArgs...)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("Error: flag needs an argument: --config-dir"))
+
 			logrus.Infof("Executing CLI with args: %v", loginArgsToken)
 			out, _ = harness.CLI(loginArgsToken...)
 			if !strings.Contains(out, "Auth is disabled") {
