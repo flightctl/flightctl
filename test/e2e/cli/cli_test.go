@@ -102,6 +102,8 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(ContainSubstring(deviceID))
 
 			By("Should let you list fleets")
+			_, err = harness.CLIWithStdin(completeFleetYaml, "apply", "-f", "-")
+			Expect(err).ToNot(HaveOccurred())
 			out, err = harness.CLI("get", "fleets")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring("e2e-test-fleet"))
