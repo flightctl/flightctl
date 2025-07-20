@@ -72,7 +72,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			logrus.Info("Device updated to new image 🎉")
 		})
 
-		It("Should update to v4 with embedded application", Label("77671", "sanity"), func() {
+		It("Should update to v4 with embedded application", Label("77671", "sanity", "sanity_agent_updates"), func() {
 			By("Verifying update to agent  with embedded application")
 
 			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
@@ -217,7 +217,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
 			Expect(err).NotTo(HaveOccurred())
 		})
-		It("Should rollback when updating to a broken image", Label("82481", "sanity"), func() {
+		It("Should rollback when updating to a broken image", Label("82481", "sanity", "sanity_agent_updates"), func() {
 			expectedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())
 			dev, err := harness.GetDevice(deviceId)
@@ -272,7 +272,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 			*/
 		})
-		It("Should respect the spec's update schedule", Label("79220", "sanity"), func() {
+		It("Should respect the spec's update schedule", Label("79220", "sanity", "sanity_agent_updates"), func() {
 			const everyMinuteExpression = "* * * * *"
 			startGracePeriod := "1m"
 
@@ -363,7 +363,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					strings.Contains(cond.Message, "update policy not ready")
 			}, TIMEOUT)
 		})
-		It("Should not crash in case of unexpected services configs", Label("78711", "sanity"), func() {
+		It("Should not crash in case of unexpected services configs", Label("78711", "sanity", "sanity_agent_updates"), func() {
 			const (
 				rapidFilesCount  = 10
 				firewallZonesDir = "/etc/firewalld/zones"

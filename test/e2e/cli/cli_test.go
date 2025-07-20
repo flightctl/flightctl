@@ -52,7 +52,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("apply/fleet", func() {
-		It("Resources creation validations work well", Label("77667", "sanity"), func() {
+		It("Resources creation validations work well", Label("77667", "sanity", "sanity_cli"), func() {
 			By("should error when creating incomplete fleet")
 			out, err := harness.CLIWithStdin(incompleteFleetYaml, "apply", "-f", "-")
 			Expect(err).To(HaveOccurred())
@@ -79,7 +79,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("certificate generation per user", func() {
-		It("should have worked, and we can have a certificate", Label("75865", "sanity"), func() {
+		It("should have worked, and we can have a certificate", Label("75865", "sanity", "sanity_cli"), func() {
 			By("The certificate is generated for the user")
 
 			// Capture both string and error
@@ -109,7 +109,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Resources lifecycle for", func() {
-		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506", "sanity"), func() {
+		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506", "sanity", "sanity_cli"), func() {
 			By("Verify there are no resources created")
 			err := harness.CleanUpAllResources()
 			Expect(err).ToNot(HaveOccurred())
@@ -261,7 +261,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("CLI Multi-Device Delete", func() {
-		It("should delete multiple devices", Label("75506", "sanity"), func() {
+		It("should delete multiple devices", Label("75506", "sanity", "sanity_cli"), func() {
 			By("Creating multiple test devices")
 			err := harness.CleanUpAllResources()
 			Expect(err).ToNot(HaveOccurred())
@@ -299,7 +299,7 @@ var _ = Describe("cli operation", func() {
 			Expect(dev2.JSON404).ToNot(BeNil(), "second device should not exist after deletion")
 		})
 
-		It("Validation works when trying to delete resources without names", Label("82540", "sanity"), func() {
+		It("Validation works when trying to delete resources without names", Label("82540", "sanity", "sanity_cli"), func() {
 			By("Creating multiple test resources")
 			err := harness.CleanUpAllResources()
 			Expect(err).ToNot(HaveOccurred())
@@ -340,7 +340,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Flightctl Version Checks", func() {
-		It("should show matching client and server versions", Label("79621", "sanity"), func() {
+		It("should show matching client and server versions", Label("79621", "sanity", "sanity_cli"), func() {
 			By("Getting the version output")
 			out, err := harness.CLI("version")
 			clientVersionPrefix := "Client Version:"
@@ -360,7 +360,7 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Events API Tests", func() {
-		It("should list events resource is created/updated/deleted", Label("81779", "sanity"), func() {
+		It("should list events resource is created/updated/deleted", Label("81779", "sanity", "sanity_cli"), func() {
 			var deviceName, fleetName, repoName string
 			var er *v1alpha1.EnrollmentRequest
 
@@ -554,7 +554,7 @@ var _ = Describe("cli login", func() {
 			harness.Cleanup(false) // do not print console on error
 		})
 
-		It("Validations work when logging into flightctl CLI", Label("78748", "sanity"), func() {
+		It("Validations work when logging into flightctl CLI", Label("78748", "sanity", "sanity_cli"), func() {
 			By("Prepare invalid API endpoint")
 			invalidEndpoint := "https://not-existing.lab.redhat.com"
 			loginArgs := []string{"login", invalidEndpoint}

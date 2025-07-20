@@ -47,7 +47,7 @@ var _ = Describe("Inline configuration tests", func() {
 
 	Context("Inline config tests", func() {
 
-		It("flighctl support inlineconfig with path, owner, permission and content", Label("78316", "sanity"), func() {
+		It("flighctl support inlineconfig with path, owner, permission and content", Label("78316", "sanity", "sanity_configuration"), func() {
 
 			By("Update device with inline config, set path of the config (the fields that have defaults - don't set (mode,user, group)")
 			validConfigs, err := getConfigurationFromInlineConfig(validInlineConfig)
@@ -171,7 +171,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 		})
-		It("Validations for flighctl inlineconfigs", Label("78364", "sanity"), func() {
+		It("Validations for flighctl inlineconfigs", Label("78364", "sanity", "sanity_configuration"), func() {
 			currentVersion1, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 

@@ -184,7 +184,7 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("status", func() {
-		It("Device status tests", Label("75991", "sanity"), func() {
+		It("Device status tests", Label("75991", "sanity", "sanity_agent_core"), func() {
 			deviceId, device := harness.EnrollAndWaitForOnlineStatus()
 			// Get the next expected rendered version
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)

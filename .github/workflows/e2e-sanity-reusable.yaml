@@ -1,25 +1,22 @@
-name: "E2E testing"
+name: "Reusable E2E Sanity Workflow"
 
 on:
-  workflow_dispatch:
-    inputs:  
-      label_filter:  
-        description: 'Ginkgo label filter expression to filter e2e tests'
-        required: false  
-        default: 'sanity' #By default, only tests labeled with 'sanity' will run.
-        type: string 
-  push:
-    branches:
-      - main
-      - 'release-*'
-  pull_request:
+  workflow_call:
+    inputs:
+      test_category:
+        required: true
+        type: string
+        description: 'Test category (agent, cli, configuration, hooks, parametrisable_templates, selectors)'
+      label_filter:
+        required: false
+        type: string
+        description: 'Custom Ginkgo label filter expression'
 
 permissions:
   contents: read
   pull-requests: read
 
 jobs:
-  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
   e2e:
     runs-on: "ubuntu-24.04"
     steps:
@@ -58,6 +55,7 @@ jobs:
         run: make deploy
 
       - name: Deploy the E2E side services, registry and git
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make deploy-e2e-extras
 
       - name: Make rpm, and agent images
@@ -70,11 +68,11 @@ jobs:
         run: |
           sudo chown -R runner:runner bin/output|| true
 
-      - name: Run E2E Tests
+      - name: Run E2E Tests for ${{ inputs.test_category }}
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run:  make run-e2e-test VERBOSE=true # use DEBUG_VM_CONSOLE=1 to see the VM console output
-        env:  
-          GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}   # Filter to run only specific tests
+        run: make run-e2e-test VERBOSE=true
+        env:
+          GINKGO_LABEL_FILTER: ${{ inputs.label_filter || format('sanity_{0}', inputs.test_category) }}
 
       - name: Collect and Upload Logs
         if: always() && steps.filter.outputs.notdocs == 'true'
@@ -82,4 +80,4 @@ jobs:
         with:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
-          log-directory: 'e2e-logs'
+          log-directory: 'e2e-logs-${{ inputs.test_category }}'

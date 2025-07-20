@@ -40,7 +40,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	})
 
 	Context("application", func() {
-		It("should install an application image package and report its status", Label("76800", "sanity"), func() {
+		It("should install an application image package and report its status", Label("76800", "sanity", "sanity_agent_application"), func() {
 			By("Add the application spec to the device")
 
 			// Make sure the device status right after bootstrap is Online

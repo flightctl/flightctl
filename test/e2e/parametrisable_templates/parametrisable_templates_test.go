@@ -86,7 +86,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 
 		It(`Verifies that if a device is missing a parametrisable device label
 		    an error is generated, but it will reconcile if the label is provided`,
-			Label("75600", "sanity"), func() {
+			Label("75600", "sanity", "sanity_parametrisable_templates"), func() {
 
 				By("Check the device status is Online")
 				_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
@@ -152,7 +152,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 
 		It(`Verifies that the template variables are replaced in the different configurations
 		    and work with the helper functions`,
-			Label("78684", "sanity"), func() {
+			Label("78684", "sanity", "sanity_parametrisable_templates"), func() {
 
 				By("Check the device status")
 				_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)

@@ -45,14 +45,14 @@ var _ = Describe("CLI - device console", Serial, func() {
 
 	AfterEach(func() { harness.Cleanup(false) })
 
-	It("connects to a device and executes a simple command", Label("80483", "sanity"), func() {
+	It("connects to a device and executes a simple command", Label("80483", "sanity", "sanity_cli"), func() {
 		cs := harness.NewConsoleSession(deviceID)
 		cs.MustSend("ls")
 		cs.MustExpect(".*bin")
 		cs.Close()
 	})
 
-	It("supports multiple simultaneous console sessions", Label("81737", "sanity"), func() {
+	It("supports multiple simultaneous console sessions", Label("81737", "sanity", "sanity_cli"), func() {
 		cs1 := harness.NewConsoleSession(deviceID)
 		cs2 := harness.NewConsoleSession(deviceID)
 
@@ -237,7 +237,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
-	It("provides console --help and auxiliary features", Label("81866", "sanity"), func() {
+	It("provides console --help and auxiliary features", Label("81866", "sanity", "sanity_cli"), func() {
 		out, err := harness.CLI("console", "--help")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(

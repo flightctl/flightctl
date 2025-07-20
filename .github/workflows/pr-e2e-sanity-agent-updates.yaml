@@ -1,0 +1,26 @@
+name: "E2E Sanity Agent Updates Testing"
+
+on:
+  workflow_dispatch:
+    inputs:  
+      label_filter:  
+        description: 'Ginkgo label filter expression to filter e2e tests'
+        required: false  
+        default: 'sanity_agent_updates'
+        type: string 
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  call-reusable-workflow:
+    uses: ./.github/workflows/e2e-sanity-reusable.yaml
+    with:
+      test_category: 'agent_updates'
+      label_filter: ${{ inputs.label_filter || 'sanity_agent_updates' }}
