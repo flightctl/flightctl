@@ -293,3 +293,11 @@ CREATEROLE
 DDL
 quadlet
 misconfigured
+- docs/user/security-guidelines.md
+journald
+quadlets
+Sanitization
+SELinux
+SNI
+SSO
+VPN
