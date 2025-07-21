@@ -9,7 +9,7 @@ db:
 kv:
   image:
     image: registry.redhat.io/rhel9/redis-7
-    tag: 9.6
+    tag: 9.6-1752567986
 
 alertmanager:
   image:
