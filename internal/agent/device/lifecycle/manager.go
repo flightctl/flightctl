@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -16,7 +17,6 @@ import (
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
-	"k8s.io/klog/v2"
 )
 
 const (
@@ -324,12 +324,13 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
-	if err := SdNotify("READY=1"); err != nil {
+	if err := m.sdNotify(); err != nil {
 		m.log.Warnf("Failed to notify systemd: %v", err)
 	}
 
-	// additionally print the banner into the output console
-	fmt.Println(buffer.String())
+	if !strings.EqualFold(os.Getenv("FLIGHTCTL_QUIET_MODE"), "true") {
+		fmt.Println(buffer.String())
+	}
 	return nil
 }
 
@@ -362,7 +363,7 @@ func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 	return nil
 }
 
-func SdNotify(state string) error {
+func (b *LifecycleManager) sdNotify() error {
 	socketAddr := &net.UnixAddr{
 		Name: os.Getenv("NOTIFY_SOCKET"),
 		Net:  "unixgram",
@@ -370,7 +371,7 @@ func SdNotify(state string) error {
 
 	// NOTIFY_SOCKET not set
 	if socketAddr.Name == "" {
-		klog.Warning("NOTIFY_SOCKET not set, skipping systemd notification")
+		b.log.Warn("NOTIFY_SOCKET not set, skipping systemd notification")
 		return nil
 	}
 	conn, err := net.DialUnix(socketAddr.Net, nil, socketAddr)
