@@ -6,7 +6,9 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -162,6 +164,7 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &TestStore{},
+		log:   logrus.New(),
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &api.Repository{
@@ -172,4 +175,60 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 	require.Equal(statusNotFoundCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.Len(event.Items, 0)
+}
+
+func createRepository(ctx context.Context, r store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
+	spec := api.RepositorySpec{}
+	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+		Url: "myrepourl",
+	})
+	if err != nil {
+		return err
+	}
+	resource := api.Repository{
+		Metadata: api.ObjectMeta{
+			Name:   lo.ToPtr(name),
+			Labels: labels,
+		},
+		Spec: spec,
+	}
+
+	callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
+	_, err = r.Create(ctx, orgId, &resource, callback, nil)
+	return err
+}
+
+func setAccessCondition(ctx context.Context, repository *api.Repository, err error, h ServiceHandler) error {
+	if repository.Status == nil {
+		repository.Status = &api.RepositoryStatus{Conditions: []api.Condition{}}
+	}
+	if repository.Status.Conditions == nil {
+		repository.Status.Conditions = []api.Condition{}
+	}
+	_, status := h.ReplaceRepositoryStatusByError(ctx, lo.FromPtr(repository.Metadata.Name), *repository, err)
+
+	return ApiStatusToErr(status)
+}
+
+func TestRepoTester_SetAccessCondition(t *testing.T) {
+	require := require.New(t)
+
+	serviceHandler := ServiceHandler{
+		store: &TestStore{},
+		log:   logrus.New(),
+	}
+	r := serviceHandler.store.Repository()
+	ctx := context.Background()
+	orgId := store.NullOrgId
+
+	err := createRepository(ctx, r, orgId, "nil-to-ok", &map[string]string{"status": "OK"})
+	require.NoError(err)
+
+	err = createRepository(ctx, r, orgId, "ok-to-ok", &map[string]string{"status": "OK"})
+	require.NoError(err)
+	repo, err := r.Get(ctx, orgId, "ok-to-ok")
+	require.NoError(err)
+
+	err = setAccessCondition(ctx, repo, err, serviceHandler)
+	require.NoError(err)
 }
