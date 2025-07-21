@@ -85,30 +85,30 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 			}
-			_, err := storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			_, err := storeInst.Device().UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-2")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
 			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
-			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-3")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
-			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-4")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
-			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-5")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
 			device.Status.Summary.Status = api.DeviceSummaryStatusError
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
-			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device)
+			_, err = storeInst.Device().UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// A device in another org that shouldn't be included
@@ -147,9 +147,8 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			deleted, err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
+			err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeTrue())
 			Expect(called).To(BeTrue())
 		})
 
@@ -158,9 +157,8 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			deleted, err := storeInst.Fleet().Delete(ctx, orgId, "nonexistent", callback)
+			err := storeInst.Fleet().Delete(ctx, orgId, "nonexistent", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeFalse())
 			Expect(called).To(BeFalse())
 		})
 
@@ -352,7 +350,7 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			_, created, _, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, true, callback)
+			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, true, callback, nil)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
@@ -395,7 +393,7 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			returnedFleet, created, _, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
+			returnedFleet, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(called).To(BeTrue())
@@ -422,7 +420,7 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			_, created, _, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, nil, true, callback)
+			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, nil, true, callback, nil)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
@@ -486,9 +484,8 @@ var _ = Describe("FleetStore create", func() {
 				callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 					called = true
 				})
-				deleted, err := storeInst.Fleet().Delete(ctx, orgId, fmt.Sprintf("myfleet-%d", i), callback)
+				err := storeInst.Fleet().Delete(ctx, orgId, fmt.Sprintf("myfleet-%d", i), callback, nil)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(deleted).To(BeTrue())
 				Expect(called).To(BeTrue())
 			}
 			testutil.CreateTestFleets(ctx, numFleets, storeInst.Fleet(), orgId, "myfleet", true, lo.ToPtr(owner))
@@ -586,9 +583,8 @@ var _ = Describe("FleetStore create", func() {
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
 				called = true
 			})
-			deleted, err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
+			err = storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeTrue())
 			Expect(called).To(BeTrue())
 		})
 

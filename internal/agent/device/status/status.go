@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	MaxMessageLength = 175
+	MaxMessageLength = 250
 )
 
 var _ Manager = (*StatusManager)(nil)

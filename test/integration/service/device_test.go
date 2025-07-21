@@ -342,7 +342,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
-				"DeviceContentUpToDate",
+				"ResourceUpdated",
 			))
 			// Should NOT contain DeviceDiskNormal since that's Unknown -> Healthy
 			Expect(eventReasons).ToNot(ContainElement("DeviceDiskNormal"))
@@ -371,9 +371,9 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory recovery
-			// We should now have: ResourceCreated + DeviceCPUCritical + DeviceMemoryWarning + DeviceApplicationHealthy + DeviceContentUpToDate + DeviceCPUNormal + DeviceMemoryNormal
+			// We should now have: ResourceCreated + DeviceCPUCritical + DeviceMemoryWarning + DeviceApplicationHealthy + ResourceUpdated + DeviceCPUNormal + DeviceMemoryNormal
 			events = getEventsForDevice(deviceName)
-			Expect(len(events)).To(Equal(7))
+			Expect(len(events)).To(Equal(8))
 
 			// Check that we have the recovery events
 			eventReasons = make([]string, len(events))
@@ -381,13 +381,13 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				eventReasons[i] = string(event.Reason)
 			}
 			Expect(eventReasons).To(ContainElements(
+				"ResourceUpdated",
+				"DeviceCPUNormal",
+				"DeviceMemoryNormal",
 				"ResourceCreated",
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
-				"DeviceContentUpToDate",
-				"DeviceCPUNormal",
-				"DeviceMemoryNormal",
 			))
 			// Still should NOT contain DeviceDiskNormal since disk was already healthy
 			Expect(eventReasons).ToNot(ContainElement("DeviceDiskNormal"))

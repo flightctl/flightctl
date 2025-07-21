@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -16,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 )
@@ -37,18 +35,10 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *device.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	common.UpdateServiceSideStatus(ctx, orgId, &device, nil, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
-	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackManager.DeviceUpdatedCallback)
-	status := StoreErrorToApiStatus(err, true, api.DeviceKind, device.Metadata.Name)
-	if err == nil {
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.DeviceKind, *device.Metadata.Name, status, nil, h.log))
-	}
-
-	return result, status
+	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackManager.DeviceUpdatedCallback, h.eventCallbackDevice)
+	return result, StoreErrorToApiStatus(err, true, api.DeviceKind, device.Metadata.Name)
 }
 
 func convertDeviceListParams(params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.ListParams, api.Status) {
@@ -160,21 +150,10 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device 
 		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
 	}
 
-	oldDevice, err := h.store.Device().Get(ctx, orgId, name)
-	if err != nil {
-		oldDevice = nil
-	}
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *device.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	updated := common.UpdateServiceSideStatus(ctx, orgId, &device, oldDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
-	result, created, updateDesc, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, callback)
-	status := StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
-	if updated && err == nil {
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.DeviceKind, name, status, &updateDesc, h.log))
-	}
-	return result, status
+	result, created, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, callback, h.eventCallbackDevice)
+	return result, StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
 }
 
 func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, error) {
@@ -203,29 +182,16 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 	if ok && delayDeviceRender {
 		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
 	}
-	oldDevice := device
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *device.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	updated := common.UpdateServiceSideStatus(ctx, orgId, &device, &oldDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
-	dev, updateDesc, err := h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback)
-	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
-	if updated && err == nil {
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, &updateDesc, h.log))
-	}
-	return dev, err
+	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback, h.eventCallbackDevice)
 }
 
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	deleted, err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback)
-	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
-	if deleted || err != nil {
-		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.DeviceKind, name, status, h.log))
-	}
-	return status
+	_, err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback, h.eventCallbackDeviceDelete)
+	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 // (GET /api/v1/devices/{name}/status)
@@ -271,17 +237,10 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 
 	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
 	deviceToStore.Status = incomingDevice.Status
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *incomingDevice.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	updated := common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, originalDevice, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+	common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
 
-	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore)
-	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
-	if updated && err != nil {
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, nil, h.log))
-	}
-	return result, status
+	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore, h.eventCallbackDevice)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status) {
@@ -321,23 +280,16 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
+	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+
 	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
 
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *currentObj.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	updated := common.UpdateServiceSideStatus(ctx, orgId, newObj, currentObj, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
-
-	result, _, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
-	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
-	if updated && err == nil {
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, nil, h.log))
-	}
-	return result, status
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback, h.eventCallbackDevice)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
@@ -379,23 +331,14 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
+	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
 
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
-
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *currentObj.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	updated := common.UpdateServiceSideStatus(ctx, orgId, newObj, currentObj, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
-
-	result, _, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
-	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
-	if updated && err == nil {
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.DeviceKind, name, status, nil, h.log))
-	}
-	return result, status
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback, h.eventCallbackDevice)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status) {
@@ -423,12 +366,8 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, de
 	}
 
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, updateDesc, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback)
-	status := StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
-	if err != nil {
-		h.CreateEvent(ctx, GetResourceDecommissionedEvent(ctx, api.DeviceKind, name, status, &updateDesc, h.log))
-	}
-	return result, status
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback, h.eventCallbackDeviceDecommission)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
@@ -462,10 +401,13 @@ func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, device 
 	newMultipleOwnersCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceMultipleOwners)
 
 	// Check if MultipleOwners condition changed
-	multipleOwnersConditionChanged := h.hasConditionChanged(oldMultipleOwnersCondition, newMultipleOwnersCondition)
+	multipleOwnersConditionChanged := hasConditionChanged(oldMultipleOwnersCondition, newMultipleOwnersCondition)
 
 	if multipleOwnersConditionChanged {
-		h.emitMultipleOwnersEvents(ctx, device, oldMultipleOwnersCondition, newMultipleOwnersCondition)
+		common.EmitMultipleOwnersEvents(ctx, device, oldMultipleOwnersCondition, newMultipleOwnersCondition,
+			h.CreateEvent, GetDeviceMultipleOwnersDetectedEvent, GetDeviceMultipleOwnersResolvedEvent,
+			h.log,
+		)
 	}
 
 	// Track condition changes for SpecValid
@@ -473,15 +415,17 @@ func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, device 
 	newSpecValidCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceSpecValid)
 
 	// Check if SpecValid condition changed
-	specValidConditionChanged := h.hasConditionChanged(oldSpecValidCondition, newSpecValidCondition)
+	specValidConditionChanged := hasConditionChanged(oldSpecValidCondition, newSpecValidCondition)
 
 	if specValidConditionChanged {
-		h.emitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition)
+		common.EmitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition,
+			h.CreateEvent, GetDeviceSpecValidEvent, GetDeviceSpecInvalidEvent,
+			h.log)
 	}
 }
 
 // hasConditionChanged checks if a condition actually changed between old and new
-func (h *ServiceHandler) hasConditionChanged(oldCondition, newCondition *api.Condition) bool {
+func hasConditionChanged(oldCondition, newCondition *api.Condition) bool {
 	if oldCondition == nil && newCondition == nil {
 		return false
 	}
@@ -494,103 +438,6 @@ func (h *ServiceHandler) hasConditionChanged(oldCondition, newCondition *api.Con
 		oldCondition.Message != newCondition.Message
 
 	return changed
-}
-
-// getOwnerFleet extracts the fleet name from a device's owner reference
-func getOwnerFleet(device *api.Device) (string, bool, error) {
-	if device.Metadata.Owner == nil {
-		return "", true, nil
-	}
-
-	ownerType, ownerName, err := util.GetResourceOwner(device.Metadata.Owner)
-	if err != nil {
-		return "", false, err
-	}
-
-	if ownerType != api.FleetKind {
-		return "", false, nil
-	}
-
-	return ownerName, true, nil
-}
-
-// emitMultipleOwnersEvents emits events for MultipleOwners condition changes
-func (h *ServiceHandler) emitMultipleOwnersEvents(ctx context.Context, device *api.Device, oldCondition, newCondition *api.Condition) {
-	deviceName := *device.Metadata.Name
-	wasMultipleOwners := oldCondition != nil && oldCondition.Status == api.ConditionStatusTrue
-	isMultipleOwners := newCondition != nil && newCondition.Status == api.ConditionStatusTrue
-
-	h.log.Infof("Device %s: MultipleOwners transition: was=%v, is=%v", deviceName, wasMultipleOwners, isMultipleOwners)
-
-	if !wasMultipleOwners && isMultipleOwners {
-		// Multiple owners detected
-		matchingFleets := []string{}
-		if newCondition.Message != "" {
-			matchingFleets = strings.Split(newCondition.Message, ",")
-		}
-		h.log.Infof("Device %s: Emitting DeviceMultipleOwnersDetectedEvent", deviceName)
-		event := GetDeviceMultipleOwnersDetectedEvent(ctx, deviceName, matchingFleets, h.log)
-		h.CreateEvent(ctx, event)
-	} else if wasMultipleOwners && !isMultipleOwners {
-		// Multiple owners resolved
-		h.log.Infof("Device %s: Emitting DeviceMultipleOwnersResolvedEvent", deviceName)
-		// Determine resolution type and assigned owner
-		resolutionType := api.NoMatch
-		var assignedOwner *string
-
-		if device.Metadata.Owner != nil {
-			ownerFleet, isOwnerAFleet, err := getOwnerFleet(device)
-			if err == nil && isOwnerAFleet && ownerFleet != "" {
-				resolutionType = api.SingleMatch
-				assignedOwner = &ownerFleet
-			}
-		}
-
-		// Parse previous matching fleets from old condition message
-		var previousMatchingFleets []string
-		if oldCondition != nil && oldCondition.Message != "" {
-			previousMatchingFleets = strings.Split(oldCondition.Message, ",")
-		}
-
-		event := GetDeviceMultipleOwnersResolvedEvent(ctx, deviceName, resolutionType, assignedOwner, previousMatchingFleets, h.log)
-		h.CreateEvent(ctx, event)
-	}
-}
-
-// emitSpecValidEvents emits events for SpecValid condition changes
-func (h *ServiceHandler) emitSpecValidEvents(ctx context.Context, device *api.Device, oldCondition, newCondition *api.Condition) {
-	deviceName := *device.Metadata.Name
-	wasSpecValid := oldCondition != nil && oldCondition.Status == api.ConditionStatusTrue
-	isSpecValid := newCondition != nil && newCondition.Status == api.ConditionStatusTrue
-
-	h.log.Infof("Device %s: SpecValid transition: was=%v, is=%v", deviceName, wasSpecValid, isSpecValid)
-
-	if !wasSpecValid && isSpecValid {
-		// Spec became valid (or was valid from the start)
-		h.log.Infof("Device %s: Emitting DeviceSpecValidEvent", deviceName)
-		event := GetDeviceSpecValidEvent(ctx, deviceName, h.log)
-		h.CreateEvent(ctx, event)
-	} else if wasSpecValid && !isSpecValid {
-		// Spec became invalid (was valid before)
-		h.log.Infof("Device %s: Emitting DeviceSpecInvalidEvent", deviceName)
-		// Get the message from the new condition if available
-		message := "Unknown"
-		if newCondition != nil && newCondition.Message != "" {
-			message = newCondition.Message
-		}
-		event := GetDeviceSpecInvalidEvent(ctx, deviceName, message, h.log)
-		h.CreateEvent(ctx, event)
-	} else if oldCondition == nil && newCondition != nil && !isSpecValid {
-		// Special case: device created with invalid spec (no previous condition, but new condition is invalid)
-		h.log.Infof("Device %s: Emitting DeviceSpecInvalidEvent for initial invalid spec", deviceName)
-		// Get the message from the new condition if available
-		message := "Unknown"
-		if newCondition.Message != "" {
-			message = newCondition.Message
-		}
-		event := GetDeviceSpecInvalidEvent(ctx, deviceName, message, h.log)
-		h.CreateEvent(ctx, event)
-	}
 }
 
 func (h *ServiceHandler) OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status {
@@ -659,5 +506,5 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
 	orgId := store.NullOrgId
-	return common.UpdateServiceSideStatus(ctx, orgId, &device, nil, h.store, h.log, nil, nil)
+	return common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 }
