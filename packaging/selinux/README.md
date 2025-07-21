@@ -13,6 +13,7 @@ To create an agent VM, run:
 ```sh
 make agent-vm
 ```
+
 When redeploying, clean up the previous build first:
 
 ```sh
@@ -20,6 +21,10 @@ make clean-agent-vm
 rm -rf bin/rpm
 make agent-vm
 ```
+
+*When testing policy changes via the RPM package (i.e. not the VM dev tool setup described below) be
+sure to commit changes to the policy to HEAD in the local git repo, as the packit tool used to build
+the RPMs only looks at that.*
 
 Install required development tools on the agent:
 
