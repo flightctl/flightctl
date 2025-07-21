@@ -20,6 +20,9 @@ import (
 	"github.com/google/go-tpm/tpmutil"
 )
 
+// Ensure TPM implements crypto.Signer interface
+var _ crypto.Signer = (*TPM)(nil)
+
 const (
 	MinNonceLength     = 8
 	TpmSystemPath      = "/dev/tpmrm0"
@@ -28,10 +31,11 @@ const (
 
 type TPM struct {
 	devicePath string
-	channel    io.ReadWriteCloser
+	conn       io.ReadWriteCloser
 	srk        *tpm2.NamedHandle
 	ldevid     *tpm2.NamedHandle
 	ldevidPub  crypto.PublicKey
+	cleanup    func() error
 }
 
 // Note: this may be a hardware TPM or a software or emulated TPM available to the system
@@ -58,31 +62,34 @@ func ValidateTpmVersion2() error {
 }
 
 func OpenTPM(devicePath string) (*TPM, error) {
-	ch, err := tpmutil.OpenTPM(devicePath)
+	conn, err := tpmutil.OpenTPM(devicePath)
 	if err != nil {
 		return nil, err
 	}
-	return &TPM{devicePath: devicePath, channel: ch}, nil
+	return &TPM{
+		devicePath: devicePath,
+		conn:       conn,
+		cleanup: func() error {
+			return conn.Close()
+		},
+	}, nil
 }
 
 func (t *TPM) Close() error {
 	if t == nil {
 		return nil
 	}
-	if t.channel == nil {
-		return nil
-	}
-	return t.channel.Close()
+	return t.cleanup()
 }
 
 func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
 	if t == nil {
 		return nil, fmt.Errorf("cannot get TPM vendor info: nil receiver in TPM struct")
 	}
-	if t.channel == nil {
+	if t.conn == nil {
 		return nil, fmt.Errorf("cannot get TPM vendor info: no channel available in TPM struct")
 	}
-	return legacy.GetManufacturer(t.channel)
+	return legacy.GetManufacturer(t.conn)
 }
 
 func (t *TPM) GetPCRValues(measurements map[string]string) error {
@@ -91,7 +98,7 @@ func (t *TPM) GetPCRValues(measurements map[string]string) error {
 	}
 	for pcr := 1; pcr <= 16; pcr++ {
 		key := fmt.Sprintf("pcr%02d", pcr)
-		val, err := legacy.ReadPCR(t.channel, pcr, legacy.AlgSHA256)
+		val, err := legacy.ReadPCR(t.conn, pcr, legacy.AlgSHA256)
 		if err != nil {
 			return err
 		}
@@ -107,8 +114,7 @@ func (t *TPM) GenerateSRKPrimary() (*tpm2.NamedHandle, error) {
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
 	}
-	transportTPM := transport.FromReadWriter(t.channel)
-	createPrimaryRsp, err := createPrimaryCmd.Execute(transportTPM)
+	createPrimaryRsp, err := createPrimaryCmd.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
 		return nil, fmt.Errorf("creating SRK primary: %v", err)
 	}
@@ -128,7 +134,7 @@ func (t *TPM) GenerateSRKPrimary() (*tpm2.NamedHandle, error) {
 // SensitiveDataOrigin: yes (was created in the TPM)
 func (t *TPM) CreateLAK() (*client.Key, error) {
 	// AttestationKeyECC generates and loads a key from AKTemplateECC in the Owner (aka 'Storage') hierarchy.
-	return client.AttestationKeyECC(t.channel)
+	return client.AttestationKeyECC(t.conn)
 }
 
 func (t *TPM) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attestation, error) {
@@ -151,8 +157,7 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 		ParentHandle: srk,
 		InPublic:     tpm2.New2B(LDevIDTemplate),
 	}
-	transportTPM := transport.FromReadWriter(t.channel)
-	createRsp, err := createCmd.Execute(transportTPM)
+	createRsp, err := createCmd.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
 		return nil, fmt.Errorf("executing endorsement LDevID create command: %v", err)
 	}
@@ -162,7 +167,7 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 		InPublic:     createRsp.OutPublic,
 	}
 
-	loadRsp, err := loadCmd.Execute(transportTPM)
+	loadRsp, err := loadCmd.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
 		return nil, fmt.Errorf("error loading ldevid key: %v", err)
 	}
@@ -174,15 +179,14 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 	return t.ldevid, nil
 }
 
-func (t *TPM) GetLDevIDPubKey() (*crypto.PublicKey, error) {
+func (t *TPM) GetLDevIDPubKey() (crypto.PublicKey, error) {
 	if t.ldevid == nil {
 		return nil, fmt.Errorf("ldevid not initialized")
 	}
 
-	transportTPM := transport.FromReadWriter(t.channel)
 	pub, err := tpm2.ReadPublic{
 		ObjectHandle: t.ldevid.Handle,
-	}.Execute(transportTPM)
+	}.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
 		return nil, fmt.Errorf("could not read public key: %v", err)
 	}
@@ -207,19 +211,15 @@ func (t *TPM) GetLDevIDPubKey() (*crypto.PublicKey, error) {
 	}
 	pubkey := &ecdsa.PublicKey{
 		Curve: curve,
-		X:     big.NewInt(0).SetBytes(unique.X.Buffer),
-		Y:     big.NewInt(0).SetBytes(unique.Y.Buffer),
+		X:     new(big.Int).SetBytes(unique.X.Buffer),
+		Y:     new(big.Int).SetBytes(unique.Y.Buffer),
 	}
 	// converts ecdsa.PublicKey to crypto.PublicKey
-	var cryptopubkey crypto.PublicKey = pubkey
-	t.ldevidPub = cryptopubkey
-	return &cryptopubkey, nil
+	t.ldevidPub = pubkey
+	return pubkey, nil
 }
 
 func (t TPM) Public() crypto.PublicKey {
-	if t.ldevidPub == nil {
-		return nil
-	}
 	return t.ldevidPub
 }
 
@@ -227,6 +227,9 @@ func (t *TPM) GetSigner() crypto.Signer {
 	return t
 }
 
+// Sign signs the given data using the TPM's LDevID key.
+// The rand parameter is ignored as the TPM generates its own randomness internally.
+// Opts is ignored as the only hash type supported is SHA256 (as defined by the creation of the key)
 func (t TPM) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) ([]byte, error) {
 	sign := tpm2.Sign{
 		KeyHandle: tpm2.NamedHandle{
@@ -241,8 +244,7 @@ func (t TPM) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) ([]byte, 
 		},
 	}
 
-	transportTPM := transport.FromReadWriter(t.channel)
-	signRsp, err := sign.Execute(transportTPM)
+	signRsp, err := sign.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign digest with ldevid: %v", err)
 	}
@@ -250,16 +252,16 @@ func (t TPM) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) ([]byte, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ECDSA signature from sign response: %v", err)
 	}
-	bigR := big.NewInt(0).SetBytes(ecdsaSig.SignatureR.Buffer)
-	bigS := big.NewInt(0).SetBytes(ecdsaSig.SignatureS.Buffer)
-	es := EcdsaSignature{
+	bigR := new(big.Int).SetBytes(ecdsaSig.SignatureR.Buffer)
+	bigS := new(big.Int).SetBytes(ecdsaSig.SignatureS.Buffer)
+	es := ecdsaSignature{
 		R: bigR,
 		S: bigS,
 	}
 	return asn1.Marshal(es)
 }
 
-type EcdsaSignature struct {
+type ecdsaSignature struct {
 	R *big.Int
 	S *big.Int
 }

@@ -18,7 +18,7 @@ require (
 	github.com/go-git/go-billy/v5 v5.6.0
 	github.com/go-git/go-git/v5 v5.13.0
 	github.com/google/go-cmp v0.7.0
-	github.com/google/go-tpm v0.9.0
+	github.com/google/go-tpm v0.9.5
 	github.com/google/go-tpm-tools v0.4.4
 	github.com/google/renameio v1.0.1
 	github.com/google/uuid v1.6.0
