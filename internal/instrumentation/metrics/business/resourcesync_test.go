@@ -6,6 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -80,7 +81,8 @@ func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	collector := NewResourceSyncCollector(ctx, mockStore, log, 1*time.Millisecond)
+	config := config.NewDefault()
+	collector := NewResourceSyncCollector(ctx, mockStore, log, config)
 	time.Sleep(10 * time.Millisecond)
 
 	ch := make(chan prometheus.Metric, 100)

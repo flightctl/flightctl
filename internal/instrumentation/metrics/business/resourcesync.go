@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -19,10 +20,11 @@ type ResourceSyncCollector struct {
 	mu             sync.RWMutex
 	ctx            context.Context
 	tickerInterval time.Duration
+	cfg            *config.Config
 }
 
 // NewResourceSyncCollector creates a ResourceSyncCollector. If tickerInterval is 0, defaults to 30s.
-func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, tickerInterval ...time.Duration) *ResourceSyncCollector {
+func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config, tickerInterval ...time.Duration) *ResourceSyncCollector {
 	interval := 30 * time.Second
 	if len(tickerInterval) > 0 && tickerInterval[0] > 0 {
 		interval = tickerInterval[0]
@@ -36,6 +38,7 @@ func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus
 		log:            log,
 		ctx:            ctx,
 		tickerInterval: interval,
+		cfg:            cfg,
 	}
 
 	collector.log.Info("Starting resourcesync metrics collector with interval", "interval", interval)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -65,7 +66,7 @@ type MockDevice struct {
 	results []store.CountByOrgAndStatusResult
 }
 
-func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType store.DeviceStatusType) ([]store.CountByOrgAndStatusResult, error) {
+func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType store.DeviceStatusType, groupByFleet bool) ([]store.CountByOrgAndStatusResult, error) {
 	return m.results, nil
 }
 
@@ -136,7 +137,58 @@ func (m *MockDevice) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UU
 }
 func (m *MockDevice) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {}
 
-func TestDeviceCollector(t *testing.T) {
+func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
+	// Provide mock SQL results for org/status aggregation
+	mockResults := []store.CountByOrgAndStatusResult{
+		{OrgID: "org1", Fleet: "fleet1", Status: "Online", Count: 3},
+		{OrgID: "org1", Fleet: "fleet1", Status: "Unknown", Count: 3},
+		{OrgID: "org2", Fleet: "fleet2", Status: "Online", Count: 3},
+		{OrgID: "org2", Fleet: "fleet2", Status: "Unknown", Count: 1},
+	}
+
+	mockStore := &MockStore{results: mockResults}
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector with 1ms interval for fast testing
+	config := config.NewDefault()
+	config.Metrics.DeviceCollector.GroupByFleet = true
+	collector := NewDeviceCollector(ctx, mockStore, log, config)
+
+	// Wait a bit for the collector to start and collect metrics
+	time.Sleep(10 * time.Millisecond)
+
+	// Test that the collector implements the required interfaces
+	var _ prometheus.Collector = collector
+
+	// Test MetricsName
+	assert.Equal(t, "device", collector.MetricsName())
+
+	// Test that metrics are collected
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got some metrics
+	if len(metrics) == 0 {
+		t.Error("Expected metrics to be collected, but got none")
+	}
+
+	t.Logf("Collected %d metrics", len(metrics))
+}
+func TestDeviceCollectorWithoutGroupByFleet(t *testing.T) {
 	// Provide mock SQL results for org/status aggregation
 	mockResults := []store.CountByOrgAndStatusResult{
 		{OrgID: "org1", Status: "Online", Count: 3},
@@ -154,7 +206,9 @@ func TestDeviceCollector(t *testing.T) {
 	defer cancel()
 
 	// Create collector with 1ms interval for fast testing
-	collector := NewDeviceCollector(ctx, mockStore, log, 1*time.Millisecond)
+	config := config.NewDefault()
+	config.Metrics.DeviceCollector.GroupByFleet = false
+	collector := NewDeviceCollector(ctx, mockStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -200,7 +254,7 @@ func TestDeviceCollectorWithOrgFilter(t *testing.T) {
 
 	// Test with specific org filter
 	orgId := uuid.New()
-	results, err := mockDevice.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeSummary)
+	results, err := mockDevice.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeSummary, false)
 	assert.NoError(t, err)
 	assert.Len(t, results, 2)
 
@@ -210,7 +264,7 @@ func TestDeviceCollectorWithOrgFilter(t *testing.T) {
 	}
 
 	// Test with nil org (no filter)
-	results, err = mockDevice.CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary)
+	results, err = mockDevice.CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary, false)
 	assert.NoError(t, err)
 	assert.Len(t, results, 2)
 }

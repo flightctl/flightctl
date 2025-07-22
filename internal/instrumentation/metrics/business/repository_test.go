@@ -6,6 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -95,7 +96,8 @@ func TestRepositoryCollector(t *testing.T) {
 	defer cancel()
 
 	// Create collector with 1ms interval for fast testing
-	collector := NewRepositoryCollector(ctx, mockStore, log, 1*time.Millisecond)
+	config := config.NewDefault()
+	collector := NewRepositoryCollector(ctx, mockStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -134,7 +136,8 @@ func TestRepositoryCollectorWithError(t *testing.T) {
 	// Test with error
 	mockStore := &MockRepositoryStore{count: 0, err: assert.AnError}
 	log := logrus.New()
-	collector := NewRepositoryCollector(ctx, mockStore, log, time.Millisecond)
+	config := config.NewDefault()
+	collector := NewRepositoryCollector(ctx, mockStore, log, config)
 
 	// Test that the collector handles errors gracefully
 	// The collector should not panic and should continue running

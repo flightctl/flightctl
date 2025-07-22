@@ -6,6 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -186,7 +187,8 @@ func TestFleetCollector(t *testing.T) {
 	defer cancel()
 
 	// Create collector with 1ms interval for fast testing
-	collector := NewFleetCollector(ctx, mockStore, log, 1*time.Millisecond)
+	config := config.NewDefault()
+	collector := NewFleetCollector(ctx, mockStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -262,7 +264,8 @@ func TestFleetCollectorWithErrors(t *testing.T) {
 		fleetStore: mockFleetStore,
 	}
 
-	collector := NewFleetCollector(ctx, mockStore, log)
+	config := config.NewDefault()
+	collector := NewFleetCollector(ctx, mockStore, log, config)
 
 	// Test Collect with errors - should not panic
 	metricCh := make(chan prometheus.Metric, 10)

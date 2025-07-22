@@ -75,7 +75,7 @@ type Device interface {
 
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
-	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType) ([]CountByOrgAndStatusResult, error)
+	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType, groupByFleet bool) ([]CountByOrgAndStatusResult, error)
 }
 
 type DeviceStore struct {
@@ -714,11 +714,12 @@ func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, na
 type CountByOrgAndStatusResult struct {
 	OrgID  string
 	Status string
+	Fleet  string
 	Count  int64
 }
 
 // CountByOrgAndStatus returns the count of devices grouped by org_id and status.
-func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType) ([]CountByOrgAndStatusResult, error) {
+func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType, groupByFleet bool) ([]CountByOrgAndStatusResult, error) {
 	var query *gorm.DB
 	var err error
 
@@ -751,11 +752,20 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 		statusField = "status->'summary'->>'status'" // default to summary
 	}
 
-	query = query.Select(
+	selectList := []string{
 		"org_id as org_id",
-		statusField+" as status",
+		statusField + " as status",
 		"COUNT(*) as count",
-	).Group("org_id, status")
+	}
+
+	if groupByFleet {
+		selectList = append(selectList, "owner as fleet")
+	}
+	groupList := []string{"org_id", "status"}
+	if groupByFleet {
+		groupList = append(groupList, "owner")
+	}
+	query = query.Select(selectList).Group(strings.Join(groupList, ","))
 
 	var results []CountByOrgAndStatusResult
 	err = query.Scan(&results).Error

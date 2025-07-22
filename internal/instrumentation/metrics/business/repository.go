@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -19,14 +20,13 @@ type RepositoryCollector struct {
 	mu             sync.RWMutex
 	ctx            context.Context
 	tickerInterval time.Duration
+	cfg            *config.Config
 }
 
 // NewRepositoryCollector creates a RepositoryCollector. If tickerInterval is 0, defaults to 30s.
-func NewRepositoryCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, tickerInterval ...time.Duration) *RepositoryCollector {
-	interval := 30 * time.Second
-	if len(tickerInterval) > 0 && tickerInterval[0] > 0 {
-		interval = tickerInterval[0]
-	}
+func NewRepositoryCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *RepositoryCollector {
+	interval := cfg.Metrics.RepositoryCollector.TickerInterval
+
 	collector := &RepositoryCollector{
 		repositoriesGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "flightctl_repositories_total",
@@ -36,6 +36,7 @@ func NewRepositoryCollector(ctx context.Context, store store.Store, log logrus.F
 		log:            log,
 		ctx:            ctx,
 		tickerInterval: interval,
+		cfg:            cfg,
 	}
 
 	collector.log.Info("Starting repository metrics collector with interval", "interval", interval)
