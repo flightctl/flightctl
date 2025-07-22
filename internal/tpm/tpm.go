@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/asn1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -66,20 +67,44 @@ func OpenTPM(devicePath string) (*TPM, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open TPM device at %s: %w", devicePath, err)
 	}
-	return &TPM{
+
+	t := &TPM{
 		devicePath: devicePath,
 		conn:       conn,
 		cleanup: func() error {
 			return conn.Close()
 		},
-	}, nil
+	}
+
+	_, err = t.generateSRKPrimary()
+	if err != nil {
+		_ = t.Close()
+		return nil, fmt.Errorf("generating SRK: %w", err)
+	}
+
+	_, err = t.createLDevID()
+	if err != nil {
+		_ = t.Close()
+		return nil, fmt.Errorf("creating LDevID: %w", err)
+	}
+
+	_, err = t.getLDevIDPubKey()
+	if err != nil {
+		_ = t.Close()
+		return nil, fmt.Errorf("reading LDevID public key: %w", err)
+	}
+
+	return t, nil
 }
 
 func (t *TPM) Close() error {
 	if t == nil {
 		return nil
 	}
-	return t.cleanup()
+	if t.cleanup != nil {
+		return t.cleanup()
+	}
+	return nil
 }
 
 func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
@@ -111,9 +136,9 @@ func (t *TPM) GetPCRValues(measurements map[string]string) error {
 	return nil
 }
 
-// This function (re-)creates an ECC Primary Storage Root Key in the Owner/Storage Hierarchy.
+// generateSRKPrimary (re-)creates an ECC Primary Storage Root Key in the Owner/Storage Hierarchy.
 // This key is deterministically generated from the Storage Primary Seed + input parameters.
-func (t *TPM) GenerateSRKPrimary() (*tpm2.NamedHandle, error) {
+func (t *TPM) generateSRKPrimary() (*tpm2.NamedHandle, error) {
 	createPrimaryCmd := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
@@ -159,10 +184,13 @@ func (t *TPM) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attestatio
 	return attestation, nil
 }
 
-// This function creates an ECC LDevID key pair under the Storage/Owner hierarchy with the Storage Root Key as parent.
-func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
+// createLDevID creates an ECC LDevID key pair under the Storage/Owner hierarchy with the Storage Root Key as parent.
+func (t *TPM) createLDevID() (*tpm2.NamedHandle, error) {
+	if t.srk == nil {
+		return nil, fmt.Errorf("SRK not initialized")
+	}
 	createCmd := tpm2.Create{
-		ParentHandle: srk,
+		ParentHandle: *t.srk,
 		InPublic:     tpm2.New2B(LDevIDTemplate),
 	}
 	createRsp, err := createCmd.Execute(transport.FromReadWriter(t.conn))
@@ -170,7 +198,7 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 		return nil, fmt.Errorf("executing endorsement LDevID create command: %w", err)
 	}
 	loadCmd := tpm2.Load{
-		ParentHandle: srk,
+		ParentHandle: *t.srk,
 		InPrivate:    createRsp.OutPrivate,
 		InPublic:     createRsp.OutPublic,
 	}
@@ -187,7 +215,7 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 	return t.ldevid, nil
 }
 
-func (t *TPM) GetLDevIDPubKey() (crypto.PublicKey, error) {
+func (t *TPM) getLDevIDPubKey() (crypto.PublicKey, error) {
 	if t.ldevid == nil {
 		return nil, fmt.Errorf("ldevid not initialized")
 	}
@@ -276,6 +304,48 @@ func (t *TPM) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) ([]byte,
 type ecdsaSignature struct {
 	R *big.Int
 	S *big.Int
+}
+
+func (t *TPM) endorsementKeyCert() (*client.Key, error) {
+	if t.conn == nil {
+		return nil, fmt.Errorf("cannot read endorsement key certificate: no connection available")
+	}
+	var errs []error
+	key, err := client.EndorsementKeyRSA(t.conn)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("reading rsa endorsement %w", err))
+	} else {
+		return key, nil
+	}
+
+	key, err = client.EndorsementKeyECC(t.conn)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("reading ecc endorsement %w", err))
+	} else {
+		return key, nil
+	}
+
+	return nil, errors.Join(errs...)
+}
+
+func (t *TPM) EndorsementKeyCert() ([]byte, error) {
+	key, err := t.endorsementKeyCert()
+	if err != nil {
+		return nil, fmt.Errorf("reading cert: %w", err)
+	}
+	return key.CertDERBytes(), nil
+}
+
+func (t *TPM) EndorsementKeyPublic() ([]byte, error) {
+	key, err := t.endorsementKeyCert()
+	if err != nil {
+		return nil, fmt.Errorf("reading cert: %w", err)
+	}
+	res, err := key.PublicArea().Encode()
+	if err != nil {
+		return nil, fmt.Errorf("encoding public key: %w", err)
+	}
+	return res, nil
 }
 
 func (t *TPM) GetQuote(nonce []byte, ak *client.Key, pcr_selection *legacy.PCRSelection) (*pbtpm.Quote, error) {
