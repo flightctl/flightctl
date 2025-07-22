@@ -147,8 +147,8 @@ func main() {
 
 	// Create HTTP metrics collector for both servers
 	var httpCollector *metrics.HTTPCollector
-	if cfg.Prometheus != nil {
-		httpCollector = metrics.NewHTTPCollector(cfg.Prometheus.SloMax, cfg.Prometheus.ApiLatencyBins)
+	if cfg.Metrics.HttpCollector != nil {
+		httpCollector = metrics.NewHTTPCollector(cfg.Metrics.HttpCollector.SloMax, cfg.Metrics.HttpCollector.ApiLatencyBins)
 	}
 
 	// create the agent service listener as tcp (combined HTTP+gRPC)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config/ca"
@@ -112,6 +111,8 @@ type systemCollectorConfig struct {
 
 type httpCollectorConfig struct {
 	collectorConfig
+	SloMax         float64   `json:"sloMax,omitempty"`
+	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
 }
 
 type deviceCollectorConfig struct {
