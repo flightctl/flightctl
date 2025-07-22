@@ -163,6 +163,7 @@ const (
 	EventReasonDeviceDiskCritical              EventReason = "DeviceDiskCritical"
 	EventReasonDeviceDiskNormal                EventReason = "DeviceDiskNormal"
 	EventReasonDeviceDiskWarning               EventReason = "DeviceDiskWarning"
+	EventReasonDeviceIsRebooting               EventReason = "DeviceIsRebooting"
 	EventReasonDeviceMemoryCritical            EventReason = "DeviceMemoryCritical"
 	EventReasonDeviceMemoryNormal              EventReason = "DeviceMemoryNormal"
 	EventReasonDeviceMemoryWarning             EventReason = "DeviceMemoryWarning"

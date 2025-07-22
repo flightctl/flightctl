@@ -47,6 +47,7 @@ GitLab
 GitOps
 greenboot
 hostname
+hostnames
 HTTPS
 i.e.
 infos
@@ -271,3 +272,24 @@ is_platform_auditor
 flightctl-api
 flightctl-kv
 IdPs
+- docs/user/network-requirements.md
+Air-Gapped
+Backend
+dev
+docker.io
+HTTPS
+LoadBalancer
+passthrough
+nodePort
+NodePort
+OTel
+Redis
+registry.redhat.io
+TCP
+UserInfo
+- docs/user/database-migration.md
+CREATEDB
+CREATEROLE
+DDL
+quadlet
+misconfigured
