@@ -40,8 +40,6 @@ var _ = Describe("Inline configuration tests", func() {
 	})
 
 	AfterEach(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
 		harness.Cleanup(true)
 	})
 

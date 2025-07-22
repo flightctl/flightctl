@@ -109,16 +109,24 @@ func kubernetesClient() (kubernetes.Interface, error) {
 }
 
 func NewTestHarness(ctx context.Context) *Harness {
-
 	startTime := time.Now()
 
+	testDir := GinkgoT().TempDir()
+
+	diskImagePath := filepath.Join(testDir, "disk.qcow2")
+	err := reuseQcowImageWithOverlay(
+		filepath.Join(findTopLevelDir(), "bin/output/qcow2/disk.qcow2"),
+		diskImagePath,
+	)
+	Expect(err).ToNot(HaveOccurred())
+
 	testVM, err := vm.NewVM(vm.TestVM{
-		TestDir:       GinkgoT().TempDir(),
+		TestDir:       testDir,
 		VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
-		DiskImagePath: filepath.Join(findTopLevelDir(), "bin/output/qcow2/disk.qcow2"),
+		DiskImagePath: diskImagePath,
 		VMUser:        "user",
 		SSHPassword:   "user",
-		SSHPort:       2233, // TODO: randomize and retry on error
+		SSHPort:       2233 + GinkgoParallelProcess() - 1,
 	})
 	Expect(err).ToNot(HaveOccurred())
 
@@ -301,6 +309,11 @@ func (h *Harness) StartVMAndEnroll() string {
 	h.ApproveEnrollment(enrollmentID, util.TestEnrollmentApproval())
 	logrus.Infof("Waiting for device %s to report status", enrollmentID)
 
+	DeferCleanup(func() error {
+		_, err := h.CLI("delete", fmt.Sprintf("device/%s", enrollmentID))
+		return err
+	})
+
 	// wait for the device to pickup enrollment and report measurements on device status
 	Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
 		enrollmentID).ShouldNot(BeNil())
@@ -323,15 +336,7 @@ func (h *Harness) StartMultipleVMAndEnroll(count int) ([]string, error) {
 		vmName := "flightctl-e2e-vm-" + uuid.New().String()
 		overlayDiskPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", vmName))
 
-		// Create a qcow2 overlay that uses the base image as backing file
-		cmd := exec.Command(
-			"qemu-img", "create",
-			"-f", "qcow2",
-			"-b", baseDiskPath,
-			"-F", "qcow2",
-			overlayDiskPath)
-
-		if err := cmd.Run(); err != nil {
+		if err := reuseQcowImageWithOverlay(baseDiskPath, overlayDiskPath); err != nil {
 			return nil, fmt.Errorf("failed to create overlay disk for VM %s: %w", vmName, err)
 		}
 
@@ -557,41 +562,6 @@ func (h *Harness) parseImageReference(image string) (string, string) {
 	repo := strings.Join(parts[:len(parts)-1], ":")
 
 	return repo, tag
-}
-
-func (h *Harness) CleanUpResources(resourceType string) (string, error) {
-	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
-
-	resources, err := h.CLI("get", resourceType, "-o", "name")
-	if err != nil {
-		return "", fmt.Errorf("failed to get %s resources: %w", resourceType, err)
-	}
-	resources = strings.TrimSpace(resources)
-	if resources == "" {
-		logrus.Infof("No %s resources found to delete", resourceType)
-		return "No resources to delete", nil
-	}
-
-	deleteArgs := []string{"delete", resourceType}
-	resourceNames := strings.Fields(resources)
-	deleteArgs = append(deleteArgs, resourceNames...)
-
-	return h.CLI(deleteArgs...)
-}
-
-func (h *Harness) CleanUpAllResources() error {
-	for _, resourceType := range util.ResourceTypes {
-		_, err := h.CleanUpResources(resourceType)
-		if err != nil {
-			// Return the error immediately if any operation fails
-			logrus.Infof("Error: %v\n", err)
-			return err
-		}
-		logrus.Infof("The instances of the %s resource type are deleted successfully", resourceType)
-
-	}
-	logrus.Infof("All the resource instances are deleted successfully")
-	return nil
 }
 
 // Generic function to read and unmarshal YAML into the given target type
@@ -919,10 +889,8 @@ func (h *Harness) ManageResource(operation, resource string, args ...string) (st
 			deleteArgs := append([]string{"delete", resource}, args...)
 			return h.CLI(deleteArgs...)
 		}
-		if len(args) == 0 {
-			return h.CLI("delete", resource)
-		}
-		return h.CleanUpResources(resource)
+
+		return h.CLI("delete", resource)
 	case "approve":
 		return h.CLI("approve", resource)
 	default:

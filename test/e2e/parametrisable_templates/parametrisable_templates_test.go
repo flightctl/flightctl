@@ -27,11 +27,9 @@ var _ = Describe("Template variables in the device configuraion", func() {
 
 	AfterEach(func() {
 		harness.Cleanup(true)
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
 	})
 
-	Context("parametrisable_templates", func() {
+	Context("parametrisable_templates", Serial, func() {
 		It(`Verifies that Flightctl fleet resource supports parametrisable device
 		    templates to configure items that are specific to an individual device
 			or a group of devices selected by labels`, Label("75486"), func() {
