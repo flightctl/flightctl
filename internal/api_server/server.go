@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -43,6 +44,7 @@ type Server struct {
 	listener           net.Listener
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
+	httpCollector      *metrics.HTTPCollector
 }
 
 // New returns a new instance of a flightctl server.
@@ -54,6 +56,7 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	consoleEndpointReg console.InternalSessionRegistration,
+	httpCollector *metrics.HTTPCollector,
 ) *Server {
 	return &Server{
 		log:                log,
@@ -63,6 +66,7 @@ func New(
 		listener:           listener,
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
+		httpCollector:      httpCollector,
 	}
 }
 
@@ -178,6 +182,11 @@ func (s *Server) Run(ctx context.Context) error {
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service
 	router.Group(func(r chi.Router) {
+		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
+		// to avoid issues with websocket connections
+		if s.httpCollector != nil {
+			r.Use(s.httpCollector.ApiServerMiddleware)
+		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
 
