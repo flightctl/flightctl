@@ -53,7 +53,7 @@ func setupTestFixture(t *testing.T) (*TestFixture, error) {
 
 	tpm, err := openTPMSimulator(t)
 	if err != nil {
-		return nil, fmt.Errorf("unable to open tpm simulator")
+		return nil, fmt.Errorf("unable to open tpm simulator: %w", err)
 	}
 
 	return &TestFixture{tpm: tpm}, nil
@@ -75,7 +75,6 @@ func setupTestData(t *testing.T) TestData {
 	ldevid, err := f.tpm.CreateLDevID(*srk)
 	require.NoError(err)
 
-	// Populate the public key cache
 	_, err = f.tpm.GetLDevIDPubKey()
 	require.NoError(err)
 
@@ -200,7 +199,7 @@ func verifyECDSASignature(pubKey *ecdsa.PublicKey, data []byte, signature []byte
 	var sig ecdsaSignature
 	_, err := asn1.Unmarshal(signature, &sig)
 	if err != nil {
-		return fmt.Errorf("failed to parse signature: %v", err)
+		return fmt.Errorf("failed to parse signature: %w", err)
 	}
 
 	// Hash the data
@@ -402,7 +401,7 @@ func TestCryptoSignerInterface(t *testing.T) {
 			// Sign using only crypto.Signer interface
 			signature, err := signer.Sign(rand.Reader, testHash[:], crypto.SHA256)
 			if err != nil {
-				return fmt.Errorf("signing failed: %v", err)
+				return fmt.Errorf("signing failed: %w", err)
 			}
 
 			// Get public key using only crypto.Signer interface
