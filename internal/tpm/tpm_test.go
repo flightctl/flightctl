@@ -3,7 +3,11 @@
 package tpm
 
 import (
+	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
@@ -38,7 +42,10 @@ func openTPMSimulator(t *testing.T) (*TPM, error) {
 	simulator, err := simulator.Get()
 	require.NoError(err)
 
-	return &TPM{channel: simulator}, nil
+	return &TPM{
+		conn:    simulator,
+		cleanup: func() error { return simulator.Close() },
+	}, nil
 }
 
 func setupTestFixture(t *testing.T) (*TestFixture, error) {
@@ -46,7 +53,7 @@ func setupTestFixture(t *testing.T) (*TestFixture, error) {
 
 	tpm, err := openTPMSimulator(t)
 	if err != nil {
-		return nil, fmt.Errorf("unable to open tpm simulator")
+		return nil, fmt.Errorf("unable to open tpm simulator: %w", err)
 	}
 
 	return &TestFixture{tpm: tpm}, nil
@@ -66,6 +73,9 @@ func setupTestData(t *testing.T) TestData {
 	require.NoError(err)
 
 	ldevid, err := f.tpm.CreateLDevID(*srk)
+	require.NoError(err)
+
+	_, err = f.tpm.GetLDevIDPubKey()
 	require.NoError(err)
 
 	nonce := make([]byte, 8)
@@ -164,4 +174,255 @@ func TestGetPCRValues(t *testing.T) {
 
 	err := data.tpm.GetPCRValues(measurements)
 	require.NoError(err)
+}
+
+func TestSimpleTPMSetup(t *testing.T) {
+	require := require.New(t)
+
+	tpm, err := openTPMSimulator(t)
+	require.NoError(err, "should be able to open TPM simulator")
+	defer tpm.Close()
+
+	srk, err := tpm.GenerateSRKPrimary()
+	require.NoError(err, "should be able to generate SRK")
+	require.NotNil(srk, "SRK should not be nil")
+
+	lak, err := tpm.CreateLAK()
+	require.NoError(err, "should be able to create LAK")
+	require.NotNil(lak, "LAK should not be nil")
+	defer lak.Close()
+}
+
+// Helper function to verify ECDSA signatures
+func verifyECDSASignature(pubKey *ecdsa.PublicKey, data []byte, signature []byte) error {
+	// Parse ASN.1 encoded signature
+	var sig ecdsaSignature
+	_, err := asn1.Unmarshal(signature, &sig)
+	if err != nil {
+		return fmt.Errorf("failed to parse signature: %w", err)
+	}
+
+	// Hash the data
+	hash := sha256.Sum256(data)
+
+	// Verify signature
+	if !ecdsa.Verify(pubKey, hash[:], sig.R, sig.S) {
+		return fmt.Errorf("signature verification failed")
+	}
+
+	return nil
+}
+
+func TestGetLDevIDPubKey(t *testing.T) {
+	t.Run("successful retrieval", func(t *testing.T) {
+		require := require.New(t)
+		data := setupTestData(t)
+		defer func() {
+			data.tpm.Close()
+			data.lak.Close()
+		}()
+		pubKey, err := data.tpm.GetLDevIDPubKey()
+		require.NoError(err)
+		require.NotNil(pubKey)
+
+		// Verify it's an ECDSA public key
+		ecdsaPubKey, ok := pubKey.(*ecdsa.PublicKey)
+		require.True(ok, "public key should be *ecdsa.PublicKey")
+
+		// Verify it's P-256 curve
+		require.Equal("P-256", ecdsaPubKey.Curve.Params().Name)
+
+		// Verify coordinates are valid
+		require.True(ecdsaPubKey.X.Sign() > 0, "X coordinate should be positive")
+		require.True(ecdsaPubKey.Y.Sign() > 0, "Y coordinate should be positive")
+	})
+
+	t.Run("error when ldevid not initialized", func(t *testing.T) {
+		require := require.New(t)
+		tpm, err := openTPMSimulator(t)
+		require.NoError(err)
+		defer tpm.Close()
+
+		_, err = tpm.GetLDevIDPubKey()
+		require.Error(err)
+		require.Contains(err.Error(), "ldevid not initialized")
+	})
+}
+
+func TestSign(t *testing.T) {
+	require := require.New(t)
+	data := setupTestData(t)
+	defer func() {
+		data.tpm.Close()
+		data.lak.Close()
+	}()
+
+	// TPM Sign expects a 32-byte hash (SHA-256)
+	testHash := sha256.Sum256([]byte("test data to sign"))
+
+	t.Run("successful signing", func(t *testing.T) {
+		signature, err := data.tpm.Sign(nil, testHash[:], nil)
+		require.NoError(err)
+		require.NotEmpty(signature)
+
+		// Verify signature is ASN.1 encoded
+		var sig ecdsaSignature
+		_, err = asn1.Unmarshal(signature, &sig)
+		require.NoError(err)
+		require.NotNil(sig.R)
+		require.NotNil(sig.S)
+		require.True(sig.R.Sign() > 0, "R should be positive")
+		require.True(sig.S.Sign() > 0, "S should be positive")
+	})
+
+	t.Run("signing different hash inputs", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			origData []byte
+		}{
+			{"empty data hash", []byte{}},
+			{"small data hash", []byte("hello")},
+			{"medium data hash", make([]byte, 256)},
+			{"large data hash", make([]byte, 1024)},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Hash the data first since TPM expects a digest
+				hash := sha256.Sum256(tc.origData)
+				signature, err := data.tpm.Sign(rand.Reader, hash[:], crypto.SHA256)
+				require.NoError(err)
+				require.NotEmpty(signature)
+			})
+		}
+	})
+
+	t.Run("rand parameter is ignored", func(t *testing.T) {
+		// Sign with nil rand
+		sig1, err := data.tpm.Sign(nil, testHash[:], nil)
+		require.NoError(err)
+
+		// Sign with real rand - should still work (rand is ignored)
+		sig2, err := data.tpm.Sign(rand.Reader, testHash[:], nil)
+		require.NoError(err)
+
+		// Both signatures should be valid (though different due to randomness)
+		require.NotEmpty(sig1)
+		require.NotEmpty(sig2)
+	})
+}
+
+func TestSignAndVerify(t *testing.T) {
+	require := require.New(t)
+	data := setupTestData(t)
+	defer func() {
+		data.tpm.Close()
+		data.lak.Close()
+	}()
+
+	t.Run("sign and verify integration", func(t *testing.T) {
+		testPayloads := [][]byte{
+			[]byte("test message 1"),
+			[]byte("another test message"),
+			[]byte(""),
+			make([]byte, 100), // filled with zeros
+		}
+
+		// Get public key
+		pubKey, err := data.tpm.GetLDevIDPubKey()
+		require.NoError(err)
+		ecdsaPubKey := pubKey.(*ecdsa.PublicKey)
+
+		for i, payload := range testPayloads {
+			t.Run(fmt.Sprintf("payload_%d", i), func(t *testing.T) {
+				// Hash the payload since TPM expects a digest
+				hash := sha256.Sum256(payload)
+
+				// Sign the hash
+				signature, err := data.tpm.Sign(rand.Reader, hash[:], crypto.SHA256)
+				require.NoError(err)
+
+				// Verify the signature against the original payload
+				err = verifyECDSASignature(ecdsaPubKey, payload, signature)
+				require.NoError(err, "signature verification should succeed")
+			})
+		}
+	})
+
+	t.Run("verification fails with wrong data", func(t *testing.T) {
+		originalData := []byte("original data")
+		wrongData := []byte("wrong data")
+
+		// Get public key
+		pubKey, err := data.tpm.GetLDevIDPubKey()
+		require.NoError(err)
+		ecdsaPubKey := pubKey.(*ecdsa.PublicKey)
+
+		// Hash and sign original data
+		originalHash := sha256.Sum256(originalData)
+		signature, err := data.tpm.Sign(rand.Reader, originalHash[:], crypto.SHA256)
+		require.NoError(err)
+
+		// Try to verify with wrong data - should fail
+		err = verifyECDSASignature(ecdsaPubKey, wrongData, signature)
+		require.Error(err, "verification should fail with wrong data")
+	})
+}
+
+func TestCryptoSignerInterface(t *testing.T) {
+	require := require.New(t)
+	data := setupTestData(t)
+	defer func() {
+		data.tpm.Close()
+		data.lak.Close()
+	}()
+
+	t.Run("TPM implements crypto.Signer", func(t *testing.T) {
+		// Verify TPM implements crypto.Signer interface
+		var signer crypto.Signer = data.tpm
+		require.NotNil(signer)
+
+		// Test Public() method
+		pubKey := signer.Public()
+		require.NotNil(pubKey)
+
+		ecdsaPubKey, ok := pubKey.(*ecdsa.PublicKey)
+		require.True(ok, "public key should be *ecdsa.PublicKey")
+		require.Equal("P-256", ecdsaPubKey.Curve.Params().Name)
+	})
+
+	t.Run("signer-only interface test with full sign and verify", func(t *testing.T) {
+		// This test uses TPM only as crypto.Signer interface
+		testSignerInterface := func(signer crypto.Signer) error {
+			testData := []byte("interface test data")
+			// Hash the data since TPM expects a digest
+			testHash := sha256.Sum256(testData)
+
+			// Sign using only crypto.Signer interface
+			signature, err := signer.Sign(rand.Reader, testHash[:], crypto.SHA256)
+			if err != nil {
+				return fmt.Errorf("signing failed: %w", err)
+			}
+
+			// Get public key using only crypto.Signer interface
+			pubKey := signer.Public()
+			ecdsaPubKey, ok := pubKey.(*ecdsa.PublicKey)
+			if !ok {
+				return fmt.Errorf("expected *ecdsa.PublicKey, got %T", pubKey)
+			}
+
+			// Verify signature against original data (verifyECDSASignature will hash it)
+			return verifyECDSASignature(ecdsaPubKey, testData, signature)
+		}
+
+		// Test with TPM as crypto.Signer
+		var signer crypto.Signer = data.tpm
+		err := testSignerInterface(signer)
+		require.NoError(err, "signer interface test should pass")
+	})
+
+	t.Run("GetSigner returns self", func(t *testing.T) {
+		signer := data.tpm.GetSigner()
+		require.Equal(data.tpm, signer, "GetSigner should return the TPM instance itself")
+	})
 }

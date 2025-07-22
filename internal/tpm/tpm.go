@@ -2,9 +2,13 @@ package tpm
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/ecdsa"
+	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 
 	"github.com/google/go-tpm-tools/client"
@@ -16,6 +20,9 @@ import (
 	"github.com/google/go-tpm/tpmutil"
 )
 
+// Ensure TPM implements crypto.Signer interface
+var _ crypto.Signer = (*TPM)(nil)
+
 const (
 	MinNonceLength     = 8
 	TpmSystemPath      = "/dev/tpmrm0"
@@ -24,9 +31,11 @@ const (
 
 type TPM struct {
 	devicePath string
-	channel    io.ReadWriteCloser
+	conn       io.ReadWriteCloser
 	srk        *tpm2.NamedHandle
 	ldevid     *tpm2.NamedHandle
+	ldevidPub  crypto.PublicKey
+	cleanup    func() error
 }
 
 // Note: this may be a hardware TPM or a software or emulated TPM available to the system
@@ -43,7 +52,7 @@ func ValidateTpmVersion2() error {
 	}
 	versionBytes, err := os.ReadFile(TpmVersionInfoPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read TPM version info from %s: %w", TpmVersionInfoPath, err)
 	}
 	versionStr := string(bytes.TrimSpace(versionBytes))
 	if versionStr != "2" {
@@ -53,31 +62,38 @@ func ValidateTpmVersion2() error {
 }
 
 func OpenTPM(devicePath string) (*TPM, error) {
-	ch, err := tpmutil.OpenTPM(devicePath)
+	conn, err := tpmutil.OpenTPM(devicePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open TPM device at %s: %w", devicePath, err)
 	}
-	return &TPM{devicePath: devicePath, channel: ch}, nil
+	return &TPM{
+		devicePath: devicePath,
+		conn:       conn,
+		cleanup: func() error {
+			return conn.Close()
+		},
+	}, nil
 }
 
 func (t *TPM) Close() error {
 	if t == nil {
 		return nil
 	}
-	if t.channel == nil {
-		return nil
-	}
-	return t.channel.Close()
+	return t.cleanup()
 }
 
 func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
 	if t == nil {
-		return nil, fmt.Errorf("cannot get TPM vendor info: nil receiver in TPM struct")
+		return nil, fmt.Errorf("cannot get TPM vendor info: nil receiver")
 	}
-	if t.channel == nil {
-		return nil, fmt.Errorf("cannot get TPM vendor info: no channel available in TPM struct")
+	if t.conn == nil {
+		return nil, fmt.Errorf("cannot get TPM vendor info: no conn available")
 	}
-	return legacy.GetManufacturer(t.channel)
+	vendorInfo, err := legacy.GetManufacturer(t.conn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TPM manufacturer info: %w", err)
+	}
+	return vendorInfo, nil
 }
 
 func (t *TPM) GetPCRValues(measurements map[string]string) error {
@@ -86,9 +102,9 @@ func (t *TPM) GetPCRValues(measurements map[string]string) error {
 	}
 	for pcr := 1; pcr <= 16; pcr++ {
 		key := fmt.Sprintf("pcr%02d", pcr)
-		val, err := legacy.ReadPCR(t.channel, pcr, legacy.AlgSHA256)
+		val, err := legacy.ReadPCR(t.conn, pcr, legacy.AlgSHA256)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read PCR %d: %w", pcr, err)
 		}
 		measurements[key] = hex.EncodeToString(val)
 	}
@@ -102,10 +118,9 @@ func (t *TPM) GenerateSRKPrimary() (*tpm2.NamedHandle, error) {
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
 	}
-	transportTPM := transport.FromReadWriter(t.channel)
-	createPrimaryRsp, err := createPrimaryCmd.Execute(transportTPM)
+	createPrimaryRsp, err := createPrimaryCmd.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
-		return nil, fmt.Errorf("creating SRK primary: %v", err)
+		return nil, fmt.Errorf("creating SRK primary: %w", err)
 	}
 	t.srk = &tpm2.NamedHandle{
 		Handle: createPrimaryRsp.ObjectHandle,
@@ -123,7 +138,7 @@ func (t *TPM) GenerateSRKPrimary() (*tpm2.NamedHandle, error) {
 // SensitiveDataOrigin: yes (was created in the TPM)
 func (t *TPM) CreateLAK() (*client.Key, error) {
 	// AttestationKeyECC generates and loads a key from AKTemplateECC in the Owner (aka 'Storage') hierarchy.
-	return client.AttestationKeyECC(t.channel)
+	return client.AttestationKeyECC(t.conn)
 }
 
 func (t *TPM) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attestation, error) {
@@ -137,7 +152,11 @@ func (t *TPM) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attestatio
 		return nil, fmt.Errorf("no attestation key provided")
 	}
 
-	return ak.Attest(client.AttestOpts{Nonce: nonce})
+	attestation, err := ak.Attest(client.AttestOpts{Nonce: nonce})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get attestation: %w", err)
+	}
+	return attestation, nil
 }
 
 // This function creates an ECC LDevID key pair under the Storage/Owner hierarchy with the Storage Root Key as parent.
@@ -146,10 +165,9 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 		ParentHandle: srk,
 		InPublic:     tpm2.New2B(LDevIDTemplate),
 	}
-	transportTPM := transport.FromReadWriter(t.channel)
-	createRsp, err := createCmd.Execute(transportTPM)
+	createRsp, err := createCmd.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
-		return nil, fmt.Errorf("executing endorsement LDevID create command: %v", err)
+		return nil, fmt.Errorf("executing endorsement LDevID create command: %w", err)
 	}
 	loadCmd := tpm2.Load{
 		ParentHandle: srk,
@@ -157,9 +175,9 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 		InPublic:     createRsp.OutPublic,
 	}
 
-	loadRsp, err := loadCmd.Execute(transportTPM)
+	loadRsp, err := loadCmd.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
-		return nil, fmt.Errorf("error loading ldevid key: %v", err)
+		return nil, fmt.Errorf("error loading ldevid key: %w", err)
 	}
 
 	t.ldevid = &tpm2.NamedHandle{
@@ -167,6 +185,97 @@ func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
 		Name:   loadRsp.Name,
 	}
 	return t.ldevid, nil
+}
+
+func (t *TPM) GetLDevIDPubKey() (crypto.PublicKey, error) {
+	if t.ldevid == nil {
+		return nil, fmt.Errorf("ldevid not initialized")
+	}
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: t.ldevid.Handle,
+	}.Execute(transport.FromReadWriter(t.conn))
+	if err != nil {
+		return nil, fmt.Errorf("could not read public key: %w", err)
+	}
+	outpub, err := pub.OutPublic.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("could not get contents of TPM2Bpublic: %w", err)
+	}
+	if outpub.Type != tpm2.TPMAlgECC {
+		return nil, fmt.Errorf("public key alg %d for ldevid key is unsupported", outpub.Type)
+	}
+	details, err := outpub.Parameters.ECCDetail()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read ecc details for ldevid key: %w", err)
+	}
+	curve, err := details.CurveID.Curve()
+	if err != nil {
+		return nil, fmt.Errorf("could not get curve id for ldevid key: %w", err)
+	}
+	unique, err := outpub.Unique.ECC()
+	if err != nil {
+		return nil, fmt.Errorf("could not get unique parameters for ldevid key: %w", err)
+	}
+	pubkey := &ecdsa.PublicKey{
+		Curve: curve,
+		X:     new(big.Int).SetBytes(unique.X.Buffer),
+		Y:     new(big.Int).SetBytes(unique.Y.Buffer),
+	}
+	// converts ecdsa.PublicKey to crypto.PublicKey
+	t.ldevidPub = pubkey
+	return pubkey, nil
+}
+
+func (t *TPM) Public() crypto.PublicKey {
+	return t.ldevidPub
+}
+
+func (t *TPM) GetSigner() crypto.Signer {
+	return t
+}
+
+// Sign signs the given data using the TPM's LDevID key.
+// The rand parameter is ignored as the TPM generates its own randomness internally.
+// Opts is ignored as the only hash type supported is SHA256 (as defined by the creation of the key)
+func (t *TPM) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) ([]byte, error) {
+	sign := tpm2.Sign{
+		KeyHandle: tpm2.NamedHandle{
+			Handle: t.ldevid.Handle,
+			Name:   t.ldevid.Name,
+		},
+		Digest: tpm2.TPM2BDigest{
+			Buffer: data[:],
+		},
+		Validation: tpm2.TPMTTKHashCheck{
+			Tag: tpm2.TPMSTHashCheck,
+		},
+	}
+
+	signRsp, err := sign.Execute(transport.FromReadWriter(t.conn))
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign digest with ldevid: %w", err)
+	}
+	ecdsaSig, err := signRsp.Signature.Signature.ECDSA()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ECDSA signature from sign response: %w", err)
+	}
+	bigR := new(big.Int).SetBytes(ecdsaSig.SignatureR.Buffer)
+	bigS := new(big.Int).SetBytes(ecdsaSig.SignatureS.Buffer)
+	es := ecdsaSignature{
+		R: bigR,
+		S: bigS,
+	}
+	signature, err := asn1.Marshal(es)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal ECDSA signature: %w", err)
+	}
+	return signature, nil
+}
+
+type ecdsaSignature struct {
+	R *big.Int
+	S *big.Int
 }
 
 func (t *TPM) GetQuote(nonce []byte, ak *client.Key, pcr_selection *legacy.PCRSelection) (*pbtpm.Quote, error) {
@@ -181,5 +290,9 @@ func (t *TPM) GetQuote(nonce []byte, ak *client.Key, pcr_selection *legacy.PCRSe
 		return nil, fmt.Errorf("no pcr selection provided")
 	}
 
-	return ak.Quote(*pcr_selection, nonce)
+	quote, err := ak.Quote(*pcr_selection, nonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TPM quote: %w", err)
+	}
+	return quote, nil
 }
