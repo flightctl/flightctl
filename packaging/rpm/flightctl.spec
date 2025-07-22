@@ -118,14 +118,11 @@ services to be running. This package automatically includes the flightctl-otel-c
 /etc/flightctl/scripts/render-templates.sh
 /etc/flightctl/definitions/otel-collector.defs
 
-# Configuration management script - needed for standalone otel-collector deployment  
+# Configuration management script - needed for standalone otel-collector deployment
 /usr/local/bin/flightctl-render-observability
 
 # Observability network quadlet
 /etc/containers/systemd/flightctl-observability.network
-
-# Systemd target for service grouping
-/usr/lib/systemd/system/flightctl-otel-collector.target
 
 # Systemd target for service grouping
 /usr/lib/systemd/system/flightctl-otel-collector.target
@@ -287,7 +284,7 @@ echo "Running post-install actions for Flightctl Observability Stack..."
 
 # Create necessary directories on the host if they don't already exist.
 /usr/bin/mkdir -p /etc/prometheus /var/lib/prometheus
-/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /var/lib/grafana 
+/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /var/lib/grafana
 /usr/bin/mkdir -p /etc/grafana/provisioning/dashboards /etc/grafana/provisioning/dashboards/flightctl
 /usr/bin/mkdir -p /etc/grafana/certs
 /usr/bin/mkdir -p /etc/flightctl /opt/flightctl-observability/templates
@@ -596,6 +593,8 @@ rm -rf /usr/share/sosreport
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-api
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db
+    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db-migrate
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate/migration-setup.sh
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-kv
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
@@ -623,6 +622,7 @@ rm -rf /usr/share/sosreport
 
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
+    /usr/lib/systemd/system/flightctl-db-migrate.service
 
 %changelog
 * Tue Jul 15 2025 Sam Batschelet <sbatsche@redhat.com> - 0.9.0-2
