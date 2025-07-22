@@ -28,6 +28,9 @@ func NewDeviceStatus() DeviceStatus {
 		},
 		Lifecycle: DeviceLifecycleStatus{
 			Status: DeviceLifecycleStatusUnknown,
+			Tpm: TPMVerificationStatus{
+				Status: TPMVerificationStatusUnknown,
+			},
 		},
 	}
 }

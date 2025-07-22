@@ -4123,13 +4123,46 @@ components:
       type: object
       required:
         - status
+        - tpm
       properties:
         status:
           $ref: "#/components/schemas/DeviceLifecycleStatusType"
         info:
           type: string
-          description: Human readable information about the device lifecycle status.
+          description: Human-readable information about the device lifecycle status.
+        tpm:
+          $ref: "#/components/schemas/TpmVerificationStatus"
       description: Current status of the device lifecycle.
+    TpmVerificationStatus:
+      type: object
+      description: TPM verification status of the device.
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/TpmVerificationStatusType"
+        verificationTime:
+          type: string
+          format: date-time
+          description: When TPM verification was completed successfully.
+        info:
+          type: string
+          description: Human-readable information about the TPM verification status.
+    TpmVerificationStatusType:
+      type: string
+      description: Status of the TPM verification.
+      enum:
+        - "Unknown"
+        - "NotPresent"
+        - "Pending"
+        - "Failed"
+        - "Verified"
+      x-enum-varnames:
+        - "TpmVerificationStatusUnknown"
+        - "TpmVerificationStatusNotPresent"
+        - "TpmVerificationStatusPending"
+        - "TpmVerificationStatusFailed"
+        - "TpmVerificationStatusVerified"
     DeviceLifecycleStatusType:
       type: string
       enum:
@@ -4225,6 +4258,8 @@ components:
             type: string
             format: date-time
             description: The time at which the request was approved.
+          tpm:
+            $ref: "#/components/schemas/TpmVerificationStatus"
         required:
         - approvedBy
         - approvedAt
@@ -4327,6 +4362,12 @@ components:
         csr:
           type: string
           description: 'The PEM-encoded PKCS#10 certificate signing request.'
+        ekCert:
+          type: string
+          description: 'X.509 public certificate for the TPM Endorsement Key (EK), issued by a trusted manufacturer CA.'
+        tpmCertifyCert:
+          type: string
+          description: 'X.509 public certificate or equivalent structure signed by the EK that certifies the LDevID key in the CSR.'
         deviceStatus:
           $ref: '#/components/schemas/DeviceStatus'
         labels:
@@ -4348,6 +4389,8 @@ components:
             $ref: '#/components/schemas/Condition'
         approval:
           $ref: '#/components/schemas/EnrollmentRequestApprovalStatus'
+        tpm:
+          $ref: '#/components/schemas/TpmVerificationStatus'
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.

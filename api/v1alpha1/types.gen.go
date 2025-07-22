@@ -263,6 +263,15 @@ const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
 
+// Defines values for TPMVerificationStatusType.
+const (
+	TPMVerificationStatusFailed     TPMVerificationStatusType = "Failed"
+	TPMVerificationStatusNotPresent TPMVerificationStatusType = "NotPresent"
+	TPMVerificationStatusPending    TPMVerificationStatusType = "Pending"
+	TPMVerificationStatusUnknown    TPMVerificationStatusType = "Unknown"
+	TPMVerificationStatusVerified   TPMVerificationStatusType = "Verified"
+)
+
 // Defines values for ListEventsParamsOrder.
 const (
 	Asc  ListEventsParamsOrder = "asc"
@@ -585,11 +594,12 @@ type DeviceLifecycleHookType string
 
 // DeviceLifecycleStatus Current status of the device lifecycle.
 type DeviceLifecycleStatus struct {
-	// Info Human readable information about the device lifecycle status.
+	// Info Human-readable information about the device lifecycle status.
 	Info *string `json:"info,omitempty"`
 
 	// Status Status type of the device lifecycle.
 	Status DeviceLifecycleStatusType `json:"status"`
+	Tpm    TPMVerificationStatus     `json:"tpm"`
 }
 
 // DeviceLifecycleStatusType Status type of the device lifecycle.
@@ -905,7 +915,8 @@ type EnrollmentRequestApprovalStatus struct {
 	ApprovedBy string `json:"approvedBy"`
 
 	// Labels A set of labels to apply to the device.
-	Labels *map[string]string `json:"labels,omitempty"`
+	Labels *map[string]string     `json:"labels,omitempty"`
+	Tpm    *TPMVerificationStatus `json:"tpm,omitempty"`
 }
 
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
@@ -931,8 +942,14 @@ type EnrollmentRequestSpec struct {
 	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	DeviceStatus *DeviceStatus `json:"deviceStatus,omitempty"`
 
+	// EkCert X.509 public certificate for the TPM Endorsement Key (EK), issued by a trusted manufacturer CA.
+	EkCert *string `json:"ekCert,omitempty"`
+
 	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`
+
+	// TpmCertifyCert X.509 public certificate or equivalent structure signed by the EK that certifies the LDevID key in the CSR.
+	TpmCertifyCert *string `json:"tpmCertifyCert,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
@@ -944,7 +961,8 @@ type EnrollmentRequestStatus struct {
 	Certificate *string `json:"certificate,omitempty"`
 
 	// Conditions Current state of the EnrollmentRequest.
-	Conditions []Condition `json:"conditions"`
+	Conditions []Condition            `json:"conditions"`
+	Tpm        *TPMVerificationStatus `json:"tpm,omitempty"`
 }
 
 // EnrollmentService EnrollmentService contains information about how to communicate with a Flight Control enrollment service.
@@ -1701,6 +1719,21 @@ type Status struct {
 	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
 	Status string `json:"status"`
 }
+
+// TPMVerificationStatus defines model for TPMVerificationStatus.
+type TPMVerificationStatus struct {
+	// Info Human-readable information about the TPM verification status.
+	Info *string `json:"info,omitempty"`
+
+	// Status Status of the TPM verification.
+	Status TPMVerificationStatusType `json:"status"`
+
+	// VerificationTime When TPM verification was completed successfully.
+	VerificationTime *time.Time `json:"verificationTime,omitempty"`
+}
+
+// TPMVerificationStatusType Status of the TPM verification.
+type TPMVerificationStatusType string
 
 // TemplateVersion TemplateVersion represents a version of a template.
 type TemplateVersion struct {
