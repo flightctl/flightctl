@@ -610,6 +610,13 @@ var _ = Describe("cli login", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(out).To(ContainSubstring("failed to get auth info"))
 
+			By("Retry login using an empty config-dir flag")
+			loginArgs = append(loginArgs, "--config-dir")
+			logrus.Infof("Executing CLI with args: %v", loginArgs)
+			out, err = harness.CLI(loginArgs...)
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("Error: flag needs an argument: --config-dir"))
+
 			By("Retry login using an invalid token")
 			loginArgs = []string{"login", os.Getenv("API_ENDPOINT"), "--insecure-skip-tls-verify"}
 			invalidToken := "fake-token"
