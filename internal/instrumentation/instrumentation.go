@@ -40,7 +40,9 @@ func NewMetricsServer(
 ) *MetricsServer {
 	traced := make([]metrics.NamedCollector, len(collectors))
 	for i := range collectors {
-		traced[i] = metrics.WrapWithTrace(collectors[i])
+		if collectors[i] != nil {
+			traced[i] = metrics.WrapWithTrace(collectors[i])
+		}
 	}
 
 	return &MetricsServer{
