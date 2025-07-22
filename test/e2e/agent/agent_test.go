@@ -30,8 +30,6 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	AfterEach(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
 		harness.Cleanup(true)
 	})
 

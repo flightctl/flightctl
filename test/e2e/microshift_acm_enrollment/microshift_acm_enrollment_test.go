@@ -45,8 +45,6 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 		AfterEach(func() {
 			if harness != nil { // when the test is skipped harness is nil
 				harness.Cleanup(false)
-				err := harness.CleanUpAllResources()
-				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 
@@ -91,10 +89,10 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 					ValidationSuffix: &validationSuffix,
 				}
 
-				err = httpRepositoryspec.FromHttpRepoSpec(httpRepoSpec)
+				err = httpRepositorySpec.FromHttpRepoSpec(httpRepoSpec)
 				Expect(err).ToNot(HaveOccurred())
 
-				err = harness.CreateRepository(httpRepositoryspec, httpRepoMetadata)
+				err = harness.CreateRepository(httpRepositorySpec, httpRepoMetadata)
 				Expect(err).ToNot(HaveOccurred())
 				logrus.Infof("Created git repository %s", *httpRepoMetadata.Name)
 
@@ -281,7 +279,7 @@ var testFleetSelector = v1alpha1.LabelSelector{
 	MatchLabels: &map[string]string{fleetSelectorKey: fleetSelectorValue},
 }
 
-var httpRepositoryspec v1alpha1.RepositorySpec
+var httpRepositorySpec v1alpha1.RepositorySpec
 
 var httpRepoMetadata = v1alpha1.ObjectMeta{
 	Name: &httpRepoName,

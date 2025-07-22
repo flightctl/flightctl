@@ -1,7 +1,7 @@
 apiVersion: flightctl.io/v1alpha1
 kind: ResourceSync
 metadata:
-  name: default-sync
+  name: default-sync-{{.TestHash}}
 spec:
   repository: flightctl
   path: /examples/fleet.yaml

@@ -169,7 +169,7 @@ func (h *Harness) fetchDeviceContents(deviceId string) (*v1alpha1.Device, error)
 		return nil, err
 	}
 	if response.JSON200 == nil {
-		logrus.Errorf("An error happened retrieving device: %+v", response)
+		logrus.Errorf("An error happened retrieving device: %+v\n%s", response, string(response.Body))
 		return nil, errors.New("device not found???")
 	}
 	return response.JSON200, nil

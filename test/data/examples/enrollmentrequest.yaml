@@ -1,7 +1,7 @@
 apiVersion: api.flightctl.io/v1alpha1  
 kind: EnrollmentRequest  
 metadata:  
-  name: 13d632d86373caaeda64da4052f957faa742fc7050026748bc79065c8819d1b0  
+  name: 13d632d86373caaeda64da4052f957faa742fc7050026748bc79065c8819d1b0
 spec:  
   csr: |  
     -----BEGIN CERTIFICATE REQUEST-----  

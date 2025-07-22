@@ -1,7 +1,7 @@
 apiVersion: flightctl.io/v1alpha1
 kind: Repository
 metadata:
-  name: flightctl-demos
+  name: flightctl-demos-{{.TestHash}}
 spec:
   url: https://github.com/flightctl/flightctl-demos.git
   type: git

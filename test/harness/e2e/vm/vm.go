@@ -155,12 +155,3 @@ func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
 	}
 	return stdout.String(), nil
 }
-
-func StartAndWaitForSSH(params TestVM) (vm TestVMInterface, err error) {
-	vm, err = NewVM(params)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new VM: %w", err)
-	}
-
-	return vm, vm.RunAndWaitForSSH()
-}

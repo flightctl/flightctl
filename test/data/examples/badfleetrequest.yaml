@@ -2,11 +2,11 @@
 apiVersion: v1alpha1
 kind: Fleet
 metadata:
-  name: default
+  name: default-{{.TestHash}}
 spec:
   selector:
     matchLabels:
-      fleet: default
+      fleet: default-{{.TestHash}}
   rolloutPolicy:
     deviceSelection:
       strategy: 'BatchSequence'
@@ -18,7 +18,7 @@ spec:
   template:
     metadata:
       labels:
-        fleet: default
+        fleet: default-{{.TestHash}}
     spec:
       config:
         - name: motd-update

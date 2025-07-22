@@ -6,6 +6,7 @@ source "${SCRIPT_DIR}"/functions
 REPORTS=${1}
 GO_E2E_DIRS=("${@:2}")
 GINKGO_FOCUS=${GINKGO_FOCUS:-""}
+GINKGO_PROCS=${GINKGO_PROCS:-"1"}
 #Filtering e2e tests by labels
 GINKGO_LABEL_FILTER=${GINKGO_LABEL_FILTER:-""}
 FOCUS_FLAG=""
@@ -28,7 +29,11 @@ if [[ -n "${GINKGO_LABEL_FILTER}" ]]; then
   CMD+=("--label-filter" "${GINKGO_LABEL_FILTER}")
 fi
 
-CMD+=(--timeout 120m --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output)
+CMD+=(--timeout 120m -p --race -vv --junit-report "${REPORTS}/junit_e2e_test.xml" --github-output)
+
+if [[ -n "${GINKGO_PROCS}" ]]; then
+  CMD+=("-procs=${GINKGO_PROCS}")
+fi
 
 CMD+=("${GO_E2E_DIRS[@]}")
 

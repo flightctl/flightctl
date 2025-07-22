@@ -1,22 +1,22 @@
 apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
-  name: fleet-b
+  name: fleet-b-{{.TestHash}}
 spec:
   selector:
     matchLabels:
-      fleet: fleet-b
+      fleet: fleet-b-{{.TestHash}}
   template:
     metadata:
       labels:
-        fleet: fleet-b
+        fleet: fleet-b-{{.TestHash}}
     spec:
       os:
         image: quay.io/redhat/rhde:9.2
       config:
         - name: base
           gitRef:
-            repository: default-repo
+            repository: default-repo-{{.TestHash}}
             targetRevision: main
             path: /etc/microshift/manifests/production
         - name: acm-secrets

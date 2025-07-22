@@ -27,7 +27,7 @@ const (
 // Console test-suite
 // -----------------------------------------------------------------------------
 
-var _ = Describe("CLI - device console", Serial, func() {
+var _ = Describe("CLI - device console", func() {
 	var (
 		ctx      context.Context
 		harness  *e2e.Harness
