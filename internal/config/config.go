@@ -124,6 +124,8 @@ type systemCollectorConfig struct {
 
 type httpCollectorConfig struct {
 	collectorConfig
+	SloMax         float64   `json:"sloMax,omitempty"`
+	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
 }
 
 type deviceCollectorConfig struct {
