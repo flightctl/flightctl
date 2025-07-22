@@ -310,6 +310,8 @@ func (t *TPM) endorsementKeyCert() (*client.Key, error) {
 	if t.conn == nil {
 		return nil, fmt.Errorf("cannot read endorsement key certificate: no connection available")
 	}
+	// gather errors so that we can report all the types we attempted
+	// but if any method returns a key we return that key and drop the errors
 	var errs []error
 	key, err := client.EndorsementKeyRSA(t.conn)
 	if err != nil {
@@ -324,7 +326,6 @@ func (t *TPM) endorsementKeyCert() (*client.Key, error) {
 	} else {
 		return key, nil
 	}
-
 	return nil, errors.Join(errs...)
 }
 
