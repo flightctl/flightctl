@@ -34,7 +34,7 @@ redeploy-alert-exporter: flightctl-alert-exporter-container
 redeploy-alertmanager-proxy: flightctl-alertmanager-proxy-container
 	test/scripts/redeploy.sh alertmanager-proxy
 
-deploy-helm: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container
+deploy-helm: git-server-container flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
@@ -57,7 +57,15 @@ deploy-alertmanager:
 deploy-alertmanager-proxy:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager-proxy
 
-deploy-quadlets:
+deploy-quadlets: build-containers
+	@echo "Copying containers from user to root context for systemd services..."
+	podman save flightctl-api:latest | sudo podman load
+	podman save flightctl-db-setup:latest | sudo podman load
+	podman save flightctl-worker:latest | sudo podman load
+	podman save flightctl-periodic:latest | sudo podman load
+	podman save flightctl-alert-exporter:latest | sudo podman load
+	podman save flightctl-cli-artifacts:latest | sudo podman load
+	podman save flightctl-alertmanager-proxy:latest | sudo podman load
 	sudo -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:
