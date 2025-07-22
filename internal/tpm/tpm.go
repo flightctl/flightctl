@@ -84,10 +84,10 @@ func (t *TPM) Close() error {
 
 func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
 	if t == nil {
-		return nil, fmt.Errorf("cannot get TPM vendor info: nil receiver in TPM struct")
+		return nil, fmt.Errorf("cannot get TPM vendor info: nil receiver")
 	}
 	if t.conn == nil {
-		return nil, fmt.Errorf("cannot get TPM vendor info: no conn available in TPM struct")
+		return nil, fmt.Errorf("cannot get TPM vendor info: no conn available")
 	}
 	vendorInfo, err := legacy.GetManufacturer(t.conn)
 	if err != nil {
