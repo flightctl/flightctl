@@ -4,7 +4,7 @@ PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-db
-Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=demouser POSTGRESQL_MASTER_USER=admin
+Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=flightctl_app POSTGRESQL_MASTER_USER=admin
 Image=quay.io/sclorg/postgresql-16-c9s:20250214
 Network=flightctl.network
 Volume=flightctl-db:/var/lib/pgsql/data:Z

@@ -65,6 +65,11 @@ prometheus:
 ui:
   enabled: false
 
+dbSetup:
+  image:
+    image: localhost/flightctl-db-setup
+    tag: latest
+
 keycloak:
   realm:
     redirectUris:
