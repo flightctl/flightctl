@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -26,37 +27,37 @@ type DeviceCollector struct {
 	mu             sync.RWMutex
 	ctx            context.Context
 	tickerInterval time.Duration
+	cfg            *config.Config
 }
 
 // NewDeviceCollector creates a DeviceCollector. If tickerInterval is 0, defaults to 30s.
-func NewDeviceCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, tickerInterval ...time.Duration) *DeviceCollector {
-	interval := 30 * time.Second
-	if len(tickerInterval) > 0 && tickerInterval[0] > 0 {
-		interval = tickerInterval[0]
-	}
+func NewDeviceCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *DeviceCollector {
+	interval := cfg.Metrics.DeviceCollector.TickerInterval
+
 	collector := &DeviceCollector{
 		// Summary status metrics
 		devicesSummaryGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "flightctl_devices_summary_total",
 			Help: "Total number of devices managed (by summary status)",
-		}, []string{"organization_id", "status"}),
+		}, []string{"organization_id", "fleet", "status"}),
 
 		// Application status metrics
 		devicesApplicationGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "flightctl_devices_application_total",
 			Help: "Total number of devices managed (by application status)",
-		}, []string{"organization_id", "status"}),
+		}, []string{"organization_id", "fleet", "status"}),
 
 		// System update status metrics
 		devicesUpdateGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "flightctl_devices_update_total",
 			Help: "Total number of devices managed (by system update status)",
-		}, []string{"organization_id", "status"}),
+		}, []string{"organization_id", "fleet", "status"}),
 
 		store:          store,
 		log:            log,
 		ctx:            ctx,
 		tickerInterval: interval,
+		cfg:            cfg,
 	}
 
 	collector.log.Info("Starting device metrics collector with interval", "interval", interval)
@@ -117,7 +118,7 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 	c.devicesUpdateGauge.Reset()
 
 	// Update summary status metrics
-	summaryResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary)
+	summaryResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device summary status counts")
 		return
@@ -129,11 +130,15 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 		if orgIdLabel == "" {
 			orgIdLabel = "unknown"
 		}
-		c.devicesSummaryGauge.WithLabelValues(orgIdLabel, r.Status).Set(float64(r.Count))
+		fleetLabel := r.Fleet
+		if fleetLabel == "" {
+			fleetLabel = "unknown"
+		}
+		c.devicesSummaryGauge.WithLabelValues(orgIdLabel, fleetLabel, r.Status).Set(float64(r.Count))
 	}
 
 	// Update application status metrics
-	applicationResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeApplication)
+	applicationResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeApplication, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device application status counts")
 		return
@@ -145,11 +150,15 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 		if orgIdLabel == "" {
 			orgIdLabel = "unknown"
 		}
-		c.devicesApplicationGauge.WithLabelValues(orgIdLabel, r.Status).Set(float64(r.Count))
+		fleetLabel := r.Fleet
+		if fleetLabel == "" {
+			fleetLabel = "unknown"
+		}
+		c.devicesApplicationGauge.WithLabelValues(orgIdLabel, fleetLabel, r.Status).Set(float64(r.Count))
 	}
 
 	// Update system update status metrics
-	updateResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeUpdate)
+	updateResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeUpdate, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device update status counts")
 		return
@@ -161,7 +170,11 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 		if orgIdLabel == "" {
 			orgIdLabel = "unknown"
 		}
-		c.devicesUpdateGauge.WithLabelValues(orgIdLabel, r.Status).Set(float64(r.Count))
+		fleetLabel := r.Fleet
+		if fleetLabel == "" {
+			fleetLabel = "unknown"
+		}
+		c.devicesUpdateGauge.WithLabelValues(orgIdLabel, fleetLabel, r.Status).Set(float64(r.Count))
 	}
 
 	c.log.WithFields(logrus.Fields{

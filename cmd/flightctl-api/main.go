@@ -169,21 +169,32 @@ func main() {
 		cancel()
 	}()
 
-	if cfg.Prometheus != nil {
+	if cfg.Metrics != nil {
 		go func() {
 			// Create business metrics collectors
-			deviceCollector := business.NewDeviceCollector(ctx, store, log)
-			fleetCollector := business.NewFleetCollector(ctx, store, log)
-			repositoryCollector := business.NewRepositoryCollector(ctx, store, log)
-			resourceSyncCollector := business.NewResourceSyncCollector(ctx, store, log)
+			var collectors []metrics.NamedCollector
+			if cfg.Metrics.DeviceCollector.Enabled {
+				collectors = append(collectors, business.NewDeviceCollector(ctx, store, log, cfg))
+			}
+			if cfg.Metrics.FleetCollector.Enabled {
+				collectors = append(collectors, business.NewFleetCollector(ctx, store, log, cfg))
+			}
+			if cfg.Metrics.RepositoryCollector.Enabled {
+				collectors = append(collectors, business.NewRepositoryCollector(ctx, store, log, cfg))
+			}
+			if cfg.Metrics.ResourceSyncCollector.Enabled {
+				collectors = append(collectors, business.NewResourceSyncCollector(ctx, store, log, cfg))
+			}
+			if cfg.Metrics.SystemCollector.Enabled {
+				collectors = append(collectors, metrics.NewSystemCollector(ctx))
+			}
 
-			metricsServer := instrumentation.NewMetricsServer(log, cfg,
-				metrics.NewSystemCollector(ctx),
-				deviceCollector,
-				fleetCollector,
-				repositoryCollector,
-				resourceSyncCollector,
-			)
+			if len(collectors) == 0 {
+				log.Warn("No collectors enabled")
+				return
+			}
+
+			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
 			if err := metricsServer.Run(ctx); err != nil {
 				log.Fatalf("Error running server: %s", err)
 			}

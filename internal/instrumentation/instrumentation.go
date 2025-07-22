@@ -52,16 +52,16 @@ func NewMetricsServer(
 
 func (m *MetricsServer) Run(ctx context.Context) error {
 	if m.cfg == nil {
-		return fmt.Errorf("metrics server configuration is nil")
+		return fmt.Errorf("configuration is nil")
 	}
-	if m.cfg.Prometheus == nil {
-		return fmt.Errorf("prometheus configuration is missing")
+	if m.cfg.Metrics == nil {
+		return fmt.Errorf("metrics configuration is missing")
 	}
 
-	handler := otelhttp.NewHandler(metrics.NewHandler(m.collectors...), "prometheus-metrics")
+	handler := otelhttp.NewHandler(metrics.NewHandler(m.collectors...), "metrics")
 
 	srv := &http.Server{
-		Addr:         m.cfg.Prometheus.Address,
+		Addr:         m.cfg.Metrics.Address,
 		Handler:      handler,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,

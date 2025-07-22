@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -19,14 +20,13 @@ type FleetCollector struct {
 	mu             sync.RWMutex
 	ctx            context.Context
 	tickerInterval time.Duration
+	cfg            *config.Config
 }
 
 // NewFleetCollector creates a FleetCollector. If tickerInterval is 0, defaults to 30s.
-func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, tickerInterval ...time.Duration) *FleetCollector {
-	interval := 30 * time.Second
-	if len(tickerInterval) > 0 && tickerInterval[0] > 0 {
-		interval = tickerInterval[0]
-	}
+func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *FleetCollector {
+	interval := cfg.Metrics.FleetCollector.TickerInterval
+
 	collector := &FleetCollector{
 		totalFleetsGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "flightctl_fleets_total",
@@ -36,6 +36,7 @@ func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldL
 		log:            log,
 		ctx:            ctx,
 		tickerInterval: interval,
+		cfg:            cfg,
 	}
 
 	collector.log.Info("Starting fleet metrics collector with interval", "interval", interval)
