@@ -1,0 +1,161 @@
+{{- if .Values.global.rbac.create }}
+---
+# ServiceAccount for database migration jobs (needs admin access)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flightctl-db-migration
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    app: flightctl-db-migration
+    security.level: high-privilege
+
+---
+# Role for accessing admin database secrets (superuser only)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-db-admin-access
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    app: flightctl-db-admin
+    security.level: superuser-privilege
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["flightctl-db-admin-secret"]
+  verbs: ["get"]
+
+---
+# Role for accessing migration database secrets (schema changes only)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-db-migration-access
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    app: flightctl-db-migration
+    security.level: schema-privilege
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["flightctl-db-migration-secret"]
+  verbs: ["get"]
+
+---
+# RoleBinding for migration jobs to access both admin and migration secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-db-migration-admin-access
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    app: flightctl-db-migration
+    security.level: superuser-privilege
+subjects:
+- kind: ServiceAccount
+  name: flightctl-db-migration
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+roleRef:
+  kind: Role
+  name: flightctl-db-admin-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# RoleBinding for migration jobs to access migration secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-db-migration-schema-access
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    app: flightctl-db-migration
+    security.level: schema-privilege
+subjects:
+- kind: ServiceAccount
+  name: flightctl-db-migration
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+roleRef:
+  kind: Role
+  name: flightctl-db-migration-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Role for accessing application database secrets in internal namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-db-app-access
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    app: flightctl-db-app
+    security.level: application
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["flightctl-db-app-secret"]
+  verbs: ["get"]
+
+---
+# RoleBinding for internal namespace services to access app secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-db-app-access
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    app: flightctl-db-app
+    security.level: application
+subjects:
+- kind: ServiceAccount
+  name: flightctl-worker
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+- kind: ServiceAccount
+  name: flightctl-periodic
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+- kind: ServiceAccount
+  name: flightctl-alert-exporter
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+roleRef:
+  kind: Role
+  name: flightctl-db-app-access
+  apiGroup: rbac.authorization.k8s.io
+
+{{- if ne .Release.Namespace (default .Release.Namespace .Values.global.internalNamespace) }}
+---
+# Role for accessing application database secrets in release namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-db-app-access
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: flightctl-db-app
+    security.level: application
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["flightctl-db-app-secret"]
+  verbs: ["get"]
+
+---
+# RoleBinding for release namespace services to access app secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-db-app-access
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: flightctl-db-app
+    security.level: application
+subjects:
+- kind: ServiceAccount
+  name: flightctl-api
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: flightctl-db-app-access
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+
+{{- end }}
