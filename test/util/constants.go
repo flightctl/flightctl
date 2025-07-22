@@ -13,17 +13,31 @@ const (
 
 	//resource related
 	ApplyAction    = "apply"
-	DeviceYAMLPath = "device.yaml"
 	DeviceResource = "Device"
 	RepoResource   = "Repository"
 	ErResource     = "EnrollmentRequest"
 	FleetResource  = "Fleet"
+
+	//example yaml names
+	DeviceYAMLName = "device.yaml"
+	FleetYAMLName  = "fleet.yaml"
+	FleetBYAMLName = "fleet-b.yaml"
+	RepoYAMLName   = "repository-flightctl.yaml"
+	ErYAMLName     = "enrollmentrequest.yaml"
 
 	// events
 	ForceFlag    = "-f"
 	EventCreated = "created"
 	EventDeleted = "deleted"
 	EventUpdated = "updated"
+
+	//Event reasons
+	DeviceApplicationError   = "DeviceApplicationError"
+	DeviceApplicationHealthy = "DeviceApplicationHealthy"
+	DeviceSpecInvalid        = "DeviceSpecInvalid"
+	DeviceSpecValid          = "DeviceSpecValid"
+	DeviceContentOutOfDate   = "DeviceContentOutOfDate"
+	DeviceContentUpToDate    = "DeviceContentUpToDate"
 )
 
 var ResourceTypes = [...]string{
