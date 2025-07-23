@@ -32,6 +32,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/experimental"
+	"github.com/flightctl/flightctl/internal/tpm"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -154,8 +155,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	if tpmClient != nil {
 		a.log.Info("Experimental features enabled: registering TPM info collection functions")
-		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
-		systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
+		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
+		systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.AttestationCollector)
 	}
 
 	// create shutdown manager
@@ -356,7 +357,7 @@ func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClie
 	return client, nil
 }
 
-func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) *lifecycle.TpmClient {
+func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) *tpm.Client {
 	if !a.config.TPM.Enabled {
 		a.log.Info("TPM auth is disabled. Skipping TPM setup.")
 		return nil
@@ -368,13 +369,7 @@ func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) *lifecycle.TpmClient {
 	}
 
 	a.log.Info("Experimental features enabled: creating TPM client")
-	tpmClient, err := lifecycle.NewTPMClient(lifecycle.TPMClientConfig{
-		Log:             a.log,
-		DeviceWriter:    writer,
-		PersistencePath: a.config.TPM.PersistencePath,
-		DevicePath:      a.config.TPM.Path,
-		DataDir:         a.config.DataDir,
-	})
+	tpmClient, err := tpm.NewClient(a.log, writer, a.config)
 	if err != nil {
 		a.log.Warnf("Experimental features: TPM initialization failed: %v", err)
 		return nil

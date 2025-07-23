@@ -158,6 +158,11 @@ func NewDefault() *Config {
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
+		TPM: TPM{
+			Enabled: true,
+			Path:    DefaultTPMDevicePath,
+			PersistencePath: filepath.Join(DefaultDataDir, DefaultTPMKeyBlobFile),
+		},
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -348,6 +353,11 @@ func mergeConfigs(base, override *Config) {
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
 	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
 	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+
+	// tpm
+	overrideIfNotEmpty(&base.TPM.Enabled, override.TPM.Enabled)
+	overrideIfNotEmpty(&base.TPM.Path, override.TPM.Path)
+	overrideIfNotEmpty(&base.TPM.PersistencePath, override.TPM.PersistencePath)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
