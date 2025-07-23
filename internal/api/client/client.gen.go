@@ -5184,6 +5184,7 @@ type DeleteEnrollmentRequestResponse struct {
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
+	JSON409      *Status
 	JSON503      *Status
 }
 
@@ -8259,6 +8260,13 @@ func ParseDeleteEnrollmentRequestResponse(rsp *http.Response) (*DeleteEnrollment
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
