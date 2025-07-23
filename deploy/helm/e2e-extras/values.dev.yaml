@@ -2,7 +2,6 @@ global:
   nodePorts:
     registry: 5000
     gitserver: 3222
-    prometheus: 9090
     jaegerUi: 16686
 registry:
   image: quay.io/flightctl/e2eregistry:2

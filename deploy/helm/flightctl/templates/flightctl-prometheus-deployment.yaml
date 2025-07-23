@@ -1,0 +1,68 @@
+{{- if and .Values.otelCollector.enabled .Values.otelCollector.prometheus.enabled (ne .Values.global.target "acm") }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-prometheus
+  name: flightctl-prometheus
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-prometheus
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-prometheus
+    spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      containers:
+        - name: flightctl-prometheus
+          image: {{ .Values.otelCollector.prometheus.image.image }}:{{ .Values.otelCollector.prometheus.image.tag | default "latest" }}
+          imagePullPolicy: {{ .Values.otelCollector.prometheus.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 9090
+              name: service-api
+              protocol: TCP
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --web.console.libraries=/etc/prometheus/console_libraries
+            - --web.console.templates=/etc/prometheus/consoles
+            - --storage.tsdb.retention.time=200h
+            - --web.enable-lifecycle
+          volumeMounts:
+            - mountPath: /etc/prometheus/prometheus.yml
+              name: flightctl-prometheus-config
+              subPath: prometheus.yml
+            - mountPath: /prometheus
+              name: prometheus-data
+          resources:
+            {{- toYaml .Values.otelCollector.prometheus.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-prometheus-config
+          configMap:
+            name: flightctl-prometheus-config
+        - name: prometheus-data
+          emptyDir: {}
+{{- end }} 

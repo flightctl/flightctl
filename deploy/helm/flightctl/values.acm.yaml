@@ -15,4 +15,10 @@ alertmanager:
   image:
     image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
     tag: v2.13.2
-
+otelCollector:
+  enabled: true
+  image:
+    image: registry.redhat.io/rhacm2/prometheus-otel-collector-rhel9
+    tag: v0.100.0
+  prometheus:
+    enabled: false

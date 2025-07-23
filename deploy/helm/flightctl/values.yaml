@@ -73,6 +73,9 @@ global:
     ui: 9000
     keycloak: 8081
     alertmanagerProxy: 8443
+    otelCollector: 9464
+    otelCollectorOtlp: 4317
+    prometheus: 9090
   gatewayPorts:
     tls: 443
     http: 80
@@ -194,8 +197,52 @@ alertmanagerProxy:
     image: quay.io/flightctl/flightctl-alertmanager-proxy
     tag: ""
     pullPolicy: ""
-prometheus:
-  enabled: false
+otelCollector:
+  enabled: true  # Disabled by default - enable only when certificates are provided
+  image:
+    image: quay.io/flightctl/flightctl-otel-collector
+    tag: ""
+    pullPolicy: ""
+  service:
+    logLevel: info
+  config:
+    otlp:
+      endpoint: "0.0.0.0:4317"
+      tls:
+        certFile: "/etc/otel-collector/certs/server.crt"
+        keyFile: "/etc/otel-collector/certs/server.key"
+        clientCAFile: "/etc/otel-collector/certs/ca.crt"
+      auth:
+        authenticator: "cnauthenticator"
+    prometheus:
+      endpoint: "0.0.0.0:8889"
+    extensions:
+      cnauthenticator:
+        printCN: true
+        logLevel: "info"
+    processors:
+      deviceid: {}
+    pipelines:
+      metrics:
+        receivers: ["otlp"]
+        processors: ["deviceid", "transform"]
+        exporters: ["prometheus"]
+  prometheus:
+    enabled: true  
+    image:
+      image: quay.io/prometheus/prometheus
+      tag: "v2.54.1"
+      pullPolicy: ""
+    config:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
 ui:
   enabled: true
   api:

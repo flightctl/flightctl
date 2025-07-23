@@ -153,7 +153,8 @@ build: bin build-cli
 		./cmd/flightctl-alertmanager-proxy \
 		./cmd/flightctl-userinfo-proxy \
 		./cmd/flightctl-db-migrate \
-		./cmd/flightctl-restore 
+		./cmd/flightctl-restore \
+		./cmd/flightctl-otel-collector
 
 bin/flightctl-agent: bin $(GO_FILES)
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
@@ -190,6 +191,9 @@ build-alertmanager-proxy: bin
 
 build-userinfo-proxy: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-userinfo-proxy
+
+build-otel-collector: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-otel-collector
 
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
@@ -252,6 +256,13 @@ flightctl-userinfo-proxy-container: Containerfile.userinfo-proxy go.mod go.sum $
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.userinfo-proxy -t flightctl-userinfo-proxy:latest
 
+flightctl-otel-collector-container: Containerfile.otel-collector go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-otel-collector) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.otel-collector -t flightctl-otel-collector:latest
+
 .PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
 
 # --- Registry Operations ---
@@ -295,8 +306,9 @@ clean-containers:
 	- podman rmi flightctl-alertmanager-proxy:latest || true
 	- podman rmi flightctl-cli-artifacts:latest || true
 	- podman rmi flightctl-userinfo-proxy:latest || true
+	- podman rmi flightctl-otel-collector:latest || true
 
-build-containers: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
+build-containers: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-otel-collector-container
 
 .PHONY: build-containers build-cli build-multiarch-clis
 
@@ -355,7 +367,7 @@ clean-all: clean clean-containers
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
-.PHONY: tools flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container
+.PHONY: tools flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-otel-collector-container
 
 tools: $(GOBIN)/golangci-lint
 
