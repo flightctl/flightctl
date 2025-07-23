@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -70,14 +72,33 @@ func (r *redisProvider) newQueue(queueName string) (*redisQueue, error) {
 	if r.stopped.Load() {
 		return nil, errors.New("provider is stopped")
 	}
+
 	queue := &redisQueue{
-		name:   queueName,
-		client: r.client,
-		log:    r.log,
-		wg:     r.wg,
+		name:       queueName,
+		client:     r.client,
+		log:        r.log,
+		wg:         r.wg,
+		consumerID: uuid.New().String(),
 	}
+
+	// Ensure consumer group exists (use queue name as group name)
+	// Ignore error if group already exists
+	ctx := context.Background()
+	err := r.client.XGroupCreateMkStream(ctx, queueName, queueName, "0").Err()
+	if err != nil && !errors.Is(err, redis.Nil) && !isBusyGroupError(err) {
+		return nil, fmt.Errorf("failed to create consumer group: %w", err)
+	}
+
 	r.queues = append(r.queues, queue)
 	return queue, nil
+}
+
+// isBusyGroupError checks if the error is a BUSYGROUP error from Redis
+func isBusyGroupError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "BUSYGROUP")
 }
 
 func (r *redisProvider) NewConsumer(queueName string) (Consumer, error) {
@@ -103,11 +124,12 @@ func (r *redisProvider) Wait() {
 }
 
 type redisQueue struct {
-	client *redis.Client
-	name   string
-	log    logrus.FieldLogger
-	wg     *sync.WaitGroup
-	closed atomic.Bool
+	client     *redis.Client
+	name       string
+	log        logrus.FieldLogger
+	wg         *sync.WaitGroup
+	closed     atomic.Bool
+	consumerID string
 }
 
 func (r *redisQueue) Publish(ctx context.Context, payload []byte) error {
@@ -163,10 +185,12 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 	ctx, parentSpan := instrumentation.StartSpan(ctx, "flightctl/queues", r.name)
 	defer parentSpan.End()
 
-	msgs, err := r.client.XRead(ctx, &redis.XReadArgs{
-		Streams: []string{r.name, "0"},
-		Count:   1,
-		Block:   0,
+	msgs, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    r.name,
+		Consumer: r.consumerID,
+		Streams:  []string{r.name, ">"}, // ">" means new messages only
+		Count:    1,
+		Block:    0,
 	}).Result()
 	if err != nil {
 		parentSpan.RecordError(err)
@@ -214,12 +238,12 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 				handlerSpan.RecordError(err)
 				handlerSpan.SetStatus(codes.Error, "unexpected body type")
 
-				// Attempt to delete the bad message
-				if _, delErr := r.client.XDel(ctx, r.name, entry.ID).Result(); delErr != nil {
-					parentSpan.RecordError(delErr)
-					parentSpan.SetStatus(codes.Error, delErr.Error())
+				// Acknowledge the bad message to remove it from pending
+				if err := r.client.XAck(ctx, r.name, r.name, entry.ID).Err(); err != nil {
+					parentSpan.RecordError(err)
+					parentSpan.SetStatus(codes.Error, err.Error())
 					handlerSpan.End()
-					return fmt.Errorf("failed to delete message ID %s after body type error: %w", entry.ID, delErr)
+					return fmt.Errorf("failed to acknowledge message ID %s after body type error: %w", entry.ID, err)
 				}
 
 				handlerSpan.End()
@@ -234,12 +258,12 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 				handlerErrs = append(handlerErrs, fmt.Errorf("handler error on ID %s: %w", entry.ID, err))
 			}
 
-			// Always attempt to delete the message
-			if _, err := r.client.XDel(ctx, r.name, entry.ID).Result(); err != nil {
+			// Always acknowledge the message to remove it from the stream
+			if err := r.client.XAck(ctx, r.name, r.name, entry.ID).Err(); err != nil {
 				parentSpan.RecordError(err)
 				parentSpan.SetStatus(codes.Error, err.Error())
 				handlerSpan.End()
-				return fmt.Errorf("failed to delete message ID %s: %w", entry.ID, err)
+				return fmt.Errorf("failed to acknowledge message ID %s: %w", entry.ID, err)
 			}
 
 			handlerSpan.End()

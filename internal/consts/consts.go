@@ -9,7 +9,8 @@ const (
 	GrpcSelectedProtocolKey = "selected-protocol"
 
 	// Tasks
-	TaskQueue = "task-queue"
+	TaskQueue         = "task-queue"
+	PeriodicTaskQueue = "periodic-task-queue"
 
 	// Ctx
 	InternalRequestCtxKey      ctxKey = "internal-request"
