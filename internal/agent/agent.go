@@ -2,10 +2,8 @@ package agent
 
 import (
 	"context"
-	"crypto"
 	"encoding/base32"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,7 +29,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	baseconfig "github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/experimental"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -75,12 +72,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
-	// ensure the agent key exists if not create it.
-	if !a.config.ManagementService.Config.HasCredentials() {
-		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
-		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
-	}
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
+	// determine device identity source and ensure keys
+	publicKey, privateKeySigner, err := newIdentityProvider(a.log, a.config, deviceReadWriter).EnsureIdentity()
 	if err != nil {
 		return err
 	}
@@ -91,7 +84,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	deviceName := strings.ToLower(base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(publicKeyHash))
-	csr, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), deviceName)
+	csr, err := fcrypto.MakeCSR(privateKeySigner, deviceName)
 	if err != nil {
 		return err
 	}
@@ -142,24 +135,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// generate tpm client only if experimental features are enabled
-	experimentalFeatures := experimental.NewFeatures()
-	if experimentalFeatures.IsEnabled() {
-		a.log.Warn("Experimental features enabled: creating TPM client")
+	// generate tpm client and register collectors if TPM is enabled
+	if !a.config.DisableTPM {
 		tpmClient, err := lifecycle.NewTpmClient(a.log)
 		if err != nil {
-			a.log.Warnf("Experimental feature: tpm is not available: %v", err)
-		} else {
-			a.log.Warn("Experimental features enabled: registering TPM info collection functions")
-			err := tpmClient.UpdateNonce(make([]byte, 8))
-			if err != nil {
-				a.log.Errorf("Unable to update nonce in tpm client: %v", err)
-			}
-			systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
-			systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
+			return err
 		}
-	} else {
-		a.log.Debug("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
+		if err := tpmClient.UpdateNonce(make([]byte, 8)); err != nil {
+			a.log.Errorf("Unable to update nonce in tpm client: %v", err)
+		}
+		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
+		systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
 	}
 
 	// create shutdown manager

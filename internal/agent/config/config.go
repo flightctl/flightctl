@@ -76,6 +76,9 @@ type Config struct {
 	// TPMPath is the path to the TPM device
 	TPMPath string `json:"tpm-path,omitempty"`
 
+	// DisableTPM is a flag to disable TPM 2.0 for device identity
+	DisableTPM bool `json:"disable-tpm,omitempty"`
+
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
 	LogLevel string `json:"log-level,omitempty"`
@@ -145,6 +148,7 @@ func NewDefault() *Config {
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
+		DisableTPM:           true,
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -335,6 +339,9 @@ func mergeConfigs(base, override *Config) {
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
 	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
 	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+
+	// tpm
+	overrideIfNotEmpty(&base.DisableTPM, override.DisableTPM)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
