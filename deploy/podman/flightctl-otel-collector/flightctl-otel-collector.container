@@ -1,0 +1,19 @@
+[Unit]
+Description=Flight Control OpenTelemetry Collector service
+PartOf=flightctl.target
+
+[Container]
+ContainerName=flightctl-otel-collector
+Image=quay.io/flightctl/flightctl-otel-collector:latest
+Pull=newer
+Network=flightctl.network
+Environment=HOME=/root
+Volume=/usr/share/flightctl/flightctl-otel-collector/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/otel-collector/certs:/etc/otel-collector/certs:ro,z
+
+[Service]
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target 
