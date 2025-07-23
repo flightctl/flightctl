@@ -1,0 +1,45 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+  hostmetrics:
+    collection_interval: 3s
+    scrapers:
+      cpu:
+      disk:
+      load:
+      memory:
+      network:
+      paging:
+      process:
+
+processors:
+  batch:
+
+exporters:
+  # For debugging: exports data to standard output, which systemd captures.
+  # You can view logs with: journalctl -u otel-collector -f
+  debug:
+    verbosity: detailed
+  
+  # OTLP exporter to send data to another collector with mTLS
+  otlp:
+    endpoint: "10.100.102.70:4317"
+    tls:
+      ca_file: /etc/flightctl/certs/ca.crt
+      cert_file: /etc/otel-collector/certs/otel-collector.crt
+      key_file: /etc/otel-collector/certs/otel-collector.key
+      insecure: false
+  
+  # Prometheus exporter for testing - exposes metrics on HTTP endpoint
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "flightctl"
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp,hostmetrics]
+      processors: [batch]
+      exporters: [debug, prometheus,otlp]

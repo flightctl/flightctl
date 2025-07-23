@@ -169,6 +169,42 @@ uid
 idp
 systemctl
 enablement
+pre-created
+pre-configured
+filenames
+permissions
+deployment
+deployments
+package
+installation
+secrets
+created
+required
+restarted
+mounted
+volume
+CrashLoopBackOff
+ConfigMap
+pre-created
+pre-configured
+filenames
+permissions
+deployment
+deployments
+package
+installation
+secrets
+created
+required
+restarted
+mounted
+volume
+Read-only
+Systemd
+quadlets
+mounts
+SELinux
+Rollouts
 tcg
 EK
 pre-installed
@@ -334,3 +370,4 @@ TN1330
 - docs/user/metrics.md
 sloMax
 SLO
+Rollouts- docs/user/otel-collector.md

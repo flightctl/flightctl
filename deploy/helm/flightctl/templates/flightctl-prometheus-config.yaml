@@ -1,0 +1,50 @@
+{{- if and .Values.otelCollector.enabled .Values.otelCollector.prometheus.enabled (ne .Values.global.target "acm") }}
+{{- /* Extract prometheus port from endpoint configuration */ -}}
+{{- $prometheusPort := "8889" -}}
+{{- if .Values.otelCollector.config.prometheus.endpoint -}}
+{{- $endpointStr := .Values.otelCollector.config.prometheus.endpoint -}}
+{{- if contains ":" $endpointStr -}}
+{{- $prometheusPort = (split ":" $endpointStr)._1 -}}
+{{- end -}}
+{{- end -}}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-prometheus-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    flightctl.service: flightctl-prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.otelCollector.prometheus.config.scrape_interval }}
+      evaluation_interval: {{ .Values.otelCollector.prometheus.config.evaluation_interval }}
+
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      - job_name: 'opentelemetry-collector'
+        static_configs:
+          - targets: ['flightctl-otel-collector:{{ $prometheusPort }}']
+        relabel_configs:
+          - source_labels: [__address__]
+            regex: '([^:]+)(?::\d+)?'
+            target_label: instance
+            replacement: '$1'
+
+      - job_name: 'flightctl-services'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            action: keep
+            regex: 1569[0-2]
+          - source_labels: [__meta_kubernetes_pod_label_flightctl_service]
+            action: keep
+            regex: .+
+        scheme: http
+{{- end }} 

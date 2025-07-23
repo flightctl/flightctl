@@ -19,15 +19,16 @@ const (
 )
 
 type Config struct {
-	Database     *dbConfig           `json:"database,omitempty"`
-	Service      *svcConfig          `json:"service,omitempty"`
-	KV           *kvConfig           `json:"kv,omitempty"`
-	Alertmanager *alertmanagerConfig `json:"alertmanager,omitempty"`
-	Auth         *authConfig         `json:"auth,omitempty"`
-	Metrics      *metricsConfig      `json:"metrics,omitempty"`
-	CA           *ca.Config          `json:"ca,omitempty"`
-	Tracing      *tracingConfig      `json:"tracing,omitempty"`
-	GitOps       *gitOpsConfig       `json:"gitOps,omitempty"`
+	Database      *dbConfig            `json:"database,omitempty"`
+	Service       *svcConfig           `json:"service,omitempty"`
+	KV            *kvConfig            `json:"kv,omitempty"`
+	Alertmanager  *alertmanagerConfig  `json:"alertmanager,omitempty"`
+	Auth          *authConfig          `json:"auth,omitempty"`
+	Metrics       *metricsConfig       `json:"metrics,omitempty"`
+	CA            *ca.Config           `json:"ca,omitempty"`
+	Tracing       *tracingConfig       `json:"tracing,omitempty"`
+	GitOps        *gitOpsConfig        `json:"gitOps,omitempty"`
+	OTelCollector *otelCollectorConfig `json:"otelCollector,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -167,6 +168,104 @@ type tracingConfig struct {
 	Insecure bool   `json:"insecure,omitempty"`
 }
 
+// OpenTelemetry Collector configuration types
+type otelCollectorConfig struct {
+	// OTLP receiver configuration
+	OTLP *otelOTLPConfig `json:"otlp,omitempty"`
+
+	// Prometheus exporter configuration
+	Prometheus *otelPrometheusConfig `json:"prometheus,omitempty"`
+
+	// Custom extensions configuration
+	Extensions *otelExtensionsConfig `json:"extensions,omitempty"`
+
+	// Pipeline configuration
+	Pipelines *otelPipelinesConfig `json:"pipelines,omitempty"`
+
+	// Processors configuration
+	Processors *otelProcessorsConfig `json:"processors,omitempty"`
+}
+
+// Processors configuration for OpenTelemetry collector
+type otelProcessorsConfig struct {
+	// Device ID processor configuration
+	DeviceID *otelProcessorConfig `json:"deviceid,omitempty"`
+}
+
+// Device ID processor configuration
+type otelProcessorConfig struct {
+	// Whether to enable the processor
+}
+
+// OTLP receiver configuration
+type otelOTLPConfig struct {
+	// gRPC endpoint for OTLP receiver
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// TLS configuration for mTLS
+	TLS *otelTLSConfig `json:"tls,omitempty"`
+
+	// Authentication configuration
+	Auth *otelAuthConfig `json:"auth,omitempty"`
+}
+
+// TLS configuration for OpenTelemetry collector
+type otelTLSConfig struct {
+	// Server certificate file path
+	CertFile string `json:"certFile,omitempty"`
+
+	// Server private key file path
+	KeyFile string `json:"keyFile,omitempty"`
+
+	// Client CA certificate file path
+	ClientCAFile string `json:"clientCAFile,omitempty"`
+}
+
+// Authentication configuration for OpenTelemetry collector
+type otelAuthConfig struct {
+	// Authenticator to use (e.g., "cnauthenticator")
+	Authenticator string `json:"authenticator,omitempty"`
+}
+
+// Prometheus exporter configuration for OpenTelemetry collector
+type otelPrometheusConfig struct {
+	// Endpoint where Prometheus metrics will be exposed
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
+// Extensions configuration for OpenTelemetry collector
+type otelExtensionsConfig struct {
+	// CN Authenticator configuration
+	CNAuthenticator *otelCNAuthenticatorConfig `json:"cnauthenticator,omitempty"`
+}
+
+// CN Authenticator configuration for OpenTelemetry collector
+type otelCNAuthenticatorConfig struct {
+	// Whether to print CN information
+	PrintCN bool `json:"printCN,omitempty"`
+
+	// Log level for the authenticator
+	LogLevel string `json:"logLevel,omitempty"`
+}
+
+// Pipelines configuration for OpenTelemetry collector
+type otelPipelinesConfig struct {
+	// Metrics pipeline configuration
+	Metrics *otelPipelineConfig `json:"metrics,omitempty"`
+}
+
+// Pipeline configuration for OpenTelemetry collector
+type otelPipelineConfig struct {
+	// Receivers to use in the pipeline
+	Receivers []string `json:"receivers,omitempty"`
+
+	// Processors to use in the pipeline
+	Processors []string `json:"processors,omitempty"`
+
+	// Exporters to use in the pipeline
+	Exporters []string `json:"exporters,omitempty"`
+}
+
 type gitOpsConfig struct {
 	// IgnoreResourceUpdates lists JSON pointer paths that should be ignored
 	// when comparing desired vs. live resources during GitOps sync.
@@ -287,6 +386,38 @@ func NewDefault(opts ...ConfigOption) *Config {
 		GitOps: &gitOpsConfig{
 			IgnoreResourceUpdates: []string{
 				"/metadata/resourceVersion",
+			},
+		},
+		OTelCollector: &otelCollectorConfig{
+			OTLP: &otelOTLPConfig{
+				Endpoint: "0.0.0.0:4317",
+				TLS: &otelTLSConfig{
+					CertFile:     "/etc/otel-collector/certs/server.crt",
+					KeyFile:      "/etc/otel-collector/certs/server.key",
+					ClientCAFile: "/etc/otel-collector/certs/ca.crt",
+				},
+				Auth: &otelAuthConfig{
+					Authenticator: "cnauthenticator",
+				},
+			},
+			Prometheus: &otelPrometheusConfig{
+				Endpoint: "0.0.0.0:8889",
+			},
+			Extensions: &otelExtensionsConfig{
+				CNAuthenticator: &otelCNAuthenticatorConfig{
+					PrintCN:  true,
+					LogLevel: "info",
+				},
+			},
+			Processors: &otelProcessorsConfig{
+				DeviceID: &otelProcessorConfig{},
+			},
+			Pipelines: &otelPipelinesConfig{
+				Metrics: &otelPipelineConfig{
+					Receivers:  []string{"otlp"},
+					Processors: []string{"deviceid", "transform"},
+					Exporters:  []string{"prometheus"},
+				},
 			},
 		},
 	}

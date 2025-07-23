@@ -6,6 +6,10 @@ You can access the Flight Control UI at {{ include "flightctl.getUIUrl" . }}
 {{- end }}
 You can access the Flight Control API at {{ include "flightctl.getApiUrl" . }}
 
+{{- if .Values.otelCollector.enabled }}
+You can access the OpenTelemetry Collector at {{ include "flightctl.getOtelCollectorUrl" . }}
+{{- end }}
+
 {{- if and (eq .Values.global.auth.type "builtin") (not (eq .Values.global.target "acm")) }}
 A demo user "demouser" has been created for you. You can retrieve its password by running:
 

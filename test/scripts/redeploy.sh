@@ -23,8 +23,11 @@ case $IMAGE in
     alertmanager-proxy)
         NAMESPACE=flightctl-internal
         ;;
+    otel-collector)
+        NAMESPACE=flightctl-internal
+        ;;
 
-    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy>"
+    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|otel-collector>"
        exit 1
 esac
 
