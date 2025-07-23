@@ -287,3 +287,17 @@ Redis
 registry.redhat.io
 TCP
 UserInfo
+- docs/user/database-migration.md
+CREATEDB
+CREATEROLE
+DDL
+quadlet
+misconfigured
+- docs/user/security-guidelines.md
+journald
+quadlets
+Sanitization
+SELinux
+SNI
+SSO
+VPN

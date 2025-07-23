@@ -8,6 +8,7 @@ Description=Flight Control Services Group
 # additional directives defined within the .container files
 Wants=flightctl-network.service
 Wants=flightctl-db.service
+Wants=flightctl-db-migrate.service
 Wants=flightctl-kv.service
 Wants=flightctl-api-init.service
 Wants=flightctl-api.service
@@ -25,6 +26,7 @@ Wants=flightctl-cli-artifacts.service
 After=network.target
 After=flightctl-network.service
 After=flightctl-db.service
+After=flightctl-db-migrate.service
 After=flightctl-kv.service
 After=flightctl-api-init.service
 After=flightctl-api.service

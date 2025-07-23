@@ -167,9 +167,9 @@ func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (s
 	}
 
 	dbStore := store.NewStore(db, log.WithField("pkg", "store"))
-	err = dbStore.InitialMigration(ctx)
+	err = dbStore.RunMigrations(ctx)
 	if err != nil {
-		return nil, "", fmt.Errorf("NewTestStore: performing initial migration: %w", err)
+		return nil, "", fmt.Errorf("NewTestStore: performing migrations: %w", err)
 	}
 
 	return dbStore, randomDBName, nil

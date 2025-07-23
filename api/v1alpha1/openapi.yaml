@@ -5104,6 +5104,7 @@ components:
             - DeviceApplicationDegraded
             - DeviceApplicationHealthy
             - DeviceDisconnected
+            - DeviceIsRebooting
             - DeviceConnected
             - DeviceContentUpToDate
             - DeviceContentOutOfDate

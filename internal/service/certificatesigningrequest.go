@@ -129,11 +129,9 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, &csr)
+	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, &csr, h.eventCallback)
 	if err != nil {
-		status := StoreErrorToApiStatus(err, true, api.CertificateSigningRequestKind, csr.Metadata.Name)
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.CertificateSigningRequestKind, *csr.Metadata.Name, status, nil, h.log))
-		return nil, status
+		return nil, StoreErrorToApiStatus(err, true, api.CertificateSigningRequestKind, csr.Metadata.Name)
 	}
 
 	if result.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
@@ -144,19 +142,14 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.CertificateSigningRequestKind, *csr.Metadata.Name, api.StatusCreated(), nil, h.log))
 	return result, api.StatusCreated()
 }
 
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	deleted, err := h.store.CertificateSigningRequest().Delete(ctx, orgId, name)
-	status := StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
-	if deleted || err != nil {
-		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.CertificateSigningRequestKind, name, status, h.log))
-	}
-	return status
+	err := h.store.CertificateSigningRequest().Delete(ctx, orgId, name, h.eventDeleteCallback)
+	return StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 }
 
 func (h *ServiceHandler) GetCertificateSigningRequest(ctx context.Context, name string) (*api.CertificateSigningRequest, api.Status) {
@@ -209,11 +202,9 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	result, updatedDesc, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj)
+	result, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj, h.eventDeleteCallback)
 	if err != nil {
-		status := StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.CertificateSigningRequestKind, name, status, &updatedDesc, h.log))
-		return nil, status
+		return nil, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 	}
 
 	if result.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
@@ -223,7 +214,6 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 		h.signApprovedCertificateSigningRequest(ctx, orgId, result)
 	}
 
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.CertificateSigningRequestKind, name, api.StatusOK(), &updatedDesc, h.log))
 	return result, api.StatusOK()
 }
 
@@ -262,11 +252,9 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	result, created, updatedDesc, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, &csr)
+	result, created, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, &csr, h.eventCallback)
 	if err != nil {
-		status := StoreErrorToApiStatus(err, created, api.CertificateSigningRequestKind, &name)
-		h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.CertificateSigningRequestKind, name, status, &updatedDesc, h.log))
-		return nil, status
+		return nil, StoreErrorToApiStatus(err, created, api.CertificateSigningRequestKind, &name)
 	}
 
 	if result.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
