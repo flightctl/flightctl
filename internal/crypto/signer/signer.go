@@ -29,6 +29,7 @@ type CA interface {
 	PeerCertificateSignerFromCtx(ctx context.Context) Signer
 	IssueRequestedClientCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error)
 	IssueRequestedServerCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error)
+	IssueRequestedServerOnlyCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error)
 }
 
 type CASigners struct {
@@ -64,6 +65,13 @@ func NewCASigners(ca CA) *CASigners {
 					),
 				),
 			),
+			cfg.ServerSvcSignerName: WithSignerNameValidation(
+				WithCertificateReuse(
+					WithCSRValidation(
+						WithSignerNameExtension(NewSignerServerSvc, ca),
+					),
+				),
+			),
 		},
 	}
 
@@ -92,9 +100,10 @@ func (s *CASigners) GetSigner(name string) Signer {
 }
 
 type chainSignerCA struct {
-	next                            CA
-	issueRequestedClientCertificate func(context.Context, *x509.CertificateRequest, int, ...certOption) ([]byte, error)
-	issueRequestedServerCertificate func(context.Context, *x509.CertificateRequest, int, ...certOption) ([]byte, error)
+	next                                CA
+	issueRequestedClientCertificate     func(context.Context, *x509.CertificateRequest, int, ...certOption) ([]byte, error)
+	issueRequestedServerCertificate     func(context.Context, *x509.CertificateRequest, int, ...certOption) ([]byte, error)
+	issueRequestedServerOnlyCertificate func(context.Context, *x509.CertificateRequest, int, ...certOption) ([]byte, error)
 }
 
 type chainSigner struct {
@@ -128,6 +137,13 @@ func (s *chainSignerCA) IssueRequestedServerCertificate(ctx context.Context, csr
 		return s.issueRequestedServerCertificate(ctx, csr, expirySeconds, opts...)
 	}
 	return s.next.IssueRequestedServerCertificate(ctx, csr, expirySeconds, opts...)
+}
+
+func (s *chainSignerCA) IssueRequestedServerOnlyCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error) {
+	if s.issueRequestedServerOnlyCertificate != nil {
+		return s.issueRequestedServerOnlyCertificate(ctx, csr, expirySeconds, opts...)
+	}
+	return s.next.IssueRequestedServerOnlyCertificate(ctx, csr, expirySeconds, opts...)
 }
 
 func (s *chainSigner) Name() string {
