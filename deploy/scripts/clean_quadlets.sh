@@ -33,7 +33,7 @@ clean_files() {
 
 clean_volumes() {
     # Remove volumes
-    for volume in flightctl-db flightctl-api-certs flightctl-kv flightctl-ui-certs flightctl-cli-artifacts-certs flightctl-alertmanager flightctl-alertmanager-proxy flightctl-alert-exporter; do
+    for volume in flightctl-db flightctl-api-certs flightctl-kv flightctl-ui-certs flightctl-cli-artifacts-certs flightctl-alertmanager flightctl-alertmanager-proxy flightctl-alert-exporter flightctl-otel-collector; do
         if podman volume inspect "$volume" >/dev/null 2>&1; then
             echo "Removing volume $volume"
             podman volume rm "$volume" || echo "Warning: Failed to remove volume $volume"
