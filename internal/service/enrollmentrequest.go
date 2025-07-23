@@ -222,17 +222,11 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	// Check if a device exists with the same name as the enrollment request
-	device, err := h.store.Device().Get(ctx, orgId, name)
-	if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {
-		return api.StatusInternalServerError(fmt.Sprintf("error checking for device with name %s: %v", name, err))
-	}
-	// If a device exists, allow deletion only when it is fully decommissioned
-	if device != nil && !device.IsDecommissioned() {
-		return api.StatusConflict(fmt.Sprintf("cannot delete enrollment request %s: device with same name exists and is not decommissioned", name))
+	if st, blocked := h.blockedByActiveDevice(ctx, name); blocked {
+		return st
 	}
 
-	err = h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.eventDeleteCallback)
+	err := h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.eventDeleteCallback)
 	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
@@ -317,6 +311,24 @@ func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.U
 		return flterrors.ErrDuplicateName // Duplicate name: creation blocked
 	}
 	return err
+}
+
+func (h *ServiceHandler) blockedByActiveDevice(ctx context.Context, name string) (api.Status, bool) { // status, blocked?
+	dev, err := h.store.Device().Get(ctx, store.NullOrgId, name)
+
+	switch {
+	case errors.Is(err, flterrors.ErrResourceNotFound):
+		return api.Status{}, false
+
+	case err != nil:
+		return api.StatusInternalServerError(
+			fmt.Sprintf("checking device %q: %v", name, err)), true
+
+	case !dev.IsDecommissioned():
+		return api.StatusConflict(
+			fmt.Sprintf("cannot delete ER %q: device exists and isn’t decommissioned", name)), true
+	}
+	return api.Status{}, false
 }
 
 func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {

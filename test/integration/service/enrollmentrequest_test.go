@@ -362,7 +362,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			By("attempting to delete the EnrollmentRequest")
 			status = suite.Handler.DeleteEnrollmentRequest(suite.Ctx, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
-			Expect(status.Message).To(ContainSubstring("device with same name exists and is not decommissioned"))
+			Expect(status.Message).To(ContainSubstring("device exists"))
 
 			By("verifying the EnrollmentRequest still exists")
 			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
