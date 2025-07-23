@@ -529,7 +529,7 @@ echo "Flightctl Observability Stack uninstalled."
 %selinux_relabel_pre -s %{selinuxtype}
 
 %post selinux
-# Install SELinux module - fail RPM installation if this fails
+# Install SELinux module - if this fails, RPM installation will still continue
 if ! semodule -s %{selinuxtype} -i %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2; then
     echo "ERROR: Failed to install flightctl SELinux policy (AST failure or compatibility issue)" >&2
     exit 1
