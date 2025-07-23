@@ -69,6 +69,10 @@ const (
 	EventAPIVersion = "v1alpha1"
 	EventKind       = "Event"
 	EventListKind   = "EventList"
+
+	OrganizationAPIVersion = "v1alpha1"
+	OrganizationKind       = "Organization"
+	OrganizationListKind   = "OrganizationList"
 )
 
 type UpdateState string
