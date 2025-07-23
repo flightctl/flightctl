@@ -1743,6 +1743,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
