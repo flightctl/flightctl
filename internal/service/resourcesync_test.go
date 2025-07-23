@@ -61,7 +61,7 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	serviceHandler := ServiceHandler{
 		store: &TestStore{},
 	}
-	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &resourceSync)
+	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &resourceSync, serviceHandler.eventCallback)
 	require.NoError(err)
 	_, status := serviceHandler.ReplaceResourceSync(ctx,
 		"01234567890123456789012345678901234567890123456789012345678901234567890123456789",
@@ -204,10 +204,10 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 	}
 	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &api.ResourceSync{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
-	})
+	}, serviceHandler.eventCallback)
 	require.NoError(err)
 	_, status := serviceHandler.PatchResourceSync(ctx, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
-	require.Len(event.Items, 0)
+	require.NotEmpty(event.Items)
 }

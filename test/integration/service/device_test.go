@@ -1,57 +1,30 @@
 package service_test
 
 import (
-	"context"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
-	flightlog "github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/queues"
-	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
-	"go.uber.org/mock/gomock"
 )
 
 var _ = Describe("Device Application Status Events Integration Tests", func() {
 	var (
-		log             *logrus.Logger
-		ctx             context.Context
-		orgId           uuid.UUID
-		storeInst       store.Store
-		serviceHandler  service.Service
-		cfg             *config.Config
-		dbName          string
-		ctrl            *gomock.Controller
-		mockPublisher   *queues.MockPublisher
-		callbackManager tasks_client.CallbackManager
+		suite *ServiceTestSuite
+		orgId uuid.UUID
 	)
 
 	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		suite = NewServiceTestSuite()
+		suite.Setup()
 		orgId = store.NullOrgId // Use the same orgId as the service
-		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
-
-		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
-		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		suite.Teardown()
 	})
 
 	// Helper function to get events for a specific device
@@ -61,7 +34,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			SortColumns: []store.SortColumn{store.SortByCreatedAt, store.SortByName},
 			SortOrder:   lo.ToPtr(store.SortDesc),
 		}
-		eventList, err := storeInst.Event().List(ctx, orgId, listParams)
+		eventList, err := suite.Store.Event().List(suite.Ctx, orgId, listParams)
 		Expect(err).ToNot(HaveOccurred())
 
 		var matchingEvents []api.Event
@@ -110,7 +83,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device through the service (this simulates device enrollment)
-			_, status := serviceHandler.CreateDevice(ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
 			if status.Code != 201 {
 				GinkgoWriter.Printf("CreateDevice failed with status: %+v\n", status)
 			}
@@ -174,7 +147,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service (this simulates agent reporting back)
-			resultDevice, status := serviceHandler.ReplaceDeviceStatus(ctx, deviceName, updatedDevice)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusError))
@@ -218,7 +191,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device through the service
-			_, status := serviceHandler.CreateDevice(ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Step 2: Agent reports back with applications in Healthy state
@@ -274,7 +247,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := serviceHandler.ReplaceDeviceStatus(ctx, deviceName, updatedDevice)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusHealthy))
@@ -301,7 +274,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := serviceHandler.CreateDevice(ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Step 2: Set the device status with critical resource status
@@ -324,7 +297,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status
-			_, status = serviceHandler.ReplaceDeviceStatus(ctx, deviceName, deviceWithCriticalResources)
+			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithCriticalResources)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory issues but NOT for Disk
@@ -342,7 +315,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
-				"DeviceContentUpToDate",
+				"ResourceUpdated",
 			))
 			// Should NOT contain DeviceDiskNormal since that's Unknown -> Healthy
 			Expect(eventReasons).ToNot(ContainElement("DeviceDiskNormal"))
@@ -367,13 +340,13 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device
-			_, status = serviceHandler.ReplaceDeviceStatus(ctx, deviceName, deviceWithHealthyResources)
+			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithHealthyResources)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory recovery
-			// We should now have: ResourceCreated + DeviceCPUCritical + DeviceMemoryWarning + DeviceApplicationHealthy + DeviceContentUpToDate + DeviceCPUNormal + DeviceMemoryNormal
+			// We should now have: ResourceCreated + DeviceCPUCritical + DeviceMemoryWarning + DeviceApplicationHealthy + ResourceUpdated + DeviceCPUNormal + DeviceMemoryNormal
 			events = getEventsForDevice(deviceName)
-			Expect(len(events)).To(Equal(7))
+			Expect(len(events)).To(Equal(8))
 
 			// Check that we have the recovery events
 			eventReasons = make([]string, len(events))
@@ -381,13 +354,13 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				eventReasons[i] = string(event.Reason)
 			}
 			Expect(eventReasons).To(ContainElements(
+				"ResourceUpdated",
+				"DeviceCPUNormal",
+				"DeviceMemoryNormal",
 				"ResourceCreated",
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
-				"DeviceContentUpToDate",
-				"DeviceCPUNormal",
-				"DeviceMemoryNormal",
 			))
 			// Still should NOT contain DeviceDiskNormal since disk was already healthy
 			Expect(eventReasons).ToNot(ContainElement("DeviceDiskNormal"))
@@ -405,7 +378,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device through the service
-			_, status := serviceHandler.CreateDevice(ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Step 2: Agent reports back with warning resource status
@@ -454,7 +427,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := serviceHandler.ReplaceDeviceStatus(ctx, deviceName, updatedDevice)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 

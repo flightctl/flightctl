@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
+	devicecommon "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -99,9 +100,8 @@ func TestEventDeviceReplaced(t *testing.T) {
 	device := prepareDevice()
 
 	// Create device
-	expectedEvents := []api.EventReason{
-		api.EventReasonDeviceContentUpToDate,
-		api.EventReasonResourceCreated,
+	expectedEvents := []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
@@ -109,10 +109,10 @@ func TestEventDeviceReplaced(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.EventReasonResourceCreated,
-		api.EventReasonDeviceContentOutOfDate,
-		api.EventReasonResourceUpdated,
+	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "Fleet was created successfully."},
+		{Reason: api.EventReasonDeviceContentOutOfDate, Details: "Device has not yet been scheduled for update to the fleet's latest spec."},
+		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully."},
 	}...)
 	fleet := prepareFleet(newOwner1)
 	_, retStatus = serviceHandler.CreateFleet(ctx, fleet)
@@ -125,8 +125,8 @@ func TestEventDeviceReplaced(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.EventReasonResourceUpdated,
+	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "Fleet was created successfully."},
 	}...)
 	fleet = prepareFleet(newOwner2)
 	_, retStatus = serviceHandler.CreateFleet(ctx, fleet)
@@ -148,9 +148,8 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 	device := prepareDevice()
 
 	// Create device
-	expectedEvents := []api.EventReason{
-		api.EventReasonDeviceContentUpToDate,
-		api.EventReasonResourceCreated,
+	expectedEvents := []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
@@ -158,8 +157,9 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.EventReasonDeviceApplicationHealthy,
+	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "No application workloads are defined."},
+		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully."},
 	}...)
 	device, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, *device)
 	require.Equal(statusSuccessCode, retStatus.Code)
@@ -167,7 +167,6 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{}...)
 	_, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, *device)
 	require.Equal(statusSuccessCode, retStatus.Code)
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
@@ -226,9 +225,8 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	}
 
 	// Create device
-	expectedEvents := []api.EventReason{
-		api.EventReasonDeviceContentUpToDate,
-		api.EventReasonResourceCreated,
+	expectedEvents := []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
@@ -236,8 +234,9 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.EventReasonDeviceApplicationHealthy,
+	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "No application workloads are defined."},
+		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully."},
 	}...)
 	newDevice := &api.Device{
 		ApiVersion: "",
@@ -306,14 +305,12 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{}...)
 	_, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, *device)
 	require.Equal(statusSuccessCode, retStatus.Code)
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{}...)
 	_, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, *device)
 	require.Equal(statusSuccessCode, retStatus.Code)
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
@@ -329,9 +326,8 @@ func TestEventDevicePatchDeviceStatus(t *testing.T) {
 	device := prepareDevice()
 
 	// Create device
-	expectedEvents := []api.EventReason{
-		api.EventReasonDeviceContentUpToDate,
-		api.EventReasonResourceCreated,
+	expectedEvents := []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
@@ -339,7 +335,6 @@ func TestEventDevicePatchDeviceStatus(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{}...)
 	infoMap, err := util.StructToMap(api.DeviceSystemInfo{
 		AgentVersion:    "a",
 		Architecture:    "b",
@@ -358,8 +353,6 @@ func TestEventDevicePatchDeviceStatus(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{}...)
-
 	value, err = util.StructToMap(api.DeviceSystemInfo{
 		AgentVersion:    "a",
 		Architecture:    "b",
@@ -374,19 +367,13 @@ func TestEventDevicePatchDeviceStatus(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 }
 
-func compareEvents(expectedEvents []api.EventReason, events []api.Event, require *require.Assertions) {
+func compareEvents(expectedEvents []devicecommon.ResourceUpdate, events []api.Event, require *require.Assertions) {
 	require.Len(events, len(expectedEvents))
-	found := 0
-eventsLoop:
-	for _, event := range events {
-		for _, expectedReason := range expectedEvents {
-			if event.Reason == expectedReason {
-				found++
-				continue eventsLoop
-			}
-		}
+	for i, event := range events {
+		expected := expectedEvents[i]
+		require.Equal(event.Reason, expected.Reason)
+		require.Equal(event.Message, expected.Details)
 	}
-	require.Equal(len(expectedEvents), found)
 }
 
 func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
@@ -398,9 +385,8 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 	device := prepareDevice()
 
 	// Create device
-	expectedEvents := []api.EventReason{
-		api.EventReasonDeviceContentUpToDate,
-		api.EventReasonResourceCreated,
+	expectedEvents := []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
@@ -409,9 +395,9 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 
 	// Device I-am-alive
-	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.EventReasonResourceUpdated,
-		api.EventReasonDeviceApplicationHealthy,
+	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "No application workloads are defined."},
+		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully."},
 	}...)
 	device.Status.LastSeen = time.Now()
 	device, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
@@ -438,9 +424,8 @@ func TestEventDeviceUpdated(t *testing.T) {
 	device := prepareDevice()
 
 	// Create device
-	expectedEvents := []api.EventReason{
-		api.EventReasonDeviceContentUpToDate,
-		api.EventReasonResourceCreated,
+	expectedEvents := []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
@@ -448,9 +433,9 @@ func TestEventDeviceUpdated(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{
-		api.EventReasonDeviceApplicationHealthy,
-		api.EventReasonResourceUpdated,
+	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "No application workloads are defined."},
+		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully."},
 	}...)
 	device.Status.Resources = api.DeviceResourceStatus{
 		Cpu:    api.DeviceResourceStatusHealthy,
@@ -464,7 +449,6 @@ func TestEventDeviceUpdated(t *testing.T) {
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	expectedEvents = append(expectedEvents, []api.EventReason{}...)
 	_, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
@@ -510,17 +494,25 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 		Status: &status,
 	}
 
-	_, err = serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &er)
+	eventCallback := func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
+		if err != nil {
+			status := StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
+			serviceHandler.CreateEvent(ctx, GetResourceCreatedOrUpdatedFailureEvent(ctx, created, api.EnrollmentRequestKind, name, status, nil))
+		} else {
+			serviceHandler.CreateEvent(ctx, GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.EnrollmentRequestKind, name, updateDesc, serviceHandler.log))
+		}
+	}
+	_, err = serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &er, eventCallback)
 	require.NoError(err)
 	identity := authcommon.Identity{
 		Username: "bar",
 	}
 	ctx = context.WithValue(ctx, authcommon.IdentityCtxKey, &identity)
 	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, name, approval)
-	expectedEvents := []api.EventReason{
-		api.EventReasonDeviceContentUpToDate,
-		api.EventReasonResourceCreated,
-		api.EventReasonEnrollmentRequestApproved,
+	expectedEvents := []devicecommon.ResourceUpdate{
+		{Reason: api.EventReasonResourceCreated, Details: "EnrollmentRequest was created successfully."},
+		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
+		{Reason: api.EventReasonResourceUpdated, Details: "EnrollmentRequest was updated successfully."},
 	}
 	require.Equal(statusSuccessCode, stat.Code)
 	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
@@ -530,16 +522,15 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 
 func TestGetDeviceSpecInvalidEvent(t *testing.T) {
 	require := require.New(t)
-	logger := logrus.New()
 
 	ctx := context.Background()
 	deviceName := "test-device"
 	message := "validation failed"
 
-	event := GetDeviceSpecInvalidEvent(ctx, deviceName, message, logger)
+	event := GetDeviceSpecInvalidEvent(ctx, deviceName, message)
 
 	require.NotNil(event)
-	require.Equal(string(api.DeviceKind), event.InvolvedObject.Kind)
+	require.Equal(api.DeviceKind, event.InvolvedObject.Kind)
 	require.Equal(deviceName, event.InvolvedObject.Name)
 	require.Equal(api.EventReasonDeviceSpecInvalid, event.Reason)
 	require.Equal(api.Warning, event.Type)
@@ -549,15 +540,14 @@ func TestGetDeviceSpecInvalidEvent(t *testing.T) {
 
 func TestGetDeviceSpecValidEvent(t *testing.T) {
 	require := require.New(t)
-	logger := logrus.New()
 
 	ctx := context.Background()
 	deviceName := "test-device"
 
-	event := GetDeviceSpecValidEvent(ctx, deviceName, logger)
+	event := GetDeviceSpecValidEvent(ctx, deviceName)
 
 	require.NotNil(event)
-	require.Equal(string(api.DeviceKind), event.InvolvedObject.Kind)
+	require.Equal(api.DeviceKind, event.InvolvedObject.Kind)
 	require.Equal(deviceName, event.InvolvedObject.Name)
 	require.Equal(api.EventReasonDeviceSpecValid, event.Reason)
 	require.Equal(api.Normal, event.Type)
@@ -605,19 +595,19 @@ func TestGetDeviceMultipleOwnersResolvedEvent(t *testing.T) {
 	}{
 		{
 			name:           "SingleMatch",
-			resolutionType: api.DeviceMultipleOwnersResolvedDetailsResolutionTypeSingleMatch,
+			resolutionType: api.SingleMatch,
 			assignedOwner:  lo.ToPtr("fleet1"),
 			expectedMsg:    "Device multiple owners conflict was resolved: single fleet match, assigned to fleet 'fleet1'.",
 		},
 		{
 			name:           "NoMatch",
-			resolutionType: api.DeviceMultipleOwnersResolvedDetailsResolutionTypeNoMatch,
+			resolutionType: api.NoMatch,
 			assignedOwner:  nil,
 			expectedMsg:    "Device multiple owners conflict was resolved: no fleet matches, owner was removed.",
 		},
 		{
 			name:           "FleetDeleted",
-			resolutionType: api.DeviceMultipleOwnersResolvedDetailsResolutionTypeFleetDeleted,
+			resolutionType: api.FleetDeleted,
 			assignedOwner:  nil,
 			expectedMsg:    "Device multiple owners conflict was resolved: fleet was deleted.",
 		},
@@ -680,63 +670,6 @@ func TestGetInternalTaskFailedEvent(t *testing.T) {
 	require.Equal(&taskParameters, detailsStruct.TaskParameters)
 }
 
-func TestGetFleetSelectorProcessingCompletedEvent(t *testing.T) {
-	require := require.New(t)
-	logger := logrus.New()
-
-	ctx := context.Background()
-	fleetName := "test-fleet"
-	processingType := api.FleetSelectorProcessingCompletedDetailsProcessingTypeSelectorUpdated
-	devicesProcessed := 10
-	processingDuration := 250 * time.Millisecond
-
-	t.Run("WithoutErrors", func(t *testing.T) {
-		devicesWithErrors := 0
-
-		event := GetFleetSelectorProcessingCompletedEvent(ctx, fleetName, processingType, devicesProcessed, devicesWithErrors, processingDuration, logger)
-
-		require.NotNil(event)
-		require.Equal(string(api.FleetKind), event.InvolvedObject.Kind)
-		require.Equal(fleetName, event.InvolvedObject.Name)
-		require.Equal(api.EventReasonFleetSelectorProcessingCompleted, event.Reason)
-		require.Equal(api.Normal, event.Type)
-		require.Contains(event.Message, "Fleet selector processing was completed: 10 devices processed, 0 errors in 250.00 ms.")
-		require.NotNil(event.Metadata.Name)
-		require.NotNil(event.Details)
-
-		// Verify the event details
-		detailsStruct, err := event.Details.AsFleetSelectorProcessingCompletedDetails()
-		require.NoError(err)
-		require.Equal(processingType, detailsStruct.ProcessingType)
-		require.Equal(devicesProcessed, detailsStruct.DevicesProcessed)
-		require.Equal(&devicesWithErrors, detailsStruct.DevicesWithErrors)
-		require.Equal(lo.ToPtr(processingDuration.String()), detailsStruct.ProcessingDuration)
-	})
-
-	t.Run("WithErrors", func(t *testing.T) {
-		devicesWithErrors := 2
-
-		event := GetFleetSelectorProcessingCompletedEvent(ctx, fleetName, processingType, devicesProcessed, devicesWithErrors, processingDuration, logger)
-
-		require.NotNil(event)
-		require.Equal(string(api.FleetKind), event.InvolvedObject.Kind)
-		require.Equal(fleetName, event.InvolvedObject.Name)
-		require.Equal(api.EventReasonFleetSelectorProcessingCompleted, event.Reason)
-		require.Equal(api.Normal, event.Type)
-		require.Contains(event.Message, "Fleet selector processing was completed: 10 devices processed, 2 errors in 250.00 ms.")
-		require.NotNil(event.Metadata.Name)
-		require.NotNil(event.Details)
-
-		// Verify the event details
-		detailsStruct, err := event.Details.AsFleetSelectorProcessingCompletedDetails()
-		require.NoError(err)
-		require.Equal(processingType, detailsStruct.ProcessingType)
-		require.Equal(devicesProcessed, detailsStruct.DevicesProcessed)
-		require.Equal(&devicesWithErrors, detailsStruct.DevicesWithErrors)
-		require.Equal(lo.ToPtr(processingDuration.String()), detailsStruct.ProcessingDuration)
-	})
-}
-
 func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	require := require.New(t)
 	logger := logrus.New()
@@ -750,7 +683,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	}
 
 	t.Run("Created", func(t *testing.T) {
-		event := GetResourceCreatedOrUpdatedEvent(ctx, true, resourceKind, resourceName, api.StatusOK(), nil, logger)
+		event := GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, resourceKind, resourceName, nil, logger)
 
 		require.NotNil(event)
 		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
@@ -763,7 +696,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	})
 
 	t.Run("Updated", func(t *testing.T) {
-		event := GetResourceCreatedOrUpdatedEvent(ctx, false, resourceKind, resourceName, api.StatusOK(), updateDetails, logger)
+		event := GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, updateDetails, logger)
 
 		require.NotNil(event)
 		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
@@ -782,7 +715,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	})
 
 	t.Run("CreatedFailed", func(t *testing.T) {
-		event := GetResourceCreatedOrUpdatedEvent(ctx, true, resourceKind, resourceName, api.StatusInternalServerError("creation failed"), nil, logger)
+		event := GetResourceCreatedOrUpdatedFailureEvent(ctx, true, resourceKind, resourceName, api.StatusInternalServerError("creation failed"), nil)
 
 		require.NotNil(event)
 		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
@@ -795,7 +728,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	})
 
 	t.Run("UpdatedFailed", func(t *testing.T) {
-		event := GetResourceCreatedOrUpdatedEvent(ctx, false, resourceKind, resourceName, api.StatusInternalServerError("update failed"), updateDetails, logger)
+		event := GetResourceCreatedOrUpdatedFailureEvent(ctx, false, resourceKind, resourceName, api.StatusInternalServerError("update failed"), &api.ResourceUpdatedDetails{})
 
 		require.NotNil(event)
 		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
@@ -810,14 +743,13 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 
 func TestGetResourceDeletedEvent(t *testing.T) {
 	require := require.New(t)
-	logger := logrus.New()
 
 	ctx := context.Background()
 	resourceKind := api.ResourceKind(api.DeviceKind)
 	resourceName := "test-device"
 
 	t.Run("Success", func(t *testing.T) {
-		event := GetResourceDeletedEvent(ctx, resourceKind, resourceName, api.StatusOK(), logger)
+		event := GetResourceDeletedSuccessEvent(ctx, resourceKind, resourceName)
 
 		require.NotNil(event)
 		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
@@ -829,7 +761,7 @@ func TestGetResourceDeletedEvent(t *testing.T) {
 	})
 
 	t.Run("Failed", func(t *testing.T) {
-		event := GetResourceDeletedEvent(ctx, resourceKind, resourceName, api.StatusInternalServerError("deletion failed"), logger)
+		event := GetResourceDeletedFailureEvent(ctx, resourceKind, resourceName, api.StatusInternalServerError("deletion failed"))
 
 		require.NotNil(event)
 		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))

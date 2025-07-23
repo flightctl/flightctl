@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -72,9 +71,10 @@ func addStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
 	deviceStatus := api.NewDeviceStatus()
 	deviceStatus.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
+	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
 	apiResource := &api.Device{
 		Metadata: api.ObjectMeta{
-			Name: enrollmentRequest.Metadata.Name,
+			Name: &name,
 		},
 		Status: &deviceStatus,
 	}
@@ -84,14 +84,9 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
-	resourceEventFromUpdateDetailsFunc := func(ctx context.Context, update common.ResourceUpdate) *api.Event {
-		return GetResourceEventFromUpdateDetails(ctx, api.DeviceKind, *apiResource.Metadata.Name, update.Reason, update.UpdateDetails, h.log)
-	}
-	common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.store, h.log, h.CreateEvent, resourceEventFromUpdateDetailsFunc)
+	common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
 
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback)
-	status := StoreErrorToApiStatus(err, err == nil, api.DeviceKind, enrollmentRequest.Metadata.Name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.DeviceKind, *enrollmentRequest.Metadata.Name, status, nil, h.log))
+	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback, h.eventCallbackDevice)
 	return err
 }
 
@@ -100,7 +95,6 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 
 	// don't set fields that are managed by the service
 	er.Status = nil
-	NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
@@ -118,10 +112,8 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 
 	addStatusIfNeeded(&er)
 
-	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er)
-	status := StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, true, api.EnrollmentRequestKind, *er.Metadata.Name, status, nil, h.log))
-	return result, status
+	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er, h.eventCallback)
+	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
 }
 
 func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.ListEnrollmentRequestsParams) (*api.EnrollmentRequestList, api.Status) {
@@ -184,10 +176,8 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 
 	addStatusIfNeeded(&er)
 
-	result, created, updateDesc, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er)
-	status := StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, created, api.EnrollmentRequestKind, name, status, &updateDesc, h.log))
-	return result, status
+	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er, h.eventCallback)
+	return result, StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
@@ -208,17 +198,8 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 	if errs := newObj.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return nil, api.StatusBadRequest("metadata.name is immutable")
-	}
-	if currentObj.ApiVersion != newObj.ApiVersion {
-		return nil, api.StatusBadRequest("apiVersion is immutable")
-	}
-	if currentObj.Kind != newObj.Kind {
-		return nil, api.StatusBadRequest("kind is immutable")
-	}
-	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return nil, api.StatusBadRequest("status is immutable")
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
@@ -234,21 +215,15 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	result, updateDesc, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj)
-	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
-	h.CreateEvent(ctx, GetResourceCreatedOrUpdatedEvent(ctx, false, api.EnrollmentRequestKind, name, status, &updateDesc, h.log))
-	return result, status
+	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj, h.eventCallback)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	deleted, err := h.store.EnrollmentRequest().Delete(ctx, orgId, name)
-	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
-	if deleted || err != nil {
-		h.CreateEvent(ctx, GetResourceDeletedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
-	}
-	return status
+	err := h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.eventDeleteCallback)
+	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
 func (h *ServiceHandler) GetEnrollmentRequestStatus(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
@@ -310,10 +285,8 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 			return nil, status
 		}
 	}
-	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
-	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
-	h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
-	return approvalStatusToReturn, status
+	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq, h.eventCallback)
+	return approvalStatusToReturn, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
@@ -321,15 +294,14 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 
 	addStatusIfNeeded(&er)
 
-	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er)
-	status := StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
-	return result, status
+	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er, h.eventCallback)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
 	device, err := h.store.Device().Get(ctx, orgId, name)
 	if errors.Is(err, flterrors.ErrResourceNotFound) {
-		return nil // Device not found: allow create or update
+		return nil // Device not found: allow to create or update
 	}
 	if device != nil {
 		return flterrors.ErrDuplicateName // Duplicate name: creation blocked

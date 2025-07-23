@@ -5104,6 +5104,7 @@ components:
             - DeviceApplicationDegraded
             - DeviceApplicationHealthy
             - DeviceDisconnected
+            - DeviceIsRebooting
             - DeviceConnected
             - DeviceContentUpToDate
             - DeviceContentOutOfDate
@@ -5115,7 +5116,6 @@ components:
             - DeviceSpecValid
             - DeviceSpecInvalid
             - InternalTaskFailed
-            - FleetSelectorProcessingCompleted
         message:
           type: string
           description: A human-readable description of the status of this operation.
@@ -5189,14 +5189,12 @@ components:
           DeviceMultipleOwnersDetected: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
           DeviceMultipleOwnersResolved: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
           InternalTaskFailed: "#/components/schemas/InternalTaskFailedDetails"
-          FleetSelectorProcessingCompleted: "#/components/schemas/FleetSelectorProcessingCompletedDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
         - $ref: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
         - $ref: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
         - $ref: "#/components/schemas/InternalTaskFailedDetails"
-        - $ref: "#/components/schemas/FleetSelectorProcessingCompletedDetails"
     ResourceUpdatedDetails:
       type: object
       required:
@@ -5301,27 +5299,3 @@ components:
           additionalProperties:
             type: string
           description: Parameters needed to retry the task.
-    FleetSelectorProcessingCompletedDetails:
-      type: object
-      required:
-        - detailType
-        - processingType
-        - devicesProcessed
-      properties:
-        detailType:
-          type: string
-          enum: [FleetSelectorProcessingCompleted]
-          description: The type of detail for discriminator purposes.
-        processingType:
-          type: string
-          enum: [SelectorUpdated, FleetDeleted, DeviceLabelsUpdated]
-          description: The type of processing that was completed.
-        devicesProcessed:
-          type: integer
-          description: Number of devices processed.
-        devicesWithErrors:
-          type: integer
-          description: Number of devices that had processing errors.
-        processingDuration:
-          type: string
-          description: Duration of the processing operation.

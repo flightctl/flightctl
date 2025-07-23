@@ -83,7 +83,8 @@ build: bin build-cli
 		./cmd/flightctl-worker \
 		./cmd/flightctl-alert-exporter \
 		./cmd/flightctl-alertmanager-proxy \
-		./cmd/flightctl-userinfo-proxy
+		./cmd/flightctl-userinfo-proxy \
+		./cmd/flightctl-db-migrate
 
 bin/flightctl-agent: bin $(GO_FILES)
 	CGO_CFLAGS='-flto' GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
@@ -100,6 +101,9 @@ build-agent: bin
 
 build-api: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-api
+
+build-db-migrate: bin
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-db-migrate
 
 build-worker: bin
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
@@ -126,6 +130,15 @@ bin/.flightctl-api-container: bin Containerfile.api go.mod go.sum $(GO_FILES)
 		-f Containerfile.api $(GO_CACHE) -t flightctl-api:latest
 	touch bin/.flightctl-api-container
 
+bin/.flightctl-db-setup-container: bin Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.db-setup \
+		-t flightctl-db-setup:latest .
+	touch bin/.flightctl-db-setup-container
+
 bin/.flightctl-worker-container: bin Containerfile.worker go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
 	podman build -f Containerfile.worker $(GO_CACHE) -t flightctl-worker:latest
@@ -151,12 +164,14 @@ bin/.flightctl-multiarch-cli-container: bin Containerfile.cli-artifacts go.mod g
 	podman build -f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
 	touch bin/.flightctl-multiarch-cli-container
 
-bin/.flightctl-userinfo-proxy-container: bin Containerfile.userinfo go.mod go.sum $(GO_FILES)
+bin/.flightctl-userinfo-proxy-container: bin Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.userinfo $(GO_CACHE) -t flightctl-userinfo-proxy:latest
+	podman build -f Containerfile.userinfo-proxy $(GO_CACHE) -t flightctl-userinfo-proxy:latest
 	touch bin/.flightctl-userinfo-proxy-container
 
 flightctl-api-container: bin/.flightctl-api-container
+
+flightctl-db-setup-container: bin/.flightctl-db-setup-container
 
 flightctl-worker-container: bin/.flightctl-worker-container
 
@@ -170,7 +185,7 @@ flightctl-multiarch-cli-container: bin/.flightctl-multiarch-cli-container
 
 flightctl-userinfo-proxy-container: bin/.flightctl-userinfo-proxy-container
 
-build-containers: flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
+build-containers: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
 
 .PHONY: build-containers build-cli build-multiarch-clis
 
@@ -179,7 +194,7 @@ bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh
+bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh packaging/selinux
 	./hack/build_rpms.sh
 	touch bin/.rpm
 
@@ -224,7 +239,7 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
-.PHONY: tools flightctl-api-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container
+.PHONY: tools flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container
 
 tools: $(GOBIN)/golangci-lint
 
