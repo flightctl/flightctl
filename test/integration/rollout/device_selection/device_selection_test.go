@@ -335,6 +335,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = util.WithOrganizationID(ctx, store.NullOrgId)
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		ctrl := gomock.NewController(GinkgoT())

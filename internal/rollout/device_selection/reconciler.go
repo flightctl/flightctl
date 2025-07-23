@@ -187,9 +187,11 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 }
 
 func (r *reconciler) Reconcile(ctx context.Context) {
-	// Get all relevant fleets
-	orgId := store.NullOrgId
-
+	orgId, ok := util.GetOrgIdFromContext(ctx)
+	if !ok {
+		r.log.Error("No organization ID found in context")
+		return
+	}
 	fleetList, status := r.serviceHandler.ListFleetRolloutDeviceSelection(ctx)
 	if status.Code != http.StatusOK {
 		r.log.WithError(service.ApiStatusToErr(status)).Error("ListRolloutDeviceSelection")
