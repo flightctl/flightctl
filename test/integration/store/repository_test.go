@@ -35,14 +35,17 @@ var _ = Describe("RepositoryStore create", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numRepositories = 3
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		callbackCalled = false
 		callback = store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
 
-		err := testutil.CreateRepositories(ctx, 3, storeInst, orgId)
+		orgId = uuid.New()
+		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		Expect(err).ToNot(HaveOccurred())
+
+		err = testutil.CreateRepositories(ctx, 3, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}

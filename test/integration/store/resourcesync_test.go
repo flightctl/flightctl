@@ -33,10 +33,13 @@ var _ = Describe("ResourceSyncStore create", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numResourceSyncs = 3
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+
+		orgId = uuid.New()
+		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		Expect(err).ToNot(HaveOccurred())
 
 		testutil.CreateTestResourceSyncs(ctx, 3, storeInst, orgId)
 	})
