@@ -12,7 +12,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -116,7 +115,7 @@ func (o *VersionOptions) Run(ctx context.Context, args []string) error {
 	clientVersion := version.Get()
 
 	var serverVersion *api.Version
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err == nil {
 		var response *apiclient.GetVersionResponse
 		response, err = c.GetVersionWithResponse(ctx)
