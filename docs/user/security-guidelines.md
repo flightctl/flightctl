@@ -22,8 +22,8 @@ Flight Control is a device management platform that provides secure enrollment, 
 Flight Control implements a multi-layered security approach:
 
 - **Hardware Root-of-Trust**: TPM-based device identity and attestation
-- **Certificate-Based Authentication**: X.509 certificates for all communications
-- **Mutual TLS (mTLS)**: Bidirectional certificate verification
+- **Certificate-Based Authentication**: X.509 certificates for device communications
+- **Mutual TLS (mTLS)**: Bidirectional certificate verification for agent-service communication
 - **Role-Based Access Control**: Granular permissions for users and devices
 - **Encrypted Communications**: TLS 1.3 for all network communications
 
@@ -99,6 +99,7 @@ Devices authenticate using X.509 client certificates:
 Flight Control implements role-based access control:
 
 - **Device Management**: Create, read, update, delete devices
+- **Remote Console Access**: Access to device console for troubleshooting and management
 - **Fleet Management**: Manage fleets and templates
 - **Enrollment Approval**: Approve or deny device enrollment requests
 - **System Administration**: Access to system configuration and monitoring
@@ -117,8 +118,8 @@ All communications are encrypted using TLS 1.3:
 
 #### API Communications
 
-- **User API**: HTTPS with TLS 1.3, minimum version enforced
-- **Agent API**: Mutual TLS with client certificate verification
+- **User API**: HTTPS with TLS 1.3, minimum version enforced (standard TLS)
+- **Agent API**: Mutual TLS (mTLS) with client certificate verification
 - **Database Connections**: TLS encryption for PostgreSQL connections
 - **Redis Communications**: TLS encryption for key-value store
 
@@ -166,11 +167,19 @@ Flight Control collects the following data:
 
 - **Event Logs**: Configurable retention period (default: 7 days)
 - **Device Status**: Retained for device lifecycle
+- **EnrollmentRequest Status**: Retained for device lifecycle
 
 #### Data Access Controls
 
 - **Organization Isolation**: Data is isolated by organization
 - **Role-Based Access**: Users can only access authorized data
+
+#### Personal Data Handling
+
+- **Data Minimization**: Collect only necessary data
+- **Data Retention**: Limited data retention periods
+- **Data Deletion**: Automatic deletion of expired data
+- **Privacy Protection**: Strict access controls on personal data
 
 ## Network Security
 
@@ -178,8 +187,8 @@ Flight Control requires specific network ports and firewall configuration. For d
 
 ### Service Endpoints
 
-- **User API**: Port 3443 (HTTPS)
-- **Agent API**: Port 7443 (mTLS)
+- **User API**: Port 3443 (HTTPS with standard TLS)
+- **Agent API**: Port 7443 (HTTPS with mTLS)
 - **Database**: Port 5432 (TLS)
 - **Redis**: Port 6379 (TLS)
 - **Monitoring**: Port 15690 (Prometheus metrics)
@@ -200,51 +209,13 @@ Flight Control requires specific network ports and firewall configuration. For d
 
 ## Device Security
 
-### Device Security Features
-
-#### Hardware Security
+### Hardware Security Features
 
 - **TPM Integration**: Hardware root-of-trust using TPM 2.0
 - **Secure Boot**: Compatible with secure boot implementations
 - **Hardware Binding**: Device identity bound to specific hardware
 - **SELinux Support**: Agent supports SELinux for mandatory access control
 - **FIPS Compliance**: Agent is FIPS 140-2 compliant for cryptographic operations
-
-### Device Authentication
-
-Devices authenticate using X.509 client certificates:
-
-#### Enrollment Process
-
-1. **Hardware Identity**: Device generates cryptographic key pair using TPM
-2. **Certificate Signing Request**: Device submits CSR with hardware fingerprint
-3. **Manual Approval**: Administrator approves enrollment request
-4. **Certificate Issuance**: Service issues device-specific management certificate
-5. **Secure Communication**: Device uses management certificate for all subsequent communications
-
-#### Certificate Management
-
-- **Enrollment Certificates**: Used only for initial enrollment (configurable validity)
-- **Management Certificates**: Device-specific certificates for ongoing operations
-- **Hardware Protection**: Private keys are protected by TPM when available
-- **Automatic Rotation**: Certificates are currently *NOT* rotated
-
-### Authorization
-
-#### User Permissions
-
-Flight Control implements role-based access control:
-
-- **Device Management**: Create, read, update, delete devices
-- **Fleet Management**: Manage fleets and templates
-- **Enrollment Approval**: Approve or deny device enrollment requests
-- **System Administration**: Access to system configuration and monitoring
-
-#### Device Permissions
-
-- **Self-Management**: Devices can only modify their own configuration
-- **Status Reporting**: Devices can report their status and health
-- **Template Application**: Devices can apply approved configuration templates
 
 ## Database Security
 
@@ -296,20 +267,6 @@ Flight Control provides structured logging for operational monitoring:
 
 - **File Permissions**: Log files stored with appropriate permissions
 - **Log Rotation**: Handled by deployment platform (Kubernetes or systemd/journald)
-
-## Data Privacy
-
-### Personal Data Handling
-
-#### Data Minimization
-
-- **Required Data Only**: Collect only necessary data
-- **Data Retention**: Limited data retention periods
-- **Data Deletion**: Automatic deletion of expired data
-
-#### Privacy Protection
-
-- **Access Controls**: Strict access controls on personal data
 
 ## Insecure Settings and Default Configurations
 
