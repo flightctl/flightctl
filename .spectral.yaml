@@ -383,7 +383,7 @@ rules:
         function: truthy
 
   responses-resource-delete-allowed:
-    description: DELETE on a resource must not have responses other than 200, 401, 403, 404, 503.
+    description: DELETE on a resource must not have responses other than 200, 401, 403, 404, 409, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResource.delete.responses.*~"
@@ -391,7 +391,7 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "401", "403", "404", "503"]
+        values: ["200", "401", "403", "404", "409", "503"]
 
   ## Allowed and required media types
   request-media-type-patch:

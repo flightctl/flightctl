@@ -82,6 +82,15 @@ func (d *Device) IsUpdatedToFleetSpec(f *Fleet) bool {
 	return d.IsUpdatedToDeviceSpec() && deviceTemplateVersion == fleetTemplateVersion
 }
 
+// IsDecommissioned() is true if the device's lifecycle status is Decommissioned.
+func (d *Device) IsDecommissioned() bool {
+	if d == nil || d.Status == nil {
+		return false
+	}
+
+	return d.Status.Lifecycle.Status == DeviceLifecycleStatusDecommissioned
+}
+
 func (d *Device) Version() string {
 	if d == nil || d.Metadata.Annotations == nil {
 		return ""
