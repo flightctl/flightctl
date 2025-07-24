@@ -86,7 +86,7 @@ type Service interface {
 	ReplaceRepository(ctx context.Context, name string, repo api.Repository) (*api.Repository, api.Status)
 	DeleteRepository(ctx context.Context, name string) api.Status
 	PatchRepository(ctx context.Context, name string, patch api.PatchRequest) (*api.Repository, api.Status)
-	ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status)
+	ReplaceRepositoryStatusByError(ctx context.Context, name string, repository api.Repository, err error) (*api.Repository, api.Status)
 	GetRepositoryFleetReferences(ctx context.Context, name string) (*api.FleetList, api.Status)
 	GetRepositoryDeviceReferences(ctx context.Context, name string) (*api.DeviceList, api.Status)
 

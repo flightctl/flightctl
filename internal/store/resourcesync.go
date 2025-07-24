@@ -27,10 +27,10 @@ type ResourceSync interface {
 }
 
 type ResourceSyncStore struct {
-	dbHandler               *gorm.DB
-	log                     logrus.FieldLogger
-	genericStore            *GenericStore[*model.ResourceSync, model.ResourceSync, api.ResourceSync, api.ResourceSyncList]
-	callEventCallbackCaller EventCallbackCaller
+	dbHandler           *gorm.DB
+	log                 logrus.FieldLogger
+	genericStore        *GenericStore[*model.ResourceSync, model.ResourceSync, api.ResourceSync, api.ResourceSyncList]
+	eventCallbackCaller EventCallbackCaller
 }
 
 // Make sure we conform to ResourceSync interface
@@ -46,7 +46,7 @@ func NewResourceSync(db *gorm.DB, log logrus.FieldLogger) ResourceSync {
 		(*model.ResourceSync).ToApiResource,
 		model.ResourceSyncsToApiResource,
 	)
-	return &ResourceSyncStore{dbHandler: db, log: log, genericStore: genericStore, callEventCallbackCaller: callEventCallback(api.ResourceSyncKind, log)}
+	return &ResourceSyncStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(api.ResourceSyncKind, log)}
 }
 
 func (s *ResourceSyncStore) getDB(ctx context.Context) *gorm.DB {
@@ -91,20 +91,20 @@ func (s *ResourceSyncStore) InitialMigration(ctx context.Context) error {
 
 func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, callbackEvent EventCallback) (*api.ResourceSync, error) {
 	rs, err := s.genericStore.Create(ctx, orgId, resource, nil)
-	s.callEventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), true, nil, err)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), nil, rs, true, nil, err)
 	return rs, err
 }
 
 func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, callbackEvent EventCallback) (*api.ResourceSync, error) {
-	rs, _, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
-	s.callEventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), false, &updatedDetails, err)
-	return rs, err
+	newRs, oldRs, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, false, &updatedDetails, err)
+	return newRs, err
 }
 
 func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, callbackEvent EventCallback) (*api.ResourceSync, bool, error) {
-	rs, _, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
-	s.callEventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), created, &updatedDetails, err)
-	return rs, created, err
+	newRs, oldRs, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, created, &updatedDetails, err)
+	return newRs, created, err
 }
 
 func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
@@ -131,7 +131,7 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 		return callback(ctx, innerTx, orgId, *owner)
 	})
 
-	s.callEventCallbackCaller(ctx, callbackEvent, orgId, name, false, nil, err)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, name, nil, nil, false, nil, err)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil

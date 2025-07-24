@@ -115,12 +115,8 @@ type batchSequenceSelector struct {
 	log                 logrus.FieldLogger
 }
 
-func (b *batchSequenceSelector) getAnnotation(annotation string) (string, bool) {
-	return util.GetFromMap(lo.FromPtr(b.fleet.Metadata.Annotations), annotation)
-}
-
 func (b *batchSequenceSelector) IsRolloutNew() bool {
-	dtv, exists := b.getAnnotation(api.FleetAnnotationDeployingTemplateVersion)
+	dtv, exists := b.fleet.GetAnnotation(api.FleetAnnotationDeployingTemplateVersion)
 	if !exists {
 		return true
 	}
@@ -131,7 +127,7 @@ func (b *batchSequenceSelector) IsRolloutNew() bool {
 }
 
 func (b *batchSequenceSelector) getPreviousBatchSequenceDigest() (string, bool) {
-	return b.getAnnotation(api.FleetAnnotationDeviceSelectionConfigDigest)
+	return b.fleet.GetAnnotation(api.FleetAnnotationDeviceSelectionConfigDigest)
 }
 
 func (b *batchSequenceSelector) batchSequenceDigest() (string, error) {
@@ -346,17 +342,8 @@ type batchSelection struct {
 	log                 logrus.FieldLogger
 }
 
-func (b *batchSelection) getAnnotation(annotation string) (string, bool) {
-	annotations := lo.FromPtr(b.fleet.Metadata.Annotations)
-	if annotations == nil {
-		return "", false
-	}
-	v, exists := annotations[annotation]
-	return v, exists
-}
-
 func (b *batchSelection) IsApproved() bool {
-	approvedStr, exists := b.getAnnotation(api.FleetAnnotationRolloutApproved)
+	approvedStr, exists := b.fleet.GetAnnotation(api.FleetAnnotationRolloutApproved)
 	if !exists {
 		return false
 	}
@@ -402,7 +389,7 @@ func (b *batchSelection) getSuccessThreshold() (int, error) {
 
 func (b *batchSelection) getLastCompletionReport() (CompletionReport, bool, error) {
 	var report CompletionReport
-	completionReportStr, exists := b.getAnnotation(api.FleetAnnotationLastBatchCompletionReport)
+	completionReportStr, exists := b.fleet.GetAnnotation(api.FleetAnnotationLastBatchCompletionReport)
 	if !exists {
 		return report, false, nil
 	}
@@ -421,7 +408,7 @@ func (b *batchSelection) getLastSuccessPercentage() (int, bool, error) {
 }
 
 func (b *batchSelection) isApprovalMethodAutomatic() bool {
-	approvalMethod, _ := b.getAnnotation(api.FleetAnnotationRolloutApprovalMethod)
+	approvalMethod, _ := b.fleet.GetAnnotation(api.FleetAnnotationRolloutApprovalMethod)
 	return approvalMethod == "automatic"
 }
 
