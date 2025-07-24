@@ -22,6 +22,7 @@ import (
 const (
 	DisruptionBudgetReconcilationInterval = 30 * time.Second
 	maxItemsToRender                      = 1000
+	DisruptionBudgetTaskName              = "rollout-device-selection"
 )
 
 type Reconciler interface {
