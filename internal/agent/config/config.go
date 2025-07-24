@@ -56,6 +56,10 @@ const (
 	EnrollmentCertFile = "client-enrollment.crt"
 	// name of the enrollment key file
 	EnrollmentKeyFile = "client-enrollment.key"
+	// DefaultTPMDevicePath is the default TPM device path
+	DefaultTPMDevicePath = "/dev/tpm0"
+	// DefaultTPMKeyBlobFile is the default filename for TPM key blob persistence
+	DefaultTPMKeyBlobFile = "ldevid-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
@@ -73,8 +77,8 @@ type Config struct {
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
 
-	// TPMPath is the path to the TPM device
-	TPMPath string `json:"tpm-path,omitempty"`
+	// TPM holds all TPM-related configuration
+	TPM
 
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
@@ -114,6 +118,15 @@ type Config struct {
 	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
 
 	readWriter fileio.ReadWriter
+}
+
+type TPM struct {
+	// Enabled indicates whether the agent should use an available TPM for auth
+	Enabled bool `json:"tpm-auth-enabled,omitempty"`
+	// Path is the path to the TPM device
+	Path string `json:"tpm-path,omitempty"`
+	// PersistencePath specifies the file path for TPM key blob persistence
+	PersistencePath string `json:"tpm-persistence-path,omitempty"`
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included

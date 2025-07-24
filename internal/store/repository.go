@@ -6,6 +6,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -13,22 +14,23 @@ import (
 type Repository interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error)
-	Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, api.ResourceUpdatedDetails, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, api.ResourceUpdatedDetails, error)
+	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback, callbackEvent EventCallback) (*api.Repository, error)
+	Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback, callbackEvent EventCallback) (*api.Repository, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback RepositoryStoreCallback, callbackEvent EventCallback) (*api.Repository, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback, callbackEvent EventCallback) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callbackEvent EventCallback) (*api.Repository, error)
 
 	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error)
 	GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceList, error)
 }
 
 type RepositoryStore struct {
-	dbHandler    *gorm.DB
-	log          logrus.FieldLogger
-	genericStore *GenericStore[*model.Repository, model.Repository, api.Repository, api.RepositoryList]
+	dbHandler           *gorm.DB
+	log                 logrus.FieldLogger
+	genericStore        *GenericStore[*model.Repository, model.Repository, api.Repository, api.RepositoryList]
+	eventCallbackCaller EventCallbackCaller
 }
 
 type RepositoryStoreCallback func(context.Context, uuid.UUID, *api.Repository, *api.Repository)
@@ -45,7 +47,7 @@ func NewRepository(db *gorm.DB, log logrus.FieldLogger) Repository {
 		(*model.Repository).ToApiResource,
 		model.RepositoriesToApiResource,
 	)
-	return &RepositoryStore{dbHandler: db, log: log, genericStore: genericStore}
+	return &RepositoryStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(api.RepositoryKind, log)}
 }
 
 func (s *RepositoryStore) getDB(ctx context.Context) *gorm.DB {
@@ -88,16 +90,22 @@ func (s *RepositoryStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, error) {
-	return s.genericStore.Create(ctx, orgId, resource, callback)
+func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback, callbackEvent EventCallback) (*api.Repository, error) {
+	repo, err := s.genericStore.Create(ctx, orgId, resource, callback)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), nil, repo, true, nil, err)
+	return repo, err
 }
 
-func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, api.ResourceUpdatedDetails, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, true, nil, callback)
+func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback, callbackEvent EventCallback) (*api.Repository, error) {
+	oldRepo, newRepo, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, callback)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), oldRepo, newRepo, false, &updatedDetails, err)
+	return oldRepo, err
 }
 
-func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback) (*api.Repository, bool, api.ResourceUpdatedDetails, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, callback)
+func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callback RepositoryStoreCallback, callbackEvent EventCallback) (*api.Repository, bool, error) {
+	newRepo, oldRepo, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, callback)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), oldRepo, newRepo, created, &updatedDetails, err)
+	return newRepo, created, err
 }
 
 func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
@@ -120,8 +128,10 @@ func (s *RepositoryStore) ListIgnoreOrg(ctx context.Context) ([]model.Repository
 	return repositories, nil
 }
 
-func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback) (bool, error) {
-	return s.genericStore.Delete(ctx, model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}, callback)
+func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback RepositoryStoreCallback, callbackEvent EventCallback) error {
+	_, err := s.genericStore.Delete(ctx, model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}, callback)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, name, nil, nil, false, nil, err)
+	return err
 }
 
 func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name string) (*model.Repository, error) {
@@ -135,8 +145,16 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	return &repository, nil
 }
 
-func (s *RepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository) (*api.Repository, error) {
-	return s.genericStore.UpdateStatus(ctx, orgId, resource)
+func (s *RepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository, callbackEvent EventCallback) (*api.Repository, error) {
+	name := lo.FromPtr(resource.Metadata.Name)
+	oldRepo, err := s.Get(ctx, orgId, "name")
+	if err != nil {
+		oldRepo = nil
+	}
+
+	newRepo, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, name, oldRepo, newRepo, false, nil, err)
+	return newRepo, err
 }
 
 func (s *RepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error) {

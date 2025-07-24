@@ -134,11 +134,11 @@ var _ = Describe("RepoUpdate", func() {
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
 		fleetCallback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, fleetCallback)
+		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, fleetCallback, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "fleet1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, fleetCallback)
+		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, fleetCallback, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "fleet2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())
@@ -159,11 +159,11 @@ var _ = Describe("RepoUpdate", func() {
 		}
 
 		devCallback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
-		_, err = storeInst.Device().Create(ctx, orgId, &device1, devCallback)
+		_, err = storeInst.Device().Create(ctx, orgId, &device1, devCallback, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "device1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Device().Create(ctx, orgId, &device2, devCallback)
+		_, err = storeInst.Device().Create(ctx, orgId, &device2, devCallback, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "device2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())

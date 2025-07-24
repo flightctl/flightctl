@@ -115,9 +115,8 @@ var _ = Describe("TemplateVersion", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-			deleted, err := storeInst.Fleet().Delete(ctx, otherOrgId, "myfleet", callback)
+			err = storeInst.Fleet().Delete(ctx, otherOrgId, "myfleet", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeTrue())
 
 			templateVersions, err := storeInst.TemplateVersion().List(ctx, orgId, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
@@ -161,7 +160,7 @@ var _ = Describe("TemplateVersion", func() {
 			testutil.CreateTestFleet(ctx, storeInst.Fleet(), orgId, "myfleet", nil, nil)
 			err := testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
-			deleted, err := storeInst.TemplateVersion().Delete(ctx, orgId, "myfleet", "1.0.1")
+			deleted, err := storeInst.TemplateVersion().Delete(ctx, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeTrue())
 			_, err = storeInst.TemplateVersion().Get(ctx, orgId, "myfleet", "1.0.1")
@@ -170,7 +169,7 @@ var _ = Describe("TemplateVersion", func() {
 		})
 
 		It("Delete templateVersion success when not found", func() {
-			deleted, err := storeInst.TemplateVersion().Delete(ctx, orgId, "myfleet", "1.0.1")
+			deleted, err := storeInst.TemplateVersion().Delete(ctx, orgId, "myfleet", "1.0.1", nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeFalse())
 		})

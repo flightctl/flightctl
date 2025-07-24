@@ -6,6 +6,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -13,19 +14,20 @@ import (
 type EnrollmentRequest interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
-	Update(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest) (*api.EnrollmentRequest, api.ResourceUpdatedDetails, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, api.ResourceUpdatedDetails, error)
+	Create(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error)
+	Update(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest) (*api.EnrollmentRequest, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent EventCallback) error
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error)
 }
 
 type EnrollmentRequestStore struct {
-	dbHandler    *gorm.DB
-	log          logrus.FieldLogger
-	genericStore *GenericStore[*model.EnrollmentRequest, model.EnrollmentRequest, api.EnrollmentRequest, api.EnrollmentRequestList]
+	dbHandler           *gorm.DB
+	log                 logrus.FieldLogger
+	genericStore        *GenericStore[*model.EnrollmentRequest, model.EnrollmentRequest, api.EnrollmentRequest, api.EnrollmentRequestList]
+	eventCallbackCaller EventCallbackCaller
 }
 
 // Make sure we conform to EnrollmentRequest interface
@@ -39,7 +41,7 @@ func NewEnrollmentRequest(db *gorm.DB, log logrus.FieldLogger) EnrollmentRequest
 		(*model.EnrollmentRequest).ToApiResource,
 		model.EnrollmentRequestsToApiResource,
 	)
-	return &EnrollmentRequestStore{dbHandler: db, log: log, genericStore: genericStore}
+	return &EnrollmentRequestStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(api.EnrollmentRequestKind, log)}
 }
 
 func (s *EnrollmentRequestStore) getDB(ctx context.Context) *gorm.DB {
@@ -82,16 +84,22 @@ func (s *EnrollmentRequestStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
-	return s.genericStore.Create(ctx, orgId, resource, nil)
+func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error) {
+	newEr, err := s.genericStore.Create(ctx, orgId, resource, nil)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), nil, newEr, true, nil, err)
+	return newEr, err
 }
 
-func (s *EnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, api.ResourceUpdatedDetails, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+func (s *EnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error) {
+	newEr, oldEr, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), oldEr, newEr, false, &updatedDetails, err)
+	return newEr, err
 }
 
-func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, bool, api.ResourceUpdatedDetails, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
+func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, bool, error) {
+	newEr, oldEr, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), oldEr, newEr, created, &updatedDetails, err)
+	return newEr, created, err
 }
 
 func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error) {
@@ -102,10 +110,14 @@ func (s *EnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, list
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
-	return s.genericStore.Delete(ctx, model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}, nil)
+func (s *EnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) error {
+	_, err := s.genericStore.Delete(ctx, model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}, nil)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, nil, false, nil, nil)
+	return err
 }
 
-func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest) (*api.EnrollmentRequest, error) {
-	return s.genericStore.UpdateStatus(ctx, orgId, resource)
+func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error) {
+	newEr, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), resource, newEr, false, nil, err)
+	return newEr, err
 }

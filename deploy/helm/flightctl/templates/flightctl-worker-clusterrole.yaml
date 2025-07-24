@@ -5,7 +5,6 @@ metadata:
   labels:
     flightctl.service: flightctl-worker
   name: flightctl-worker
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 rules:
   - apiGroups: [""]
     resources: ["secrets"]

@@ -133,7 +133,7 @@ func createTestEnrollmentRequest(require *require.Assertions, name string, statu
 		callbackManager: dummyCallbackManager(),
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest)
+	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)
 	require.NoError(err)
 	return &serviceHandler, ctx, enrollmentRequest
 }

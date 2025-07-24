@@ -14,6 +14,7 @@ import (
 const (
 	// DeviceDisconnectedPollingInterval is the interval at which the device liveness task runs.
 	DeviceDisconnectedPollingInterval = 2 * time.Minute
+	DeviceDisconnectedTaskName        = "device-disconnected"
 )
 
 type DeviceDisconnected struct {

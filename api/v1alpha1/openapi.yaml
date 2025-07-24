@@ -5089,6 +5089,7 @@ components:
             - ResourceUpdateFailed
             - ResourceDeleted
             - ResourceDeletionFailed
+            - ResourceSyncCompleted
             - DeviceDecommissioned
             - DeviceDecommissionFailed
             - DeviceCPUCritical
@@ -5104,6 +5105,7 @@ components:
             - DeviceApplicationDegraded
             - DeviceApplicationHealthy
             - DeviceDisconnected
+            - DeviceIsRebooting
             - DeviceConnected
             - DeviceContentUpToDate
             - DeviceContentOutOfDate
@@ -5115,6 +5117,12 @@ components:
             - DeviceSpecValid
             - DeviceSpecInvalid
             - InternalTaskFailed
+            - RepositoryAccessible
+            - RepositoryInaccessible
+            - FleetRolloutStarted
+            - TemplateVersionDeleted
+            - FleetRolloutCreated
+            - FleetRolloutBatchCompleted
         message:
           type: string
           description: A human-readable description of the status of this operation.
@@ -5188,12 +5196,16 @@ components:
           DeviceMultipleOwnersDetected: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
           DeviceMultipleOwnersResolved: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
           InternalTaskFailed: "#/components/schemas/InternalTaskFailedDetails"
+          ResourceSyncCompleted: "#/components/schemas/ResourceSyncCompletedDetails"
+          FleetRolloutStarted: "#/components/schemas/FleetRolloutStartedDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
         - $ref: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
         - $ref: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
         - $ref: "#/components/schemas/InternalTaskFailedDetails"
+        - $ref: "#/components/schemas/ResourceSyncCompletedDetails"
+        - $ref: "#/components/schemas/FleetRolloutStartedDetails"
     ResourceUpdatedDetails:
       type: object
       required:
@@ -5298,3 +5310,42 @@ components:
           additionalProperties:
             type: string
           description: Parameters needed to retry the task.
+    ResourceSyncCompletedDetails:
+      type: object
+      required:
+        - detailType
+        - commitHash
+        - changeCount
+        - errorCount
+      properties:
+        detailType:
+          type: string
+          enum: [ResourceSyncCompleted]
+          description: The type of detail for discriminator purposes.
+        commitHash:
+          type: string
+          description: Hash of the last commit.
+        changeCount:
+          type: integer
+          description: Number of changes introduced by this ResourceSync update.
+        errorCount:
+          type: integer
+          description: Number of errors encountered by this ResourceSync update.
+    FleetRolloutStartedDetails:
+      type: object
+      required:
+        - detailType
+        - templateVersion
+        - isImmediate
+      properties:
+        detailType:
+          type: string
+          enum: [FleetRolloutStarted]
+          description: The type of detail for discriminator purposes.
+        templateVersion:
+          type: string
+          description: The name of the TemplateVersion that is rolling out.
+        isImmediate:
+          type: string
+          enum: [batched, immediate]
+          description: Rollout strategy type.

@@ -79,7 +79,7 @@ func TestParseAndValidate_already_in_sync(t *testing.T) {
 	rs.Status.ObservedGeneration = lo.ToPtr(int64(1))
 
 	// Already in sync with hash
-	rm, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
+	rm, _, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
 	require.NoError(err)
 	require.Nil(rm)
 }
@@ -92,7 +92,7 @@ func TestParseAndValidate_no_files(t *testing.T) {
 	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	// Empty folder
-	_, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
+	_, _, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
 	require.Error(err)
 }
 
@@ -103,7 +103,7 @@ func TestParseAndValidate_unsupportedFiles(t *testing.T) {
 	require.NoError(err)
 	rsTask := NewResourceSync(resourceSyncParams(t))
 
-	_, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
+	_, _, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
 	require.Error(err)
 }
 
@@ -115,7 +115,7 @@ func TestParseAndValidate_singleFile(t *testing.T) {
 	rsTask := NewResourceSync(resourceSyncParams(t))
 
 	rs.Spec.Path = "/examples/fleet.yaml"
-	resources, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
+	resources, _, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
 	require.NoError(err)
 	require.Len(resources, 1)
 	require.Equal(resources[0]["kind"], api.FleetKind)

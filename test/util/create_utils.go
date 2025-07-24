@@ -79,7 +79,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
 	callback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
-	_, _, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback)
+	_, _, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback, nil)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
@@ -115,7 +115,7 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
 	callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
+	_, err := fleetStore.Create(ctx, orgId, &resource, callback, nil)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
 	}
@@ -148,7 +148,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 	}
 
 	callback := store.TemplateVersionStoreCallback(func(context.Context, uuid.UUID, *api.TemplateVersion, *api.TemplateVersion) {})
-	_, err := tvStore.Create(ctx, orgId, &resource, callback)
+	_, err := tvStore.Create(ctx, orgId, &resource, callback, nil)
 
 	return err
 }
@@ -182,7 +182,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 		}
 
 		callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
+		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback, nil)
 		if err != nil {
 			return err
 		}
@@ -205,11 +205,11 @@ func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context,
 			},
 		}
 
-		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource)
+		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("creating enrollmentrequest: %v", err)
 		}
-		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource)
+		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("updating enrollmentrequest status: %v", err)
 		}
@@ -229,7 +229,7 @@ func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, storeIns
 			},
 		}
 
-		_, err := storeInst.ResourceSync().Create(ctx, orgId, &resource)
+		_, err := storeInst.ResourceSync().Create(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("creating resourcesync: %v", err)
 		}

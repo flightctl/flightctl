@@ -38,13 +38,17 @@ func (r *MockRepoTester) TestAccess(repository *api.Repository) error {
 	return errors.New("fail")
 }
 
-func createRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
+func createRepository(ctx context.Context, repostore store.Repository, log *logrus.Logger, orgId uuid.UUID, name string, labels *map[string]string) (*api.Repository, error) {
+	var (
+		repo *api.Repository
+		err  error
+	)
 	spec := api.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+	err = spec.FromGenericRepoSpec(api.GenericRepoSpec{
 		Url: "myrepourl",
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resource := api.Repository{
 		Metadata: api.ObjectMeta{
@@ -55,8 +59,8 @@ func createRepository(ctx context.Context, repostore store.Repository, orgId uui
 	}
 
 	callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-	_, err = repostore.Create(ctx, orgId, &resource, callback)
-	return err
+	repo, err = repostore.Create(ctx, orgId, &resource, callback, nil)
+	return repo, err
 }
 
 var _ = Describe("RepoTester", func() {
@@ -94,18 +98,22 @@ var _ = Describe("RepoTester", func() {
 
 	Context("Conditions", func() {
 		It("should work when setting", func() {
-			err := createRepository(ctx, stores.Repository(), orgId, "nil-to-ok", &map[string]string{"status": "OK"})
+			var (
+				err  error
+				repo *api.Repository
+			)
+			_, err = createRepository(ctx, stores.Repository(), log, orgId, "nil-to-ok", &map[string]string{"status": "OK"})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = createRepository(ctx, stores.Repository(), orgId, "ok-to-ok", &map[string]string{"status": "OK"})
+			_, err = createRepository(ctx, stores.Repository(), log, orgId, "ok-to-ok", &map[string]string{"status": "OK"})
 			Expect(err).ToNot(HaveOccurred())
-			repo, err := stores.Repository().Get(ctx, orgId, "ok-to-ok")
+			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 
 			err = repotestr.SetAccessCondition(ctx, repo, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = createRepository(ctx, stores.Repository(), orgId, "ok-to-err", &map[string]string{"status": "fail"})
+			_, err = createRepository(ctx, stores.Repository(), log, orgId, "ok-to-err", &map[string]string{"status": "fail"})
 			Expect(err).ToNot(HaveOccurred())
 			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())

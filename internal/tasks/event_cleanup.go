@@ -13,6 +13,7 @@ import (
 const (
 	// EventCleanupPollingInterval is the interval at which the event cleanup task runs.
 	EventCleanupPollingInterval = 10 * time.Minute
+	EventCleanupTaskName        = "event-cleanup"
 )
 
 type EventCleanup struct {

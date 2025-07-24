@@ -10,6 +10,11 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
+const (
+	entryTypeFile = "file"
+	entryTypeDir  = "dir"
+)
+
 // Reader is a struct for reading files from the device
 type reader struct {
 	// rootDir is the root directory for the device writer useful for testing
@@ -50,14 +55,33 @@ func (r *reader) ReadDir(dirPath string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
+// PathExistsOption represents options for PathExists function
+type PathExistsOption func(*pathExistsOptions)
+
+type pathExistsOptions struct {
+	skipContentCheck bool
+}
+
+// WithSkipContentCheck configures PathExists to skip content verification
+// and only check if the path can be opened
+func WithSkipContentCheck() PathExistsOption {
+	return func(opts *pathExistsOptions) {
+		opts.skipContentCheck = true
+	}
+}
+
 // PathExists checks if a path exists and is readable and returns a boolean
 // indicating existence, and an error only if there was a problem checking the
 // path.
-func (r *reader) PathExists(path string) (bool, error) {
-	return checkPathExists(r.PathFor(path))
+func (r *reader) PathExists(path string, opts ...PathExistsOption) (bool, error) {
+	options := &pathExistsOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	return checkPathExists(r.PathFor(path), options)
 }
 
-func checkPathExists(path string) (bool, error) {
+func checkPathExists(path string, options *pathExistsOptions) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -65,34 +89,44 @@ func checkPathExists(path string) (bool, error) {
 		}
 		return false, fmt.Errorf("error checking path: %w", err)
 	}
-
+	pathType := entryTypeFile
 	if info.IsDir() {
-		dir, err := os.Open(path)
-		if err != nil {
-			return false, fmt.Errorf("directory exists but %w: %w", errors.ErrReadingPath, err)
-		}
-		defer dir.Close()
-		// read a single entry from the directory to confirm readability
-		_, err = dir.Readdirnames(1)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				// readable but empty
-				return true, nil
-			}
-			return false, fmt.Errorf("directory exists but %w: %w", errors.ErrReadingPath, err)
-		}
-	} else {
-		file, err := os.Open(path)
-		if err != nil {
-			return false, fmt.Errorf("file exists but %w: %w", errors.ErrReadingPath, err)
-		}
-		defer file.Close()
-		// read a single byte from the file to ensure permissions are correct
-		buffer := make([]byte, 1)
-		if _, err := file.Read(buffer); err != nil {
-			return false, fmt.Errorf("file exists but %w: %w", errors.ErrReadingPath, err)
-		}
+		pathType = entryTypeDir
 	}
 
+	// Open the file/directory once
+	file, err := os.Open(path)
+	if err != nil {
+		return false, fmt.Errorf("%s exists but %w: %w", pathType, errors.ErrReadingPath, err)
+	}
+	defer file.Close()
+
+	// If we only need to check if it can be opened, we're done
+	if options.skipContentCheck {
+		return true, nil
+	}
+
+	if err = validateContents(file, info.IsDir()); err != nil {
+		return false, fmt.Errorf("%s exists but %w", pathType, err)
+	}
 	return true, nil
+}
+
+func validateContents(file *os.File, isDir bool) error {
+	if isDir {
+		// read a single entry from the directory to confirm readability
+		_, err := file.Readdirnames(1)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("%w: %w", errors.ErrReadingPath, err)
+		}
+		return nil
+	}
+
+	// read a single byte from the file to ensure permissions are correct
+	buffer := make([]byte, 1)
+	_, err := file.Read(buffer)
+	if err != nil {
+		return fmt.Errorf("%w, %w", errors.ErrReadingPath, err)
+	}
+	return nil
 }
