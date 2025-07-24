@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 func (h *ServiceHandler) CreateRepository(ctx context.Context, repo api.Repository) (*api.Repository, api.Status) {
@@ -115,14 +116,21 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status) {
+func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, name string, repository api.Repository, err error) (*api.Repository, api.Status) {
 	orgId := store.NullOrgId
 
-	if name != *repository.Metadata.Name {
+	if name != lo.FromPtr(repository.Metadata.Name) {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, err := h.store.Repository().UpdateStatus(ctx, orgId, &repository)
+	// This is the only Condition for Repository
+	changed := api.SetStatusConditionByError(&repository.Status.Conditions, api.ConditionTypeRepositoryAccessible, "Accessible", "Inaccessible", err)
+	if !changed {
+		// Nothing to do
+		return &repository, api.StatusOK()
+	}
+
+	result, err := h.store.Repository().UpdateStatus(ctx, orgId, &repository, h.eventRepositoryAccessible)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 

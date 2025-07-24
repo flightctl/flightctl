@@ -75,6 +75,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
+	tpmClient := a.tryLoadTPM(deviceReadWriter)
+
+	// update nonce if TPM client was successfully created
+	if tpmClient != nil {
+		err := tpmClient.UpdateNonce(make([]byte, 8))
+		if err != nil {
+			a.log.Errorf("Unable to update nonce in tpm client: %v", err)
+		}
+	}
+
 	// ensure the agent key exists if not create it.
 	if !a.config.ManagementService.Config.HasCredentials() {
 		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
@@ -142,24 +152,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// generate tpm client only if experimental features are enabled
-	experimentalFeatures := experimental.NewFeatures()
-	if experimentalFeatures.IsEnabled() {
-		a.log.Warn("Experimental features enabled: creating TPM client")
-		tpmClient, err := lifecycle.NewTpmClient(a.log)
-		if err != nil {
-			a.log.Warnf("Experimental feature: tpm is not available: %v", err)
-		} else {
-			a.log.Warn("Experimental features enabled: registering TPM info collection functions")
-			err := tpmClient.UpdateNonce(make([]byte, 8))
-			if err != nil {
-				a.log.Errorf("Unable to update nonce in tpm client: %v", err)
-			}
-			systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
-			systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
-		}
-	} else {
-		a.log.Debug("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
+	if tpmClient != nil {
+		a.log.Info("Experimental features enabled: registering TPM info collection functions")
+		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
+		systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
 	}
 
 	// create shutdown manager
@@ -202,6 +198,11 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationManager.Stop)
+
+	// register TPM client with shutdown manager if it exists
+	if tpmClient != nil {
+		shutdownManager.Register("tpm", tpmClient.Close)
+	}
 
 	// create systemd manager
 	systemdManager := systemd.NewManager(a.log, systemdClient)
@@ -353,4 +354,30 @@ func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClie
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
 	return client, nil
+}
+
+func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) *lifecycle.TpmClient {
+	if !a.config.TPM.Enabled {
+		a.log.Info("TPM auth is disabled. Skipping TPM setup.")
+		return nil
+	}
+
+	if !experimental.NewFeatures().IsEnabled() {
+		a.log.Info("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
+		return nil
+	}
+
+	a.log.Info("Experimental features enabled: creating TPM client")
+	tpmClient, err := lifecycle.NewTPMClient(lifecycle.TPMClientConfig{
+		Log:             a.log,
+		DeviceWriter:    writer,
+		PersistencePath: a.config.TPM.PersistencePath,
+		DevicePath:      a.config.TPM.Path,
+		DataDir:         a.config.DataDir,
+	})
+	if err != nil {
+		a.log.Warnf("Experimental features: TPM initialization failed: %v", err)
+		return nil
+	}
+	return tpmClient
 }

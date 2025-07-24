@@ -7,13 +7,14 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
+
+const RepoTesterTaskName = "repository-tester"
 
 type API interface {
 	Test()
@@ -33,9 +34,6 @@ func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *Repo
 }
 
 func (r *RepoTester) TestRepositories(ctx context.Context) {
-	reqid.OverridePrefix("repotester")
-	requestID := reqid.NextRequestID()
-	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running RepoTester")
@@ -68,18 +66,33 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 				log.Errorf("unsupported repository type: %s", repoSpec.Type)
 			}
 
-			accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
-
-			err := r.SetAccessCondition(ctx, &repository, accessErr)
-			if err != nil {
-				log.Errorf("Failed to update repository status for %s: %v", *repository.Metadata.Name, err)
-			}
+			r.testRepository(ctx, repository)
 		}
 
 		continueToken = repositories.Metadata.Continue
 		if continueToken == nil {
 			break
 		}
+	}
+}
+
+func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Repository, err error) error {
+	if repository.Status == nil {
+		repository.Status = &api.RepositoryStatus{Conditions: []api.Condition{}}
+	}
+	if repository.Status.Conditions == nil {
+		repository.Status.Conditions = []api.Condition{}
+	}
+	_, status := r.serviceHandler.ReplaceRepositoryStatusByError(ctx, lo.FromPtr(repository.Metadata.Name), *repository, err)
+
+	return service.ApiStatusToErr(status)
+}
+
+func (r *RepoTester) testRepository(ctx context.Context, repository api.Repository) {
+	repoName := *repository.Metadata.Name
+	accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
+	if err := r.SetAccessCondition(ctx, &repository, accessErr); err != nil {
+		r.log.Errorf("Failed to update repository status for %s: %v", repoName, err)
 	}
 }
 
@@ -130,20 +143,4 @@ func (r *HttpRepoTester) TestAccess(repository *api.Repository) error {
 	repoSpec := repository.Spec
 	_, err = sendHTTPrequest(repoSpec, repoURL)
 	return err
-}
-
-func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Repository, err error) error {
-	if repository.Status == nil {
-		repository.Status = &api.RepositoryStatus{Conditions: []api.Condition{}}
-	}
-	if repository.Status.Conditions == nil {
-		repository.Status.Conditions = []api.Condition{}
-	}
-	changed := api.SetStatusConditionByError(&repository.Status.Conditions, api.ConditionTypeRepositoryAccessible, "Accessible", "Inaccessible", err)
-	if !changed {
-		// Nothing to do
-		return nil
-	}
-	_, status := r.serviceHandler.ReplaceRepositoryStatus(ctx, *repository.Metadata.Name, *repository)
-	return service.ApiStatusToErr(status)
 }

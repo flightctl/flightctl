@@ -190,7 +190,7 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, name string) api.Status {
 	orgId := store.NullOrgId
 
-	_, err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback, h.eventCallbackDeviceDelete)
+	_, err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback, h.eventDeleteCallback)
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
