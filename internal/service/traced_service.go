@@ -436,9 +436,9 @@ func (t *TracedService) PatchRepository(ctx context.Context, name string, patch 
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status) {
-	ctx, span := startSpan(ctx, "ReplaceRepositoryStatus")
-	resp, st := t.inner.ReplaceRepositoryStatus(ctx, name, repository)
+func (t *TracedService) ReplaceRepositoryStatusByError(ctx context.Context, name string, repository api.Repository, err error) (*api.Repository, api.Status) {
+	ctx, span := startSpan(ctx, "ReplaceRepositoryStatusByError")
+	resp, st := t.inner.ReplaceRepositoryStatusByError(ctx, name, repository, err)
 	endSpan(span, st)
 	return resp, st
 }

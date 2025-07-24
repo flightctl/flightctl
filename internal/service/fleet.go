@@ -26,7 +26,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, fleet api.Fleet) (*api
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Fleet().Create(ctx, orgId, &fleet, h.callbackManager.FleetUpdatedCallback, h.eventCallback)
+	result, err := h.store.Fleet().Create(ctx, orgId, &fleet, h.callbackManager.FleetUpdatedCallback, h.eventFleetCallback)
 	return result, StoreErrorToApiStatus(err, true, api.FleetKind, fleet.Metadata.Name)
 }
 
@@ -80,7 +80,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet ap
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackManager.FleetUpdatedCallback, h.eventCallback)
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackManager.FleetUpdatedCallback, h.eventFleetCallback)
 	return result, StoreErrorToApiStatus(err, created, api.FleetKind, &name)
 }
 
@@ -148,7 +148,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
-	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback, h.eventCallback)
+	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback, h.eventFleetCallback)
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
@@ -176,7 +176,7 @@ func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, name string,
 func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
 	orgId := store.NullOrgId
 
-	err := h.store.Fleet().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
+	err := h.store.Fleet().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys, h.eventFleetCallback)
 	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 

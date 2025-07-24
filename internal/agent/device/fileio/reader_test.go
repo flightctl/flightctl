@@ -53,3 +53,39 @@ func TestCheckPathExistsAndReadable(t *testing.T) {
 	require.NoError(err)
 	require.False(exists)
 }
+
+func TestPathExistsWithSkipContentCheck(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	readWriter := NewReadWriter(WithTestRootDir(tmpDir))
+	emptyFilePath := "emptyfile"
+
+	// create empty file
+	err := readWriter.WriteFile(emptyFilePath, []byte{}, 0644)
+	require.NoError(err)
+
+	// without skip content check - should fail on empty file
+	exists, err := readWriter.PathExists(emptyFilePath)
+	require.Error(err)
+	require.False(exists)
+
+	// with skip content check - should pass for empty file
+	exists, err = readWriter.PathExists(emptyFilePath, WithSkipContentCheck())
+	require.NoError(err)
+	require.True(exists)
+
+	// test with empty directory
+	emptyDirPath := "emptydir"
+	err = readWriter.MkdirAll(emptyDirPath, 0755)
+	require.NoError(err)
+
+	// without skip content check - should pass for empty directory
+	exists, err = readWriter.PathExists(emptyDirPath)
+	require.NoError(err)
+	require.True(exists)
+
+	// with skip content check - should also pass for empty directory
+	exists, err = readWriter.PathExists(emptyDirPath, WithSkipContentCheck())
+	require.NoError(err)
+	require.True(exists)
+}
