@@ -3177,7 +3177,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-    orgName:
+    orgId:
       type: apiKey
       in: query
       name: org_id
