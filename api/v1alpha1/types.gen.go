@@ -183,10 +183,15 @@ const (
 	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
 	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
 	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
-	EventReasonResourceSyncCompleted           EventReason = "ResourceSyncCompleted"
+	EventReasonResourceSyncAccessible          EventReason = "ResourceSyncAccessible"
+	EventReasonResourceSyncCommitDetected      EventReason = "ResourceSyncCommitDetected"
+	EventReasonResourceSyncInaccessible        EventReason = "ResourceSyncInaccessible"
+	EventReasonResourceSyncParsed              EventReason = "ResourceSyncParsed"
+	EventReasonResourceSyncParsingFailed       EventReason = "ResourceSyncParsingFailed"
+	EventReasonResourceSyncSyncFailed          EventReason = "ResourceSyncSyncFailed"
+	EventReasonResourceSyncSynced              EventReason = "ResourceSyncSynced"
 	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
 	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
-	EventReasonTemplateVersionDeleted          EventReason = "TemplateVersionDeleted"
 )
 
 // Defines values for EventType.

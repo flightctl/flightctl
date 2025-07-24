@@ -10,19 +10,19 @@ import (
 	"github.com/samber/lo"
 )
 
-func (h *ServiceHandler) CreateRepository(ctx context.Context, repo api.Repository) (*api.Repository, api.Status) {
+func (h *ServiceHandler) CreateRepository(ctx context.Context, repository api.Repository) (*api.Repository, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
 	// don't set fields that are managed by the service
-	repo.Status = nil
-	NilOutManagedObjectMetaProperties(&repo.Metadata)
+	repository.Status = nil
+	NilOutManagedObjectMetaProperties(&repository.Metadata)
 
-	if errs := repo.Validate(); len(errs) > 0 {
+	if errs := repository.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Repository().Create(ctx, orgId, &repo, h.callbackManager.RepositoryUpdatedCallback, h.eventCallback)
-	return result, StoreErrorToApiStatus(err, true, api.RepositoryKind, repo.Metadata.Name)
+	result, err := h.store.Repository().Create(ctx, orgId, &repository, h.callbackManager.RepositoryUpdatedCallback, h.callbackRepositoryUpdated)
+	return result, StoreErrorToApiStatus(err, true, api.RepositoryKind, repository.Metadata.Name)
 }
 
 func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status) {
@@ -55,32 +55,33 @@ func (h *ServiceHandler) GetRepository(ctx context.Context, name string) (*api.R
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, repo api.Repository) (*api.Repository, api.Status) {
+func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
-	// don't overwrite fields that are managed by the service
-	repo.Status = nil
-	NilOutManagedObjectMetaProperties(&repo.Metadata)
+	// don't overwrite fields that are managed by the service for external requests
+	if !IsInternalRequest(ctx) {
+		repository.Status = nil
+		NilOutManagedObjectMetaProperties(&repository.Metadata)
+	}
 
-	if errs := repo.Validate(); len(errs) > 0 {
+	if errs := repository.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if name != *repo.Metadata.Name {
+	if name != *repository.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repo, h.callbackManager.RepositoryUpdatedCallback, h.eventCallback)
+	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repository, h.callbackManager.RepositoryUpdatedCallback, h.callbackRepositoryUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.RepositoryKind, &name)
 }
 
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback, h.eventDeleteCallback)
+	err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback, h.callbackRepositoryDeleted)
 	return StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
-// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
 func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch api.PatchRequest) (*api.Repository, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
@@ -106,12 +107,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(context.Context, uuid.UUID, *api.Repository, *api.Repository)
-
-	if h.callbackManager != nil {
-		updateCallback = h.callbackManager.RepositoryUpdatedCallback
-	}
-	result, err := h.store.Repository().Update(ctx, orgId, newObj, updateCallback, h.eventCallback)
+	result, err := h.store.Repository().Update(ctx, orgId, newObj, h.callbackManager.RepositoryUpdatedCallback, h.callbackRepositoryUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
@@ -129,7 +125,7 @@ func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, nam
 		return &repository, api.StatusOK()
 	}
 
-	result, err := h.store.Repository().UpdateStatus(ctx, orgId, &repository, h.eventRepositoryAccessible)
+	result, err := h.store.Repository().UpdateStatus(ctx, orgId, &repository, h.callbackRepositoryUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
@@ -145,4 +141,14 @@ func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, name
 
 	result, err := h.store.Repository().GetDeviceRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
+}
+
+// callbackRepositoryUpdated is the repository-specific callback that handles repository update events
+func (h *ServiceHandler) callbackRepositoryUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleRepositoryUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackRepositoryDeleted is the repository-specific callback that handles repository deletion events
+func (h *ServiceHandler) callbackRepositoryDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

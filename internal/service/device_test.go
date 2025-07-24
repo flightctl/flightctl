@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,7 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 		Status: &status,
 	}
 	serviceHandler := ServiceHandler{
+		EventHandler:    NewEventHandler(&TestStore{}, log.InitLogs()),
 		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 	}
@@ -60,6 +62,7 @@ func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch a
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
 	_ = auth.InitAuth(nil, log.InitLogs())
 	serviceHandler := &ServiceHandler{
+		EventHandler:    NewEventHandler(&TestStore{}, log.InitLogs()),
 		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 	}
@@ -336,6 +339,7 @@ func TestDeviceNonExistingResource(t *testing.T) {
 	}
 
 	serviceHandler := ServiceHandler{
+		EventHandler:    NewEventHandler(&TestStore{}, log.InitLogs()),
 		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 	}
@@ -353,13 +357,14 @@ func TestDeviceDisconnected(t *testing.T) {
 	require := require.New(t)
 
 	serviceHandler := &ServiceHandler{
+		EventHandler:    NewEventHandler(&TestStore{}, logrus.New()),
 		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
 		log:             logrus.New(),
 	}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
-	device := prepareDevice()
+	device := prepareDevice(uuid.New(), "foo")
 
 	// Create device
 	device, retStatus := serviceHandler.CreateDevice(ctx, *device)

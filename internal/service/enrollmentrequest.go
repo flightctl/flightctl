@@ -85,7 +85,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	}
 	common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
 
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback, h.eventCallbackDevice)
+	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback, h.callbackDeviceUpdated)
 	return err
 }
 
@@ -111,7 +111,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 
 	addStatusIfNeeded(&er)
 
-	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er, h.eventCallback)
+	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
 }
 
@@ -175,7 +175,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 
 	addStatusIfNeeded(&er)
 
-	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er, h.eventCallback)
+	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
 }
 
@@ -214,14 +214,14 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj, h.eventCallback)
+	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	err := h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.eventDeleteCallback)
+	err := h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
 	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
@@ -254,7 +254,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		identity, err := authcommon.GetIdentity(ctx)
 		if err != nil {
 			status := api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
-			h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
+			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 
@@ -273,18 +273,20 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 
 		if err := approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus); err != nil {
 			status := api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
-			h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
+			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
 			status := api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
-			h.CreateEvent(ctx, GetResourceApprovedEvent(ctx, api.EnrollmentRequestKind, name, status, h.log))
+			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 	}
-	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq, h.eventCallback)
+
+	// Update the enrollment request status using the specific approval callback
+	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq, h.callbackEnrollmentRequestApproved)
 	return approvalStatusToReturn, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
@@ -293,7 +295,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 
 	addStatusIfNeeded(&er)
 
-	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er, h.eventCallback)
+	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
@@ -310,15 +312,29 @@ func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.U
 
 func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {
 	return api.CertificateSigningRequest{
-		ApiVersion: api.CertificateSigningRequestAPIVersion,
-		Kind:       api.CertificateSigningRequestKind,
+		ApiVersion: "v1alpha1",
+		Kind:       "CertificateSigningRequest",
 		Metadata: api.ObjectMeta{
 			Name: enrollmentRequest.Metadata.Name,
 		},
 		Spec: api.CertificateSigningRequestSpec{
 			Request:    []byte(enrollmentRequest.Spec.Csr),
 			SignerName: ca.Cfg.DeviceEnrollmentSignerName,
-			Usages:     &[]string{"clientAuth", "CA:false"},
 		},
 	}
+}
+
+// callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
+func (h *ServiceHandler) callbackEnrollmentRequestUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackEnrollmentRequestDeleted is the enrollment request-specific callback that handles enrollment request deletion events
+func (h *ServiceHandler) callbackEnrollmentRequestDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackEnrollmentRequestApproved is the enrollment request-specific callback that handles enrollment request approval events
+func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleEnrollmentRequestApprovedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

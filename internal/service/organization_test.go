@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +16,8 @@ import (
 func createServiceHandlerWithOrgMockStore(t *testing.T) (*ServiceHandler, *TestStore) {
 	mockStore := &TestStore{}
 	handler := &ServiceHandler{
-		store: mockStore,
+		EventHandler: NewEventHandler(mockStore, log.InitLogs()),
+		store:        mockStore,
 	}
 	return handler, mockStore
 }
