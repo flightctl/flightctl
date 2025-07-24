@@ -20,14 +20,20 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, tv api.Templ
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
+	var name = lo.FromPtr(tv.Metadata.Name)
+	var version = tv.Spec.Fleet
+
 	var callback store.TemplateVersionStoreCallback = func(ctx context.Context, u uuid.UUID, before *api.TemplateVersion, after *api.TemplateVersion) {
-		h.log.Infof("fleet %s: template version %s created with rollout device selection, not executing task for immediate rollout", tv.Spec.Fleet, *tv.Metadata.Name)
+		h.log.Infof("fleet %s: template version %s created with rollout device selection, not executing task for immediate rollout", version, name)
 	}
 	if immediateRollout {
 		callback = h.callbackManager.TemplateVersionCreatedCallback
 	}
+	eventCallback := func(ctx context.Context, _ api.ResourceKind, _ uuid.UUID, name string, _, _ interface{}, _ bool, _ *api.ResourceUpdatedDetails, err error) {
+		h.eventCallbackFleetRolloutStarted(ctx, name, version, immediateRollout, err, h.log)
+	}
 
-	result, err := h.store.TemplateVersion().Create(ctx, orgId, &tv, callback)
+	result, err := h.store.TemplateVersion().Create(ctx, orgId, &tv, callback, eventCallback)
 	return result, StoreErrorToApiStatus(err, true, api.TemplateVersionKind, tv.Metadata.Name)
 }
 
@@ -91,7 +97,7 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string
 		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, fleet, name)
 	}
 
-	_, err = h.store.TemplateVersion().Delete(ctx, orgId, fleet, name)
+	_, err = h.store.TemplateVersion().Delete(ctx, orgId, fleet, name, h.eventDeleteCallback)
 	return StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
 }
 

@@ -494,7 +494,7 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 		Status: &status,
 	}
 
-	eventCallback := func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
+	eventCallback := func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
 		if err != nil {
 			status := StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
 			serviceHandler.CreateEvent(ctx, GetResourceCreatedOrUpdatedFailureEvent(ctx, created, api.EnrollmentRequestKind, name, status, nil))
