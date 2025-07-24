@@ -148,7 +148,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 	}
 
 	callback := store.TemplateVersionStoreCallback(func(context.Context, uuid.UUID, *api.TemplateVersion, *api.TemplateVersion) {})
-	_, err := tvStore.Create(ctx, orgId, &resource, callback)
+	_, err := tvStore.Create(ctx, orgId, &resource, callback, nil)
 
 	return err
 }

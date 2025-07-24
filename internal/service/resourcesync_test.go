@@ -7,6 +7,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,6 +31,7 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 	}
 	serviceHandler := ServiceHandler{
 		store: &TestStore{},
+		log:   logrus.New(),
 	}
 	orig, status := serviceHandler.CreateResourceSync(ctx, resourceSync)
 	require.Equal(statusCreatedCode, status.Code)
@@ -60,6 +62,7 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &TestStore{},
+		log:   logrus.New(),
 	}
 	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &resourceSync, serviceHandler.eventCallback)
 	require.NoError(err)
@@ -201,6 +204,7 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 
 	serviceHandler := ServiceHandler{
 		store: &TestStore{},
+		log:   logrus.New(),
 	}
 	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &api.ResourceSync{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},

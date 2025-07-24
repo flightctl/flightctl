@@ -21,14 +21,14 @@ type Device interface {
 	InitialMigration(ctx context.Context) error
 
 	// Exposed to users
-	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (*api.Device, error)
-	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (*api.Device, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error)
+	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventDeviceCallback) (*api.Device, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventCallback) (bool, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventCallback) (*api.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 
 	// Used internally
@@ -78,27 +78,14 @@ func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
 	return &DeviceStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback EventDeviceCallback, orgId uuid.UUID, name string, oldDevice, newDevice *api.Device, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
-	// Call callback if provided (but don't fail the operation if callback fails)
+func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback EventCallback, orgId uuid.UUID, name string, oldDevice, newDevice *api.Device, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
 	if eventCallback == nil {
 		return
 	}
-	// Call callback in a defer with error recovery to prevent callback failures from affecting the main operation
-	defer func() {
-		if r := recover(); r != nil {
-			s.log.Errorf("Event Callback panicked during service status update: %v", r)
-		}
-	}()
 
-	// Call the eventCallback - if it fails, log the error but don't propagate it
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				s.log.Errorf("Event Callback panicked: %v", r)
-			}
-		}()
+	SafeEventCallback(s.log, func() {
 		eventCallback(ctx, api.DeviceKind, orgId, name, oldDevice, newDevice, created, updateDesc, err)
-	}()
+	})
 }
 
 func (s *DeviceStore) getDB(ctx context.Context) *gorm.DB {
@@ -287,21 +274,21 @@ func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
 	return nil
 }
 
-func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (*api.Device, error) {
+func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error) {
 	device, err := s.genericStore.Create(ctx, orgId, resource, callback)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, nil, device, true, nil, err)
 	return device, err
 }
 
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (*api.Device, error) {
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error) {
 	device, oldDevice, updatedDescr, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, false, &updatedDescr, err)
 	return device, err
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error) {
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error) {
 	device, oldDevice, created, updateDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, created, &updateDetails, err)
@@ -348,7 +335,7 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams Li
 	return labelStrings, nil
 }
 
-func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventDeviceCallback) (bool, error) {
+func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventCallback) (bool, error) {
 	deleted, err := s.genericStore.Delete(
 		ctx,
 		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
@@ -549,7 +536,7 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 	}, nil
 }
 
-func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device, eventCallback EventDeviceCallback) (*api.Device, error) {
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device, eventCallback EventCallback) (*api.Device, error) {
 	var oldDevice api.Device
 	device, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
 	if err == nil && device != nil {

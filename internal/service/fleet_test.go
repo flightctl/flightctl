@@ -52,7 +52,7 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.F
 		callbackManager: dummyCallbackManager(),
 	}
 	ctx := context.Background()
-	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil, serviceHandler.eventCallback)
+	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil, serviceHandler.eventFleetCallback)
 	require.NoError(err)
 	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
