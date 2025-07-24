@@ -62,6 +62,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printEnrollmentRequestsTable(w, data.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.FleetKind):
 		return f.printFleetsTable(w, options.Summary, data.(*apiclient.ListFleetsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.OrganizationKind):
+		return f.printOrganizationsTable(w, data.(*apiclient.ListOrganizationsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.TemplateVersionKind):
 		return f.printTemplateVersionsTable(w, data.(*apiclient.ListTemplateVersionsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.RepositoryKind):
@@ -234,6 +236,28 @@ func (f *TableFormatter) printFleetsTable(w *tabwriter.Writer, showSummary bool,
 			f.printTableRow(w, "", numDevices)
 		}
 		fmt.Fprintln(w)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printOrganizationsTable(w *tabwriter.Writer, orgs ...api.Organization) error {
+	f.printHeaderRowLn(w, "NAME", "DISPLAY NAME", "EXTERNAL ID", "OWNER")
+	for i := range orgs {
+		org := orgs[i]
+		displayName := "<none>"
+		if org.Spec != nil && org.Spec.DisplayName != nil {
+			displayName = *org.Spec.DisplayName
+		}
+		externalId := "<none>"
+		if org.Spec != nil && org.Spec.ExternalId != nil {
+			externalId = *org.Spec.ExternalId
+		}
+		f.printTableRowLn(w,
+			*org.Metadata.Name,
+			displayName,
+			externalId,
+			util.DefaultIfNil(org.Metadata.Owner, "<none>"),
+		)
 	}
 	return nil
 }

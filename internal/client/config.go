@@ -35,8 +35,9 @@ const (
 
 // Config holds the information needed to connect to a Flight Control API server
 type Config struct {
-	Service  Service  `json:"service"`
-	AuthInfo AuthInfo `json:"authentication"`
+	Service      Service  `json:"service"`
+	AuthInfo     AuthInfo `json:"authentication"`
+	Organization string   `json:"organization,omitempty"`
 
 	// baseDir is used to resolve relative paths
 	// If baseDir is empty, the current working directory is used.
@@ -138,10 +139,11 @@ func (c *Config) DeepCopy() *Config {
 		return nil
 	}
 	return &Config{
-		Service:     *c.Service.DeepCopy(),
-		AuthInfo:    *c.AuthInfo.DeepCopy(),
-		baseDir:     c.baseDir,
-		testRootDir: c.testRootDir,
+		Service:      *c.Service.DeepCopy(),
+		AuthInfo:     *c.AuthInfo.DeepCopy(),
+		Organization: c.Organization,
+		baseDir:      c.baseDir,
+		testRootDir:  c.testRootDir,
 	}
 }
 
@@ -201,8 +203,28 @@ func NewDefault() *Config {
 	return c
 }
 
+// WithQueryParam returns a ClientOption that appends a request editor which
+// sets (or overrides) the given query parameter. If value is empty, the editor
+// is a no-op so callers can pass it unconditionally.
+func WithQueryParam(key, value string) client.ClientOption {
+	return client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if value == "" {
+			return nil
+		}
+		q := req.URL.Query()
+		q.Set(key, value)
+		req.URL.RawQuery = q.Encode()
+		return nil
+	})
+}
+
+// WithOrganization sets the organization ID in the request query parameters.
+func WithOrganization(orgID string) client.ClientOption {
+	return WithQueryParam("org_id", orgID)
+}
+
 // NewFromConfig returns a new Flight Control API client from the given config.
-func NewFromConfig(config *Config, configFilePath string) (*client.ClientWithResponses, error) {
+func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
 
 	httpClient, err := NewHTTPClientFromConfig(config)
 	if err != nil {
@@ -216,7 +238,20 @@ func NewFromConfig(config *Config, configFilePath string) (*client.ClientWithRes
 		}
 		return nil
 	})
-	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
+	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
+	defaultOpts = append(defaultOpts, opts...)
+	return client.NewClientWithResponses(config.Service.Server, defaultOpts...)
+}
+
+// NewFromConfigFile returns a new Flight Control API client using the config
+// read from the given file. Additional client options may be supplied and will
+// be appended after the defaults.
+func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
+	config, err := ParseConfigFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return NewFromConfig(config, filename, opts...)
 }
 
 // NewHTTPClientFromConfig returns a new HTTP Client from the given config.
@@ -372,15 +407,6 @@ func ParseConfigFile(filename string) (*Config, error) {
 		return nil, err
 	}
 	return config, config.Flatten()
-}
-
-// NewFromConfigFile returns a new Flight Control API client using the config read from the given file.
-func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
-	config, err := ParseConfigFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	return NewFromConfig(config, filename)
 }
 
 // NewFromConfigFile returns a new Flight Control API client using the config read from the given file.
