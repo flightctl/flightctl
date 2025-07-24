@@ -159,8 +159,8 @@ func NewDefault() *Config {
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
 		TPM: TPM{
-			Enabled: true,
-			Path:    DefaultTPMDevicePath,
+			Enabled:         false,
+			Path:            DefaultTPMDevicePath,
 			PersistencePath: filepath.Join(DefaultDataDir, DefaultTPMKeyBlobFile),
 		},
 	}
