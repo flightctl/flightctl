@@ -106,11 +106,6 @@ corecmd_exec_all_executables(flightctl_agent_t)
 domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
 domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
 
-# User namespace creation for bubblewrap
-ifdef(`user_namespace',`
-    allow flightctl_agent_t self:user_namespace create;
-')
-
 ## System information access  ##
 
 # Kernel and system state
@@ -236,13 +231,13 @@ allow flightctl_agent_t unlabeled_t:dir search;
 
 ## Filesystem & mount operations  ##
 
-# Filesystem mount operations for bubblewrap namespaces
+# Filesystem mount operations
 fs_mount_all_fs(flightctl_agent_t)
 fs_remount_all_fs(flightctl_agent_t)
 fs_unmount_all_fs(flightctl_agent_t)
 fs_getattr_all_fs(flightctl_agent_t)
 
-# Mount-on permissions for key directories (bubblewrap bind mounts)
+# Mount-on permissions for key directories (bind mounts)
 allow flightctl_agent_t { root_t etc_t var_t tmp_t device_t var_run_t sysfs_t admin_home_t }:dir mounton;
 allow flightctl_agent_t proc_t:dir { mounton write };
 
@@ -252,14 +247,7 @@ allow flightctl_agent_t tmpfs_t:dir { create write add_name mounton };
 # Special filesystem access for namespace operations
 allow flightctl_agent_t sysctl_t:file { mounton write };
 allow flightctl_agent_t sysctl_irq_t:dir { write mounton };
-
-## Device access (for bubblewrap)  ##
-
-# Device access for --dev-bind /dev /dev
-dev_rw_generic_chr_files(flightctl_agent_t)
-dev_rw_generic_blk_files(flightctl_agent_t)
-allow flightctl_agent_t device_t:dir { mounton read getattr search };  
-
+  
 # This allows installation of dnf packages
 allow flightctl_agent_t node_t:tcp_socket node_bind;
 allow flightctl_agent_t rhsmcertd_config_t:dir search;
