@@ -1,15 +1,13 @@
 {{- define "flightctl.getBaseDomain" }}
   {{- if .Values.global.baseDomain }}
     {{- printf .Values.global.baseDomain }}
-  {{- else if eq .Values.global.target "acm" }}
+  {{- else }}
     {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
     {{- if .noNs }}
       {{- printf "apps.%s" $openShiftBaseDomain }}
     {{- else }}
       {{- printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
     {{- end }}
-  {{- else }}
-    {{- printf "flightctl.local" }}
   {{- end }}
 {{- end }}
 
