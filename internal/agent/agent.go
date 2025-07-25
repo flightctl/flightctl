@@ -2,14 +2,9 @@ package agent
 
 import (
 	"context"
-	"crypto"
-	"encoding/base32"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 
-	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
@@ -28,11 +23,10 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
-	baseconfig "github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/experimental"
-	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -75,35 +69,31 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
-	tpmClient := a.tryLoadTPM(deviceReadWriter)
-
-	// update nonce if TPM client was successfully created
-	if tpmClient != nil {
-		err := tpmClient.UpdateNonce(make([]byte, 8))
-		if err != nil {
-			a.log.Errorf("Unable to update nonce in tpm client: %v", err)
-		}
-	}
-
-	// ensure the agent key exists if not create it.
-	if !a.config.ManagementService.Config.HasCredentials() {
-		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
-		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
-	}
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
+	tpmClient, err := a.tryLoadTPM(deviceReadWriter)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialize TPM client: %w", err)
 	}
 
-	publicKeyHash, err := fcrypto.HashPublicKey(publicKey)
-	if err != nil {
-		return err
+	// create identity provider
+	identityProvider := identity.NewProvider(
+		tpmClient,
+		deviceReadWriter,
+		a.config,
+		a.log,
+	)
+
+	if err := identityProvider.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize identity provider: %w", err)
 	}
 
-	deviceName := strings.ToLower(base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(publicKeyHash))
-	csr, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), deviceName)
+	deviceName, err := identityProvider.GetDeviceName()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get device name: %w", err)
+	}
+
+	csr, err := identityProvider.GenerateCSR(deviceName)
+	if err != nil {
+		return fmt.Errorf("failed to generate CSR: %w", err)
 	}
 
 	executer := &executer.CommonExecuter{}
@@ -154,8 +144,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	if tpmClient != nil {
 		a.log.Info("Experimental features enabled: registering TPM info collection functions")
-		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.TpmVendorInfoCollector)
-		systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.TpmAttestationCollector)
+		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
+		systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.AttestationCollector)
 	}
 
 	// create shutdown manager
@@ -199,10 +189,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationManager.Stop)
 
-	// register TPM client with shutdown manager if it exists
-	if tpmClient != nil {
-		shutdownManager.Register("tpm", tpmClient.Close)
-	}
+	// register identity provider with shutdown manager
+	shutdownManager.Register("identity", identityProvider.Close)
 
 	// create systemd manager
 	systemdManager := systemd.NewManager(a.log, systemdClient)
@@ -231,6 +219,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.DefaultLabels,
 		statusManager,
 		systemdClient,
+		identityProvider,
 		backoff,
 		a.log,
 	)
@@ -262,6 +251,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		systemInfoManager,
 		a.config.GetManagementMetricsCallback(),
 		podmanClient,
+		identityProvider,
 		a.log,
 	)
 
@@ -271,7 +261,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create the gRPC client this must be done after bootstrap
-	grpcClient, err := newGrpcClient(&a.config.ManagementService)
+	grpcClient, err := identityProvider.CreateGRPCClient(&a.config.ManagementService.Config)
 	if err != nil {
 		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
@@ -348,36 +338,16 @@ func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
 	return client.NewEnrollment(httpClient, cfg.GetEnrollmentMetricsCallback()), nil
 }
 
-func newGrpcClient(cfg *baseconfig.ManagementService) (grpc_v1.RouterServiceClient, error) {
-	client, err := client.NewGRPCClientFromConfig(&cfg.Config)
-	if err != nil {
-		return nil, fmt.Errorf("creating gRPC client: %w", err)
-	}
-	return client, nil
-}
-
-func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) *lifecycle.TpmClient {
+func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
 	if !a.config.TPM.Enabled {
 		a.log.Info("TPM auth is disabled. Skipping TPM setup.")
-		return nil
+
+		return nil, nil
 	}
 
-	if !experimental.NewFeatures().IsEnabled() {
-		a.log.Info("Experimental features are not enabled: skipping creation of TPM client and registration of TPM collection functions")
-		return nil
-	}
-
-	a.log.Info("Experimental features enabled: creating TPM client")
-	tpmClient, err := lifecycle.NewTPMClient(lifecycle.TPMClientConfig{
-		Log:             a.log,
-		DeviceWriter:    writer,
-		PersistencePath: a.config.TPM.PersistencePath,
-		DevicePath:      a.config.TPM.Path,
-		DataDir:         a.config.DataDir,
-	})
+	tpmClient, err := tpm.NewClient(a.log, writer, a.config)
 	if err != nil {
-		a.log.Warnf("Experimental features: TPM initialization failed: %v", err)
-		return nil
+		return nil, fmt.Errorf("creating TPM client: %w", err)
 	}
-	return tpmClient
+	return tpmClient, nil
 }

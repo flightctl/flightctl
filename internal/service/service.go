@@ -115,4 +115,7 @@ type Service interface {
 	GetCheckpoint(ctx context.Context, consumer string, key string) ([]byte, api.Status)
 	SetCheckpoint(ctx context.Context, consumer string, key string, value []byte) api.Status
 	GetDatabaseTime(ctx context.Context) (time.Time, api.Status)
+
+	// Organization
+	ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status)
 }
