@@ -64,6 +64,13 @@ func NewCASigners(ca CA) *CASigners {
 					),
 				),
 			),
+			cfg.ServerSvcSignerName: WithSignerNameValidation(
+				WithCertificateReuse(
+					WithCSRValidation(
+						WithSignerNameExtension(NewSignerServerSvc, ca),
+					),
+				),
+			),
 		},
 	}
 

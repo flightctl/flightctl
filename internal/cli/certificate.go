@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -43,12 +44,14 @@ const maxAttempts = 3
 
 type CertificateOptions struct {
 	GlobalOptions
-	Name       string
-	Expiration string
-	Output     string
-	OutputDir  string
-	EncryptKey bool
-	SignerName string
+	Name        string
+	Expiration  string
+	Output      string
+	OutputDir   string
+	EncryptKey  bool
+	SignerName  string
+	DNSNames    []string
+	IPAddresses []string
 }
 
 func DefaultCertificateOptions() *CertificateOptions {
@@ -96,6 +99,8 @@ func (o *CertificateOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.OutputDir, "output-dir", "d", o.OutputDir, "Specify desired output directory for key, cert, and ca files.")
 	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of the certificate request.")
 	fs.BoolVarP(&o.EncryptKey, "encrypt", "e", o.EncryptKey, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime.")
+	fs.StringSliceVarP(&o.DNSNames, "dns-names", "", o.DNSNames, "Comma-separated list of DNS names to include in the certificate's Subject Alternative Names.")
+	fs.StringSliceVarP(&o.IPAddresses, "ip-addresses", "", o.IPAddresses, "Comma-separated list of IP addresses to include in the certificate's Subject Alternative Names.")
 }
 
 func (o *CertificateOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -279,6 +284,16 @@ func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apicli
 	return "", fmt.Errorf("submitting CSR failed after %d attempts, giving up", maxAttempts)
 }
 
+// getUsagesForSigner returns the appropriate usage strings based on the signer name
+func getUsagesForSigner(signerName string) *[]string {
+	switch signerName {
+	case "flightctl.io/server-svc":
+		return &[]string{"serverAuth", "clientAuth", "CA:false"}
+	default:
+		return &[]string{"clientAuth", "CA:false"}
+	}
+}
+
 func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]byte, error) {
 	days, err := strconv.Atoi(strings.TrimSuffix(o.Expiration, "d"))
 	if err != nil {
@@ -297,6 +312,24 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 		Subject: pkix.Name{
 			CommonName: name,
 		},
+	}
+
+	// Add DNS names to SAN if provided
+	if len(o.DNSNames) > 0 {
+		template.DNSNames = o.DNSNames
+	}
+
+	// Add IP addresses to SAN if provided
+	if len(o.IPAddresses) > 0 {
+		ips := make([]net.IP, 0, len(o.IPAddresses))
+		for _, ipStr := range o.IPAddresses {
+			ip := net.ParseIP(ipStr)
+			if ip == nil {
+				return nil, fmt.Errorf("invalid IP address: %s", ipStr)
+			}
+			ips = append(ips, ip)
+		}
+		template.IPAddresses = ips
 	}
 
 	csrInner, err := x509.CreateCertificateRequest(rand.Reader, template, priv)
@@ -323,7 +356,7 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 			ExpirationSeconds: &expirationSeconds,
 			Request:           csrPEM,
 			SignerName:        o.SignerName,
-			Usages:            &[]string{"clientAuth", "CA:false"},
+			Usages:            getUsagesForSigner(o.SignerName),
 		},
 	}
 	csrResourceJSON, err := json.Marshal(csrResource)
