@@ -35,6 +35,7 @@ gen_require(`
     type rhsmcertd_config_t, rhsmcertd_log_t, rhsmcertd_var_run_t, rhsmcertd_var_lib_t;
     type usr_t;
     type node_t;
+    type tpm_device_t, security_t;
 
     attribute domain;
 ')
@@ -85,6 +86,10 @@ userdom_manage_user_home_content(flightctl_agent_t)
 
 # System directory access
 allow flightctl_agent_t mail_spool_t:dir search;
+
+# TPM device access
+allow flightctl_agent_t tpm_device_t:chr_file { getattr open read write };
+allow flightctl_agent_t security_t:file { open read getattr };
 
 ## Process management & capabilities  ##
 
