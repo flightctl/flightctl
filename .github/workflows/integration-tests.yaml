@@ -35,6 +35,8 @@ jobs:
       - name: Running Integration tests
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make integration-test VERBOSE=true
+        env:
+          DISABLE_FIPS: true
 
 
 
