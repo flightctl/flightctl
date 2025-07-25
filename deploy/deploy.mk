@@ -104,6 +104,7 @@ run-services-container:
 	--name flightctl-services \
 	-p 443:443 \
 	-p 3443:3443 \
+	-p 7443:7443 \
 	-p 8090:8090 \
 	-p 8443:8443 \
 	-p 9093:9093 \
