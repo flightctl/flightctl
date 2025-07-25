@@ -13,6 +13,7 @@ import (
 
 type KVStore interface {
 	Close()
+	Set(ctx context.Context, key string, value []byte) error
 	SetNX(ctx context.Context, key string, value []byte) (bool, error)
 	Get(ctx context.Context, key string) ([]byte, error)
 	GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error)
@@ -78,6 +79,14 @@ func (s *kvStore) DeleteAllKeys(ctx context.Context) error {
 	_, err := s.client.FlushAll(ctx).Result()
 	if err != nil {
 		return fmt.Errorf("failed deleting all keys: %w", err)
+	}
+	return nil
+}
+
+func (s *kvStore) Set(ctx context.Context, key string, value []byte) error {
+	err := s.client.Set(ctx, key, value, 0).Err()
+	if err != nil {
+		return fmt.Errorf("failed storing key: %w", err)
 	}
 	return nil
 }
