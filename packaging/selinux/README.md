@@ -98,6 +98,16 @@ ls -Z /usr/bin/flightctl-agent
 system_u:object_r:flightctl_agent_exec_t:s0 /usr/bin/flightctl-agent
 ```
 
+## Check what we are really blocking
+
+`unconfined_t` as root is equivalent to root access with SELinux disabled on a normal Linux system. To
+see how close the agent is to the limitless policy, run this in the agent:
+
+`$ grep -Fxvf <(sudo sesearch --allow -s flightctl_agent_t) <(sudo sesearch --allow -s unconfined_t)`
+
+This will print everything that is allowed in unconfied that is not specified in our own policy.
+This is a way to kind of answer the question, "What are we actually blocking with this policy?".
+
 ## Important Areas Of Concern
 
 The agent operates under a broad SELinux scope, so it's critical to test as many execution paths as possible. Key areas to focus on:

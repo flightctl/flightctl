@@ -29,6 +29,7 @@ update-vm-agent: bin/flightctl-agent
 	scp bin/flightctl-agent user@$(AGENT_IP):~
 	ssh user@$(AGENT_IP) "sudo ostree admin unlock || true"
 	ssh user@$(AGENT_IP) "sudo mv /home/user/flightctl-agent /usr/bin/flightctl-agent"
+	ssh user@$(AGENT_IP) "sudo restorecon /usr/bin/flightctl-agent"
 	ssh user@$(AGENT_IP) "sudo systemctl restart flightctl-agent"
 	ssh user@$(AGENT_IP) "sudo journalctl -u flightctl-agent -f"
 
