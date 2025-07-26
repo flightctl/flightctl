@@ -345,7 +345,7 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 }
 
 func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name string, origErr error) {
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error creating client: %v\n", err)
 		return

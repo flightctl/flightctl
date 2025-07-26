@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	client "github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -20,9 +22,10 @@ const (
 )
 
 type GlobalOptions struct {
-	ConfigFilePath string
 	ConfigDir      string
+	ConfigFilePath string
 	Context        string
+	Organization   string
 	RequestTimeout int
 }
 
@@ -30,11 +33,13 @@ func DefaultGlobalOptions() GlobalOptions {
 	return GlobalOptions{
 		ConfigFilePath: filepath.Clean(ConfigFilePath("", "")),
 		Context:        "",
+		Organization:   "",
 		RequestTimeout: 0,
 	}
 }
 
 func (o *GlobalOptions) Bind(fs *pflag.FlagSet) {
+	fs.StringVarP(&o.Organization, "org", "", o.Organization, "If present, use the specified organization for the request. This overrides the organization in the config file.")
 	fs.StringVarP(&o.Context, "context", "c", o.Context, "Read client config from 'client_<context>.yaml' instead of 'client.yaml'.")
 	fs.StringVarP(&o.ConfigDir, "config-dir", "", o.ConfigDir, "Specify the directory for client configuration files.")
 	fs.IntVar(&o.RequestTimeout, "request-timeout", o.RequestTimeout, "Request Timeout in seconds (0 - use default OS timeout)")
@@ -74,9 +79,20 @@ func (o *GlobalOptions) Validate(args []string) error {
 	return o.ValidateCmd(args)
 }
 
-// Validates GlobalOptions without requiring ConfigFilePath to exist. This is useful for any CLI cmd that does not require user login.
+// ValidateCmd Validates GlobalOptions without requiring ConfigFilePath to exist. This is useful for any CLI cmd that does not require user login.
 func (o *GlobalOptions) ValidateCmd(args []string) error {
+	if o.Organization != "" {
+		if err := validateOrganizationID(o.Organization); err != nil {
+			return fmt.Errorf("invalid organization ID %q: %w", o.Organization, err)
+		}
+	}
 	return nil
+}
+
+// BuildClient constructs a FlightCTL API client using configuration derived
+// from the global options (config file path, organization override, etc.).
+func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
+	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(o.Organization))
 }
 
 func (o *GlobalOptions) WithTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

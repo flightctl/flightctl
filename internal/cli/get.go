@@ -13,7 +13,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -104,43 +103,109 @@ func (o *GetOptions) Validate(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	validators := []func() error{
+		func() error { return o.validateSelectors(name) },
+		func() error { return o.validateSummary(kind, name) },
+		func() error { return o.validateSummaryOnly(kind, name) },
+		func() error { return o.validateTemplateVersion(kind) },
+		func() error { return o.validateOutputFormat() },
+		func() error { return o.validateRendered(kind, name) },
+		func() error { return o.validateSingleResourceRestrictions(kind, name) },
+		func() error { return o.validateLimit() },
+	}
+
+	for _, v := range validators {
+		if err := v(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSelectors ensures label/field selectors are not provided when requesting a single resource.
+func (o *GetOptions) validateSelectors(name string) error {
 	if len(name) > 0 && len(o.LabelSelector) > 0 {
 		return fmt.Errorf("cannot specify label selector when getting a single resource")
 	}
 	if len(name) > 0 && len(o.FieldSelector) > 0 {
 		return fmt.Errorf("cannot specify field selector when getting a single resource")
 	}
-	if o.Summary {
-		if kind != DeviceKind && kind != FleetKind {
-			return fmt.Errorf("'--summary' can only be specified when getting a list of devices or fleets")
-		}
-		if kind == DeviceKind && len(name) > 0 {
-			return fmt.Errorf("cannot specify '--summary' when getting a single device")
-		}
+	return nil
+}
+
+// validateSummary validates the usage of the --summary flag.
+func (o *GetOptions) validateSummary(kind, name string) error {
+	if !o.Summary {
+		return nil
 	}
-	if o.SummaryOnly {
-		if kind != DeviceKind {
-			return fmt.Errorf("'--summary-only' can only be specified when getting a list of devices")
-		}
-		if len(name) > 0 {
-			return fmt.Errorf("cannot specify '--summary-only' when getting a single device")
-		}
-		if o.Limit > 0 || len(o.Continue) > 0 {
-			return fmt.Errorf("flags '--limit' and '--continue' are not supported when '--summary-only' is specified")
-		}
+	if kind != DeviceKind && kind != FleetKind {
+		return fmt.Errorf("'--summary' can only be specified when getting a list of devices or fleets")
 	}
+	if kind == DeviceKind && len(name) > 0 {
+		return fmt.Errorf("cannot specify '--summary' when getting a single device")
+	}
+	return nil
+}
+
+// validateSummaryOnly validates the usage of the --summary-only flag.
+func (o *GetOptions) validateSummaryOnly(kind, name string) error {
+	if !o.SummaryOnly {
+		return nil
+	}
+	if kind != DeviceKind {
+		return fmt.Errorf("'--summary-only' can only be specified when getting a list of devices")
+	}
+	if len(name) > 0 {
+		return fmt.Errorf("cannot specify '--summary-only' when getting a single device")
+	}
+	if o.Limit > 0 || len(o.Continue) > 0 {
+		return fmt.Errorf("flags '--limit' and '--continue' are not supported when '--summary-only' is specified")
+	}
+	return nil
+}
+
+// validateTemplateVersion ensures a fleet name is provided when listing templateversions.
+func (o *GetOptions) validateTemplateVersion(kind string) error {
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
 		return fmt.Errorf("a fleet name must be specified when getting a list of templateversions")
 	}
+	return nil
+}
+
+// validateOutputFormat checks that the requested output format is recognised.
+func (o *GetOptions) validateOutputFormat() error {
 	if len(o.Output) > 0 && !slices.Contains(legalOutputTypes, o.Output) {
 		return fmt.Errorf("output format must be one of (%s)", strings.Join(legalOutputTypes, ", "))
 	}
+	return nil
+}
+
+// validateRendered guards the --rendered flag usage.
+func (o *GetOptions) validateRendered(kind, name string) error {
 	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
 		return fmt.Errorf("'--rendered' can only be used when getting a single device")
 	}
-	if kind == EventKind && len(name) > 0 {
-		return fmt.Errorf("you cannot get a single event")
+	return nil
+}
+
+// validateSingleResourceRestrictions covers kinds that cannot be fetched individually.
+func (o *GetOptions) validateSingleResourceRestrictions(kind, name string) error {
+	if len(name) == 0 {
+		return nil // list request – no restriction applies
 	}
+	switch kind {
+	case EventKind:
+		return fmt.Errorf("you cannot get a single event")
+	case OrganizationKind:
+		return fmt.Errorf("you cannot get a single organization")
+	default:
+		return nil
+	}
+}
+
+// validateLimit checks limit-related constraints.
+func (o *GetOptions) validateLimit() error {
 	if o.Limit < 0 {
 		return fmt.Errorf("limit must be greater than 0")
 	}
@@ -151,7 +216,7 @@ func (o *GetOptions) Validate(args []string) error {
 }
 
 func (o *GetOptions) Run(ctx context.Context, args []string) error {
-	clientWithResponses, err := client.NewFromConfigFile(o.ConfigFilePath)
+	clientWithResponses, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -309,6 +374,8 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
 		}
 		return c.ListFleetsWithResponse(ctx, &params)
+	case OrganizationKind:
+		return c.ListOrganizationsWithResponse(ctx)
 	case TemplateVersionKind:
 		params := api.ListTemplateVersionsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),

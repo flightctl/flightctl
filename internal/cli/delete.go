@@ -8,7 +8,6 @@ import (
 	"reflect"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -97,7 +96,7 @@ func (o *DeleteOptions) Validate(args []string) error {
 }
 
 func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
