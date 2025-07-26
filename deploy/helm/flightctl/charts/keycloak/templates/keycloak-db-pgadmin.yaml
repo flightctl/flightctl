@@ -1,4 +1,4 @@
-{{ if and .Values.global.generateSecrets (and (eq (.Values.global).target "standalone") (eq (.Values.global.auth).type "builtin")) }}
+{{ if and (eq .Values.global.target "standalone") (eq .Values.global.auth.type "builtin") }}
 apiVersion: v1
 kind: Secret
 metadata:
