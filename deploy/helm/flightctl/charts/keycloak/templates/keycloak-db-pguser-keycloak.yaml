@@ -1,4 +1,4 @@
-{{ if and (eq .Values.global.target "standalone") (eq .Values.global.auth.type "builtin") }}
+{{- if include "keycloak.shouldGenerateSecrets" . -}}
 {{ $password := include "keycloak.lookupOrGeneratePassword" (dict "secret" "keycloak-db-pguser-keycloak" "namespace" (default .Release.Namespace .Values.db.namespace) "key" "password" "context" $) }}
 apiVersion: v1
 kind: Secret
