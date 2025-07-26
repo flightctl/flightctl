@@ -27,8 +27,6 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 	AfterEach(func() {
 		harness.Cleanup(true)
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
 	})
 
 	Context("hooks", func() {
