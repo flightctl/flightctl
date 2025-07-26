@@ -229,6 +229,38 @@ sudo systemctl start flightctl.target
 sudo systemctl enable flightctl.target # To enable starting on reboot
 ```
 
+### Running the Services Container
+
+A containerized approach is offered to run all services within a single container.  This is particularly useful for testing RPM builds and service integration without affecting the host system.
+
+Start all Flight Control services in a container:
+
+```bash
+make run-services-container
+```
+
+This command:
+
+- Automatically builds the container if it doesn't exist
+- Runs the container with privileged access (required for systemd)
+- Starts the `flightctl.target` systemd target inside the container
+
+
+### Managing the Services Container
+
+```bash
+# Check if container is running
+sudo podman ps | grep flightctl-services
+
+# Access container shell, helpful in debugging the rpm install or service issues
+sudo podman exec -it flightctl-services bash
+# Then see what is running inside the container
+sudo podman ps
+
+# Stop and clean up container
+make clean-services-container
+```
+
 ## Contributing: Adding a New Quadlet
 
 Follow these steps to add a new service to the Flight Control Quadlets:

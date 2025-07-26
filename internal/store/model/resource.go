@@ -11,11 +11,12 @@ import (
 type Resource struct {
 	// Composite Primary Key: Unique within a tenant (OrgID, Name)
 
-	// Uniquely identifies the tenant the resource belongs to.
+	// Uniquely identifies the organization the resource belongs to.
 	// Assigned by IAM. Immutable.
-	OrgID uuid.UUID `gorm:"type:uuid;primaryKey;index:,composite:org_name,priority:1"`
+	OrgID        uuid.UUID    `gorm:"type:uuid;primaryKey;index:,composite:org_name,priority:1"`
+	Organization Organization `gorm:"foreignKey:OrgID"`
 
-	// Uniquely identifies the resource within a tenant and schema.
+	// Uniquely identifies the resource within an organization and schema.
 	// Depending on the schema (kind), assigned by the device management system or the crypto identity of the device (public key). Immutable.
 	// This may become a URN later, so it's important API users treat this as an opaque handle.
 	Name string `gorm:"primaryKey;index:,composite:org_name,priority:2" selector:"metadata.name"`
