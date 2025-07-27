@@ -15,7 +15,7 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -43,8 +43,8 @@ type AgentServer struct {
 	listener       net.Listener
 	queuesProvider queues.Provider
 	tlsConfig      *tls.Config
-	metrics        *instrumentation.ApiMetrics
 	grpcServer     *AgentGrpcServer
+	httpCollector  *metrics.HTTPCollector
 }
 
 // New returns a new instance of a flightctl server.
@@ -56,7 +56,7 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
-	metrics *instrumentation.ApiMetrics,
+	httpCollector *metrics.HTTPCollector,
 ) *AgentServer {
 	return &AgentServer{
 		log:            log,
@@ -66,8 +66,8 @@ func New(
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
-		metrics:        metrics,
 		grpcServer:     NewAgentGrpcServer(log, cfg),
+		httpCollector:  httpCollector,
 	}
 }
 
@@ -145,8 +145,8 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	}
 
-	if s.metrics != nil {
-		middlewares = slices.Insert(middlewares, 0, s.metrics.AgentServerMiddleware)
+	if s.httpCollector != nil {
+		middlewares = slices.Insert(middlewares, 0, s.httpCollector.AgentServerMiddleware)
 	}
 
 	router := chi.NewRouter()
@@ -155,7 +155,7 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
 	server.HandlerFromMux(h, router)
 
-	return otelhttp.NewHandler(router, "agent-http-Server"), nil
+	return otelhttp.NewHandler(router, "agent-http-server"), nil
 }
 
 // grpcMuxHandlerFunc dispatches requests to the gRPC server or the HTTP handler based on the request headers

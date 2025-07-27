@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -28,7 +28,7 @@ type kvStore struct {
 }
 
 func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password string) (KVStore, error) {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/kvstore", "KVStore")
+	ctx, span := tracing.StartSpan(ctx, "flightctl/kvstore", "KVStore")
 	defer span.End()
 
 	client := redis.NewClient(&redis.Options{
