@@ -173,13 +173,20 @@ const (
 	EventReasonDeviceSpecValid                 EventReason = "DeviceSpecValid"
 	EventReasonEnrollmentRequestApprovalFailed EventReason = "EnrollmentRequestApprovalFailed"
 	EventReasonEnrollmentRequestApproved       EventReason = "EnrollmentRequestApproved"
+	EventReasonFleetRolloutBatchCompleted      EventReason = "FleetRolloutBatchCompleted"
+	EventReasonFleetRolloutCreated             EventReason = "FleetRolloutCreated"
+	EventReasonFleetRolloutStarted             EventReason = "FleetRolloutStarted"
 	EventReasonInternalTaskFailed              EventReason = "InternalTaskFailed"
+	EventReasonRepositoryAccessible            EventReason = "RepositoryAccessible"
+	EventReasonRepositoryInaccessible          EventReason = "RepositoryInaccessible"
 	EventReasonResourceCreated                 EventReason = "ResourceCreated"
 	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
 	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
 	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
+	EventReasonResourceSyncCompleted           EventReason = "ResourceSyncCompleted"
 	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
 	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
+	EventReasonTemplateVersionDeleted          EventReason = "TemplateVersionDeleted"
 )
 
 // Defines values for EventType.
@@ -193,6 +200,17 @@ const (
 	FileOperationCreated FileOperation = "created"
 	FileOperationRemoved FileOperation = "removed"
 	FileOperationUpdated FileOperation = "updated"
+)
+
+// Defines values for FleetRolloutStartedDetailsDetailType.
+const (
+	FleetRolloutStarted FleetRolloutStartedDetailsDetailType = "FleetRolloutStarted"
+)
+
+// Defines values for FleetRolloutStartedDetailsIsImmediate.
+const (
+	Batched   FleetRolloutStartedDetailsIsImmediate = "batched"
+	Immediate FleetRolloutStartedDetailsIsImmediate = "immediate"
 )
 
 // Defines values for ImagePullPolicy.
@@ -244,6 +262,11 @@ const (
 	ResourceKindRepository                ResourceKind = "Repository"
 	ResourceKindResourceSync              ResourceKind = "ResourceSync"
 	ResourceKindTemplateVersion           ResourceKind = "TemplateVersion"
+)
+
+// Defines values for ResourceSyncCompletedDetailsDetailType.
+const (
+	ResourceSyncCompleted ResourceSyncCompletedDetailsDetailType = "ResourceSyncCompleted"
 )
 
 // Defines values for ResourceUpdatedDetailsDetailType.
@@ -1120,6 +1143,24 @@ type FleetList struct {
 	Metadata ListMeta `json:"metadata"`
 }
 
+// FleetRolloutStartedDetails defines model for FleetRolloutStartedDetails.
+type FleetRolloutStartedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetRolloutStartedDetailsDetailType `json:"detailType"`
+
+	// IsImmediate Rollout strategy type.
+	IsImmediate FleetRolloutStartedDetailsIsImmediate `json:"isImmediate"`
+
+	// TemplateVersion The name of the TemplateVersion that is rolling out.
+	TemplateVersion string `json:"templateVersion"`
+}
+
+// FleetRolloutStartedDetailsDetailType The type of detail for discriminator purposes.
+type FleetRolloutStartedDetailsDetailType string
+
+// FleetRolloutStartedDetailsIsImmediate Rollout strategy type.
+type FleetRolloutStartedDetailsIsImmediate string
+
 // FleetRolloutStatus FleetRolloutStatus represents information about the status of a fleet rollout.
 type FleetRolloutStatus struct {
 	// CurrentBatch The batch number currently being rolled out.
@@ -1450,6 +1491,45 @@ type ObjectReference struct {
 	Name string `json:"name"`
 }
 
+// Organization defines model for Organization.
+type Organization struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec OrganizationSpec describes an organization.
+	Spec *OrganizationSpec `json:"spec,omitempty"`
+}
+
+// OrganizationList OrganizationList is a list of Organizations.
+type OrganizationList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of Organizations.
+	Items []Organization `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// OrganizationSpec OrganizationSpec describes an organization.
+type OrganizationSpec struct {
+	// DisplayName Human readable name shown to users.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// ExternalId External ID of the organization.
+	ExternalId *string `json:"externalId,omitempty"`
+}
+
 // PatchRequest defines model for PatchRequest.
 type PatchRequest = []struct {
 	// Op The operation to perform.
@@ -1573,6 +1653,24 @@ type ResourceSync struct {
 	// Status ResourceSyncStatus represents information about the status of a ResourceSync.
 	Status *ResourceSyncStatus `json:"status,omitempty"`
 }
+
+// ResourceSyncCompletedDetails defines model for ResourceSyncCompletedDetails.
+type ResourceSyncCompletedDetails struct {
+	// ChangeCount Number of changes introduced by this ResourceSync update.
+	ChangeCount int `json:"changeCount"`
+
+	// CommitHash Hash of the last commit.
+	CommitHash string `json:"commitHash"`
+
+	// DetailType The type of detail for discriminator purposes.
+	DetailType ResourceSyncCompletedDetailsDetailType `json:"detailType"`
+
+	// ErrorCount Number of errors encountered by this ResourceSync update.
+	ErrorCount int `json:"errorCount"`
+}
+
+// ResourceSyncCompletedDetailsDetailType The type of detail for discriminator purposes.
+type ResourceSyncCompletedDetailsDetailType string
 
 // ResourceSyncList defines model for ResourceSyncList.
 type ResourceSyncList struct {
@@ -2682,6 +2780,62 @@ func (t *EventDetails) MergeInternalTaskFailedDetails(v InternalTaskFailedDetail
 	return err
 }
 
+// AsResourceSyncCompletedDetails returns the union data inside the EventDetails as a ResourceSyncCompletedDetails
+func (t EventDetails) AsResourceSyncCompletedDetails() (ResourceSyncCompletedDetails, error) {
+	var body ResourceSyncCompletedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromResourceSyncCompletedDetails overwrites any union data inside the EventDetails as the provided ResourceSyncCompletedDetails
+func (t *EventDetails) FromResourceSyncCompletedDetails(v ResourceSyncCompletedDetails) error {
+	v.DetailType = "ResourceSyncCompleted"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeResourceSyncCompletedDetails performs a merge with any union data inside the EventDetails, using the provided ResourceSyncCompletedDetails
+func (t *EventDetails) MergeResourceSyncCompletedDetails(v ResourceSyncCompletedDetails) error {
+	v.DetailType = "ResourceSyncCompleted"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFleetRolloutStartedDetails returns the union data inside the EventDetails as a FleetRolloutStartedDetails
+func (t EventDetails) AsFleetRolloutStartedDetails() (FleetRolloutStartedDetails, error) {
+	var body FleetRolloutStartedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFleetRolloutStartedDetails overwrites any union data inside the EventDetails as the provided FleetRolloutStartedDetails
+func (t *EventDetails) FromFleetRolloutStartedDetails(v FleetRolloutStartedDetails) error {
+	v.DetailType = "FleetRolloutStarted"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFleetRolloutStartedDetails performs a merge with any union data inside the EventDetails, using the provided FleetRolloutStartedDetails
+func (t *EventDetails) MergeFleetRolloutStartedDetails(v FleetRolloutStartedDetails) error {
+	v.DetailType = "FleetRolloutStarted"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -2702,8 +2856,12 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 		return t.AsDeviceMultipleOwnersResolvedDetails()
 	case "DeviceOwnershipChanged":
 		return t.AsDeviceOwnershipChangedDetails()
+	case "FleetRolloutStarted":
+		return t.AsFleetRolloutStartedDetails()
 	case "InternalTaskFailed":
 		return t.AsInternalTaskFailedDetails()
+	case "ResourceSyncCompleted":
+		return t.AsResourceSyncCompletedDetails()
 	case "ResourceUpdated":
 		return t.AsResourceUpdatedDetails()
 	default:

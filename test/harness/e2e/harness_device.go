@@ -26,6 +26,15 @@ func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) (*apiclient.Get
 	return device, nil
 }
 
+// GetDeviceSystemInfo returns the device system info with proper error handling
+func (h *Harness) GetDeviceSystemInfo(deviceID string) *v1alpha1.DeviceSystemInfo {
+	resp, err := h.GetDeviceWithStatusSystem(deviceID)
+	if err != nil || resp == nil || resp.JSON200 == nil || resp.JSON200.Status == nil {
+		return nil
+	}
+	return &resp.JSON200.Status.SystemInfo
+}
+
 func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) (v1alpha1.DeviceSummaryStatusType, error) {
 	device, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
 	if err != nil {
@@ -637,4 +646,13 @@ func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alp
 		return err
 	}
 	return h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+}
+
+// reset agent
+func (h *Harness) ResetAgent() error {
+	_, err := h.VM.RunSSH([]string{"sudo", "pkill", "-HUP", "flightctl-agent"}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to send SIGHUP to agent: %w", err)
+	}
+	return nil
 }

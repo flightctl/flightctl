@@ -3,10 +3,12 @@
 package tpm
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/asn1"
 	"errors"
 	"fmt"
@@ -15,37 +17,52 @@ import (
 	"os"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm-tools/simulator"
 	legacy "github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/stretchr/testify/require"
 )
 
 type TestFixture struct {
-	tpm *TPM
+	client *Client
 }
 
 type TestData struct {
-	tpm    *TPM
-	srk    *tpm2.NamedHandle
-	ldevid *tpm2.NamedHandle
-	lak    *client.Key
-	nonce  []byte
-	pcrSel *legacy.PCRSelection
+	client           *Client
+	srk              *tpm2.NamedHandle
+	ldevid           *tpm2.NamedHandle
+	lak              *client.Key
+	nonce            []byte
+	pcrSel           *legacy.PCRSelection
+	persistentHandle *tpm2.TPMHandle
 }
 
-func openTPMSimulator(t *testing.T) (*TPM, error) {
+func openTPMSimulator(t *testing.T) (*Client, error) {
 	t.Helper()
 	require := require.New(t)
 
 	simulator, err := simulator.Get()
 	require.NoError(err)
 
-	return &TPM{
-		conn:    simulator,
-		cleanup: func() error { return simulator.Close() },
-	}, nil
+	tpm := &Client{
+		conn: simulator,
+	}
+
+	// Auto-generate keys like OpenTPM does
+	_, err = tpm.generateSRKPrimary()
+	require.NoError(err)
+
+	_, err = tpm.createLDevID()
+	require.NoError(err)
+
+	_, err = tpm.getLDevIDPubKey()
+	require.NoError(err)
+
+	return tpm, nil
 }
 
 func setupTestFixture(t *testing.T) (*TestFixture, error) {
@@ -56,26 +73,17 @@ func setupTestFixture(t *testing.T) (*TestFixture, error) {
 		return nil, fmt.Errorf("unable to open tpm simulator: %w", err)
 	}
 
-	return &TestFixture{tpm: tpm}, nil
+	return &TestFixture{client: tpm}, nil
 }
 
-func setupTestData(t *testing.T) TestData {
+func setupTestData(t *testing.T) (TestData, func()) {
 	t.Helper()
 	require := require.New(t)
 
 	f, err := setupTestFixture(t)
 	require.NoError(err)
 
-	srk, err := f.tpm.GenerateSRKPrimary()
-	require.NoError(err)
-
-	lak, err := f.tpm.CreateLAK()
-	require.NoError(err)
-
-	ldevid, err := f.tpm.CreateLDevID(*srk)
-	require.NoError(err)
-
-	_, err = f.tpm.GetLDevIDPubKey()
+	lak, err := f.client.CreateLAK()
 	require.NoError(err)
 
 	nonce := make([]byte, 8)
@@ -84,24 +92,36 @@ func setupTestData(t *testing.T) TestData {
 
 	selection := client.FullPcrSel(legacy.AlgSHA256)
 
+	// Use a test handle
+	handle := persistentHandleMin + 1
+
 	data := TestData{
-		tpm:    f.tpm,
-		srk:    srk,
-		ldevid: ldevid,
-		lak:    lak,
-		nonce:  nonce,
-		pcrSel: &selection,
+		client:           f.client,
+		srk:              f.client.srk,
+		ldevid:           f.client.ldevid,
+		lak:              lak,
+		nonce:            nonce,
+		pcrSel:           &selection,
+		persistentHandle: &handle,
 	}
 
-	return data
+	cleanup := func() {
+		data.client.Close(context.Background())
+		data.lak.Close()
+	}
+
+	return data, cleanup
+}
+
+func createTestReadWriter(t *testing.T) fileio.ReadWriter {
+	t.Helper()
+	tempDir := t.TempDir()
+	return fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
 }
 
 func TestLAK(t *testing.T) {
-	data := setupTestData(t)
-	defer func() {
-		data.tpm.Close()
-		data.lak.Close()
-	}()
+	data, cleanup := setupTestData(t)
+	defer cleanup()
 
 	// This template is based on that used for AK ECC key creation in go-tpm-tools, see:
 	// https://github.com/google/go-tpm-tools/blob/3e063ade7f302972d7b893ca080a75efa3db5506/client/template.go#L108
@@ -134,13 +154,10 @@ func TestLAK(t *testing.T) {
 
 func TestGetQuote(t *testing.T) {
 	require := require.New(t)
-	data := setupTestData(t)
-	defer func() {
-		data.tpm.Close()
-		data.lak.Close()
-	}()
+	data, cleanup := setupTestData(t)
+	defer cleanup()
 
-	_, err := data.tpm.GetQuote(data.nonce, data.lak, data.pcrSel)
+	_, err := data.client.GetQuote(data.nonce, data.lak, data.pcrSel)
 	require.NoError(err)
 }
 
@@ -152,45 +169,395 @@ func TestGetAttestation(t *testing.T) {
 	}
 
 	require := require.New(t)
-	data := setupTestData(t)
-	defer func() {
-		data.tpm.Close()
-		data.lak.Close()
-	}()
+	data, cleanup := setupTestData(t)
+	defer cleanup()
 
-	_, err = data.tpm.GetAttestation(data.nonce, data.lak)
+	_, err = data.client.GetAttestation(data.nonce, data.lak)
 	require.NoError(err)
 }
 
-func TestGetPCRValues(t *testing.T) {
+func TestReadPCRValues(t *testing.T) {
 	require := require.New(t)
-	data := setupTestData(t)
-	defer func() {
-		data.tpm.Close()
-		data.lak.Close()
-	}()
+	data, cleanup := setupTestData(t)
+	defer cleanup()
 
 	measurements := make(map[string]string)
 
-	err := data.tpm.GetPCRValues(measurements)
+	err := data.client.ReadPCRValues(measurements)
 	require.NoError(err)
 }
 
-func TestSimpleTPMSetup(t *testing.T) {
+func TestLoadLDevIDErrors(t *testing.T) {
+	data, cleanup := setupTestData(t)
+	defer cleanup()
+	invalidPublic := tpm2.New2B(tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgRSA,
+		NameAlg: tpm2.TPMAlgSHA256,
+	})
+	invalidPrivate := tpm2.TPM2BPrivate{
+		Buffer: []byte{0x00, 0x01, 0x02},
+	}
+	_, err := data.client.loadLDevIDFromBlob(invalidPublic, invalidPrivate)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "loading ldevid key")
+}
+
+func TestLoadLDevIDFromBlob(t *testing.T) {
 	require := require.New(t)
+	data, cleanup := setupTestData(t)
+	defer cleanup()
 
-	tpm, err := openTPMSimulator(t)
-	require.NoError(err, "should be able to open TPM simulator")
-	defer tpm.Close()
+	createCmd := tpm2.Create{
+		ParentHandle: *data.srk,
+		InPublic:     tpm2.New2B(LDevIDTemplate),
+	}
+	transportTPM := transport.FromReadWriter(data.client.conn)
+	createRsp, err := createCmd.Execute(transportTPM)
+	require.NoError(err)
 
-	srk, err := tpm.GenerateSRKPrimary()
-	require.NoError(err, "should be able to generate SRK")
-	require.NotNil(srk, "SRK should not be nil")
+	loadedLDevID, err := data.client.loadLDevIDFromBlob(createRsp.OutPublic, createRsp.OutPrivate)
+	require.NoError(err)
+	require.NotNil(loadedLDevID)
+	require.NotEqual(tpm2.TPMHandle(0), loadedLDevID.Handle)
+	require.NotEmpty(loadedLDevID.Name)
+}
 
-	lak, err := tpm.CreateLAK()
-	require.NoError(err, "should be able to create LAK")
-	require.NotNil(lak, "LAK should not be nil")
-	defer lak.Close()
+func TestEnsureLDevID(t *testing.T) {
+	require := require.New(t)
+	data, cleanup := setupTestData(t)
+	defer cleanup()
+
+	readWriter := createTestReadWriter(t)
+	data.client.rw = readWriter
+	blobPath := "ldevid.yaml"
+
+	ldevid1, err := data.client.ensureLDevID(blobPath)
+	require.NoError(err)
+	require.NotNil(ldevid1)
+	err = data.client.flushContextForHandle(ldevid1.Handle)
+	require.NoError(err)
+	ldevid2, err := data.client.ensureLDevID(blobPath)
+	require.NoError(err)
+	require.NotNil(ldevid2)
+
+	require.Equal(ldevid1.Name, ldevid2.Name)
+}
+
+func TestFlushContextForHandle(t *testing.T) {
+	data, cleanup := setupTestData(t)
+	defer cleanup()
+
+	// Create a transient LDevID for testing
+	ldevid, err := data.client.createLDevID()
+	require.NoError(t, err)
+	require.NotNil(t, ldevid)
+
+	tests := []struct {
+		name        string
+		handle      tpm2.TPMHandle
+		shouldError bool
+		description string
+	}{
+		{
+			name:        "flush transient handle",
+			handle:      ldevid.Handle,
+			shouldError: false,
+			description: "transient handle should flush successfully",
+		},
+		{
+			name:        "flush persistent handle (no-op)",
+			handle:      persistentHandleMin,
+			shouldError: false,
+			description: "persistent handle should be a no-op and not error",
+		},
+		{
+			name:        "flush another persistent handle",
+			handle:      persistentHandleMin + 1,
+			shouldError: false,
+			description: "another persistent handle should also be a no-op",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := data.client.flushContextForHandle(tt.handle)
+			if tt.shouldError {
+				require.Error(t, err, tt.description)
+			} else {
+				require.NoError(t, err, tt.description)
+			}
+		})
+	}
+}
+
+func TestEnsureLDevIDEdgeCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupFunc     func(t *testing.T) (*Client, *tpm2.NamedHandle, string)
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "empty blob path",
+			setupFunc: func(t *testing.T) (*Client, *tpm2.NamedHandle, string) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				return data.client, data.srk, ""
+			},
+			expectError:   true,
+			errorContains: "blob path cannot be empty",
+		},
+		{
+			name: "corrupted file recovery",
+			setupFunc: func(t *testing.T) (*Client, *tpm2.NamedHandle, string) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				// Write corrupted file first
+				path := "corrupted_recovery.yaml"
+				corruptedContent := "invalid yaml content: [unclosed bracket"
+				err := readWriter.WriteFile(path, []byte(corruptedContent), 0600)
+				require.NoError(t, err)
+
+				return data.client, data.srk, path
+			},
+			expectError:   true,
+			errorContains: "loading blob from file",
+		},
+		{
+			name: "successful recovery from missing file",
+			setupFunc: func(t *testing.T) (*Client, *tpm2.NamedHandle, string) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				// Use a path that doesn't exist - should create new key
+				return data.client, data.srk, "new_key.yaml"
+			},
+			expectError:   false,
+			errorContains: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tpmClient, _, path := tt.setupFunc(t)
+
+			_, err := tpmClient.ensureLDevID(path)
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorContains != "" {
+					require.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCloseFlushesHandles(t *testing.T) {
+	require := require.New(t)
+	f, err := setupTestFixture(t)
+	require.NoError(err)
+
+	// Verify handles are set
+	require.NotNil(f.client.srk)
+	require.NotNil(f.client.ldevid)
+
+	// Close should flush handles and set them to nil
+	err = f.client.Close(context.Background())
+	require.NoError(err)
+
+	// Verify handles are cleared
+	require.Nil(f.client.srk)
+	require.Nil(f.client.ldevid)
+}
+
+func TestSaveLDevIDBlob(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupFunc     func(t *testing.T) (*Client, fileio.ReadWriter, tpm2.TPM2BPublic, tpm2.TPM2BPrivate)
+		path          string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "success case",
+			setupFunc: func(t *testing.T) (*Client, fileio.ReadWriter, tpm2.TPM2BPublic, tpm2.TPM2BPrivate) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				// Create valid blob data
+				createCmd := tpm2.Create{
+					ParentHandle: *data.srk,
+					InPublic:     tpm2.New2B(LDevIDTemplate),
+				}
+				transportTPM := transport.FromReadWriter(data.client.conn)
+				createRsp, err := createCmd.Execute(transportTPM)
+				require.NoError(t, err)
+
+				return data.client, readWriter, createRsp.OutPublic, createRsp.OutPrivate
+			},
+			path:        "test_blob.yaml",
+			expectError: false,
+		},
+		{
+			name: "YAML marshaling success with nested path",
+			setupFunc: func(t *testing.T) (*Client, fileio.ReadWriter, tpm2.TPM2BPublic, tpm2.TPM2BPrivate) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				// Create valid blob data
+				createCmd := tpm2.Create{
+					ParentHandle: *data.srk,
+					InPublic:     tpm2.New2B(LDevIDTemplate),
+				}
+				transportTPM := transport.FromReadWriter(data.client.conn)
+				createRsp, err := createCmd.Execute(transportTPM)
+				require.NoError(t, err)
+
+				return data.client, readWriter, createRsp.OutPublic, createRsp.OutPrivate
+			},
+			path:        "nested/test_blob.yaml",
+			expectError: false,
+		},
+		{
+			name: "empty blob data",
+			setupFunc: func(t *testing.T) (*Client, fileio.ReadWriter, tpm2.TPM2BPublic, tpm2.TPM2BPrivate) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				// Create empty blob data
+				emptyPublic := tpm2.TPM2BPublic{}
+				emptyPrivate := tpm2.TPM2BPrivate{}
+
+				return data.client, readWriter, emptyPublic, emptyPrivate
+			},
+			path:        "empty_blob.yaml",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpClient, _, public, private := tt.setupFunc(t)
+
+			err := tmpClient.saveLDevIDBlob(public, private, tt.path)
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorContains != "" {
+					require.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoadLDevIDBlobErrors(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupFunc     func(t *testing.T) (*Client, string)
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "file not found",
+			setupFunc: func(t *testing.T) (*Client, string) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				return data.client, "nonexistent_file.yaml"
+			},
+			expectError:   true,
+			errorContains: "",
+		},
+		{
+			name: "corrupted YAML",
+			setupFunc: func(t *testing.T) (*Client, string) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				// Write corrupted YAML
+				corruptedContent := "invalid yaml content: [unclosed bracket"
+				path := "corrupted.yaml"
+				err := readWriter.WriteFile(path, []byte(corruptedContent), 0600)
+				require.NoError(t, err)
+
+				return data.client, path
+			},
+			expectError:   true,
+			errorContains: "unmarshaling YAML",
+		},
+		{
+			name: "invalid blob structure",
+			setupFunc: func(t *testing.T) (*Client, string) {
+				data, cleanup := setupTestData(t)
+				t.Cleanup(cleanup)
+
+				readWriter := createTestReadWriter(t)
+				data.client.rw = readWriter
+
+				// Write YAML with wrong structure
+				invalidYAML := `
+invalid_field: "value"
+another_field: 123
+`
+				path := "invalid_structure.yaml"
+				err := readWriter.WriteFile(path, []byte(invalidYAML), 0600)
+				require.NoError(t, err)
+
+				return data.client, path
+			},
+			expectError:   false, // This might not error due to YAML unmarshaling into empty struct
+			errorContains: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tpmClient, path := tt.setupFunc(t)
+
+			_, _, err := tpmClient.loadLDevIDBlob(path)
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorContains != "" {
+					require.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // Helper function to verify ECDSA signatures
@@ -216,12 +583,9 @@ func verifyECDSASignature(pubKey *ecdsa.PublicKey, data []byte, signature []byte
 func TestGetLDevIDPubKey(t *testing.T) {
 	t.Run("successful retrieval", func(t *testing.T) {
 		require := require.New(t)
-		data := setupTestData(t)
-		defer func() {
-			data.tpm.Close()
-			data.lak.Close()
-		}()
-		pubKey, err := data.tpm.GetLDevIDPubKey()
+		data, cleanup := setupTestData(t)
+		defer cleanup()
+		pubKey, err := data.client.getLDevIDPubKey()
 		require.NoError(err)
 		require.NotNil(pubKey)
 
@@ -239,11 +603,15 @@ func TestGetLDevIDPubKey(t *testing.T) {
 
 	t.Run("error when ldevid not initialized", func(t *testing.T) {
 		require := require.New(t)
-		tpm, err := openTPMSimulator(t)
+		// Create TPM without auto-generation to test error case
+		simulator, err := simulator.Get()
 		require.NoError(err)
-		defer tpm.Close()
+		tpm := &Client{
+			conn: simulator,
+		}
+		defer tpm.Close(context.Background())
 
-		_, err = tpm.GetLDevIDPubKey()
+		_, err = tpm.getLDevIDPubKey()
 		require.Error(err)
 		require.Contains(err.Error(), "ldevid not initialized")
 	})
@@ -251,17 +619,14 @@ func TestGetLDevIDPubKey(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	require := require.New(t)
-	data := setupTestData(t)
-	defer func() {
-		data.tpm.Close()
-		data.lak.Close()
-	}()
+	data, cleanup := setupTestData(t)
+	defer cleanup()
 
 	// TPM Sign expects a 32-byte hash (SHA-256)
 	testHash := sha256.Sum256([]byte("test data to sign"))
 
 	t.Run("successful signing", func(t *testing.T) {
-		signature, err := data.tpm.Sign(nil, testHash[:], nil)
+		signature, err := data.client.Sign(nil, testHash[:], nil)
 		require.NoError(err)
 		require.NotEmpty(signature)
 
@@ -290,7 +655,7 @@ func TestSign(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				// Hash the data first since TPM expects a digest
 				hash := sha256.Sum256(tc.origData)
-				signature, err := data.tpm.Sign(rand.Reader, hash[:], crypto.SHA256)
+				signature, err := data.client.Sign(rand.Reader, hash[:], crypto.SHA256)
 				require.NoError(err)
 				require.NotEmpty(signature)
 			})
@@ -299,11 +664,11 @@ func TestSign(t *testing.T) {
 
 	t.Run("rand parameter is ignored", func(t *testing.T) {
 		// Sign with nil rand
-		sig1, err := data.tpm.Sign(nil, testHash[:], nil)
+		sig1, err := data.client.Sign(nil, testHash[:], nil)
 		require.NoError(err)
 
 		// Sign with real rand - should still work (rand is ignored)
-		sig2, err := data.tpm.Sign(rand.Reader, testHash[:], nil)
+		sig2, err := data.client.Sign(rand.Reader, testHash[:], nil)
 		require.NoError(err)
 
 		// Both signatures should be valid (though different due to randomness)
@@ -314,11 +679,8 @@ func TestSign(t *testing.T) {
 
 func TestSignAndVerify(t *testing.T) {
 	require := require.New(t)
-	data := setupTestData(t)
-	defer func() {
-		data.tpm.Close()
-		data.lak.Close()
-	}()
+	data, cleanup := setupTestData(t)
+	defer cleanup()
 
 	t.Run("sign and verify integration", func(t *testing.T) {
 		testPayloads := [][]byte{
@@ -329,7 +691,7 @@ func TestSignAndVerify(t *testing.T) {
 		}
 
 		// Get public key
-		pubKey, err := data.tpm.GetLDevIDPubKey()
+		pubKey, err := data.client.getLDevIDPubKey()
 		require.NoError(err)
 		ecdsaPubKey := pubKey.(*ecdsa.PublicKey)
 
@@ -339,7 +701,7 @@ func TestSignAndVerify(t *testing.T) {
 				hash := sha256.Sum256(payload)
 
 				// Sign the hash
-				signature, err := data.tpm.Sign(rand.Reader, hash[:], crypto.SHA256)
+				signature, err := data.client.Sign(rand.Reader, hash[:], crypto.SHA256)
 				require.NoError(err)
 
 				// Verify the signature against the original payload
@@ -354,13 +716,13 @@ func TestSignAndVerify(t *testing.T) {
 		wrongData := []byte("wrong data")
 
 		// Get public key
-		pubKey, err := data.tpm.GetLDevIDPubKey()
+		pubKey, err := data.client.getLDevIDPubKey()
 		require.NoError(err)
 		ecdsaPubKey := pubKey.(*ecdsa.PublicKey)
 
 		// Hash and sign original data
 		originalHash := sha256.Sum256(originalData)
-		signature, err := data.tpm.Sign(rand.Reader, originalHash[:], crypto.SHA256)
+		signature, err := data.client.Sign(rand.Reader, originalHash[:], crypto.SHA256)
 		require.NoError(err)
 
 		// Try to verify with wrong data - should fail
@@ -369,17 +731,68 @@ func TestSignAndVerify(t *testing.T) {
 	})
 }
 
+func TestReadEndorsementKeyCert(t *testing.T) {
+	tests := []struct {
+		name               string
+		setupTPM           func(t *testing.T) *Client
+		expectError        bool
+		expectedErrContent string
+		expectedCertType   string
+	}{
+		{
+			name: "no connection available",
+			setupTPM: func(t *testing.T) *Client {
+				return &Client{conn: nil}
+			},
+			expectError:        true,
+			expectedErrContent: "no connection available",
+		},
+		{
+			name: "RSA EK certificate found",
+			setupTPM: func(t *testing.T) *Client {
+				t.Skip("Skipping endorsement key certificate test: TPM simulator does not provide EK certificates")
+				return nil
+			},
+			expectError:      false,
+			expectedCertType: "RSA EK Certificate",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			tpm := tc.setupTPM(t)
+			defer func() {
+				_ = tpm.Close(context.Background())
+			}()
+
+			certData, err := tpm.EndorsementKeyCert()
+
+			if tc.expectError {
+				require.Error(err)
+				require.Contains(err.Error(), tc.expectedErrContent)
+				return
+			}
+
+			require.NoError(err)
+			require.NotEmpty(certData)
+
+			// Verify it's a valid X.509 certificate with expected type
+			cert, err := x509.ParseCertificate(certData)
+			require.NoError(err)
+			require.Contains(cert.Subject.CommonName, tc.expectedCertType)
+		})
+	}
+}
+
 func TestCryptoSignerInterface(t *testing.T) {
-	require := require.New(t)
-	data := setupTestData(t)
-	defer func() {
-		data.tpm.Close()
-		data.lak.Close()
-	}()
+	data, cleanup := setupTestData(t)
+	defer cleanup()
 
 	t.Run("TPM implements crypto.Signer", func(t *testing.T) {
+		require := require.New(t)
 		// Verify TPM implements crypto.Signer interface
-		var signer crypto.Signer = data.tpm
+		var signer crypto.Signer = data.client
 		require.NotNil(signer)
 
 		// Test Public() method
@@ -392,6 +805,7 @@ func TestCryptoSignerInterface(t *testing.T) {
 	})
 
 	t.Run("signer-only interface test with full sign and verify", func(t *testing.T) {
+		require := require.New(t)
 		// This test uses TPM only as crypto.Signer interface
 		testSignerInterface := func(signer crypto.Signer) error {
 			testData := []byte("interface test data")
@@ -416,13 +830,441 @@ func TestCryptoSignerInterface(t *testing.T) {
 		}
 
 		// Test with TPM as crypto.Signer
-		var signer crypto.Signer = data.tpm
+		var signer crypto.Signer = data.client
 		err := testSignerInterface(signer)
 		require.NoError(err, "signer interface test should pass")
 	})
 
 	t.Run("GetSigner returns self", func(t *testing.T) {
-		signer := data.tpm.GetSigner()
-		require.Equal(data.tpm, signer, "GetSigner should return the TPM instance itself")
+		require := require.New(t)
+		signer := data.client.GetSigner()
+		require.Equal(data.client, signer, "GetSigner should return the TPM instance itself")
 	})
+}
+
+func TestEndorsementKeyPublic(t *testing.T) {
+	tests := []struct {
+		name               string
+		setupTPM           func(t *testing.T) *Client
+		expectError        bool
+		expectedErrContent string
+		validateResult     func(t *testing.T, data []byte)
+	}{
+		{
+			name: "no connection available",
+			setupTPM: func(t *testing.T) *Client {
+				return &Client{conn: nil}
+			},
+			expectError:        true,
+			expectedErrContent: "no connection available",
+		},
+		{
+			name: "successful public key retrieval with simulator",
+			setupTPM: func(t *testing.T) *Client {
+				require := require.New(t)
+				tpm, err := openTPMSimulator(t)
+				require.NoError(err)
+				return tpm
+			},
+			expectError: false,
+			validateResult: func(t *testing.T, data []byte) {
+				require := require.New(t)
+				require.NotEmpty(data, "encoded public key data should not be empty")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			tpm := tc.setupTPM(t)
+			defer func() {
+				_ = tpm.Close(context.Background())
+			}()
+
+			publicKeyData, err := tpm.EndorsementKeyPublic()
+
+			if tc.expectError {
+				require.Error(err)
+				require.Contains(err.Error(), tc.expectedErrContent)
+				require.Empty(publicKeyData)
+				return
+			}
+
+			require.NoError(err)
+			if tc.validateResult != nil {
+				tc.validateResult(t, publicKeyData)
+			}
+		})
+	}
+}
+
+func TestTPMDeviceExists(t *testing.T) {
+	tempDir := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+
+	// Create mock resource manager file using ReadWriter
+	err := rw.WriteFile("/dev/tpmrm0", []byte{}, 0600)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		device   TPM
+		expected bool
+	}{
+		{
+			name: "device exists at resource manager path",
+			device: TPM{
+				path:            "/dev/tpm0",
+				resourceMgrPath: "/dev/tpmrm0",
+				rw:              rw,
+			},
+			expected: true,
+		},
+		{
+			name: "device does not exist at resource manager path",
+			device: TPM{
+				path:            "/dev/tpm0",
+				resourceMgrPath: "/dev/nonexistent",
+				rw:              rw,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.device.Exists()
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDiscoverTPMDevices(t *testing.T) {
+	// Create a temporary directory structure to simulate /sys/class/tpm
+	tempDir := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+
+	// Create mock TPM directories using ReadWriter
+	tpmDirs := []string{"tpm0", "tpm1", "tpm2"}
+	for _, dir := range tpmDirs {
+		err := rw.MkdirAll("/sys/class/tpm/"+dir, 0755)
+		require.NoError(t, err)
+	}
+
+	// Create a non-TPM directory that should be ignored
+	err := rw.MkdirAll("/sys/class/tpm/other", 0755)
+	require.NoError(t, err)
+
+	// Create a file that should be ignored
+	err = rw.WriteFile("/sys/class/tpm/file.txt", []byte{}, 0600)
+	require.NoError(t, err)
+
+	devices, err := discover(rw)
+	require.NoError(t, err)
+	require.Len(t, devices, 3)
+
+	expectedDevices := []TPM{
+		{
+			index:           "0",
+			path:            "/dev/tpm0",
+			resourceMgrPath: "/dev/tpmrm0",
+			versionPath:     "/sys/class/tpm/tpm0/tpm_version_major",
+			sysfsPath:       "/sys/class/tpm/tpm0",
+		},
+		{
+			index:           "1",
+			path:            "/dev/tpm1",
+			resourceMgrPath: "/dev/tpmrm1",
+			versionPath:     "/sys/class/tpm/tpm1/tpm_version_major",
+			sysfsPath:       "/sys/class/tpm/tpm1",
+		},
+		{
+			index:           "2",
+			path:            "/dev/tpm2",
+			resourceMgrPath: "/dev/tpmrm2",
+			versionPath:     "/sys/class/tpm/tpm2/tpm_version_major",
+			sysfsPath:       "/sys/class/tpm/tpm2",
+		},
+	}
+
+	for i, expected := range expectedDevices {
+		require.Equal(t, expected.index, devices[i].index)
+		require.Equal(t, expected.path, devices[i].path)
+		require.Equal(t, expected.resourceMgrPath, devices[i].resourceMgrPath)
+		require.Equal(t, expected.versionPath, devices[i].versionPath)
+		require.Equal(t, expected.sysfsPath, devices[i].sysfsPath)
+		require.Equal(t, rw, devices[i].rw)
+	}
+}
+
+func TestDiscoverError(t *testing.T) {
+	// Test with a ReadWriter that points to a non-existent directory
+	tempDir := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+
+	// Try to discover TPM devices from a directory that doesn't exist
+	devices, err := discover(rw)
+
+	// The ReadWriter with test root dir will return empty results instead of error
+	// when the directory doesn't exist, so we should get an empty slice
+	require.NoError(t, err)
+	require.Empty(t, devices)
+}
+
+func TestTPMDeviceValidateVersion2(t *testing.T) {
+	tempDir := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+
+	// Create mock resource manager and version files using ReadWriter
+	err := rw.WriteFile("/dev/tpmrm0", []byte{}, 0600)
+	require.NoError(t, err)
+	err = rw.WriteFile("/sys/class/tpm/tpm0/tpm_version_major", []byte("2"), 0600)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		device      TPM
+		expectError bool
+	}{
+		{
+			name: "valid TPM 2.0 device",
+			device: TPM{
+				path:            "/dev/tpm0",
+				resourceMgrPath: "/dev/tpmrm0",
+				versionPath:     "/sys/class/tpm/tpm0/tpm_version_major",
+				rw:              rw,
+			},
+			expectError: false,
+		},
+		{
+			name: "resource manager does not exist",
+			device: TPM{
+				path:            "/dev/tpm0",
+				resourceMgrPath: "/dev/nonexistent",
+				versionPath:     "/sys/class/tpm/tpm0/tpm_version_major",
+				rw:              rw,
+			},
+			expectError: true,
+		},
+		{
+			name: "version file does not exist",
+			device: TPM{
+				path:            "/dev/tpm0",
+				resourceMgrPath: "/dev/tpmrm0",
+				versionPath:     "/sys/class/tpm/tpm0/nonexistent",
+				rw:              rw,
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.device.ValidateVersion2()
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestResolveDefault(t *testing.T) {
+	tests := []struct {
+		name           string
+		setup          func(rw fileio.ReadWriter)
+		expectError    bool
+		expectedDevice *TPM
+	}{
+		{
+			name: "returns first valid TPM device when available",
+			setup: func(rw fileio.ReadWriter) {
+				// Create multiple TPM devices
+				err := rw.MkdirAll("/sys/class/tpm/tpm0", 0755)
+				require.NoError(t, err)
+				err = rw.MkdirAll("/sys/class/tpm/tpm1", 0755)
+				require.NoError(t, err)
+
+				// Create resource manager files for both
+				err = rw.WriteFile("/dev/tpmrm0", []byte{}, 0600)
+				require.NoError(t, err)
+				err = rw.WriteFile("/dev/tpmrm1", []byte{}, 0600)
+				require.NoError(t, err)
+
+				// Create version files for both (TPM 2.0)
+				err = rw.WriteFile("/sys/class/tpm/tpm0/tpm_version_major", []byte("2"), 0600)
+				require.NoError(t, err)
+				err = rw.WriteFile("/sys/class/tpm/tpm1/tpm_version_major", []byte("2"), 0600)
+				require.NoError(t, err)
+			},
+			expectError: false,
+			expectedDevice: &TPM{
+				index:           "0",
+				path:            "/dev/tpm0",
+				resourceMgrPath: "/dev/tpmrm0",
+				versionPath:     "/sys/class/tpm/tpm0/tpm_version_major",
+				sysfsPath:       "/sys/class/tpm/tpm0",
+			},
+		},
+		{
+			name: "returns error when no TPM devices exist",
+			setup: func(rw fileio.ReadWriter) {
+				// Don't create any TPM devices
+			},
+			expectError: true,
+		},
+		{
+			name: "returns error when TPM devices exist but are not version 2.0",
+			setup: func(rw fileio.ReadWriter) {
+				// Create TPM device directory
+				err := rw.MkdirAll("/sys/class/tpm/tpm0", 0755)
+				require.NoError(t, err)
+
+				// Create resource manager file
+				err = rw.WriteFile("/dev/tpmrm0", []byte{}, 0600)
+				require.NoError(t, err)
+
+				// Create version file with non-2.0 version
+				err = rw.WriteFile("/sys/class/tpm/tpm0/tpm_version_major", []byte("1"), 0600)
+				require.NoError(t, err)
+			},
+			expectError: true,
+		},
+		{
+			name: "returns error when resource manager files don't exist",
+			setup: func(rw fileio.ReadWriter) {
+				// Create TPM device directory
+				err := rw.MkdirAll("/sys/class/tpm/tpm0", 0755)
+				require.NoError(t, err)
+
+				// Create version file but not resource manager files
+				err = rw.WriteFile("/sys/class/tpm/tpm0/tpm_version_major", []byte("2"), 0600)
+				require.NoError(t, err)
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+
+			tt.setup(rw)
+
+			device, err := resolveDefault(rw, log.NewPrefixLogger("test"))
+
+			if tt.expectError {
+				require.Error(t, err)
+				require.Nil(t, device)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, device)
+				require.Equal(t, tt.expectedDevice.index, device.index)
+				require.Equal(t, tt.expectedDevice.path, device.path)
+				require.Equal(t, tt.expectedDevice.resourceMgrPath, device.resourceMgrPath)
+				require.Equal(t, tt.expectedDevice.versionPath, device.versionPath)
+				require.Equal(t, tt.expectedDevice.sysfsPath, device.sysfsPath)
+				require.Equal(t, rw, device.rw)
+			}
+		})
+	}
+}
+
+func TestResolve(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(rw fileio.ReadWriter)
+		path        string
+		expectError bool
+		expectedTPM *TPM
+	}{
+		{
+			name: "resolves tpm by resource manager path",
+			setup: func(rw fileio.ReadWriter) {
+				err := rw.MkdirAll("/sys/class/tpm/tpm0", 0755)
+				require.NoError(t, err)
+				err = rw.WriteFile("/dev/tpmrm0", []byte{}, 0600)
+				require.NoError(t, err)
+				err = rw.WriteFile("/sys/class/tpm/tpm0/tpm_version_major", []byte("2"), 0600)
+				require.NoError(t, err)
+			},
+			path:        "/dev/tpmrm0",
+			expectError: false,
+			expectedTPM: &TPM{
+				index:           "0",
+				path:            "/dev/tpm0",
+				resourceMgrPath: "/dev/tpmrm0",
+				versionPath:     "/sys/class/tpm/tpm0/tpm_version_major",
+				sysfsPath:       "/sys/class/tpm/tpm0",
+			},
+		},
+		{
+			name: "resolves tpm by direct path",
+			setup: func(rw fileio.ReadWriter) {
+				err := rw.MkdirAll("/sys/class/tpm/tpm1", 0755)
+				require.NoError(t, err)
+				err = rw.WriteFile("/dev/tpmrm1", []byte{}, 0600)
+				require.NoError(t, err)
+				err = rw.WriteFile("/sys/class/tpm/tpm1/tpm_version_major", []byte("2"), 0600)
+				require.NoError(t, err)
+			},
+			path:        "/dev/tpm1",
+			expectError: false,
+			expectedTPM: &TPM{
+				index:           "1",
+				path:            "/dev/tpm1",
+				resourceMgrPath: "/dev/tpmrm1",
+				versionPath:     "/sys/class/tpm/tpm1/tpm_version_major",
+				sysfsPath:       "/sys/class/tpm/tpm1",
+			},
+		},
+		{
+			name: "returns error for non-existent device",
+			setup: func(rw fileio.ReadWriter) {
+			},
+			path:        "/dev/tpmrm99",
+			expectError: true,
+		},
+		{
+			name: "returns error for non-TPM2 device",
+			setup: func(rw fileio.ReadWriter) {
+				err := rw.MkdirAll("/sys/class/tpm/tpm0", 0755)
+				require.NoError(t, err)
+				err = rw.WriteFile("/dev/tpmrm0", []byte{}, 0600)
+				require.NoError(t, err)
+				err = rw.WriteFile("/sys/class/tpm/tpm0/tpm_version_major", []byte("1"), 0600)
+				require.NoError(t, err)
+			},
+			path:        "/dev/tpmrm0",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+
+			tt.setup(rw)
+
+			device, err := resolve(rw, tt.path)
+
+			if tt.expectError {
+				require.Error(t, err)
+				require.Nil(t, device)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, device)
+				require.Equal(t, tt.expectedTPM.index, device.index)
+				require.Equal(t, tt.expectedTPM.path, device.path)
+				require.Equal(t, tt.expectedTPM.resourceMgrPath, device.resourceMgrPath)
+				require.Equal(t, tt.expectedTPM.versionPath, device.versionPath)
+				require.Equal(t, tt.expectedTPM.sysfsPath, device.sysfsPath)
+				require.Equal(t, rw, device.rw)
+			}
+		})
+	}
 }

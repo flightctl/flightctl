@@ -30,10 +30,8 @@ RUN if [[ -z $RPM_COPR ]]; then \
     fi && \
     systemctl enable flightctl-agent.service
 
-RUN dnf copr -y enable rhcontainerbot/podman-next && \
-    dnf install -y --allowerasing podman
-
 RUN dnf install -y epel-release epel-next-release
+RUN dnf install -y python-dotenv
 RUN dnf install -y greenboot greenboot-default-health-checks podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
@@ -47,6 +45,16 @@ RUN useradd -ms /bin/bash user && \
 ## Add your flightctl configuration and certificates
 ADD bin/agent/etc/flightctl/config.yaml /etc/flightctl/
 ADD bin/agent/etc/flightctl/certs/* /etc/flightctl/certs/
+
+# Create flightctl custom info directory
+RUN mkdir -p /usr/lib/flightctl/custom-info.d && \
+    chmod 755 /usr/lib/flightctl/custom-info.d
+
+# Add custom system info
+RUN echo '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/siteName && \
+    echo '#!/bin/bash\necho ""' > /usr/lib/flightctl/custom-info.d/test && \
+    echo '#!/bin/bash\necho "no-show"' > /usr/lib/flightctl/custom-info.d/keyNotShown && \
+    chmod 755 /usr/lib/flightctl/custom-info.d/*
 
 # Add the registry
 RUN mkdir -p /etc/containers/registries.conf.d/ && \

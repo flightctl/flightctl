@@ -2,297 +2,157 @@ package tpm
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/ecdsa"
-	"encoding/asn1"
-	"encoding/hex"
+	"context"
 	"fmt"
-	"io"
-	"math/big"
-	"os"
+	"regexp"
 
-	"github.com/google/go-tpm-tools/client"
-	pbattest "github.com/google/go-tpm-tools/proto/attest"
-	pbtpm "github.com/google/go-tpm-tools/proto/tpm"
-	legacy "github.com/google/go-tpm/legacy/tpm2"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/tpm2/transport"
-	"github.com/google/go-tpm/tpmutil"
 )
-
-// Ensure TPM implements crypto.Signer interface
-var _ crypto.Signer = (*TPM)(nil)
 
 const (
-	MinNonceLength     = 8
-	TpmSystemPath      = "/dev/tpmrm0"
-	TpmVersionInfoPath = "/sys/class/tpm/tpm0/tpm_version_major"
+	MinNonceLength = 8
+
+	// TPM Handle Ranges
+	// PersistentHandleMin is the minimum valid persistent handle value.
+	persistentHandleMin = tpm2.TPMHandle(0x81000000)
+	// PersistentHandleMax is the maximum valid persistent handle value.
+	persistentHandleMax = tpm2.TPMHandle(0x81FFFFFF)
+
+	tpmPathTemplate     = "/dev/tpm%s"
+	rmPathTemplate      = "/dev/tpmrm%s"
+	versionPathTemplate = "/sys/class/tpm/%s/tpm_version_major"
+	sysClassPath        = "/sys/class/tpm"
+	sysFsPathTemplate   = "/sys/class/tpm/%s"
 )
 
+// TPM represents a TPM device and its associated file paths.
 type TPM struct {
-	devicePath string
-	conn       io.ReadWriteCloser
-	srk        *tpm2.NamedHandle
-	ldevid     *tpm2.NamedHandle
-	ldevidPub  crypto.PublicKey
-	cleanup    func() error
+	// index is the numeric identifier of the TPM device (e.g., "0" for /dev/tpm0).
+	index string
+	// path is the full path to the TPM device file (e.g., "/dev/tpm0").
+	path string
+	// resourceMgrPath is the path to the TPM resource manager (e.g., "/dev/tpmrm0").
+	resourceMgrPath string
+	// versionPath is the path to the TPM version file in sysfs.
+	versionPath string
+	// sysfsPath is the path to the TPM device directory in sysfs.
+	sysfsPath string
+	client    *Client
+	rw        fileio.ReadWriter
 }
 
-// Note: this may be a hardware TPM or a software or emulated TPM available to the system
-func TpmExists() bool {
-	if _, err := os.Stat(TpmSystemPath); err == nil {
-		return true
-	}
-	return false
+func (t *TPM) Exists() bool {
+	exists, err := t.rw.PathExists(t.resourceMgrPath, fileio.WithSkipContentCheck())
+	return err == nil && exists
 }
 
-func ValidateTpmVersion2() error {
-	if !TpmExists() {
-		return fmt.Errorf("no TPM detected at %s", TpmSystemPath)
+func (t *TPM) ValidateVersion2() error {
+	if !t.Exists() {
+		return fmt.Errorf("no TPM detected at %s", t.resourceMgrPath)
 	}
-	versionBytes, err := os.ReadFile(TpmVersionInfoPath)
+	versionBytes, err := t.rw.ReadFile(t.versionPath)
 	if err != nil {
-		return fmt.Errorf("failed to read TPM version info from %s: %w", TpmVersionInfoPath, err)
+		return fmt.Errorf("reading tpm version file: %w", err)
 	}
 	versionStr := string(bytes.TrimSpace(versionBytes))
 	if versionStr != "2" {
-		return fmt.Errorf("TPM is not version 2.0")
+		return fmt.Errorf("TPM is not version 2.0. Found version: %s", versionStr)
 	}
 	return nil
 }
 
-func OpenTPM(devicePath string) (*TPM, error) {
-	conn, err := tpmutil.OpenTPM(devicePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open TPM device at %s: %w", devicePath, err)
-	}
-	return &TPM{
-		devicePath: devicePath,
-		conn:       conn,
-		cleanup: func() error {
-			return conn.Close()
-		},
-	}, nil
-}
-
-func (t *TPM) Close() error {
-	if t == nil {
+func (t *TPM) Close(ctx context.Context) error {
+	if t.client == nil {
 		return nil
 	}
-	return t.cleanup()
+	err := t.client.Close(ctx)
+	t.client = nil
+	return err
 }
 
-func (t *TPM) GetTpmVendorInfo() ([]byte, error) {
-	if t == nil {
-		return nil, fmt.Errorf("cannot get TPM vendor info: nil receiver")
+// tpmIndexRegex matches explicitly tpm (not tpmrm!) and captures the tpm's index
+var tpmIndexRegex = regexp.MustCompile(`^tpm(\d+)$`)
+
+func resolveFromPath(rw fileio.ReadWriter, log *log.PrefixLogger, path string) (*TPM, error) {
+	if path == "" {
+		log.Infof("No TPM device provided. Selecting a default device")
+		return resolveDefault(rw, log)
 	}
-	if t.conn == nil {
-		return nil, fmt.Errorf("cannot get TPM vendor info: no conn available")
-	}
-	vendorInfo, err := legacy.GetManufacturer(t.conn)
+	log.Infof("Using TPM device at %s", path)
+	return resolve(rw, path)
+}
+
+// resolve returns the TPM specified by the path if it exists and if the specified device is version 2
+func resolve(rw fileio.ReadWriter, path string) (*TPM, error) {
+	tpms, err := discover(rw)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get TPM manufacturer info: %w", err)
+		return nil, fmt.Errorf("discovering TPM devices: %w", err)
 	}
-	return vendorInfo, nil
-}
 
-func (t *TPM) GetPCRValues(measurements map[string]string) error {
-	if t == nil {
-		return nil
-	}
-	for pcr := 1; pcr <= 16; pcr++ {
-		key := fmt.Sprintf("pcr%02d", pcr)
-		val, err := legacy.ReadPCR(t.conn, pcr, legacy.AlgSHA256)
-		if err != nil {
-			return fmt.Errorf("failed to read PCR %d: %w", pcr, err)
+	for _, tpm := range tpms {
+		if tpm.path == path || tpm.resourceMgrPath == path {
+			if err := tpm.ValidateVersion2(); err != nil {
+				return nil, fmt.Errorf("invalid TPM %q: %w", path, err)
+			}
+			return &tpm, nil
 		}
-		measurements[key] = hex.EncodeToString(val)
 	}
-	return nil
+
+	return nil, fmt.Errorf("TPM %q not found", path)
 }
 
-// This function (re-)creates an ECC Primary Storage Root Key in the Owner/Storage Hierarchy.
-// This key is deterministically generated from the Storage Primary Seed + input parameters.
-func (t *TPM) GenerateSRKPrimary() (*tpm2.NamedHandle, error) {
-	createPrimaryCmd := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHOwner,
-		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
-	}
-	createPrimaryRsp, err := createPrimaryCmd.Execute(transport.FromReadWriter(t.conn))
+// resolveDefault finds and returns the first available valid TPM 2.0.
+func resolveDefault(rw fileio.ReadWriter, logger *log.PrefixLogger) (*TPM, error) {
+	tpms, err := discover(rw)
 	if err != nil {
-		return nil, fmt.Errorf("creating SRK primary: %w", err)
+		return nil, fmt.Errorf("failed to discover TPMs: %w", err)
 	}
-	t.srk = &tpm2.NamedHandle{
-		Handle: createPrimaryRsp.ObjectHandle,
-		Name:   createPrimaryRsp.Name,
+
+	logger.Debugf("Found %d TPMs", len(tpms))
+
+	for _, tpm := range tpms {
+		logger.Debugf("Trying TPM %q at %q", tpm.index, tpm.resourceMgrPath)
+		if tpm.Exists() {
+			logger.Debugf("Device %q exists, validating version", tpm.index)
+			if err := tpm.ValidateVersion2(); err == nil {
+				return &tpm, nil
+			}
+			logger.Debugf("Device %q validation failed: %v", tpm.index, err)
+		} else {
+			logger.Debugf("Device %q does not exist", tpm.index)
+		}
 	}
-	return t.srk, nil
+
+	return nil, fmt.Errorf("no valid TPM 2.0 devices found")
 }
 
-// The local attestation key (LAK) is an asymmetric key that persists for the device's lifecycle (but not lifetime) and can be zeroized if needed when the device transfers ownership. (The IAK by contrast persists for the device's lifetime across uses and owners.) This key can only be used to sign TPM-internal data, ex. attestations. This is considered a Restricted signing key by the TPM.
-// Key attributes:
-// Restricted: yes
-// Sign: yes
-// Decrypt: no
-// FixedTPM: yes (cannot migrate or be duplicated)
-// SensitiveDataOrigin: yes (was created in the TPM)
-func (t *TPM) CreateLAK() (*client.Key, error) {
-	// AttestationKeyECC generates and loads a key from AKTemplateECC in the Owner (aka 'Storage') hierarchy.
-	return client.AttestationKeyECC(t.conn)
-}
-
-func (t *TPM) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attestation, error) {
-	// TODO - may want to use CertChainFetcher in the AttestOpts in the future
-	// see https://pkg.go.dev/github.com/google/go-tpm-tools/client#AttestOpts
-
-	if len(nonce) < MinNonceLength {
-		return nil, fmt.Errorf("nonce does not meet minimum length of %d bytes", MinNonceLength)
-	}
-	if ak == nil {
-		return nil, fmt.Errorf("no attestation key provided")
-	}
-
-	attestation, err := ak.Attest(client.AttestOpts{Nonce: nonce})
+func discover(rw fileio.ReadWriter) ([]TPM, error) {
+	entries, err := rw.ReadDir(sysClassPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get attestation: %w", err)
-	}
-	return attestation, nil
-}
-
-// This function creates an ECC LDevID key pair under the Storage/Owner hierarchy with the Storage Root Key as parent.
-func (t *TPM) CreateLDevID(srk tpm2.NamedHandle) (*tpm2.NamedHandle, error) {
-	createCmd := tpm2.Create{
-		ParentHandle: srk,
-		InPublic:     tpm2.New2B(LDevIDTemplate),
-	}
-	createRsp, err := createCmd.Execute(transport.FromReadWriter(t.conn))
-	if err != nil {
-		return nil, fmt.Errorf("executing endorsement LDevID create command: %w", err)
-	}
-	loadCmd := tpm2.Load{
-		ParentHandle: srk,
-		InPrivate:    createRsp.OutPrivate,
-		InPublic:     createRsp.OutPublic,
+		return nil, fmt.Errorf("scanning TPM devices: %w", err)
 	}
 
-	loadRsp, err := loadCmd.Execute(transport.FromReadWriter(t.conn))
-	if err != nil {
-		return nil, fmt.Errorf("error loading ldevid key: %w", err)
+	var tpms []TPM
+	for _, entry := range entries {
+		matches := tpmIndexRegex.FindStringSubmatch(entry.Name())
+		if len(matches) != 2 {
+			continue
+		}
+		index := matches[1]
+
+		tpm := TPM{
+			index:           index,
+			path:            fmt.Sprintf(tpmPathTemplate, index),
+			resourceMgrPath: fmt.Sprintf(rmPathTemplate, index),
+			versionPath:     fmt.Sprintf(versionPathTemplate, entry.Name()),
+			sysfsPath:       fmt.Sprintf(sysFsPathTemplate, entry.Name()),
+			rw:              rw,
+		}
+
+		tpms = append(tpms, tpm)
 	}
 
-	t.ldevid = &tpm2.NamedHandle{
-		Handle: loadRsp.ObjectHandle,
-		Name:   loadRsp.Name,
-	}
-	return t.ldevid, nil
-}
-
-func (t *TPM) GetLDevIDPubKey() (crypto.PublicKey, error) {
-	if t.ldevid == nil {
-		return nil, fmt.Errorf("ldevid not initialized")
-	}
-
-	pub, err := tpm2.ReadPublic{
-		ObjectHandle: t.ldevid.Handle,
-	}.Execute(transport.FromReadWriter(t.conn))
-	if err != nil {
-		return nil, fmt.Errorf("could not read public key: %w", err)
-	}
-	outpub, err := pub.OutPublic.Contents()
-	if err != nil {
-		return nil, fmt.Errorf("could not get contents of TPM2Bpublic: %w", err)
-	}
-	if outpub.Type != tpm2.TPMAlgECC {
-		return nil, fmt.Errorf("public key alg %d for ldevid key is unsupported", outpub.Type)
-	}
-	details, err := outpub.Parameters.ECCDetail()
-	if err != nil {
-		return nil, fmt.Errorf("cannot read ecc details for ldevid key: %w", err)
-	}
-	curve, err := details.CurveID.Curve()
-	if err != nil {
-		return nil, fmt.Errorf("could not get curve id for ldevid key: %w", err)
-	}
-	unique, err := outpub.Unique.ECC()
-	if err != nil {
-		return nil, fmt.Errorf("could not get unique parameters for ldevid key: %w", err)
-	}
-	pubkey := &ecdsa.PublicKey{
-		Curve: curve,
-		X:     new(big.Int).SetBytes(unique.X.Buffer),
-		Y:     new(big.Int).SetBytes(unique.Y.Buffer),
-	}
-	// converts ecdsa.PublicKey to crypto.PublicKey
-	t.ldevidPub = pubkey
-	return pubkey, nil
-}
-
-func (t *TPM) Public() crypto.PublicKey {
-	return t.ldevidPub
-}
-
-func (t *TPM) GetSigner() crypto.Signer {
-	return t
-}
-
-// Sign signs the given data using the TPM's LDevID key.
-// The rand parameter is ignored as the TPM generates its own randomness internally.
-// Opts is ignored as the only hash type supported is SHA256 (as defined by the creation of the key)
-func (t *TPM) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) ([]byte, error) {
-	sign := tpm2.Sign{
-		KeyHandle: tpm2.NamedHandle{
-			Handle: t.ldevid.Handle,
-			Name:   t.ldevid.Name,
-		},
-		Digest: tpm2.TPM2BDigest{
-			Buffer: data[:],
-		},
-		Validation: tpm2.TPMTTKHashCheck{
-			Tag: tpm2.TPMSTHashCheck,
-		},
-	}
-
-	signRsp, err := sign.Execute(transport.FromReadWriter(t.conn))
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign digest with ldevid: %w", err)
-	}
-	ecdsaSig, err := signRsp.Signature.Signature.ECDSA()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ECDSA signature from sign response: %w", err)
-	}
-	bigR := new(big.Int).SetBytes(ecdsaSig.SignatureR.Buffer)
-	bigS := new(big.Int).SetBytes(ecdsaSig.SignatureS.Buffer)
-	es := ecdsaSignature{
-		R: bigR,
-		S: bigS,
-	}
-	signature, err := asn1.Marshal(es)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal ECDSA signature: %w", err)
-	}
-	return signature, nil
-}
-
-type ecdsaSignature struct {
-	R *big.Int
-	S *big.Int
-}
-
-func (t *TPM) GetQuote(nonce []byte, ak *client.Key, pcr_selection *legacy.PCRSelection) (*pbtpm.Quote, error) {
-	if len(nonce) < MinNonceLength {
-		return nil, fmt.Errorf("nonce does not meet minimum length of %d bytes", MinNonceLength)
-	}
-
-	if ak == nil {
-		return nil, fmt.Errorf("no attestation key provided")
-	}
-	if pcr_selection == nil {
-		return nil, fmt.Errorf("no pcr selection provided")
-	}
-
-	quote, err := ak.Quote(*pcr_selection, nonce)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get TPM quote: %w", err)
-	}
-	return quote, nil
+	return tpms, nil
 }
