@@ -11,3 +11,6 @@ test/e2e/cli/*.key
 flightctl-*.rpm
 *.tar
 .claude/
+/output/
+dump.rdb
+appendonlydir/
