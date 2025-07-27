@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -29,6 +30,7 @@ var (
 	_ Initializer = (*LifecycleManager)(nil)
 )
 
+// LifecycleManager struct needs to hold a reference to the management config
 type LifecycleManager struct {
 	deviceName           string
 	enrollmentUIEndpoint string
@@ -41,6 +43,7 @@ type LifecycleManager struct {
 	enrollmentCSR    []byte
 	statusManager    status.Manager
 	systemdClient    *client.Systemd
+	identityProvider identity.Provider
 
 	backoff wait.Backoff
 	log     *log.PrefixLogger
@@ -58,6 +61,7 @@ func NewManager(
 	defaultLabels map[string]string,
 	statusManager status.Manager,
 	systemdClient *client.Systemd,
+	identityProvider identity.Provider,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *LifecycleManager {
@@ -74,6 +78,7 @@ func NewManager(
 		backoff:              backoff,
 		statusManager:        statusManager,
 		systemdClient:        systemdClient,
+		identityProvider:     identityProvider,
 	}
 }
 
@@ -190,16 +195,11 @@ func (m *LifecycleManager) updateWithErrorCondition(ctx context.Context, errs []
 // point of no return - wipes management cert and keys
 func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	var errs []error
-	err := m.deviceReadWriter.OverwriteAndWipe(m.managementCertPath)
-	if err != nil {
-		m.log.Errorf("Failed to remove management certificate at %s: %v", m.managementCertPath, err)
-		errs = append(errs, fmt.Errorf("failed to remove management certificate: %w", err))
-	}
 
-	err = m.deviceReadWriter.OverwriteAndWipe(m.managementKeyPath)
-	if err != nil {
-		m.log.Errorf("Failed to remove management key at %s: %v", m.managementKeyPath, err)
-		errs = append(errs, fmt.Errorf("failed to remove management key: %w", err))
+	// Use identity provider to wipe credentials securely
+	if err := m.identityProvider.WipeCredentials(); err != nil {
+		m.log.Errorf("Failed to wipe credentials via identity provider: %v", err)
+		errs = append(errs, fmt.Errorf("failed to wipe credentials via identity provider: %w", err))
 	}
 
 	// Clear sensitive data ahead of time in case reboot fails
@@ -209,7 +209,7 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	m.enrollmentCSR = nil
 
 	// TODO: incorporate before-reboot hooks
-	if err = m.systemdClient.Reboot(ctx); err != nil {
+	if err := m.systemdClient.Reboot(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("failed to initiate system reboot: %w", err))
 	}
 	if len(errs) > 0 {
@@ -219,13 +219,8 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 }
 
 func (m *LifecycleManager) IsInitialized() bool {
-	// check if the management certificate exists
-	exists, err := m.deviceReadWriter.PathExists(m.managementCertPath)
-	if err != nil {
-		m.log.Warnf("Error checking if device is enrolled: %v", err)
-		return false
-	}
-	return exists
+	// check if the identity provider has a certificate
+	return m.identityProvider.HasCertificate()
 }
 
 func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
@@ -270,9 +265,8 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("parsing signed certificate: %v", err)
 	}
 
-	m.log.Infof("Writing signed certificate to %s", m.managementCertPath)
-	if err := m.deviceReadWriter.WriteFile(m.managementCertPath, []byte(*enrollmentRequest.Status.Certificate), os.FileMode(0600)); err != nil {
-		return false, fmt.Errorf("writing signed certificate: %v", err)
+	if err := m.identityProvider.StoreCertificate([]byte(*enrollmentRequest.Status.Certificate)); err != nil {
+		return false, fmt.Errorf("failed to store certificate: %w", err)
 	}
 
 	return true, nil

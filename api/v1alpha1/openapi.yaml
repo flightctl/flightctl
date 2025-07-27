@@ -28,6 +28,8 @@ tags:
     description: Operations on Fleet resources.
   - name: label
     description: Operations for retrieving labels across different resources.
+  - name: organization
+    description: Operations for retrieving Organization resources.
   - name: repository
     description: Operations on Repository resources.
   - name: resourcesync
@@ -3137,12 +3139,55 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/organizations:
+    get:
+      tags:
+        - organization
+      summary: List organizations
+      description: Retrieves a list of organizations.  Only returns organizations that the user has access to.
+      operationId: listOrganizations
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    orgId:
+      type: apiKey
+      in: query
+      name: org_id
+      description: The UUID of the organization that owns the resource.  Maps to an organizations metadata.name.
   schemas:
     ResourceKind:
       type: string
@@ -5355,3 +5400,52 @@ components:
           type: string
           enum: [batched, immediate]
           description: Rollout strategy type.
+    Organization:
+      type: object
+      required:
+        - apiVersion
+        - kind
+        - metadata
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/OrganizationSpec'
+    OrganizationSpec:
+      type: object
+      description: OrganizationSpec describes an organization.
+      properties:
+        displayName:
+          type: string
+          description: Human readable name shown to users.
+        externalId:
+          type: string
+          description: External ID of the organization.
+    OrganizationList:
+      type: object
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of Organizations.'
+          items:
+            $ref: '#/components/schemas/Organization'
+      description: OrganizationList is a list of Organizations.

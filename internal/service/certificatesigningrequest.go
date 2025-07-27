@@ -7,7 +7,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 )
@@ -76,7 +75,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 }
 
 func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, params api.ListCertificateSigningRequestsParams) (*api.CertificateSigningRequestList, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
@@ -99,7 +98,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, par
 }
 
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	// don't set fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
@@ -146,21 +145,21 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 }
 
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, name string) api.Status {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	err := h.store.CertificateSigningRequest().Delete(ctx, orgId, name, h.eventDeleteCallback)
 	return StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 }
 
 func (h *ServiceHandler) GetCertificateSigningRequest(ctx context.Context, name string) (*api.CertificateSigningRequest, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	result, err := h.store.CertificateSigningRequest().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 }
 
 func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, name string, patch api.PatchRequest) (*api.CertificateSigningRequest, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	currentObj, err := h.store.CertificateSigningRequest().Get(ctx, orgId, name)
 	if err != nil {
@@ -218,7 +217,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 }
 
 func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, name string, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	// don't set fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
@@ -269,7 +268,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 
 // NOTE: Approval currently also issues a certificate - this will change in the future based on policy
 func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Context, name string, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	newCSR := &csr
 	NilOutManagedObjectMetaProperties(&newCSR.Metadata)
