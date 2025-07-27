@@ -95,10 +95,19 @@ run-test: unit-test run-intesgration-test
 bin/e2e-certs/ca.pem bin/.ssh/id_rsa.pub:
 	test/scripts/create_e2e_certs.sh
 
+# Usage: make container-integration-test [TEST_PATTERN="./test/integration/..."] [TEST_RUN="pattern"]
+# Run integration tests in a Fedora 41 container with all dependencies included
+# Examples:
+#   make container-integration-test
+#   make container-integration-test TEST_PATTERN="./test/integration/alerts/..."
+#   make container-integration-test TEST_PATTERN="./test/integration/service/..." TEST_RUN="TestServiceValidation"
+container-integration-test:
+	./hack/run-integration-tests-container.sh "$(or $(TEST_PATTERN),./test/integration/...)" "$(TEST_RUN)"
+
 git-server-container: bin/.ssh/id_rsa.pub
 	test/scripts/prepare_git_server.sh
 
-.PHONY: test run-test git-server-container
+.PHONY: test run-test git-server-container container-integration-test
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)

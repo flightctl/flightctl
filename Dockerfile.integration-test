@@ -1,0 +1,143 @@
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install PostgreSQL, Redis, and other dependencies (excluding old Go)
+RUN apt-get update && \
+    apt-get install -y \
+        git \
+        make \
+        gcc \
+        postgresql \
+        postgresql-contrib \
+        redis-server \
+        procps \
+        wget \
+        tar \
+        curl \
+        openssh-client \
+        sudo \
+        && apt-get clean && \
+        rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.23 from official source
+RUN wget https://go.dev/dl/go1.23.6.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz && \
+    rm go1.23.6.linux-amd64.tar.gz
+
+# Set Go environment variables
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOROOT="/usr/local/go"
+
+# Initialize PostgreSQL database with UTF8 encoding
+RUN mkdir -p /var/lib/postgresql/data /var/run/postgresql && \
+    chown postgres:postgres /var/lib/postgresql/data /var/run/postgresql && \
+    sudo -u postgres /usr/lib/postgresql/*/bin/initdb -D /var/lib/postgresql/data --encoding=UTF8 --locale=C.UTF-8
+
+# Configure PostgreSQL to accept connections and ensure UTF8 encoding
+RUN echo "host all all 127.0.0.1/32 trust" >> /var/lib/postgresql/data/pg_hba.conf && \
+    echo "host all all ::1/128 trust" >> /var/lib/postgresql/data/pg_hba.conf && \
+    echo "local all all trust" >> /var/lib/postgresql/data/pg_hba.conf && \
+    echo "listen_addresses = '*'" >> /var/lib/postgresql/data/postgresql.conf && \
+    echo "unix_socket_directories = '/var/run/postgresql'" >> /var/lib/postgresql/data/postgresql.conf && \
+    echo "client_encoding = 'UTF8'" >> /var/lib/postgresql/data/postgresql.conf
+
+# Install Alertmanager
+RUN cd /tmp && \
+    wget https://github.com/prometheus/alertmanager/releases/download/v0.28.1/alertmanager-0.28.1.linux-amd64.tar.gz && \
+    tar -xzf alertmanager-0.28.1.linux-amd64.tar.gz && \
+    mv alertmanager-0.28.1.linux-amd64/alertmanager /usr/local/bin/ && \
+    mv alertmanager-0.28.1.linux-amd64/amtool /usr/local/bin/ && \
+    rm -rf /tmp/alertmanager-* && \
+    mkdir -p /etc/alertmanager /var/lib/alertmanager
+
+# Create Alertmanager configuration
+RUN echo 'global:' > /etc/alertmanager/alertmanager.yml && \
+    echo '  resolve_timeout: 5m' >> /etc/alertmanager/alertmanager.yml && \
+    echo 'route:' >> /etc/alertmanager/alertmanager.yml && \
+    echo '  receiver: "null"' >> /etc/alertmanager/alertmanager.yml && \
+    echo '  group_by: ["alertname"]' >> /etc/alertmanager/alertmanager.yml && \
+    echo '  group_wait: 30s' >> /etc/alertmanager/alertmanager.yml && \
+    echo '  group_interval: 5m' >> /etc/alertmanager/alertmanager.yml && \
+    echo '  repeat_interval: 12h' >> /etc/alertmanager/alertmanager.yml && \
+    echo 'receivers:' >> /etc/alertmanager/alertmanager.yml && \
+    echo '  - name: "null"' >> /etc/alertmanager/alertmanager.yml
+
+# Create SSH configuration for tests
+RUN mkdir -p /root/.ssh && \
+    ssh-keyscan github.com >> /root/.ssh/known_hosts 2>/dev/null && \
+    echo "StrictHostKeyChecking no" >> /root/.ssh/config && \
+    echo "UserKnownHostsFile /dev/null" >> /root/.ssh/config
+
+# Create startup script
+RUN echo '#!/bin/bash' > /start-services.sh && \
+    echo 'set -e' >> /start-services.sh && \
+    echo '' >> /start-services.sh && \
+    echo '# Start PostgreSQL' >> /start-services.sh && \
+    echo 'echo "Starting PostgreSQL..."' >> /start-services.sh && \
+    echo 'sudo -u postgres /usr/lib/postgresql/*/bin/postgres -D /var/lib/postgresql/data -p 5432 &' >> /start-services.sh && \
+    echo 'PG_PID=$!' >> /start-services.sh && \
+    echo '' >> /start-services.sh && \
+    echo '# Wait for PostgreSQL to be ready' >> /start-services.sh && \
+    echo 'for i in {1..30}; do' >> /start-services.sh && \
+    echo '  if sudo -u postgres pg_isready -p 5432 >/dev/null 2>&1; then' >> /start-services.sh && \
+    echo '    echo "PostgreSQL is ready!"' >> /start-services.sh && \
+    echo '    break' >> /start-services.sh && \
+    echo '  fi' >> /start-services.sh && \
+    echo '  echo "Waiting for PostgreSQL... ($i/30)"' >> /start-services.sh && \
+    echo '  sleep 1' >> /start-services.sh && \
+    echo 'done' >> /start-services.sh && \
+    echo '' >> /start-services.sh && \
+    echo '# Start Redis' >> /start-services.sh && \
+    echo 'echo "Starting Redis..."' >> /start-services.sh && \
+    echo 'mkdir -p /workspace/output' >> /start-services.sh && \
+    echo 'cd /workspace/output && redis-server --daemonize yes --requirepass adminpass --appendonly yes' >> /start-services.sh && \
+    echo '' >> /start-services.sh && \
+    echo '# Start Alertmanager' >> /start-services.sh && \
+    echo 'echo "Starting Alertmanager..."' >> /start-services.sh && \
+    echo 'alertmanager --config.file=/etc/alertmanager/alertmanager.yml --storage.path=/var/lib/alertmanager --web.listen-address=:9093 &' >> /start-services.sh && \
+    echo 'AM_PID=$!' >> /start-services.sh && \
+    echo '' >> /start-services.sh && \
+    echo '# Wait for Alertmanager to be ready' >> /start-services.sh && \
+    echo 'for i in {1..30}; do' >> /start-services.sh && \
+    echo '  if curl -s http://localhost:9093/-/ready >/dev/null 2>&1; then' >> /start-services.sh && \
+    echo '    echo "Alertmanager is ready!"' >> /start-services.sh && \
+    echo '    break' >> /start-services.sh && \
+    echo '  fi' >> /start-services.sh && \
+    echo '  echo "Waiting for Alertmanager... ($i/30)"' >> /start-services.sh && \
+    echo '  sleep 1' >> /start-services.sh && \
+    echo 'done' >> /start-services.sh && \
+    echo '' >> /start-services.sh && \
+    echo '# Create database and users' >> /start-services.sh && \
+    echo 'echo "Setting up database users..."' >> /start-services.sh && \
+    echo 'sudo -u postgres createuser -s flightctl_app || true' >> /start-services.sh && \
+    echo 'sudo -u postgres createuser -s admin || true' >> /start-services.sh && \
+    echo 'sudo -u postgres createuser -s flightctl_migrator || true' >> /start-services.sh && \
+    echo 'sudo -u postgres createdb flightctl || true' >> /start-services.sh && \
+    echo 'sudo -u postgres psql -c "ALTER USER flightctl_app PASSWORD '\''adminpass'\'';" || true' >> /start-services.sh && \
+    echo 'sudo -u postgres psql -c "ALTER USER admin PASSWORD '\''adminpass'\'';" || true' >> /start-services.sh && \
+    echo 'sudo -u postgres psql -c "ALTER USER flightctl_migrator PASSWORD '\''adminpass'\'';" || true' >> /start-services.sh && \
+    echo 'sudo -u postgres psql -d flightctl -c "ALTER USER flightctl_app CREATEDB; GRANT CREATE ON SCHEMA public TO flightctl_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO flightctl_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flightctl_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO flightctl_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO flightctl_app;" || true' >> /start-services.sh && \
+    echo '' >> /start-services.sh && \
+    echo 'echo "All services are ready!"' >> /start-services.sh && \
+    echo 'echo "PostgreSQL: ✓"' >> /start-services.sh && \
+    echo 'echo "Redis: ✓"' >> /start-services.sh && \
+    echo 'echo "Alertmanager: ✓"' >> /start-services.sh && \
+    echo 'exec "$@"' >> /start-services.sh && \
+    chmod +x /start-services.sh
+
+# Set up workspace
+WORKDIR /workspace
+
+# Environment variables
+ENV CGO_ENABLED=1
+ENV GOOS=linux
+ENV GOARCH=amd64
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV SSH_KNOWN_HOSTS=/root/.ssh/known_hosts
+
+# Default command
+ENTRYPOINT ["/start-services.sh"]
+CMD ["bash"]
