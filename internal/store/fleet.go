@@ -406,7 +406,7 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 
 func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
 	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -461,7 +461,7 @@ func (s *FleetStore) updateAnnotations(ctx context.Context, existingRecord model
 
 func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error {
 	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return ErrorFromGormError(result.Error)
 	}

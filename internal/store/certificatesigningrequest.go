@@ -130,7 +130,7 @@ func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId
 
 func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
 	existingRecord := model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}

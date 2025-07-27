@@ -554,7 +554,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 
 func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -601,7 +601,7 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 
 func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -650,7 +650,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	deviceModel := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.getDB(ctx).First(&deviceModel)
+	result := s.getDB(ctx).Take(&deviceModel)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
@@ -660,7 +660,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 
 func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
