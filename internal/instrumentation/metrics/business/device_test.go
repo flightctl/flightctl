@@ -53,7 +53,15 @@ func (m *MockStore) Event() store.Event {
 	return nil
 }
 
-func (m *MockStore) InitialMigration(context.Context) error {
+func (m *MockStore) Checkpoint() store.Checkpoint {
+	return nil
+}
+
+func (m *MockStore) Organization() store.Organization {
+	return nil
+}
+
+func (m *MockStore) RunMigrations(context.Context) error {
 	return nil
 }
 
@@ -72,13 +80,13 @@ func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, 
 
 // Implement other required methods with empty implementations
 func (m *MockDevice) InitialMigration(ctx context.Context) error { return nil }
-func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback store.DeviceStoreCallback) (*api.Device, error) {
+func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*api.Device, api.ResourceUpdatedDetails, error) {
-	return nil, api.ResourceUpdatedDetails{}, nil
+func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, error) {
+	return nil, nil
 }
-func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error) {
+func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error) {
 	return nil, false, api.ResourceUpdatedDetails{}, nil
 }
 func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
@@ -96,10 +104,10 @@ func (m *MockDevice) Summary(ctx context.Context, orgId uuid.UUID, listParams st
 func (m *MockDevice) Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (api.LabelList, error) {
 	return nil, nil
 }
-func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.DeviceStoreCallback) (bool, error) {
-	return false, nil
+func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (bool, error) {
+	return true, nil
 }
-func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error) {
+func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, callbackEvent store.EventCallback) (*api.Device, error) {
 	return nil, nil
 }
 func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error) {
@@ -111,7 +119,7 @@ func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, nam
 func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {
 	return nil
 }
-func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback store.ServiceConditionsCallback) error {
 	return nil
 }
 func (m *MockDevice) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
@@ -134,6 +142,9 @@ func (m *MockDevice) CountByLabels(ctx context.Context, orgId uuid.UUID, listPar
 }
 func (m *MockDevice) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
 	return nil
+}
+func (m *MockDevice) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, error) {
+	return nil, nil
 }
 func (m *MockDevice) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {}
 

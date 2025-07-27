@@ -25,10 +25,8 @@ type ResourceSyncCollector struct {
 
 // NewResourceSyncCollector creates a ResourceSyncCollector. If tickerInterval is 0, defaults to 30s.
 func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config, tickerInterval ...time.Duration) *ResourceSyncCollector {
-	interval := 30 * time.Second
-	if len(tickerInterval) > 0 && tickerInterval[0] > 0 {
-		interval = tickerInterval[0]
-	}
+	interval := cfg.Metrics.ResourceSyncCollector.TickerInterval
+
 	collector := &ResourceSyncCollector{
 		resourceSyncsGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "flightctl_resourcesyncs_total",

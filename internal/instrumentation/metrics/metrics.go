@@ -28,13 +28,13 @@ type NamedCollector interface {
 	MetricsName() string
 }
 
-// contextualCollector allows context injection into a wrapped collector.
-type contextualCollector interface {
+// ContextAwareCollector allows injecting context into a wrapped collector.
+type ContextAwareCollector interface {
 	prometheus.Collector
 	WithContext(ctx context.Context) NamedCollector
 }
 
-// tracedCollector wraps a NamedCollector and opens a span before collecting.
+// tracedCollector wraps a NamedCollector and adds span tracing during collection.
 type tracedCollector struct {
 	ctx         context.Context
 	collector   NamedCollector
@@ -45,14 +45,13 @@ func (tc *tracedCollector) MetricsName() string {
 	return tc.collector.MetricsName()
 }
 
-// Describe forwards the Describe call to the wrapped collector.
 func (tc *tracedCollector) Describe(ch chan<- *prometheus.Desc) {
 	tc.collector.Describe(ch)
 }
 
-// Collect starts a tracing span, collects the metrics, then ends the span.
 func (tc *tracedCollector) Collect(ch chan<- prometheus.Metric) {
-	_, span := tracing.StartSpan(ctxOrBackground(tc.ctx), "flightctl/metrics", tc.collector.MetricsName())
+	ctx := ctxOrBackground(tc.ctx)
+	_, span := tracing.StartSpan(ctx, "flightctl/metrics", tc.collector.MetricsName())
 	defer span.End()
 
 	if len(tc.metricNames) > 20 {
@@ -64,8 +63,6 @@ func (tc *tracedCollector) Collect(ch chan<- prometheus.Metric) {
 	tc.collector.Collect(ch)
 }
 
-// WithContext returns a new tracedCollector with the provided context,
-// reusing the metricNames to avoid recalculating Describe.
 func (tc *tracedCollector) WithContext(ctx context.Context) NamedCollector {
 	return &tracedCollector{
 		ctx:         ctxOrBackground(ctx),
@@ -74,8 +71,7 @@ func (tc *tracedCollector) WithContext(ctx context.Context) NamedCollector {
 	}
 }
 
-// WrapWithTrace wraps a NamedCollector with a tracedCollector that adds span tracing
-// and records metric descriptor names only once.
+// WrapWithTrace wraps a NamedCollector with tracing and precomputes metric descriptor names.
 func WrapWithTrace(c NamedCollector) NamedCollector {
 	descs := make(chan *prometheus.Desc)
 	var metricNames []string
@@ -84,9 +80,11 @@ func WrapWithTrace(c NamedCollector) NamedCollector {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		localNames := make([]string, 0, 32) // small prealloc
 		for d := range descs {
-			metricNames = append(metricNames, d.String())
+			localNames = append(localNames, d.String())
 		}
+		metricNames = localNames
 	}()
 
 	c.Describe(descs)
@@ -99,58 +97,58 @@ func WrapWithTrace(c NamedCollector) NamedCollector {
 	}
 }
 
-// NewHandler returns an HTTP handler that gathers metrics from provided NamedCollectors,
-// wrapping each one in tracing with the incoming request context.
+// NewHandler returns an HTTP handler that gathers metrics from the provided NamedCollectors.
+// Each collector is wrapped with tracing and the request context (if supported).
 func NewHandler(collectors ...NamedCollector) http.Handler {
-	return http.HandlerFunc(func(rsp http.ResponseWriter, req *http.Request) {
-		ctx := req.Context()
-
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		registry := prometheus.NewRegistry()
+
 		for _, c := range collectors {
-			var col prometheus.Collector = c
-			if cc, ok := c.(contextualCollector); ok {
-				col = cc.WithContext(ctx)
+			col := prometheus.Collector(c)
+			if ctxAware, ok := c.(ContextAwareCollector); ok {
+				col = ctxAware.WithContext(ctx)
 			}
 			if err := registry.Register(col); err != nil {
-				http.Error(rsp, fmt.Sprintf("register error: %v", err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("failed to register collector: %v", err), http.StatusInternalServerError)
 				return
 			}
 		}
 
-		mfs, err := registry.Gather()
+		metrics, err := registry.Gather()
 		if err != nil {
-			http.Error(rsp, fmt.Sprintf("gather error: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("failed to gather metrics: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		contentType := expfmt.Negotiate(req.Header)
-		rsp.Header().Set(contentTypeHeader, string(contentType))
+		contentType := expfmt.Negotiate(r.Header)
+		w.Header().Set(contentTypeHeader, string(contentType))
 
-		var writer io.Writer = rsp
-		if gzipAccepted(req.Header) {
-			rsp.Header().Set(contentEncodingHeader, "gzip")
-			gz := gzip.NewWriter(rsp)
-			defer gz.Close()
-			writer = gz
+		var writer io.Writer = w
+		if acceptsGzip(r.Header) {
+			w.Header().Set(contentEncodingHeader, "gzip")
+			gzipWriter := gzip.NewWriter(w)
+			defer gzipWriter.Close()
+			writer = gzipWriter
 		}
 
-		enc := expfmt.NewEncoder(writer, contentType)
-		for _, mf := range mfs {
-			if err := enc.Encode(mf); err != nil {
-				http.Error(rsp, fmt.Sprintf("encode error: %v", err), http.StatusInternalServerError)
+		encoder := expfmt.NewEncoder(writer, contentType)
+		for _, mf := range metrics {
+			if err := encoder.Encode(mf); err != nil {
+				http.Error(w, fmt.Sprintf("failed to encode metrics: %v", err), http.StatusInternalServerError)
 				return
 			}
 		}
 
-		if closer, ok := enc.(expfmt.Closer); ok {
+		if closer, ok := encoder.(expfmt.Closer); ok {
 			if err := closer.Close(); err != nil {
-				http.Error(rsp, fmt.Sprintf("flush error: %v", err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("failed to flush metrics: %v", err), http.StatusInternalServerError)
 			}
 		}
 	})
 }
 
-// ctxOrBackground safely returns context.Background if ctx is nil
+// ctxOrBackground returns ctx or context.Background if ctx is nil.
 func ctxOrBackground(ctx context.Context) context.Context {
 	if ctx != nil {
 		return ctx
@@ -158,11 +156,10 @@ func ctxOrBackground(ctx context.Context) context.Context {
 	return context.Background()
 }
 
-// gzipAccepted returns whether the client accepts gzip encoding.
-func gzipAccepted(header http.Header) bool {
-	for _, part := range strings.Split(header.Get(acceptEncodingHeader), ",") {
-		part = strings.TrimSpace(part)
-		if part == "gzip" || strings.HasPrefix(part, "gzip;") {
+// acceptsGzip returns true if the request header allows gzip encoding.
+func acceptsGzip(header http.Header) bool {
+	for _, val := range strings.Split(header.Get(acceptEncodingHeader), ",") {
+		if part := strings.TrimSpace(val); part == "gzip" || strings.HasPrefix(part, "gzip;") {
 			return true
 		}
 	}

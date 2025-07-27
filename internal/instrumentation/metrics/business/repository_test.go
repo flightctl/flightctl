@@ -33,7 +33,9 @@ func (m *MockRepositoryStore) Fleet() store.Fleet                               
 func (m *MockRepositoryStore) TemplateVersion() store.TemplateVersion                     { return nil }
 func (m *MockRepositoryStore) ResourceSync() store.ResourceSync                           { return nil }
 func (m *MockRepositoryStore) Event() store.Event                                         { return nil }
-func (m *MockRepositoryStore) InitialMigration(context.Context) error                     { return nil }
+func (m *MockRepositoryStore) Checkpoint() store.Checkpoint                               { return nil }
+func (m *MockRepositoryStore) Organization() store.Organization                           { return nil }
+func (m *MockRepositoryStore) RunMigrations(context.Context) error                        { return nil }
 func (m *MockRepositoryStore) Close() error                                               { return nil }
 
 type MockRepository struct {
@@ -52,14 +54,14 @@ func (m *MockRepository) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]st
 
 // Implement other required methods with empty implementations
 func (m *MockRepository) InitialMigration(context.Context) error { return nil }
-func (m *MockRepository) Create(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback) (*api.Repository, error) {
+func (m *MockRepository) Create(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback, store.EventCallback) (*api.Repository, error) {
 	return nil, nil
 }
-func (m *MockRepository) Update(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback) (*api.Repository, api.ResourceUpdatedDetails, error) {
-	return nil, api.ResourceUpdatedDetails{}, nil
+func (m *MockRepository) Update(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback, store.EventCallback) (*api.Repository, error) {
+	return nil, nil
 }
-func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback) (*api.Repository, bool, api.ResourceUpdatedDetails, error) {
-	return nil, false, api.ResourceUpdatedDetails{}, nil
+func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback, store.EventCallback) (*api.Repository, bool, error) {
+	return nil, false, nil
 }
 func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*api.Repository, error) {
 	return nil, nil
@@ -67,10 +69,10 @@ func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*api.Repositor
 func (m *MockRepository) List(context.Context, uuid.UUID, store.ListParams) (*api.RepositoryList, error) {
 	return nil, nil
 }
-func (m *MockRepository) Delete(context.Context, uuid.UUID, string, store.RepositoryStoreCallback) (bool, error) {
-	return false, nil
+func (m *MockRepository) Delete(context.Context, uuid.UUID, string, store.RepositoryStoreCallback, store.EventCallback) error {
+	return nil
 }
-func (m *MockRepository) UpdateStatus(context.Context, uuid.UUID, *api.Repository) (*api.Repository, error) {
+func (m *MockRepository) UpdateStatus(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, error) {
 	return nil, nil
 }
 func (m *MockRepository) GetFleetRefs(context.Context, uuid.UUID, string) (*api.FleetList, error) {

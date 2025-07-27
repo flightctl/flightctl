@@ -30,23 +30,25 @@ func (m *MockResourceSyncStore) Repository() store.Repository           { return
 func (m *MockResourceSyncStore) ResourceSync() store.ResourceSync {
 	return &MockResourceSync{results: m.results}
 }
-func (m *MockResourceSyncStore) Event() store.Event                     { return nil }
-func (m *MockResourceSyncStore) InitialMigration(context.Context) error { return nil }
-func (m *MockResourceSyncStore) Close() error                           { return nil }
+func (m *MockResourceSyncStore) Event() store.Event                  { return nil }
+func (m *MockResourceSyncStore) Checkpoint() store.Checkpoint        { return nil }
+func (m *MockResourceSyncStore) Organization() store.Organization    { return nil }
+func (m *MockResourceSyncStore) RunMigrations(context.Context) error { return nil }
+func (m *MockResourceSyncStore) Close() error                        { return nil }
 
 type MockResourceSync struct {
 	results []store.CountByResourceSyncOrgAndStatusResult
 }
 
 func (m *MockResourceSync) InitialMigration(ctx context.Context) error { return nil }
-func (m *MockResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, error) {
+func (m *MockResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, error) {
 	return nil, nil
 }
-func (m *MockResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, api.ResourceUpdatedDetails, error) {
-	return nil, api.ResourceUpdatedDetails{}, nil
+func (m *MockResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, error) {
+	return nil, nil
 }
-func (m *MockResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, bool, api.ResourceUpdatedDetails, error) {
-	return nil, false, api.ResourceUpdatedDetails{}, nil
+func (m *MockResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, bool, error) {
+	return nil, false, nil
 }
 func (m *MockResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
 	return nil, nil
@@ -54,7 +56,7 @@ func (m *MockResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string
 func (m *MockResourceSync) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.ResourceSyncList, error) {
 	return nil, nil
 }
-func (m *MockResourceSync) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback) error {
+func (m *MockResourceSync) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error {
 	return nil
 }
 func (m *MockResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
@@ -82,8 +84,8 @@ func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
 	defer cancel()
 
 	config := config.NewDefault()
-	collector := NewResourceSyncCollector(ctx, mockStore, log, config)
-	time.Sleep(10 * time.Millisecond)
+	collector := NewResourceSyncCollector(ctx, mockStore, log, config, 1*time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
 
 	ch := make(chan prometheus.Metric, 100)
 	go func() {
@@ -98,6 +100,11 @@ func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
 
 	if len(metrics) == 0 {
 		t.Error("Expected metrics to be collected, but got none")
+	}
+
+	// Verify we got the expected number of metrics (one per mock result)
+	if len(metrics) != len(mockResults) {
+		t.Errorf("Expected %d metrics, got %d", len(mockResults), len(metrics))
 	}
 
 	t.Logf("Collected %d metrics", len(metrics))

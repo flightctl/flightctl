@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -28,18 +29,22 @@ type HTTPCollector struct {
 }
 
 // NewHTTPCollector creates a new HTTP metrics collector with configurable SLO threshold.
-func NewHTTPCollector(sloMax float64, latencyBins []float64) *HTTPCollector {
+func NewHTTPCollector(cfg *config.Config) *HTTPCollector {
+	if cfg == nil || cfg.Metrics == nil || cfg.Metrics.HttpCollector == nil || !cfg.Metrics.HttpCollector.Enabled {
+		return nil
+	}
+
 	collector := &HTTPCollector{
-		sloMax: sloMax,
+		sloMax: cfg.Metrics.HttpCollector.SloMax,
 		successLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "flightctl_api_latencies_success_seconds",
 			Help:    "Distribution of latencies of Flightctl server responses that encountered no errors",
-			Buckets: latencyBins,
+			Buckets: cfg.Metrics.HttpCollector.ApiLatencyBins,
 		}),
 		errorLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "flightctl_api_latencies_error_seconds",
 			Help:    "Distribution of latencies of Flightctl server responses that encountered errors",
-			Buckets: latencyBins,
+			Buckets: cfg.Metrics.HttpCollector.ApiLatencyBins,
 		}),
 		apiTraffic: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "flightctl_api_requests_api_total",
@@ -99,7 +104,7 @@ type loggingResponseWriter struct {
 func newLoggingResponseWriter(w http.ResponseWriter) *loggingResponseWriter {
 	return &loggingResponseWriter{
 		ResponseWriter: w,
-		statusCode:     0,
+		statusCode:     200, // Default HTTP status
 	}
 }
 
@@ -132,7 +137,13 @@ func (c *HTTPCollector) serverMiddleware(next http.Handler, agentServer bool) ht
 		lw := newLoggingResponseWriter(w)
 		next.ServeHTTP(lw, r)
 
-		statusClass := lw.statusCode - lw.statusCode%100
+		// Ensure we have a valid status code
+		statusCode := lw.statusCode
+		if statusCode == 0 {
+			statusCode = 200
+		}
+
+		statusClass := statusCode - statusCode%100
 		thisLatency := time.Since(start).Seconds()
 
 		if statusClass == 400 {
@@ -142,11 +153,13 @@ func (c *HTTPCollector) serverMiddleware(next http.Handler, agentServer bool) ht
 			c.serverErrors.Inc()
 		}
 
+		// Check SLO for all 2xx success responses
 		if statusClass == 200 && thisLatency > c.sloMax {
 			c.sloViolations.Inc()
 		}
 
-		if statusClass == 200 {
+		// Consider 2xx and 3xx as successful responses
+		if statusClass == 200 || statusClass == 300 {
 			c.successLatency.Observe(thisLatency)
 		} else {
 			c.errorLatency.Observe(thisLatency)

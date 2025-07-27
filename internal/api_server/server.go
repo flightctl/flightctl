@@ -55,8 +55,8 @@ func New(
 	ca *crypto.CAClient,
 	listener net.Listener,
 	queuesProvider queues.Provider,
-	consoleEndpointReg console.InternalSessionRegistration,
 	httpCollector *metrics.HTTPCollector,
+	consoleEndpointReg console.InternalSessionRegistration,
 ) *Server {
 	return &Server{
 		log:                log,
@@ -65,8 +65,8 @@ func New(
 		ca:                 ca,
 		listener:           listener,
 		queuesProvider:     queuesProvider,
-		consoleEndpointReg: consoleEndpointReg,
 		httpCollector:      httpCollector,
+		consoleEndpointReg: consoleEndpointReg,
 	}
 }
 

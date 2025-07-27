@@ -112,14 +112,17 @@ type metricsConfig struct {
 	RepositoryCollector   *repositoryCollectorConfig   `json:"repositoryCollector,omitempty"`
 	ResourceSyncCollector *resourceSyncCollectorConfig `json:"resourceSyncCollector,omitempty"`
 }
-
 type collectorConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+type periodicCollectorConfig struct {
 	Enabled        bool          `json:"enabled,omitempty"`
 	TickerInterval time.Duration `json:"tickerInterval,omitempty"`
 }
 
 type systemCollectorConfig struct {
-	collectorConfig
+	periodicCollectorConfig
 }
 
 type httpCollectorConfig struct {
@@ -129,20 +132,20 @@ type httpCollectorConfig struct {
 }
 
 type deviceCollectorConfig struct {
-	collectorConfig
+	periodicCollectorConfig
 	GroupByFleet bool `json:"groupByFleet,omitempty"`
 }
 
 type fleetCollectorConfig struct {
-	collectorConfig
+	periodicCollectorConfig
 }
 
 type repositoryCollectorConfig struct {
-	collectorConfig
+	periodicCollectorConfig
 }
 
 type resourceSyncCollectorConfig struct {
-	collectorConfig
+	periodicCollectorConfig
 }
 
 type tracingConfig struct {
@@ -222,40 +225,42 @@ func NewDefault(opts ...ConfigOption) *Config {
 			MaxDelay:   "10s",
 		},
 		Metrics: &metricsConfig{
+			Enabled: true,
 			Address: ":15690",
 			SystemCollector: &systemCollectorConfig{
-				collectorConfig: collectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
 					Enabled:        true,
-					TickerInterval: 30 * time.Second,
+					TickerInterval: 5 * time.Second,
 				},
 			},
 			HttpCollector: &httpCollectorConfig{
 				collectorConfig: collectorConfig{
-					Enabled:        true,
-					TickerInterval: 30 * time.Second,
+					Enabled: true,
 				},
+				SloMax:         4.0,
+				ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
 			},
 			DeviceCollector: &deviceCollectorConfig{
-				collectorConfig: collectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
 					Enabled:        true,
 					TickerInterval: 30 * time.Second,
 				},
 				GroupByFleet: true,
 			},
 			FleetCollector: &fleetCollectorConfig{
-				collectorConfig: collectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
 					Enabled:        true,
 					TickerInterval: 30 * time.Second,
 				},
 			},
 			RepositoryCollector: &repositoryCollectorConfig{
-				collectorConfig: collectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
 					Enabled:        true,
 					TickerInterval: 30 * time.Second,
 				},
 			},
 			ResourceSyncCollector: &resourceSyncCollectorConfig{
-				collectorConfig: collectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
 					Enabled:        true,
 					TickerInterval: 30 * time.Second,
 				},

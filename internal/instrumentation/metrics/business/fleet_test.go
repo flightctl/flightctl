@@ -30,16 +30,16 @@ func (m *MockFleetStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback store.FleetStoreCallback) (*api.Fleet, error) {
+func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback store.FleetStoreCallback, callbackEvent store.EventCallback) (*api.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback) (*api.Fleet, api.ResourceUpdatedDetails, error) {
-	return nil, api.ResourceUpdatedDetails{}, nil
+func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback, callbackEvent store.EventCallback) (*api.Fleet, error) {
+	return nil, nil
 }
 
-func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback) (*api.Fleet, bool, api.ResourceUpdatedDetails, error) {
-	return nil, false, api.ResourceUpdatedDetails{}, nil
+func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback, callbackEvent store.EventCallback) (*api.Fleet, bool, error) {
+	return nil, false, nil
 }
 
 func (m *MockFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...store.GetOption) (*api.Fleet, error) {
@@ -70,8 +70,8 @@ func (m *MockFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams s
 	return m.fleetList, nil
 }
 
-func (m *MockFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.FleetStoreCallback) (bool, error) {
-	return false, nil
+func (m *MockFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.FleetStoreCallback, callbackEvent store.EventCallback) error {
+	return nil
 }
 
 func (m *MockFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error) {
@@ -98,7 +98,7 @@ func (m *MockFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, 
 	return nil
 }
 
-func (m *MockFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
+func (m *MockFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, callbackEvent store.EventCallback) error {
 	return nil
 }
 
@@ -154,7 +154,15 @@ func (m *MockFleetStoreWrapper) TemplateVersion() store.TemplateVersion {
 	return nil
 }
 
-func (m *MockFleetStoreWrapper) InitialMigration(context.Context) error {
+func (m *MockFleetStoreWrapper) Checkpoint() store.Checkpoint {
+	return nil
+}
+
+func (m *MockFleetStoreWrapper) Organization() store.Organization {
+	return nil
+}
+
+func (m *MockFleetStoreWrapper) RunMigrations(context.Context) error {
 	return nil
 }
 

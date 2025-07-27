@@ -59,6 +59,9 @@ func (m *MetricsServer) Run(ctx context.Context) error {
 	if m.cfg.Metrics == nil {
 		return fmt.Errorf("metrics configuration is missing")
 	}
+	if !m.cfg.Metrics.Enabled {
+		return fmt.Errorf("metrics server is disabled by configuration")
+	}
 
 	handler := otelhttp.NewHandler(metrics.NewHandler(m.collectors...), "metrics")
 

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/mackerelio/go-osstat/cpu"
 	"github.com/mackerelio/go-osstat/memory"
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,14 +18,17 @@ type SystemCollector struct {
 	memGauge  prometheus.Gauge
 	diskGauge prometheus.Gauge
 
-	lastIdle  uint64
-	lastTotal uint64
-	mu        sync.RWMutex
-	ctx       context.Context
-	cancel    context.CancelFunc
+	lastIdle       uint64
+	lastTotal      uint64
+	mu             sync.RWMutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	tickerInterval time.Duration
 }
 
-func NewSystemCollector(ctx context.Context) *SystemCollector {
+func NewSystemCollector(ctx context.Context, cfg *config.Config) *SystemCollector {
+	interval := cfg.Metrics.SystemCollector.TickerInterval
+
 	c, cancel := context.WithCancel(ctx)
 	collector := &SystemCollector{
 		cpuGauge: prometheus.NewGauge(prometheus.GaugeOpts{
@@ -39,8 +43,9 @@ func NewSystemCollector(ctx context.Context) *SystemCollector {
 			Name: "flightctl_disk_utilization",
 			Help: "Flightctl storage utilization",
 		}),
-		ctx:    c,
-		cancel: cancel,
+		ctx:            c,
+		cancel:         cancel,
+		tickerInterval: interval,
 	}
 
 	go collector.sampleCPU()
@@ -69,7 +74,7 @@ func (c *SystemCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (c *SystemCollector) sampleCPU() {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(c.tickerInterval)
 	defer ticker.Stop()
 
 	for {
@@ -100,7 +105,7 @@ func (c *SystemCollector) sampleCPU() {
 }
 
 func (c *SystemCollector) sampleMemory() {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(c.tickerInterval)
 	defer ticker.Stop()
 
 	for {
@@ -122,7 +127,7 @@ func (c *SystemCollector) sampleMemory() {
 }
 
 func (c *SystemCollector) sampleDisk() {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(c.tickerInterval)
 	defer ticker.Stop()
 
 	var stat unix.Statfs_t

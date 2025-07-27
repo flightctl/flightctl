@@ -891,7 +891,7 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 	case DeviceStatusTypeSummary:
 		statusField = "status->'summary'->>'status'"
 	case DeviceStatusTypeApplication:
-		statusField = "status->'applicationSummary'->>'status'"
+		statusField = "status->'applicationsSummary'->>'status'"
 	case DeviceStatusTypeUpdate:
 		statusField = "status->'updated'->>'status'"
 	default:
