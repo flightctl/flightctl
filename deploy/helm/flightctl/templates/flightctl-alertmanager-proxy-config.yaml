@@ -8,11 +8,16 @@ metadata:
 data:
   config.yaml: |-
     service:
-      certStore: "/root/.flightctl-certs"
+      certStore: "/app/certs"
+    ca:
+      internalConfig:
+        certStore: "/tmp/ca-certs"
     {{- if not (eq .Values.global.auth.type "none") }}
     auth:
-      insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
+      insecureSkipTlsVerify: {{ default false .Values.global.auth.insecureSkipTlsVerify }}
+      {{- if and .Values.global.auth .Values.global.auth.caCert }}
       caCert: {{ .Values.global.auth.caCert }}
+      {{- end }}
       {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "k8s") }}
       k8s:
         apiUrl: {{ .Values.global.auth.k8s.apiUrl }}

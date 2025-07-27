@@ -35,14 +35,17 @@ var _ = Describe("RepositoryStore create", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numRepositories = 3
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		callbackCalled = false
 		callback = store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) { callbackCalled = true })
 
-		err := testutil.CreateRepositories(ctx, 3, storeInst, orgId)
+		orgId = uuid.New()
+		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		Expect(err).ToNot(HaveOccurred())
+
+		err = testutil.CreateRepositories(ctx, 3, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
 		nilrepo := model.Repository{Resource: model.Resource{OrgID: orgId, Name: "nilspec"}}
@@ -81,23 +84,20 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("Delete repository success", func() {
-			deleted, err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
+			err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeTrue())
 			Expect(callbackCalled).To(BeTrue())
 		})
 
 		It("Delete repository success when not found", func() {
-			deleted, err := storeInst.Repository().Delete(ctx, orgId, "nonexistent", callback)
+			err := storeInst.Repository().Delete(ctx, orgId, "nonexistent", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeFalse())
 			Expect(callbackCalled).To(BeFalse())
 		})
 
 		It("Delete repository success when nil spec", func() {
-			deleted, err := storeInst.Repository().Delete(ctx, orgId, "nilspec", callback)
+			err := storeInst.Repository().Delete(ctx, orgId, "nilspec", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeFalse())
 			Expect(callbackCalled).To(BeFalse())
 		})
 
@@ -172,7 +172,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, _, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
@@ -199,7 +199,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, _, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(false))
@@ -226,7 +226,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, _, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback)
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(callbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
@@ -249,9 +249,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			deleted, err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
+			err = storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeTrue())
 			Expect(callbackCalled).To(BeTrue())
 		})
 
@@ -265,9 +264,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			deleted, err := storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback)
+			err = storeInst.Repository().Delete(ctx, orgId, "myrepository-1", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(deleted).To(BeTrue())
 			Expect(callbackCalled).To(BeTrue())
 		})
 

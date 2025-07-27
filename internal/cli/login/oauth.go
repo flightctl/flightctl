@@ -68,7 +68,7 @@ func oauth2AuthCodeFlow(getClient GetClientFunc) (AuthInfo, error) {
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		ret, err = getOAuth2AccessToken(client, authorizeRequest, r)
 		if err != nil {
-			_, err = w.Write([]byte(fmt.Sprintf("ERROR: %s\n", err)))
+			_, err = fmt.Fprintf(w, "ERROR: %s\n", err)
 			if err != nil {
 				fmt.Printf("failed to write response %s\n", err.Error())
 			}

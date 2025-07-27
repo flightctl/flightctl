@@ -37,8 +37,8 @@ func PrepareDBForUnitTests(ctx context.Context, log *logrus.Logger) (Store, *con
 	}
 
 	store := NewStore(db, log.WithField("pkg", "store"))
-	if err := store.InitialMigration(ctx); err != nil {
-		log.Fatalf("running initial migration: %v", err)
+	if err := store.RunMigrations(ctx); err != nil {
+		log.Fatalf("running migrations: %v", err)
 	}
 	return store, cfg, randomDBName, db
 }

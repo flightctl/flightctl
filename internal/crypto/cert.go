@@ -314,9 +314,9 @@ func CanReadCertAndKey(certPath, keyPath string) (bool, error) {
 	case !certExists && !keyExists:
 		return false, nil
 	case !certExists:
-		return false, fmt.Errorf("certificate file missing or unreadable: %s (certificate and key must be provided as a pair)", certPath)
+		return false, fmt.Errorf("certificate file missing or unreadable: \"%s\" (certificate and key must be provided as a pair)", certPath)
 	case !keyExists:
-		return false, fmt.Errorf("key file missing or unreadable: %s (certificate and key must be provided as a pair)", keyPath)
+		return false, fmt.Errorf("key file missing or unreadable: \"%s\" (certificate and key must be provided as a pair)", keyPath)
 	default:
 		return true, nil
 	}

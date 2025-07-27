@@ -1,0 +1,14 @@
+# /etc/grafana/provisioning/datasources/prometheus.yaml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Access Prometheus via its container name within the 'flightctl' network
+    url: http://flightctl-prometheus:9090
+    isDefault: true # Make this the default data source
+    version: 1
+    editable: true # Allow editing this data source from the Grafana UI
+    jsonData:
+      timeInterval: "5s"

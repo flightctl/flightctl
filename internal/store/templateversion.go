@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -15,19 +16,20 @@ import (
 type TemplateVersion interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error)
+	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, callback TemplateVersionStoreCallback, eventCallback EventCallback) (*api.TemplateVersion, error)
 	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) (bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string, eventCallback EventCallback) (bool, error)
 
 	GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error
 }
 
 type TemplateVersionStore struct {
-	dbHandler    *gorm.DB
-	log          logrus.FieldLogger
-	genericStore *GenericStore[*model.TemplateVersion, model.TemplateVersion, api.TemplateVersion, api.TemplateVersionList]
+	dbHandler           *gorm.DB
+	log                 logrus.FieldLogger
+	genericStore        *GenericStore[*model.TemplateVersion, model.TemplateVersion, api.TemplateVersion, api.TemplateVersionList]
+	eventCallbackCaller EventCallbackCaller
 }
 
 type TemplateVersionStoreCallback func(context.Context, uuid.UUID, *api.TemplateVersion, *api.TemplateVersion)
@@ -43,7 +45,7 @@ func NewTemplateVersion(db *gorm.DB, log logrus.FieldLogger) TemplateVersion {
 		(*model.TemplateVersion).ToApiResource,
 		model.TemplateVersionsToApiResource,
 	)
-	return &TemplateVersionStore{dbHandler: db, log: log, genericStore: genericStore}
+	return &TemplateVersionStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(api.TemplateVersionKind, log)}
 }
 
 func (s *TemplateVersionStore) getDB(ctx context.Context) *gorm.DB {
@@ -86,8 +88,11 @@ func (s *TemplateVersionStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, callback TemplateVersionStoreCallback) (*api.TemplateVersion, error) {
-	return s.genericStore.Create(ctx, orgId, resource, callback)
+func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, callback TemplateVersionStoreCallback, eventCallback EventCallback) (*api.TemplateVersion, error) {
+	tv, err := s.genericStore.Create(ctx, orgId, resource, callback)
+	name := lo.FromPtr(resource.Metadata.Name)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, tv, true, nil, err)
+	return tv, err
 }
 
 func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error) {
@@ -118,8 +123,10 @@ func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, f
 	return apiResource, nil
 }
 
-func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) (bool, error) {
-	return s.genericStore.Delete(ctx, model.TemplateVersion{OrgID: orgId, Name: name, FleetName: fleet}, nil)
+func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string, eventCallback EventCallback) (bool, error) {
+	deleted, err := s.genericStore.Delete(ctx, model.TemplateVersion{OrgID: orgId, Name: name, FleetName: fleet}, nil)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, nil, false, nil, err)
+	return deleted, err
 }
 
 func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool, callback TemplateVersionStoreCallback) error {

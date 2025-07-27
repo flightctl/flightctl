@@ -1,0 +1,11 @@
+# empty base image
+FROM localhost:5000/flightctl-device:base
+
+
+COPY ./test/scripts/agent-images/infinite.sh /usr/lib/flightctl/custom-info.d/infinite
+RUN chmod 755 /usr/lib/flightctl/custom-info.d/infinite
+RUN echo -e "\nsystem-info-custom:\n  - infinite\nsystem-info-timeout: 15s" >> /etc/flightctl/config.yaml
+
+# set the working directory to /
+WORKDIR /
+

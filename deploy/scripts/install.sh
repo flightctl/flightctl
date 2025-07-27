@@ -62,6 +62,24 @@ update_image_tags() {
             echo "Skipping $container_file (not found or no matching image reference)"
         fi
     done
+
+    # Update db-setup image in service files
+    db_migrate_service="${SYSTEMD_UNIT_OUTPUT_DIR}/flightctl-db-migrate.service"
+    if [[ -f "$db_migrate_service" ]] && grep -q "flightctl-db-setup:latest" "$db_migrate_service"; then
+        sed -i "s|flightctl-db-setup:latest|flightctl-db-setup:${image_tag}|g" "$db_migrate_service"
+        echo "Updated $db_migrate_service with db-setup image tag: $image_tag"
+    else
+        echo "Skipping $db_migrate_service (not found or no matching image reference)"
+    fi
+
+    # Update db-setup image in container files
+    db_migrate_container="${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container"
+    if [[ -f "$db_migrate_container" ]] && grep -q "flightctl-db-setup:latest" "$db_migrate_container"; then
+        sed -i "s|flightctl-db-setup:latest|flightctl-db-setup:${image_tag}|g" "$db_migrate_container"
+        echo "Updated $db_migrate_container with db-setup image tag: $image_tag"
+    else
+        echo "Skipping $db_migrate_container (not found or no matching image reference)"
+    fi
 }
 
 render_files() {
@@ -70,6 +88,7 @@ render_files() {
     render_service "worker" "${SOURCE_DIR}"
     render_service "alert-exporter" "${SOURCE_DIR}"
     render_service "db" "${SOURCE_DIR}"
+    render_service "db-migrate" "${SOURCE_DIR}"
     render_service "kv" "${SOURCE_DIR}"
     render_service "alertmanager" "${SOURCE_DIR}"
     render_service "alertmanager-proxy" "${SOURCE_DIR}"

@@ -45,7 +45,7 @@ func ValidateDeviceAccessFromContext(ctx context.Context, name string, ca *crypt
 
 	// If a specific device name is expected, check that it matches the CN-derived fingerprint
 	if name != "" && fingerprint != name {
-		log.Warningf("attempt to access device %q with certificate fingerprint %q has been detected", name, fingerprint)
+		log.Errorf("attempt to access device %q with certificate fingerprint %q has been detected", name, fingerprint)
 		return "", errors.New("invalid TLS CN for device")
 	}
 	// all good, you shall pass
@@ -74,20 +74,24 @@ func NewAgentTransportHandler(serviceHandler service.Service, ca *crypto.CAClien
 
 // (GET /api/v1/devices/{name}/rendered)
 func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params api.GetRenderedDeviceParams) {
-	fingerprint, err := ValidateDeviceAccessFromContext(r.Context(), name, s.ca, s.log)
+	ctx := r.Context()
+
+	fingerprint, err := ValidateDeviceAccessFromContext(ctx, name, s.ca, s.log)
 	if err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
 	}
 
-	body, status := s.serviceHandler.GetRenderedDevice(r.Context(), fingerprint, params)
+	body, status := s.serviceHandler.GetRenderedDevice(ctx, fingerprint, params)
 	transport.SetResponse(w, body, status)
 }
 
 // (PUT /api/v1/devices/{name}/status)
 func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
-	fingerprint, err := ValidateDeviceAccessFromContext(r.Context(), name, s.ca, s.log)
+	ctx := r.Context()
+
+	fingerprint, err := ValidateDeviceAccessFromContext(ctx, name, s.ca, s.log)
 	if err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
@@ -100,13 +104,15 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	body, status := s.serviceHandler.ReplaceDeviceStatus(r.Context(), fingerprint, device)
+	body, status := s.serviceHandler.ReplaceDeviceStatus(ctx, fingerprint, device)
 	transport.SetResponse(w, body, status)
 }
 
 // (PATCH) /api/v1/devices/{name}/status)
 func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
-	fingerprint, err := ValidateDeviceAccessFromContext(r.Context(), name, s.ca, s.log)
+	ctx := r.Context()
+
+	fingerprint, err := ValidateDeviceAccessFromContext(ctx, name, s.ca, s.log)
 	if err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
@@ -119,13 +125,15 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 		return
 	}
 
-	body, status := s.serviceHandler.PatchDeviceStatus(r.Context(), fingerprint, patch)
+	body, status := s.serviceHandler.PatchDeviceStatus(ctx, fingerprint, patch)
 	transport.SetResponse(w, body, status)
 }
 
 // (POST /api/v1/enrollmentrequests)
 func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
-	if err := ValidateEnrollmentAccessFromContext(r.Context(), s.ca, s.log); err != nil {
+	ctx := r.Context()
+
+	if err := ValidateEnrollmentAccessFromContext(ctx, s.ca, s.log); err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
@@ -137,20 +145,21 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 		return
 	}
 
-	body, status := s.serviceHandler.CreateEnrollmentRequest(r.Context(), er)
+	body, status := s.serviceHandler.CreateEnrollmentRequest(ctx, er)
 	transport.SetResponse(w, body, status)
 }
 
 // (GET /api/v1/enrollmentrequests/{name})
 func (s *AgentTransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
+	ctx := r.Context()
 
-	if err := ValidateEnrollmentAccessFromContext(r.Context(), s.ca, s.log); err != nil {
+	if err := ValidateEnrollmentAccessFromContext(ctx, s.ca, s.log); err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
 	}
 
-	body, status := s.serviceHandler.GetEnrollmentRequest(r.Context(), name)
+	body, status := s.serviceHandler.GetEnrollmentRequest(ctx, name)
 	transport.SetResponse(w, body, status)
 }
 
@@ -211,7 +220,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	ctx := r.Context()
 
-	fingerprint, err := ValidateDeviceAccessFromContext(r.Context(), "", s.ca, s.log)
+	fingerprint, err := ValidateDeviceAccessFromContext(ctx, "", s.ca, s.log)
 	if err != nil {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)

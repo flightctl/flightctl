@@ -34,6 +34,9 @@ type dbConfig struct {
 	Name     string `json:"name,omitempty"`
 	User     string `json:"user,omitempty"`
 	Password string `json:"password,omitempty"`
+	// Migration user configuration for schema changes
+	MigrationUser     string `json:"migrationUser,omitempty"`
+	MigrationPassword string `json:"migrationPassword,omitempty"`
 }
 
 type svcConfig struct {
@@ -140,12 +143,14 @@ func CertificateDir() string {
 func NewDefault(opts ...ConfigOption) *Config {
 	c := &Config{
 		Database: &dbConfig{
-			Type:     "pgsql",
-			Hostname: "localhost",
-			Port:     5432,
-			Name:     "flightctl",
-			User:     "admin",
-			Password: "adminpass",
+			Type:              "pgsql",
+			Hostname:          "localhost",
+			Port:              5432,
+			Name:              "flightctl",
+			User:              "flightctl_app",
+			Password:          "adminpass",
+			MigrationUser:     "flightctl_migrator",
+			MigrationPassword: "adminpass",
 		},
 		Service: &svcConfig{
 			Address:                ":3443",
@@ -236,6 +241,12 @@ func Load(cfgFile string) (*Config, error) {
 	}
 	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
 		c.Database.Password = dbPass
+	}
+	if dbMigrationUser := os.Getenv("DB_MIGRATION_USER"); dbMigrationUser != "" {
+		c.Database.MigrationUser = dbMigrationUser
+	}
+	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
+		c.Database.MigrationPassword = dbMigrationPass
 	}
 
 	return c, nil

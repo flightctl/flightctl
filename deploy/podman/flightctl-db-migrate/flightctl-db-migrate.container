@@ -1,0 +1,17 @@
+[Unit]
+Description=Flight Control Database Migration service
+PartOf=flightctl.target
+After=flightctl-db.service
+Requires=flightctl-db.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/bash -c 'end_time=$(($(date +%%s) + 120)); while [ $(date +%%s) -lt $end_time ] && ! podman exec flightctl-db pg_isready -U postgres >/dev/null 2>&1; do echo "Waiting for database to be ready..."; sleep 3; done'
+ExecStart=/bin/bash -c 'podman run --rm --network flightctl -e DB_HOST=flightctl-db -e DB_PORT=5432 -e DB_NAME=flightctl -e DB_USER=flightctl_migrator -e DB_MIGRATION_USER=flightctl_migrator --secret flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD --secret flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD -v /etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z flightctl-db-setup:latest /usr/local/bin/flightctl-db-migrate'
+ExecStartPost=/bin/bash -c 'if podman exec flightctl-db psql -U flightctl_migrator -d flightctl -c "SELECT grant_app_permissions_on_existing_tables();" >/dev/null 2>&1; then echo "Post-migration permissions granted successfully"; else echo "Warning: Post-migration permission grant failed or function not found"; fi'
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target

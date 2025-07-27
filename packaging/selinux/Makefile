@@ -1,19 +1,35 @@
-TARGET?=flightctl_agent
-MODULES?=${TARGET:=.pp.bz2}
-SHAREDIR?=/usr/share
+TARGET ?= flightctl_agent
+MODULES ?= ${TARGET:=.pp.bz2}
+SHAREDIR ?= /usr/share
+CI_RPM_IMAGE ?= quay.io/flightctl/ci-rpm-builder:latest
+
+.PHONY: all clean man install-policy install
 
 all: ${MODULES}
 
+# Containerized build
+ifeq ($(USE_CONTAINER),1)
+%.pp.bz2: %.pp
+	@echo "Compressing $^ -> $@ in container"
+	podman run --rm -v $(CURDIR):/work:Z $(CI_RPM_IMAGE) bash -c "cd /work && bzip2 -9 -f $^"
+
+%.pp: %.te %.fc
+	@echo "Building $@ in container"
+	podman run --rm -v $(CURDIR):/work:Z $(CI_RPM_IMAGE) bash -c "cd /work && make -f /usr/share/selinux/devel/Makefile $@"
+
+else
 %.pp.bz2: %.pp
 	rm -f $@ || true
-	@echo Compressing $^ -\> $@
-	bzip2 -9 $^
+	@echo Compressing $^ -> $@
+	bzip2 -9 -f $^
 
-%.pp: %.te
+%.pp: %.te %.fc
 	make -f ${SHAREDIR}/selinux/devel/Makefile $@
 
+endif
+
 clean:
-	rm -f *~  *.tc *.pp *.pp.bz2
+	rm -f *~ *.tc *.pp *.mod *.pp.bz2
 	rm -rf tmp *.tar.gz
 
 man: install-policy

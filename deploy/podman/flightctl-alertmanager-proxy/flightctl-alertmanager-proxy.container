@@ -8,6 +8,7 @@ Wants=flightctl-alertmanager-proxy-init.service
 [Container]
 ContainerName=flightctl-alertmanager-proxy
 Image=quay.io/flightctl/flightctl-alertmanager-proxy:latest
+Pull=newer
 Network=flightctl.network
 PublishPort=8443:8443
 EnvironmentFile=/etc/flightctl/flightctl-alertmanager-proxy/env

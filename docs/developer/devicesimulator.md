@@ -14,6 +14,10 @@ Copy the necessary setup files to run a `devicesimulator`.
 
     bin/devicesimulator --count=1
 
+The device simulator will automatically create a fleet configuration named `simulator-disk-monitoring` if it doesn't already exist.
+This eliminates the disk usage errors that would occur with default monitoring configurations.
+The fleet uses the selector `created_by: device-simulator` to automatically match all devices created by the simulator.
+
 # Remote simulator
 
 To simulate a large number of devices (10,000 for example) a

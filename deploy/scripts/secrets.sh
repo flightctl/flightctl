@@ -20,6 +20,7 @@ ensure_postgres_secrets() {
     ensure_secret "flightctl-postgresql-password" "FLIGHTCTL_POSTGRESQL_PASSWORD"
     ensure_secret "flightctl-postgresql-master-password" "FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD"
     ensure_secret "flightctl-postgresql-user-password" "FLIGHTCTL_POSTGRESQL_USER_PASSWORD"
+    ensure_secret "flightctl-postgresql-migrator-password" "FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD"
 }
 
 # Ensure KV secrets exist

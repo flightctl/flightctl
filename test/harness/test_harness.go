@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -62,9 +63,12 @@ type TestHarness struct {
 // It provides the necessary elements to perform tests against the agent and server.
 func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error)) (*TestHarness, error) {
 
-	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/"})
+	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/", "/proc/net"})
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness failed creating temporary directories: %w", err)
+	}
+	if err = addRouteTable(testDirPath); err != nil {
+		return nil, fmt.Errorf("NewTestHarness failed adding mock route table: %w", err)
 	}
 
 	serverCfg := *config.NewDefault()
@@ -246,6 +250,37 @@ func makeTestDirs(tmpDirPath string, paths []string) error {
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// addRouteTable copies the ipv4 route table from the root directory to the new test directory.
+// currently agents wait for routes to become available using the routes provided in their directory.
+// They'll poll for 45 seconds before giving up an allowing onboarding to complete
+func addRouteTable(testDirPath string) error {
+	routeTable := filepath.Join("proc", "net", "route")
+	dst := filepath.Join(testDirPath, routeTable)
+	src, err := os.Open(filepath.Join("/", routeTable))
+	if err != nil {
+		return fmt.Errorf("failed to open system route table %s: %w", routeTable, err)
+	}
+	defer src.Close()
+	info, err := src.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat system route table %s: %w", routeTable, err)
+	}
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create copy of system route table %s: %w", routeTable, err)
+	}
+	defer out.Close()
+
+	if _, err = io.Copy(out, src); err != nil {
+		return fmt.Errorf("failed to copy system route table %s: %w", routeTable, err)
+	}
+	if err = os.Chmod(dst, info.Mode()); err != nil {
+		return fmt.Errorf("failed to chmod system route table %s: %w", routeTable, err)
 	}
 	return nil
 }

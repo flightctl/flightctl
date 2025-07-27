@@ -28,7 +28,7 @@ func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func testDevicePatch(require *require.Assertions, patch api.PatchRequest, expectEvents int) (*api.Device, api.Device, api.Status) {
+func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.Device, api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
 	_ = auth.InitAuth(nil, log.InitLogs())
 	status := api.NewDeviceStatus()
@@ -49,18 +49,14 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest, expect
 		callbackManager: dummyCallbackManager(),
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil)
+	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDevice(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)
-	if retStatus.Code == http.StatusOK || retStatus.Code == http.StatusCreated {
-		event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
-		require.Len(event.Items, expectEvents)
-	}
 	return resp, device, retStatus
 }
 
-func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest, expectEvents bool) (*api.Device, api.Status) {
+func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
 	_ = auth.InitAuth(nil, log.InitLogs())
 	serviceHandler := &ServiceHandler{
@@ -68,18 +64,10 @@ func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch a
 		callbackManager: dummyCallbackManager(),
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil)
+	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDeviceStatus(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)
-	if retStatus.Code == http.StatusOK || retStatus.Code == http.StatusCreated {
-		event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
-		if expectEvents {
-			require.NotEmpty(event.Items)
-		} else {
-			require.Empty(event.Items)
-		}
-	}
 	return resp, retStatus
 }
 
@@ -89,13 +77,13 @@ func TestDevicePatchName(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr, 0)
+	_, _, status := testDevicePatch(require, pr)
 	require.Equal(api.StatusBadRequest("metadata.name is immutable"), status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
-	_, _, status = testDevicePatch(require, pr, 0)
+	_, _, status = testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 }
 
@@ -110,7 +98,6 @@ func TestDeviceStatusPatch(t *testing.T) {
 		expectedCode       int32
 		expectedSystemInfo *api.DeviceSystemInfo
 		expectError        bool
-		expectEvents       bool
 		errorMessage       string
 	}{
 		{
@@ -130,7 +117,6 @@ func TestDeviceStatusPatch(t *testing.T) {
 				BootID:          "c",
 				OperatingSystem: "d",
 			},
-			expectEvents: true,
 		},
 		{
 			name:           "update system info partial",
@@ -149,7 +135,6 @@ func TestDeviceStatusPatch(t *testing.T) {
 				BootID:          "3",
 				OperatingSystem: "4",
 			},
-			expectEvents: true,
 		},
 		{
 			name:           "attempt to patch metadata name should fail",
@@ -219,7 +204,7 @@ func TestDeviceStatusPatch(t *testing.T) {
 					{Op: "replace", Path: tc.patchPath, Value: &value},
 				}
 			}
-			resp, status := testDeviceStatusPatch(require, device, patchRequest, tc.expectEvents)
+			resp, status := testDeviceStatusPatch(require, device, patchRequest)
 			require.Equal(tc.expectedCode, status.Code)
 
 			if tc.expectError {
@@ -237,13 +222,13 @@ func TestDevicePatchKind(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr, 0)
+	_, _, status := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
-	_, _, status = testDevicePatch(require, pr, 0)
+	_, _, status = testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 }
 
@@ -253,13 +238,13 @@ func TestDevicePatchAPIVersion(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr, 0)
+	_, _, status := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
-	_, _, status = testDevicePatch(require, pr, 0)
+	_, _, status = testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
 }
@@ -270,14 +255,14 @@ func TestDevicePatchSpec(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/spec/os/image", Value: &value},
 	}
-	resp, orig, status := testDevicePatch(require, pr, 2)
+	resp, orig, status := testDevicePatch(require, pr)
 	orig.Spec.Os.Image = "newimg"
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/spec/os"},
 	}
-	resp, orig, status = testDevicePatch(require, pr, 2)
+	resp, orig, status = testDevicePatch(require, pr)
 	orig.Spec.Os = nil
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
@@ -285,7 +270,7 @@ func TestDevicePatchSpec(t *testing.T) {
 	pr = api.PatchRequest{
 		{Op: "replace", Path: "/spec/os", Value: &value},
 	}
-	_, _, status = testDevicePatch(require, pr, 0)
+	_, _, status = testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 }
 
@@ -295,13 +280,13 @@ func TestDevicePatchStatus(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr, 0)
+	_, _, status := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/status/updatedAt"},
 	}
-	_, _, status = testDevicePatch(require, pr, 0)
+	_, _, status = testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
 }
@@ -312,13 +297,13 @@ func TestDevicePatchNonExistingPath(t *testing.T) {
 	pr := api.PatchRequest{
 		{Op: "replace", Path: "/spec/os/doesnotexist", Value: &value},
 	}
-	_, _, status := testDevicePatch(require, pr, 0)
+	_, _, status := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
 	pr = api.PatchRequest{
 		{Op: "remove", Path: "/spec/os/doesnotexist"},
 	}
-	_, _, status = testDevicePatch(require, pr, 0)
+	_, _, status = testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 }
 
@@ -330,7 +315,7 @@ func TestDevicePatchLabels(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
-	resp, orig, status := testDevicePatch(require, pr, 2)
+	resp, orig, status := testDevicePatch(require, pr)
 	orig.Metadata.Labels = &addLabels
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
@@ -338,7 +323,7 @@ func TestDevicePatchLabels(t *testing.T) {
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
-	resp, orig, status = testDevicePatch(require, pr, 2)
+	resp, orig, status = testDevicePatch(require, pr)
 	orig.Metadata.Labels = &map[string]string{}
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 }
@@ -357,7 +342,7 @@ func TestDeviceNonExistingResource(t *testing.T) {
 	ctx := context.Background()
 	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &api.Device{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
-	}, nil)
+	}, nil, nil)
 	require.NoError(err)
 	_, retStatus := serviceHandler.PatchDevice(ctx, "bar", pr)
 	require.Equal(statusNotFoundCode, retStatus.Code)

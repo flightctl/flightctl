@@ -29,7 +29,7 @@ spec:
         fsGroup: 10001
       containers:
       - name: jaeger-all-in-one
-        image: "jaegertracing/all-in-one:{{ .Values.jaeger.image.tag }}"
+        image: "{{ .Values.jaeger.image.image }}:{{ .Values.jaeger.image.tag }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.jaeger.image.pullPolicy }}
         ports:
         - containerPort: 16686
@@ -86,16 +86,14 @@ metadata:
   labels:
     flightctl.service: jaeger-all-in-one
 spec:
-  {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
   type: NodePort
-  {{- end }}
   selector:
     flightctl.service: jaeger-all-in-one
   ports:
   - port: 16686
     targetPort: 16686
     name: ui
-    {{- if and .Values.global.nodePorts.jaegerUi (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+    {{- if .Values.global.nodePorts.jaegerUi }}
     nodePort: {{ .Values.global.nodePorts.jaegerUi }}
     {{- end }}
 ---

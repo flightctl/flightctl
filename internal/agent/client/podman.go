@@ -174,6 +174,12 @@ func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *cli
 	return strings.TrimSpace(stdout), nil
 }
 
+// ExtractArtifact to the given destination, which should be an already existing directory if the artifact contains multiple layers, otherwise podman will extract a single layer in the artifact to the destination path directly as a file.
+//
+// See
+// https://github.com/opencontainers/image-spec/blob/main/manifest.md#guidelines-for-artifact-usage
+// for details on the expected structure of artifacts. Regular images are considered artifacts by
+// podman due to the intentional looseness of the spec.
 func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
@@ -208,6 +214,16 @@ func (p *Podman) ImageExists(ctx context.Context, image string) bool {
 	defer cancel()
 
 	args := []string{"image", "exists", image}
+	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	return exitCode == 0
+}
+
+// ArtifactExists returns true if the artifact exists in storage otherwise false.
+func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"artifact", "inspect", artifact}
 	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	return exitCode == 0
 }

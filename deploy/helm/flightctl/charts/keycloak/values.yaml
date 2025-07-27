@@ -21,7 +21,7 @@ realm:
 db:
   ## @param db.image The container image to use for the Keycloak database
   image: quay.io/sclorg/postgresql-16-c9s
-  tag: latest
+  tag: "20250214"
   ## @param imagePullPolicy The container imagePullPolicy to use for the Keycloak database
   imagePullPolicy: ""
   fsGroup: ""

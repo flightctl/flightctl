@@ -8,6 +8,7 @@ Requires=flightctl-api.service
 [Container]
 ContainerName=flightctl-ui
 Image=quay.io/flightctl/flightctl-ui:latest
+Pull=newer
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-ui/env
 

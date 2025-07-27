@@ -38,6 +38,16 @@ render_service() {
                 cp "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/${base_filename}"
             fi
         done
+
+        # Process .service files for systemd services
+        for service_file in "${source_dir}/flightctl-${service_name}"/*.service; do
+            if [[ -f "$service_file" ]]; then
+                local base_filename=$(basename "$service_file")
+                # Guarantee target dir exists to avoid a fatal cp error
+                mkdir -p "${SYSTEMD_UNIT_OUTPUT_DIR}"
+                cp "$service_file" "${SYSTEMD_UNIT_OUTPUT_DIR}/${base_filename}"
+            fi
+        done
     fi
 
     # Process all files in the config directory
@@ -72,6 +82,11 @@ move_shared_files() {
     cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils.sh"
     cp "${source_dir}/scripts/init_host.sh" "${CONFIG_READONLY_DIR}/init_host.sh"
     cp "${source_dir}/scripts/secrets.sh" "${CONFIG_READONLY_DIR}/secrets.sh"
+
+    # Copy migration script for db-migrate service
+    mkdir -p "${CONFIG_READONLY_DIR}/flightctl-db-migrate"
+    cp "${source_dir}/scripts/migration-setup.sh" "${CONFIG_READONLY_DIR}/flightctl-db-migrate/migration-setup.sh"
+    chmod +x "${CONFIG_READONLY_DIR}/flightctl-db-migrate/migration-setup.sh"
 }
 
 # Start a systemd service

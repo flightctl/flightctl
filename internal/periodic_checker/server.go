@@ -17,7 +17,9 @@ import (
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/flightctl/flightctl/pkg/thread"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,6 +40,23 @@ func New(
 		log:   log,
 		store: store,
 	}
+}
+
+// createTaskContext creates a task context with request ID and event actor
+func createTaskContext(ctx context.Context, taskName string) context.Context {
+	reqid.OverridePrefix(taskName)
+	requestID := reqid.NextRequestID()
+	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
+
+	return context.WithValue(ctx, consts.EventActorCtxKey, taskName)
+}
+
+// newTaskThread creates a new thread for a periodic task with consistent logging and context
+func (s *Server) newTaskThread(ctx context.Context, taskName, displayName string, interval time.Duration, taskFunc func(context.Context)) *thread.Thread {
+	return thread.New(ctx,
+		s.log.WithField("pkg", taskName), displayName, interval, func(ctx context.Context) {
+			taskFunc(createTaskContext(ctx, taskName))
+		})
 }
 
 // TODO: expose metrics
@@ -68,43 +87,37 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// repository tester
 	repoTester := tasks.NewRepoTester(s.log, serviceHandler)
-	repoTesterThread := thread.New(ctx,
-		s.log.WithField("pkg", "repository-tester"), "Repository tester", 2*time.Minute, repoTester.TestRepositories)
+	repoTesterThread := s.newTaskThread(ctx, tasks.RepoTesterTaskName, "Repository tester", 2*time.Minute, repoTester.TestRepositories)
 	repoTesterThread.Start()
 	defer repoTesterThread.Stop()
 
 	// resource sync
 	resourceSync := tasks.NewResourceSync(callbackManager, serviceHandler, s.log)
-	resourceSyncThread := thread.New(ctx,
-		s.log.WithField("pkg", "resourcesync"), "ResourceSync", 2*time.Minute, resourceSync.Poll)
+	resourceSyncThread := s.newTaskThread(ctx, tasks.ResourceSyncTaskName, "ResourceSync", 2*time.Minute, resourceSync.Poll)
 	resourceSyncThread.Start()
 	defer resourceSyncThread.Stop()
 
 	// device disconnected
 	deviceDisconnected := tasks.NewDeviceDisconnected(s.log, serviceHandler)
-	deviceDisconnectedThread := thread.New(ctx,
-		s.log.WithField("pkg", "device-disconnected"), "Device disconnected", tasks.DeviceDisconnectedPollingInterval, deviceDisconnected.Poll)
+	deviceDisconnectedThread := s.newTaskThread(ctx, tasks.DeviceDisconnectedTaskName, "Device disconnected", tasks.DeviceDisconnectedPollingInterval, deviceDisconnected.Poll)
 	deviceDisconnectedThread.Start()
 	defer deviceDisconnectedThread.Stop()
 
 	// Rollout device selection
 	rolloutDeviceSelection := device_selection.NewReconciler(serviceHandler, callbackManager, s.log)
-	rolloutDeviceSelectionThread := thread.New(ctx,
-		s.log.WithField("pkg", "rollout-device-selection"), "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
+	rolloutDeviceSelectionThread := s.newTaskThread(ctx, device_selection.DeviceSelectionTaskName, "Rollout device selection", device_selection.RolloutDeviceSelectionInterval, rolloutDeviceSelection.Reconcile)
 	rolloutDeviceSelectionThread.Start()
 	defer rolloutDeviceSelectionThread.Stop()
 
 	// Rollout disruption budget
 	disruptionBudget := disruption_budget.NewReconciler(serviceHandler, callbackManager, s.log)
-	disruptionBudgetThread := thread.New(ctx,
-		s.log.WithField("pkg", "disruption-budget"), "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, disruptionBudget.Reconcile)
+	disruptionBudgetThread := s.newTaskThread(ctx, disruption_budget.DisruptionBudgetTaskName, "Disruption budget", disruption_budget.DisruptionBudgetReconcilationInterval, disruptionBudget.Reconcile)
 	disruptionBudgetThread.Start()
 	defer disruptionBudgetThread.Stop()
 
 	// Event cleanup
 	eventCleanup := tasks.NewEventCleanup(s.log, serviceHandler, s.cfg.Service.EventRetentionPeriod)
-	eventCleanupThread := thread.New(ctx,
-		s.log.WithField("pkg", "event-cleanup"), "Event cleanup", tasks.EventCleanupPollingInterval, eventCleanup.Poll)
+	eventCleanupThread := s.newTaskThread(ctx, tasks.EventCleanupTaskName, "Event cleanup", tasks.EventCleanupPollingInterval, eventCleanup.Poll)
 	eventCleanupThread.Start()
 	defer eventCleanupThread.Stop()
 

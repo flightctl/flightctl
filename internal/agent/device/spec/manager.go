@@ -379,13 +379,21 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 
 	// if this is a new version ensure we persist it to disk
 	if desired.Version() != s.cache.getRenderedVersion(Desired) {
-		s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
+		if s.isNewDesiredVersion(desired) {
+			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
+		}
+
 		if err := s.write(Desired, desired); err != nil {
 			return nil, false, err
 		}
 	}
 
 	return desired, false, nil
+}
+
+// isNewDesiredVersion returns true if this is the first time observing this desired version.
+func (s *manager) isNewDesiredVersion(desired *v1alpha1.Device) bool {
+	return s.lastConsumedDevice == nil || s.lastConsumedDevice.Version() != desired.Version()
 }
 
 func (s *manager) IsOSUpdate() bool {

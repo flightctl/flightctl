@@ -35,6 +35,20 @@ var ResourceTypes = [...]string{
 	CertificateSigningRequest,
 }
 
+// RequiredSystemInfoKeys defines the required system info keys that should be present
+var DefaultSystemInfo = []string{
+	"hostname",
+	"kernel",
+	"distroName",
+	"distroVersion",
+	"productName",
+	"productUuid",
+	"productSerial",
+	"netInterfaceDefault",
+	"netIpDefault",
+	"netMacDefault",
+}
+
 const TIMEOUT = "5m"
 const POLLING = "250ms"
 const LONGTIMEOUT = "10m"

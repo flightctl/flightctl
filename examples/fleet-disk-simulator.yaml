@@ -1,0 +1,34 @@
+apiVersion: flightctl.io/v1alpha1
+kind: Fleet
+metadata:
+  name: simulator-disk-monitoring
+spec:
+  selector:
+    matchLabels:
+      created_by: device-simulator
+  template:
+    metadata:
+      labels:
+        created_by: device-simulator
+    spec:
+      config:
+        - name: motd-update
+          inline:
+            - path: "/etc/motd"
+              content: "This system is managed by flightctl (simulator)."
+              mode: 0644
+      resources:
+        - monitorType: Disk
+          path: /
+          alertRules:
+            - severity: Warning
+              duration: 5m
+              percentage: 80
+              description: 'Disk usage is above 80% for more than 5 minutes'
+            - severity: Critical
+              duration: 2m
+              percentage: 90
+              description: 'Disk usage is above 90% for more than 2 minutes'
+          samplingInterval: 30s
+      systemd:
+        matchPatterns: [] 

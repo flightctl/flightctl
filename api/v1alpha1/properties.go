@@ -116,3 +116,37 @@ func (c *Condition) IsDecomError() bool {
 	}
 	return false
 }
+
+// GetAnnotation returns the value of the given annotation from the fleet and whether it exists.
+func (f *Fleet) GetAnnotation(annotation string) (string, bool) {
+	if f == nil {
+		return "", false
+	}
+	return util.GetFromMap(lo.FromPtr(f.Metadata.Annotations), annotation)
+}
+
+// IsRolloutNew returns true if the fleet has a new rollout (deploying template version annotation exists on newFleet but not on oldFleet).
+func (f *Fleet) IsRolloutNew(oldFleet *Fleet) bool {
+	if f == nil {
+		return false
+	}
+	var existsOldFleet bool
+	if oldFleet != nil {
+		_, existsOldFleet = oldFleet.GetAnnotation(FleetAnnotationDeployingTemplateVersion)
+	}
+	_, existsNewFleet := f.GetAnnotation(FleetAnnotationDeployingTemplateVersion)
+	return !existsOldFleet && existsNewFleet
+}
+
+// IsRolloutCompleted returns true if the fleet rollout is completed (last batch completion report annotation exists on newFleet but not on oldFleet).
+func (f *Fleet) IsRolloutCompleted(oldFleet *Fleet) bool {
+	if f == nil {
+		return false
+	}
+	var existsOldFleet bool
+	if oldFleet != nil {
+		_, existsOldFleet = oldFleet.GetAnnotation(FleetAnnotationLastBatchCompletionReport)
+	}
+	_, existsNewFleet := f.GetAnnotation(FleetAnnotationLastBatchCompletionReport)
+	return !existsOldFleet && existsNewFleet
+}

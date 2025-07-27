@@ -128,7 +128,7 @@ func (m *prefetchManager) RegisterOCICollector(collector OCICollector) {
 }
 
 func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
-	m.log.Debug("Collecting OCI targets from all registered prefetch functions")
+	m.log.Debug("Collecting OCI targets from all dependency sources")
 
 	// collect all OCI targets from registered functions
 	var allTargets []OCIPullTarget
@@ -278,7 +278,18 @@ func (m *prefetchManager) schedule(ctx context.Context, target string, ociType O
 		return nil
 	}
 
-	if m.podmanClient.ImageExists(ctx, target) {
+	var targetExists bool
+	switch ociType {
+	case OCITypeImage:
+		targetExists = m.podmanClient.ImageExists(ctx, target)
+	case OCITypeArtifact:
+		targetExists = m.podmanClient.ArtifactExists(ctx, target)
+	default:
+		m.mu.Unlock()
+		return fmt.Errorf("invalid oci type %s", ociType)
+	}
+
+	if targetExists {
 		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
 		// mark done for unified management flow
 		m.tasks[target] = &prefetchTask{
