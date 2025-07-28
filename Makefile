@@ -101,7 +101,7 @@ bin/flightctl-agent: bin $(GO_FILES)
 		./cmd/flightctl-agent
 
 build-cli: bin
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl
 
 build-multiarch-clis: bin
 	./hack/build_multiarch_clis.sh
@@ -131,6 +131,11 @@ build-userinfo-proxy: bin
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-userinfo-proxy
 
 # rebuild container only on source changes
+bin/.flightctl-base-container: bin hack/build_flightctl-base.sh
+	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
+	buildah unshare hack/build_flightctl-base.sh
+	touch bin/.flightctl-base-container
+
 bin/.flightctl-api-container: bin Containerfile.api go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
 	podman build \
@@ -178,6 +183,8 @@ bin/.flightctl-userinfo-proxy-container: bin Containerfile.userinfo-proxy go.mod
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
 	podman build -f Containerfile.userinfo-proxy $(GO_CACHE) -t flightctl-userinfo-proxy:latest
 	touch bin/.flightctl-userinfo-proxy-container
+
+flightctl-base-container: bin/.flightctl-base-container
 
 flightctl-api-container: bin/.flightctl-api-container
 
