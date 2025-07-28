@@ -37,5 +37,5 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "keycloak.shouldGenerateSecrets" -}}
-{{ and (eq .Values.global.target "standalone") (eq .Values.global.auth.type "builtin") }}
+{{ and (ne .Values.global.generateSecrets false) (eq .Values.global.target "standalone") (eq .Values.global.auth.type "builtin") }}
 {{- end -}}
