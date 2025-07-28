@@ -25,6 +25,7 @@ type Config struct {
 	Prometheus   *prometheusConfig   `json:"prometheus,omitempty"`
 	CA           *ca.Config          `json:"ca,omitempty"`
 	Tracing      *tracingConfig      `json:"tracing,omitempty"`
+	GitOps       *gitOpsConfig       `json:"gitOps,omitempty"`
 }
 
 type dbConfig struct {
@@ -114,6 +115,12 @@ type tracingConfig struct {
 	Insecure bool   `json:"insecure,omitempty"`
 }
 
+type gitOpsConfig struct {
+	// IgnoreResourceUpdates lists JSON pointer paths that should be ignored
+	// when comparing desired vs. live resources during GitOps sync.
+	IgnoreResourceUpdates []string `json:"ignoreResourceUpdates,omitempty"`
+}
+
 type ConfigOption func(*Config)
 
 func WithTracingEnabled() ConfigOption {
@@ -188,6 +195,11 @@ func NewDefault(opts ...ConfigOption) *Config {
 			Address:        ":15690",
 			SloMax:         4.0,
 			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+		},
+		GitOps: &gitOpsConfig{
+			IgnoreResourceUpdates: []string{
+				"/metadata/resourceVersion",
+			},
 		},
 	}
 	c.CA = ca.NewDefault(CertificateDir())
@@ -264,6 +276,17 @@ func Save(cfg *Config, cfgFile string) error {
 }
 
 func Validate(cfg *Config) error {
+	allowedGitOpsIgnoreResourceUpdates := map[string]struct{}{
+		"/metadata/resourceVersion": {},
+	}
+
+	if cfg.GitOps != nil {
+		for _, path := range cfg.GitOps.IgnoreResourceUpdates {
+			if _, ok := allowedGitOpsIgnoreResourceUpdates[path]; !ok {
+				return fmt.Errorf("invalid ignoreResourceUpdates value: %s", path)
+			}
+		}
+	}
 	return nil
 }
 

@@ -24,9 +24,10 @@ import (
 const ResourceSyncTaskName = "resourcesync"
 
 type ResourceSync struct {
-	log             logrus.FieldLogger
-	serviceHandler  service.Service
-	callbackManager tasks_client.CallbackManager
+	log                   logrus.FieldLogger
+	serviceHandler        service.Service
+	callbackManager       tasks_client.CallbackManager
+	ignoreResourceUpdates []string
 }
 
 type GenericResourceMap map[string]interface{}
@@ -34,11 +35,12 @@ type GenericResourceMap map[string]interface{}
 var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{api.FleetKind}
 
-func NewResourceSync(callbackManager tasks_client.CallbackManager, serviceHandler service.Service, log logrus.FieldLogger) *ResourceSync {
+func NewResourceSync(callbackManager tasks_client.CallbackManager, serviceHandler service.Service, log logrus.FieldLogger, ignoreResourceUpdates []string) *ResourceSync {
 	return &ResourceSync{
-		log:             log,
-		serviceHandler:  serviceHandler,
-		callbackManager: callbackManager,
+		log:                   log,
+		serviceHandler:        serviceHandler,
+		callbackManager:       callbackManager,
+		ignoreResourceUpdates: ignoreResourceUpdates,
 	}
 }
 
@@ -367,6 +369,8 @@ func (r *ResourceSync) extractResourcesFromFile(mfs billy.Filesystem, path strin
 		if !isSupportedResource {
 			return nil, fmt.Errorf("invalid resource type at '%s'. unsupported kind '%s'", path, kind)
 		}
+
+		resource = RemoveIgnoredFields(resource, r.ignoreResourceUpdates)
 		genericResources = append(genericResources, resource)
 	}
 	if !errors.Is(err, io.EOF) {
@@ -374,6 +378,35 @@ func (r *ResourceSync) extractResourcesFromFile(mfs billy.Filesystem, path strin
 	}
 	return genericResources, nil
 
+}
+
+func RemoveIgnoredFields(resource GenericResourceMap, ignorePaths []string) GenericResourceMap {
+	for _, path := range ignorePaths {
+		parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+		removeFieldFromMap(resource, parts)
+	}
+	return resource
+}
+
+func removeFieldFromMap(m map[string]interface{}, parts []string) {
+	if len(parts) == 0 {
+		return
+	}
+
+	if len(parts) == 1 {
+		delete(m, parts[0])
+		return
+	}
+
+	next, ok := m[parts[0]]
+	if !ok {
+		return
+	}
+
+	// Try to convert next to map[string]interface{} for nested removal
+	if nextMap, ok := next.(map[string]interface{}); ok {
+		removeFieldFromMap(nextMap, parts[1:])
+	}
 }
 
 func (r ResourceSync) parseFleets(resources []GenericResourceMap, owner *string) ([]*api.Fleet, error) {
