@@ -5140,7 +5140,6 @@ components:
             - ResourceUpdateFailed
             - ResourceDeleted
             - ResourceDeletionFailed
-            - ResourceSyncCompleted
             - DeviceDecommissioned
             - DeviceDecommissionFailed
             - DeviceCPUCritical
@@ -5171,9 +5170,15 @@ components:
             - RepositoryAccessible
             - RepositoryInaccessible
             - FleetRolloutStarted
-            - TemplateVersionDeleted
             - FleetRolloutCreated
             - FleetRolloutBatchCompleted
+            - ResourceSyncCommitDetected
+            - ResourceSyncAccessible
+            - ResourceSyncInaccessible
+            - ResourceSyncParsed
+            - ResourceSyncParsingFailed
+            - ResourceSyncSynced
+            - ResourceSyncSyncFailed
         message:
           type: string
           description: A human-readable description of the status of this operation.

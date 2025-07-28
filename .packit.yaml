@@ -21,6 +21,9 @@ jobs:
       - fedora-42-x86_64
       - epel-9-aarch64
     module_hotfixes: true
+    notifications:
+      failure_comment:
+        message: "/packit build"
 
   - job: copr_build
     trigger: commit
@@ -37,6 +40,9 @@ jobs:
       - fedora-rawhide-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
+    notifications:
+      failure_comment:
+        message: "/packit build"
 
 
   - job: copr_build
@@ -54,3 +60,6 @@ jobs:
       - fedora-rawhide-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
+    notifications:
+      failure_comment:
+        message: "/packit build"

@@ -84,10 +84,10 @@ var _ = Describe("FleetValidate", func() {
 			Spec: specHttp,
 		}
 
-		repoCallback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback, nil)
+		repoCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+		_, err = storeInst.Repository().Create(ctx, orgId, repository, nil, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback, nil)
+		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, nil, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 
 		fleet = &api.Fleet{
