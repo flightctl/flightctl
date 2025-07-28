@@ -304,18 +304,23 @@ func (m *MockReader) EXPECT() *MockReaderMockRecorder {
 }
 
 // PathExists mocks base method.
-func (m *MockReader) PathExists(path string) (bool, error) {
+func (m *MockReader) PathExists(path string, opts ...PathExistsOption) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PathExists", path)
+	varargs := []any{path}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PathExists", varargs...)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // PathExists indicates an expected call of PathExists.
-func (mr *MockReaderMockRecorder) PathExists(path any) *gomock.Call {
+func (mr *MockReaderMockRecorder) PathExists(path any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathExists", reflect.TypeOf((*MockReader)(nil).PathExists), path)
+	varargs := append([]any{path}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathExists", reflect.TypeOf((*MockReader)(nil).PathExists), varargs...)
 }
 
 // PathFor mocks base method.
@@ -470,18 +475,23 @@ func (mr *MockReadWriterMockRecorder) OverwriteAndWipe(file any) *gomock.Call {
 }
 
 // PathExists mocks base method.
-func (m *MockReadWriter) PathExists(path string) (bool, error) {
+func (m *MockReadWriter) PathExists(path string, opts ...PathExistsOption) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PathExists", path)
+	varargs := []any{path}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PathExists", varargs...)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // PathExists indicates an expected call of PathExists.
-func (mr *MockReadWriterMockRecorder) PathExists(path any) *gomock.Call {
+func (mr *MockReadWriterMockRecorder) PathExists(path any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathExists", reflect.TypeOf((*MockReadWriter)(nil).PathExists), path)
+	varargs := append([]any{path}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PathExists", reflect.TypeOf((*MockReadWriter)(nil).PathExists), varargs...)
 }
 
 // PathFor mocks base method.

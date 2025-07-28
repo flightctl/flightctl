@@ -50,6 +50,11 @@ var _ = Describe("VM Agent behavior", func() {
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
+
+			By("The agent executable should have the proper SELinux domain")
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "ls", "-Z", "/usr/bin/flightctl-agent"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
 		})
 
 		It("Verifying generation of enrollment request link", Label("75518"), func() {

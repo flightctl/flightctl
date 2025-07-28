@@ -17,11 +17,11 @@ const LONGTIMEOUT = "10m"
 type Message string
 
 const (
-	UpdateRenderedVersionSuccess    Message = "Updated to desired renderedVersion: 2"
-	ComposeFile                     string  = "podman-compose.yaml"
-	ExpectedNumSleepAppV1Containers string  = "3"
-	ExpectedNumSleepAppV2Containers string  = "1"
-	ZeroContainers                  string  = "0"
+	UpdateRenderedVersionSuccess      Message = "Updated to desired renderedVersion: 2"
+	ComposeFile                       string  = "podman-compose.yaml"
+	ExpectedNumSleepAppV1Containers   string  = "3"
+	ExpectedNumSleepAppV2V3Containers int     = 1
+	ZeroContainers                    string  = "0"
 )
 
 // String returns the string representation of a message.

@@ -22,6 +22,7 @@ import (
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/experimental"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -219,7 +220,7 @@ func createAgentConfigTemplate(dataDir string, configFile string) *agent_config.
 	if err := agentConfigTemplate.ParseConfigFile(configFile); err != nil {
 		log.Fatalf("Error parsing config: %v", err)
 	}
-	//create data directory if not exists
+	// create data directory if not exists
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		log.Fatalf("Error creating data directory: %v", err)
 	}
@@ -239,6 +240,10 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 	log.Infoln("creating agents")
 	agents := make([]*agent.Agent, numDevices)
 	agentsFolders := make([]string, numDevices)
+	ex := experimental.NewFeatures()
+	if ex.IsEnabled() && numDevices > 1 {
+		log.Warnf("Using experimental features with more than one device could cause unexpected issues.")
+	}
 	for i := 0; i < numDevices; i++ {
 		agentName := fmt.Sprintf("device-%05d", initialDeviceIndex+i)
 		certDir := filepath.Join(agentConfigTemplate.ConfigDir, "certs")
@@ -247,6 +252,10 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		os.RemoveAll(agentDir)
 		if err := os.MkdirAll(filepath.Join(agentDir, agent_config.DefaultConfigDir), 0700); err != nil {
 			log.Fatalf("Error creating directory: %v", err)
+		}
+
+		if ex.IsEnabled() {
+			setupTPMLinks(agentDir, log)
 		}
 
 		err := os.Setenv(client.TestRootDirEnvKey, agentDir)
@@ -275,7 +284,9 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		}
 		cfg.SpecFetchInterval = agentConfigTemplate.SpecFetchInterval
 		cfg.StatusUpdateInterval = agentConfigTemplate.StatusUpdateInterval
-		cfg.TPMPath = ""
+		cfg.TPM.Enabled = agentConfigTemplate.TPM.Enabled
+		cfg.TPM.Path = agentConfigTemplate.TPM.Path
+		cfg.TPM.PersistencePath = agentConfigTemplate.TPM.PersistencePath
 		cfg.LogPrefix = agentName
 
 		// create managementService config
@@ -383,6 +394,72 @@ func formatLabels(lableArgs *[]string) *map[string]string {
 
 	formattedLabels["created_by"] = "device-simulator"
 	return &formattedLabels
+}
+
+func setupTPMLinks(agentDir string, log *logrus.Logger) {
+	// Create /dev directory in agent dir
+	devDir := filepath.Join(agentDir, "dev")
+	if err := os.MkdirAll(devDir, 0700); err != nil {
+		log.Warnf("Failed to create /dev directory for TPM links: %v", err)
+		return
+	}
+
+	// Create /sys/class/tpm directory in agent dir
+	sysTPMDir := filepath.Join(agentDir, "sys", "class", "tpm")
+	if err := os.MkdirAll(sysTPMDir, 0700); err != nil {
+		log.Warnf("Failed to create /sys/class/tpm directory for TPM links: %v", err)
+		return
+	}
+
+	// Check if host has TPM devices by looking for /sys/class/tpm
+	hostTPMDir := "/sys/class/tpm"
+	if _, err := os.Stat(hostTPMDir); os.IsNotExist(err) {
+		log.Infof("No TPM devices found on host, skipping TPM link setup")
+		return
+	}
+
+	// Read TPM devices from host
+	entries, err := os.ReadDir(hostTPMDir)
+	if err != nil {
+		log.Warnf("Failed to read TPM devices from host: %v", err)
+		return
+	}
+
+	for _, entry := range entries {
+		// skip tpmrm entries but keep the tpm entries
+		if !strings.HasPrefix(entry.Name(), "tpm") || strings.HasPrefix(entry.Name(), "tpmrm") {
+			continue
+		}
+		log.Infof("Linking tpm device %s", entry.Name())
+
+		deviceNum := strings.TrimPrefix(entry.Name(), "tpm")
+
+		// Create symlinks for device files
+		hostDevicePath := fmt.Sprintf("/dev/tpm%s", deviceNum)
+		hostResourceMgrPath := fmt.Sprintf("/dev/tpmrm%s", deviceNum)
+		agentDevicePath := filepath.Join(devDir, fmt.Sprintf("tpm%s", deviceNum))
+		agentResourceMgrPath := filepath.Join(devDir, fmt.Sprintf("tpmrm%s", deviceNum))
+
+		// Only create symlinks if the host device files exist
+		if _, err := os.Stat(hostDevicePath); err == nil {
+			if err := os.Symlink(hostDevicePath, agentDevicePath); err != nil {
+				log.Warnf("Failed to create symlink %s -> %s: %v", agentDevicePath, hostDevicePath, err)
+			}
+		}
+
+		if _, err := os.Stat(hostResourceMgrPath); err == nil {
+			if err := os.Symlink(hostResourceMgrPath, agentResourceMgrPath); err != nil {
+				log.Warnf("Failed to create symlink %s -> %s: %v", agentResourceMgrPath, hostResourceMgrPath, err)
+			}
+		}
+
+		// Create symlink for sysfs directory
+		hostSysfsPath := filepath.Join(hostTPMDir, entry.Name())
+		agentSysfsPath := filepath.Join(sysTPMDir, entry.Name())
+		if err := os.Symlink(hostSysfsPath, agentSysfsPath); err != nil {
+			log.Warnf("Failed to create symlink %s -> %s: %v", agentSysfsPath, hostSysfsPath, err)
+		}
+	}
 }
 
 func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWithResponses, log *logrus.Logger) error {

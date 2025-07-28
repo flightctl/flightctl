@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
@@ -47,12 +48,14 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.F
 		},
 	}
 
+	testStore := &TestStore{}
 	serviceHandler := &ServiceHandler{
-		store:           &TestStore{},
+		EventHandler:    NewEventHandler(testStore, log.InitLogs()),
+		store:           testStore,
 		callbackManager: dummyCallbackManager(),
 	}
 	ctx := context.Background()
-	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil, serviceHandler.eventCallback)
+	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil, serviceHandler.callbackFleetUpdated)
 	require.NoError(err)
 	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
@@ -203,15 +206,14 @@ func TestFleetNonExistingResource(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
+	testStore := &TestStore{}
 	serviceHandler := &ServiceHandler{
-		store:           &TestStore{},
+		EventHandler:    NewEventHandler(testStore, log.InitLogs()),
+		store:           testStore,
 		callbackManager: dummyCallbackManager(),
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &api.Fleet{
-		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
-	}, nil, nil)
-	require.NoError(err)
-	_, status := serviceHandler.PatchFleet(ctx, "bar", pr)
+	resp, status := serviceHandler.PatchFleet(ctx, "doesnotexist", pr)
 	require.Equal(statusNotFoundCode, status.Code)
+	require.Nil(resp)
 }

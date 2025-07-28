@@ -303,7 +303,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			// Verify events were generated for CPU and Memory issues but NOT for Disk
 			// We should have: ResourceCreated + DeviceCPUCritical + DeviceMemoryWarning + DeviceApplicationHealthy + DeviceContentUpToDate
 			events := getEventsForDevice(deviceName)
-			Expect(len(events)).To(Equal(5))
+			Expect(len(events)).To(Equal(4))
 
 			// Check that we have the right events
 			eventReasons := make([]string, len(events))
@@ -315,7 +315,6 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
-				"ResourceUpdated",
 			))
 			// Should NOT contain DeviceDiskNormal since that's Unknown -> Healthy
 			Expect(eventReasons).ToNot(ContainElement("DeviceDiskNormal"))
@@ -346,7 +345,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			// Verify events were generated for CPU and Memory recovery
 			// We should now have: ResourceCreated + DeviceCPUCritical + DeviceMemoryWarning + DeviceApplicationHealthy + ResourceUpdated + DeviceCPUNormal + DeviceMemoryNormal
 			events = getEventsForDevice(deviceName)
-			Expect(len(events)).To(Equal(8))
+			Expect(len(events)).To(Equal(7))
 
 			// Check that we have the recovery events
 			eventReasons = make([]string, len(events))
@@ -354,13 +353,13 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				eventReasons[i] = string(event.Reason)
 			}
 			Expect(eventReasons).To(ContainElements(
-				"ResourceUpdated",
-				"DeviceCPUNormal",
-				"DeviceMemoryNormal",
 				"ResourceCreated",
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
+				"DeviceConnected",
+				"DeviceCPUNormal",
+				"DeviceMemoryNormal",
 			))
 			// Still should NOT contain DeviceDiskNormal since disk was already healthy
 			Expect(eventReasons).ToNot(ContainElement("DeviceDiskNormal"))
@@ -440,6 +439,142 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(cpuWarningEvent).ToNot(BeNil(), "DeviceCPUWarning event should be generated when transitioning from Unknown to Warning")
 			Expect(cpuWarningEvent.Type).To(Equal(api.Warning))
 			Expect(cpuWarningEvent.Message).To(ContainSubstring("CPU utilization has reached a warning level"))
+		})
+
+		It("should generate DeviceConnected event when device summary status transitions from unknown to online", func() {
+			deviceName := "device-connection-test"
+
+			// Step 1: Create a device (without status - this will have unknown summary status)
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{},
+			}
+
+			// Create the device
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Step 2: First set device status to unknown explicitly
+			deviceWithUnknownStatus := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: time.Now().Add(-10 * time.Minute), // More than 5 minutes ago to trigger disconnected state
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusUnknown,
+						Info:   lo.ToPtr("The device is disconnected (last seen more than 5m0s)."),
+					},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusUnknown,
+						Info:   lo.ToPtr("The device is disconnected (last seen more than 5m0s)."),
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUnknown,
+						Info:   lo.ToPtr("The device is disconnected (last seen more than 5m0s)."),
+					},
+					Lifecycle: api.DeviceLifecycleStatus{
+						Status: api.DeviceLifecycleStatusUnknown,
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusUnknown,
+						Memory: api.DeviceResourceStatusUnknown,
+						Disk:   api.DeviceResourceStatusUnknown,
+					},
+					Integrity: api.DeviceIntegrityStatus{
+						Status: api.DeviceIntegrityStatusUnknown,
+					},
+					Os: api.DeviceOsStatus{
+						Image:       "test-image",
+						ImageDigest: "sha256:1234",
+					},
+					Config: api.DeviceConfigStatus{
+						RenderedVersion: "1",
+					},
+					SystemInfo: api.DeviceSystemInfo{
+						OperatingSystem: "linux",
+						Architecture:    "amd64",
+						BootID:          "boot-123",
+						AgentVersion:    "v1.0.0",
+					},
+				},
+			}
+
+			// Set the device status to unknown
+			resultDevice, err := suite.Handler.UpdateDevice(suite.Ctx, deviceName, deviceWithUnknownStatus, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resultDevice).ToNot(BeNil())
+			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusUnknown))
+
+			// Verify no connection events exist yet
+			initialEvents := getEventsForDevice(deviceName)
+			connectedEvent := findEventByReason(initialEvents, api.EventReasonDeviceConnected)
+			Expect(connectedEvent).To(BeNil())
+
+			// Step 3: Update device status to online (simulating device coming online)
+			deviceWithOnlineStatus := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: time.Now(),
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+						Info:   lo.ToPtr("All system resources are healthy."),
+					},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusHealthy,
+						Info:   lo.ToPtr("No application workloads are defined."),
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUpToDate,
+					},
+					Lifecycle: api.DeviceLifecycleStatus{
+						Status: api.DeviceLifecycleStatusUnknown,
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusHealthy,
+						Memory: api.DeviceResourceStatusHealthy,
+						Disk:   api.DeviceResourceStatusHealthy,
+					},
+					Integrity: api.DeviceIntegrityStatus{
+						Status: api.DeviceIntegrityStatusUnknown,
+					},
+					Os: api.DeviceOsStatus{
+						Image:       "test-image",
+						ImageDigest: "sha256:1234",
+					},
+					Config: api.DeviceConfigStatus{
+						RenderedVersion: "1",
+					},
+					SystemInfo: api.DeviceSystemInfo{
+						OperatingSystem: "linux",
+						Architecture:    "amd64",
+						BootID:          "boot-123",
+						AgentVersion:    "v1.0.0",
+					},
+				},
+			}
+
+			// Update the device status to online
+			resultDevice, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithOnlineStatus)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(resultDevice).ToNot(BeNil())
+			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Step 4: Verify that DeviceConnected event was generated
+			finalEvents := getEventsForDevice(deviceName)
+			GinkgoWriter.Printf("Events for device %s: %d events\n", deviceName, len(finalEvents))
+			for i, event := range finalEvents {
+				GinkgoWriter.Printf("Event %d: Type=%s, Reason=%s, Message=%s\n", i, event.Type, event.Reason, event.Message)
+			}
+
+			connectedEvent = findEventByReason(finalEvents, api.EventReasonDeviceConnected)
+			Expect(connectedEvent).ToNot(BeNil(), "DeviceConnected event should be generated when transitioning from Unknown to Online")
+			Expect(connectedEvent.Type).To(Equal(api.Normal))
+			Expect(connectedEvent.Message).To(ContainSubstring("All system resources are healthy"))
 		})
 	})
 })

@@ -10,9 +10,12 @@ type flightctl_agent_exec_t;
 type flightctl_agent_var_lib_t;
 type flightctl_agent_tmp_t;
 
-init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
-files_type(flightctl_agent_var_lib_t)
-files_tmp_file(flightctl_agent_tmp_t)
+# We generally use fedora when building images because of the packit tool, but unfortunately it
+# contains some newer types not yet available in centos stream. Defining them in one's own policy is
+# the recommended workaround, see https://fedoraproject.org/wiki/SELinux/IndependentPolicy#Backwards_compatibility.
+ifndef(`cgroup_type', `
+  attribute cgroup_type;
+')
 
 gen_require(`
     type install_t, install_exec_t;
@@ -22,12 +25,24 @@ gen_require(`
     type container_var_lib_t, container_runtime_t, container_file_t, container_ro_file_t, container_var_run_t;
     type var_t, var_run_t, device_t, var_log_t;
     type sysctl_t, sysctl_irq_t;
-    type systemd_unit_file_t;
+    type systemd_unit_file_t, systemd_logind_t, systemd_userdbd_runtime_t;
     type tmpfs_t, cgroup_t;
     type shadow_t, systemd_passwd_var_run_t, syslogd_var_run_t;
     type proc_t, init_t, mail_spool_t;
+    type firewalld_t, firewalld_etc_rw_t;
+    type devlog_t;
+    type sshd_key_t, sshd_unit_file_t;
+    type rhsmcertd_config_t, rhsmcertd_log_t, rhsmcertd_var_run_t, rhsmcertd_var_lib_t;
+    type usr_t;
+    type node_t;
+    type tpm_device_t, security_t;
+
     attribute domain;
 ')
+
+init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
+files_type(flightctl_agent_var_lib_t)
+files_tmp_file(flightctl_agent_tmp_t)
 
 ## Basic file access permissions  ##
 
@@ -43,6 +58,10 @@ files_read_var_lib_files(flightctl_agent_t)
 manage_dirs_pattern(flightctl_agent_t, etc_t, etc_t)
 manage_files_pattern(flightctl_agent_t, etc_t, etc_t)
 manage_lnk_files_pattern(flightctl_agent_t, etc_t, etc_t)
+
+manage_dirs_pattern(flightctl_agent_t, firewalld_etc_rw_t, firewalld_etc_rw_t)
+manage_files_pattern(flightctl_agent_t, firewalld_etc_rw_t, firewalld_etc_rw_t)
+manage_lnk_files_pattern(flightctl_agent_t, firewalld_etc_rw_t, firewalld_etc_rw_t)
 
 # /var/lib/flightctl management
 manage_dirs_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
@@ -68,6 +87,10 @@ userdom_manage_user_home_content(flightctl_agent_t)
 # System directory access
 allow flightctl_agent_t mail_spool_t:dir search;
 
+# TPM device access
+allow flightctl_agent_t tpm_device_t:chr_file { getattr open read write };
+allow flightctl_agent_t security_t:file { open read getattr };
+
 ## Process management & capabilities  ##
 
 # Basic process capabilities
@@ -82,11 +105,6 @@ allow flightctl_agent_t domain:dir getattr;
 corecmd_exec_all_executables(flightctl_agent_t)
 domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
 domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
-
-# User namespace creation for bubblewrap
-ifdef(`user_namespace',`
-    allow flightctl_agent_t self:user_namespace create;
-')
 
 ## System information access  ##
 
@@ -133,6 +151,8 @@ allow flightctl_agent_t systemd_passwd_var_run_t:file { open read };
 miscfiles_read_localization(flightctl_agent_t)
 logging_read_all_logs(flightctl_agent_t)
 logging_send_audit_msgs(flightctl_agent_t)
+allow flightctl_agent_t devlog_t:lnk_file read;
+allow flightctl_agent_t devlog_t:sock_file write;
 
 # Journal access permissions
 allow flightctl_agent_t syslogd_var_run_t:dir { read search };
@@ -142,13 +162,29 @@ allow flightctl_agent_t var_log_t:file { read open getattr };
 # Systemd service management
 systemd_manage_all_unit_files(flightctl_agent_t)
 systemd_start_all_unit_files(flightctl_agent_t)
+systemd_reload_all_services(flightctl_agent_t)
+systemd_start_all_services(flightctl_agent_t)
 allow flightctl_agent_t init_t:system status;
+
+# sshd config/service permissions
+manage_files_pattern(flightctl_agent_t, sshd_key_t, sshd_key_t)
+manage_dirs_pattern(flightctl_agent_t, sshd_key_t, sshd_key_t)
+manage_lnk_files_pattern(flightctl_agent_t, sshd_key_t, sshd_key_t)
+ssh_systemctl(flightctl_agent_t)
+
+# SystemD user database access
+allow flightctl_agent_t systemd_userdbd_runtime_t:dir read;
+allow flightctl_agent_t systemd_userdbd_runtime_t:sock_file write;
+
 
 # D-Bus system bus access
 dbus_system_bus_client(flightctl_agent_t)
 optional_policy(`
     systemd_dbus_chat_hostnamed(flightctl_agent_t)
 ')
+# This is necessary to run the hook that calls firewall-cmd --reload
+allow flightctl_agent_t systemd_logind_t:dbus send_msg;
+allow flightctl_agent_t firewalld_t:dbus send_msg;
 
 ## Container runtime support  ##
 
@@ -195,13 +231,13 @@ allow flightctl_agent_t unlabeled_t:dir search;
 
 ## Filesystem & mount operations  ##
 
-# Filesystem mount operations for bubblewrap namespaces
+# Filesystem mount operations
 fs_mount_all_fs(flightctl_agent_t)
 fs_remount_all_fs(flightctl_agent_t)
 fs_unmount_all_fs(flightctl_agent_t)
 fs_getattr_all_fs(flightctl_agent_t)
 
-# Mount-on permissions for key directories (bubblewrap bind mounts)
+# Mount-on permissions for key directories (bind mounts)
 allow flightctl_agent_t { root_t etc_t var_t tmp_t device_t var_run_t sysfs_t admin_home_t }:dir mounton;
 allow flightctl_agent_t proc_t:dir { mounton write };
 
@@ -211,10 +247,11 @@ allow flightctl_agent_t tmpfs_t:dir { create write add_name mounton };
 # Special filesystem access for namespace operations
 allow flightctl_agent_t sysctl_t:file { mounton write };
 allow flightctl_agent_t sysctl_irq_t:dir { write mounton };
-
-## Device access (for bubblewrap)  ##
-
-# Device access for --dev-bind /dev /dev
-dev_rw_generic_chr_files(flightctl_agent_t)
-dev_rw_generic_blk_files(flightctl_agent_t)
-allow flightctl_agent_t device_t:dir { mounton read getattr search };  
+  
+# This allows installation of dnf packages
+allow flightctl_agent_t node_t:tcp_socket node_bind;
+allow flightctl_agent_t rhsmcertd_config_t:dir search;
+allow flightctl_agent_t rhsmcertd_log_t:dir write;
+allow flightctl_agent_t rhsmcertd_var_lib_t:dir { getattr search };
+allow flightctl_agent_t rhsmcertd_var_run_t:dir write;
+allow flightctl_agent_t usr_t:file write;

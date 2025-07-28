@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -20,9 +21,9 @@ const retryIterations = 10
 
 type CreateOrUpdateMode string
 
-type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error)
-type EventCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error)
-type EventDeviceCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldDevice, newDevice *api.Device, created bool, updateDesc *api.ResourceUpdatedDetails, err error)
+type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
+
+type EventCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
 func ErrorFromGormError(err error) error {
 	switch {
@@ -298,18 +299,17 @@ func createParamsFromKey(key string) string {
 	return params
 }
 
-func retryCreateOrUpdate[A any](fn func() (*A, *A, bool, bool, api.ResourceUpdatedDetails, error)) (*A, *A, bool, api.ResourceUpdatedDetails, error) {
+func retryCreateOrUpdate[A any](fn func() (*A, *A, bool, bool, error)) (*A, *A, bool, error) {
 	var (
 		a, b           *A
 		created, retry bool
-		updateDesc     api.ResourceUpdatedDetails
 		err            error
 	)
 	i := 0
-	for a, b, created, retry, updateDesc, err = fn(); retry && i < retryIterations; a, b, created, retry, updateDesc, err = fn() {
+	for a, b, created, retry, err = fn(); retry && i < retryIterations; a, b, created, retry, err = fn() {
 		i++
 	}
-	return a, b, created, updateDesc, err
+	return a, b, created, err
 }
 
 func retryUpdate(fn func() (bool, error)) error {
@@ -324,27 +324,28 @@ func retryUpdate(fn func() (bool, error)) error {
 	return err
 }
 
-func callEventCallback(resourceKind api.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
-	return func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
-		// Call callback if provided (but don't fail the operation if callback fails)
+// Call callback if provided (but don't fail the operation if callback fails)
+// with panic recovery to prevent callback failures from affecting the main operation
+func SafeEventCallback(log logrus.FieldLogger, callback func()) {
+	if callback == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("Event Callback panicked: %v\nBacktrace:\n%s", r, string(debug.Stack()))
+		}
+	}()
+	callback()
+}
+
+func CallEventCallback(resourceKind api.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	return func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 		if callbackEvent == nil {
 			return
 		}
-		// Call callback in a defer with error recovery to prevent callback failures from affecting the main operation
-		defer func() {
-			if r := recover(); r != nil {
-				log.Errorf("Event Callback panicked during service status update: %v", r)
-			}
-		}()
 
-		// Call the callbackEvent - if it fails, log the error but don't propagate it
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Errorf("Event Callback panicked: %v", r)
-				}
-			}()
-			callbackEvent(ctx, resourceKind, orgId, name, created, updateDesc, err)
-		}()
+		SafeEventCallback(log, func() {
+			callbackEvent(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+		})
 	}
 }

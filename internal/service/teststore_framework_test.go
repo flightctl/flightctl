@@ -9,6 +9,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -29,6 +30,7 @@ type TestStore struct {
 	repositories       *DummyRepository
 	resourceSyncVals   *DummyResourceSync
 	enrollmentRequests *DummyEnrollmentRequest
+	organizations      *DummyOrganization
 }
 
 type DummyDevice struct {
@@ -61,6 +63,12 @@ type DummyEnrollmentRequest struct {
 	enrollmentRequests *[]api.EnrollmentRequest
 }
 
+type DummyOrganization struct {
+	store.Organization
+	organizations *[]*model.Organization
+	err           error
+}
+
 func (s *TestStore) init() {
 	if s.events == nil {
 		s.events = &DummyEvent{events: &[]api.Event{}}
@@ -79,6 +87,9 @@ func (s *TestStore) init() {
 	}
 	if s.enrollmentRequests == nil {
 		s.enrollmentRequests = &DummyEnrollmentRequest{enrollmentRequests: &[]api.EnrollmentRequest{}}
+	}
+	if s.organizations == nil {
+		s.organizations = &DummyOrganization{organizations: &[]*model.Organization{}}
 	}
 }
 
@@ -110,6 +121,11 @@ func (s *TestStore) Repository() store.Repository {
 func (s *TestStore) EnrollmentRequest() store.EnrollmentRequest {
 	s.init()
 	return s.enrollmentRequests
+}
+
+func (s *TestStore) Organization() store.Organization {
+	s.init()
+	return s.organizations
 }
 
 // --------------------------------------> Event
@@ -144,7 +160,7 @@ func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback, callbackEvent store.EventDeviceCallback) (*api.Device, error) {
+func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, error) {
 	for i, dev := range *s.devices {
 		if *device.Metadata.Name == *dev.Metadata.Name {
 			var oldDevice api.Device
@@ -162,7 +178,7 @@ func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.D
 			}
 			(*s.devices)[i] = d
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), &oldDevice, &d, false, nil, nil)
+				callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), &oldDevice, &d, false, nil)
 			}
 			return device, nil
 		}
@@ -171,7 +187,7 @@ func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.D
 
 }
 
-func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback, callbackEvent store.EventDeviceCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error) {
+func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, bool, error) {
 	created := true
 	var d api.Device
 	deepCopy(device, &d)
@@ -184,12 +200,11 @@ func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, devic
 			break
 		}
 	}
-	details := api.ResourceUpdatedDetails{}
 	// TODO: update found device
 	if !created {
 		if validationCallback != nil {
 			if err := validationCallback(ctx, &oldDevice, &d); err != nil {
-				return nil, created, api.ResourceUpdatedDetails{}, err
+				return nil, created, err
 			}
 		}
 		if callback != nil {
@@ -198,35 +213,32 @@ func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, devic
 	}
 	*s.devices = append(*s.devices, d)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), &oldDevice, &d, created, nil, nil)
+		callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), &oldDevice, &d, created, nil)
 	}
-	return &d, created, details, nil
+	return &d, created, nil
 }
 
-func (s *DummyDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback store.DeviceStoreCallback, callbackEvent store.EventDeviceCallback) (*api.Device, error) {
+func (s *DummyDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, error) {
 	var d api.Device
 	deepCopy(device, &d)
 	*s.devices = append(*s.devices, d)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(d.Metadata.Name), nil, &d, true, nil, nil)
+		callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(d.Metadata.Name), nil, device, true, nil)
 	}
 	return device, nil
 }
 
-func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, callbackEvent store.EventDeviceCallback) (*api.Device, error) {
+func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, callbackEvent store.EventCallback) (*api.Device, error) {
 	for i, dev := range *s.devices {
 		if *device.Metadata.Name == *dev.Metadata.Name {
 			var oldDevice api.Device
 			deepCopy(dev, &oldDevice)
 			var d api.Device
 			deepCopy(device, &d)
-			status := dev.Status
-			if status != nil {
-				oldDevice.Status = lo.ToPtr(lo.FromPtr(status))
-			}
+			// Update the device status
 			(*s.devices)[i].Status = d.Status
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(d.Metadata.Name), &oldDevice, &d, false, nil, nil)
+				callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(d.Metadata.Name), &oldDevice, &d, false, nil)
 			}
 			return &d, nil
 		}
@@ -252,7 +264,7 @@ func (s *DummyFleet) Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fle
 	deepCopy(fleet, &f)
 	*s.fleets = append(*s.fleets, f)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), true, nil, nil)
+		callbackEvent(ctx, api.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), nil, fleet, true, nil)
 	}
 	return fleet, nil
 }
@@ -261,12 +273,11 @@ func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fle
 	for i, flt := range *s.fleets {
 		if *fleet.Metadata.Name == *flt.Metadata.Name {
 			var f api.Fleet
-			deepCopy(fleet, &f)
-			(*s.fleets)[i] = f
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), false, nil, nil)
+				callbackEvent(ctx, api.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), &(*s.fleets)[i], fleet, false, nil)
 			}
 			deepCopy(fleet, &f)
+			(*s.fleets)[i] = f
 			return &f, nil
 		}
 	}
@@ -287,32 +298,99 @@ func (s *DummyRepository) Get(ctx context.Context, orgId uuid.UUID, name string)
 }
 
 func (s *DummyRepository) Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback store.RepositoryStoreCallback, callbackEvent store.EventCallback) (*api.Repository, error) {
-	var r api.Repository
-	deepCopy(repository, &r)
-	*s.repositories = append(*s.repositories, r)
-	if callbackEvent != nil {
-		callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), true, nil, nil)
+	var repo api.Repository
+	deepCopy(repository, &repo)
+	*s.repositories = append(*s.repositories, repo)
+	if callback != nil {
+		callback(ctx, orgId, nil, &repo)
 	}
-	return repository, nil
+	if callbackEvent != nil {
+		callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, &repo, true, nil)
+	}
+	return &repo, nil
 }
 
 func (s *DummyRepository) Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback store.RepositoryStoreCallback, callbackEvent store.EventCallback) (*api.Repository, error) {
-	for i, repo := range *s.repositories {
-		if *repository.Metadata.Name == *repo.Metadata.Name {
-			var r api.Repository
-			deepCopy(repository, &r)
-			(*s.repositories)[i] = r
-			if callbackEvent != nil {
-				callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), false, nil, nil)
+	for i, r := range *s.repositories {
+		if *repository.Metadata.Name == *r.Metadata.Name {
+			var oldRepo api.Repository
+			deepCopy(r, &oldRepo)
+			var repo api.Repository
+			deepCopy(repository, &repo)
+			if callback != nil {
+				callback(ctx, orgId, &oldRepo, &repo)
 			}
-			return repository, nil
+			(*s.repositories)[i] = repo
+			if callbackEvent != nil {
+				callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), &oldRepo, &repo, false, nil)
+			}
+			return &repo, nil
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
 }
 
 func (s *DummyRepository) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callback store.RepositoryStoreCallback, callbackEvent store.EventCallback) (*api.Repository, bool, error) {
-	return nil, false, fmt.Errorf("CreateOrUpdate not implemented for DummyRepository")
+	created := true
+	var repo api.Repository
+	deepCopy(repository, &repo)
+	var oldRepo api.Repository
+	for i, r := range *s.repositories {
+		if *repository.Metadata.Name == *r.Metadata.Name {
+			deepCopy(r, &oldRepo)
+			*s.repositories = append((*s.repositories)[:i], (*s.repositories)[i+1:]...)
+			created = false
+			break
+		}
+	}
+	if !created && callback != nil {
+		callback(ctx, orgId, &oldRepo, &repo)
+	}
+	*s.repositories = append(*s.repositories, repo)
+	if callbackEvent != nil {
+		callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), &oldRepo, &repo, created, nil)
+	}
+	return &repo, created, nil
+}
+
+func (s *DummyRepository) UpdateStatus(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callbackEvent store.EventCallback) (*api.Repository, error) {
+	for i, repo := range *s.repositories {
+		if *repository.Metadata.Name == *repo.Metadata.Name {
+			var oldRepo api.Repository
+			deepCopy(repo, &oldRepo)
+			var r api.Repository
+			deepCopy(repository, &r)
+			status := repo.Status
+			if status != nil {
+				oldRepo.Status = lo.ToPtr(lo.FromPtr(status))
+			}
+			(*s.repositories)[i].Status = r.Status
+			if callbackEvent != nil {
+				callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(r.Metadata.Name), &oldRepo, &r, false, nil)
+			}
+			return &r, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+
+}
+
+func (s *DummyRepository) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RepositoryStoreCallback, callbackEvent store.EventCallback) error {
+	for i, repo := range *s.repositories {
+		if name == *repo.Metadata.Name {
+			var oldRepo api.Repository
+			deepCopy(repo, &oldRepo)
+			if callback != nil {
+				callback(ctx, orgId, &oldRepo, nil)
+			}
+			*s.repositories = append((*s.repositories)[:i], (*s.repositories)[i+1:]...)
+			if callbackEvent != nil {
+				callbackEvent(ctx, api.RepositoryKind, orgId, name, &oldRepo, nil, false, nil)
+			}
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
 }
 
 func (s *DummyRepository) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.RepositoryList, error) {
@@ -342,7 +420,7 @@ func (s *DummyResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourc
 	deepCopy(resourceSync, &r)
 	*s.resourceSyncVals = append(*s.resourceSyncVals, r)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), true, nil, nil)
+		callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), nil, resourceSync, true, nil)
 	}
 	return resourceSync, nil
 }
@@ -350,12 +428,12 @@ func (s *DummyResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourc
 func (s *DummyResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, error) {
 	for i, sync := range *s.resourceSyncVals {
 		if *resourceSync.Metadata.Name == *sync.Metadata.Name {
+			if callbackEvent != nil {
+				callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), (*s.resourceSyncVals)[i], resourceSync, false, nil)
+			}
 			var r api.ResourceSync
 			deepCopy(resourceSync, &r)
 			(*s.resourceSyncVals)[i] = r
-			if callbackEvent != nil {
-				callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), false, nil, nil)
-			}
 			return resourceSync, nil
 		}
 	}
@@ -363,9 +441,11 @@ func (s *DummyResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourc
 }
 
 func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, bool, error) {
+	var oldRs *api.ResourceSync
 	created := true
 	for i, resource := range *s.resourceSyncVals {
 		if *resourceSync.Metadata.Name == *resource.Metadata.Name {
+			oldRs = &(*s.resourceSyncVals)[i]
 			*s.resourceSyncVals = append((*s.resourceSyncVals)[:i], (*s.resourceSyncVals)[i+1:]...)
 			created = false
 			break
@@ -377,7 +457,7 @@ func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 	deepCopy(resourceSync, &r)
 	*s.resourceSyncVals = append(*s.resourceSyncVals, r)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), created, nil, nil)
+		callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), oldRs, resourceSync, created, nil)
 	}
 	return resourceSync, created, nil
 }
@@ -391,7 +471,7 @@ func (s *DummyResourceSync) List(ctx context.Context, orgId uuid.UUID, listParam
 	}, nil
 }
 
-func (s *DummyResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync) (*api.ResourceSync, error) {
+func (s *DummyResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, eventCallback store.EventCallback) (*api.ResourceSync, error) {
 	for i, rs := range *s.resourceSyncVals {
 		if *resourceSync.Metadata.Name == *rs.Metadata.Name {
 			var r api.ResourceSync
@@ -421,7 +501,7 @@ func (s *DummyEnrollmentRequest) Create(ctx context.Context, orgId uuid.UUID, er
 	deepCopy(er, &e)
 	*s.enrollmentRequests = append(*s.enrollmentRequests, e)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), true, nil, nil)
+		callbackEvent(ctx, api.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), nil, er, true, nil)
 	}
 	return er, nil
 }
@@ -430,14 +510,44 @@ func (s *DummyEnrollmentRequest) UpdateStatus(ctx context.Context, orgId uuid.UU
 	for i, e := range *s.enrollmentRequests {
 		if *er.Metadata.Name == *e.Metadata.Name {
 			oldEr := (*s.enrollmentRequests)[i]
-			oldEr.Status = er.Status
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), false, nil, nil)
+				callbackEvent(ctx, api.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), oldEr, er, false, nil)
 			}
+			oldEr.Status = er.Status
 			return er, nil
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+// --------------------------------------> Organization
+
+func (s *DummyOrganization) InitialMigration(ctx context.Context) error {
+	if s.err != nil {
+		return s.err
+	}
+	return nil
+}
+
+func (s *DummyOrganization) Create(ctx context.Context, org *model.Organization) (*model.Organization, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.organizations == nil {
+		s.organizations = &[]*model.Organization{}
+	}
+	*s.organizations = append(*s.organizations, org)
+	return org, nil
+}
+
+func (s *DummyOrganization) List(ctx context.Context) ([]*model.Organization, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.organizations == nil {
+		return []*model.Organization{}, nil
+	}
+	return *s.organizations, nil
 }
 
 // --------------------------------------> CallbackManager
