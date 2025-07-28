@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.23.6-1747333074 as build
+FROM registry.access.redhat.com/ubi9/go-toolset:1.23.9-1751538372 as build
 WORKDIR /app
 COPY ./api api
 COPY ./cmd cmd
@@ -36,4 +36,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-CMD ./flightctl-userinfo-proxy 
+CMD ./flightctl-userinfo-proxy
