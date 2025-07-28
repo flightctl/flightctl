@@ -297,30 +297,35 @@ func KeepDBDeviceStatus(device, dbDevice *api.Device) {
 	}
 }
 
-func CollectStatusChanges(ctx context.Context, oldDevice, newDevice *api.Device, orgId uuid.UUID, st store.Store) ResourceUpdates {
+func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.Device, orgId uuid.UUID, st store.Store) ResourceUpdates {
 	resourceUpdates := make(ResourceUpdates, 0, 6)
 
+	// Don't generate status change events during device creation (when oldDevice is nil)
+	if oldDevice == nil {
+		return resourceUpdates
+	}
+
 	if hasStatusChanged(oldDevice, newDevice, api.DeviceSummaryStatusUnknown, func(d *api.Device) api.DeviceSummaryStatusType { return d.Status.Summary.Status }) {
-		if newDevice.IsDisconnected(api.DeviceDisconnectedTimeout) {
+		if newDevice.Status.Summary.Status == api.DeviceSummaryStatusUnknown {
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceDisconnected, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
-		} else if newDevice.IsRebooting() {
+		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusRebooting {
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceIsRebooting, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
+		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusOnline {
+			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceConnected, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
 		}
 	}
 
 	if hasStatusChanged(oldDevice, newDevice, api.DeviceUpdatedStatusUnknown, func(d *api.Device) api.DeviceUpdatedStatusType { return d.Status.Updated.Status }) {
 		var status api.EventReason
 		switch {
-		case newDevice.IsDisconnected(api.DeviceDisconnectedTimeout) && !newDevice.Status.LastSeen.IsZero():
+		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusUnknown:
 			status = api.EventReasonDeviceDisconnected
-		case newDevice.IsUpdating():
+		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusUpdating:
 			status = api.EventReasonDeviceContentUpdating
-		case !newDevice.IsManaged() && !newDevice.IsUpdatedToDeviceSpec():
+		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusOutOfDate:
 			status = api.EventReasonDeviceContentOutOfDate
-		case newDevice.IsManaged():
-			if f, err := getFleet(ctx, orgId, newDevice.Metadata.Owner, st); err == nil {
-				status = lo.Ternary(newDevice.IsUpdatedToFleetSpec(f), api.EventReasonDeviceContentUpToDate, api.EventReasonDeviceContentOutOfDate)
-			}
+		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusUpToDate && oldDevice.Status.Updated.Status != api.DeviceUpdatedStatusUnknown:
+			status = api.EventReasonDeviceContentUpToDate
 		}
 		if !lo.IsEmpty(status) {
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: status, Details: lo.FromPtr(newDevice.Status.Updated.Info)})
@@ -329,15 +334,19 @@ func CollectStatusChanges(ctx context.Context, oldDevice, newDevice *api.Device,
 
 	if hasStatusChanged(oldDevice, newDevice, api.ApplicationsSummaryStatusUnknown, func(d *api.Device) api.ApplicationsSummaryStatusType { return d.Status.ApplicationsSummary.Status }) {
 		var status api.EventReason
-		switch {
-		case newDevice.IsDisconnected(api.DeviceDisconnectedTimeout):
+		switch newDevice.Status.ApplicationsSummary.Status {
+		case api.ApplicationsSummaryStatusUnknown:
 			status = api.EventReasonDeviceDisconnected
-		case newDevice.IsRebooting() && len(newDevice.Status.Applications) > 0:
+		case api.ApplicationsSummaryStatusError:
+			status = api.EventReasonDeviceApplicationError
+		case api.ApplicationsSummaryStatusDegraded:
 			status = api.EventReasonDeviceApplicationDegraded
-		default:
-			status = calcApplicationsState(newDevice)
+		case api.ApplicationsSummaryStatusHealthy:
+			status = api.EventReasonDeviceApplicationHealthy
 		}
-		resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: status, Details: lo.FromPtr(newDevice.Status.ApplicationsSummary.Info)})
+		if !lo.IsEmpty(status) {
+			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: status, Details: lo.FromPtr(newDevice.Status.ApplicationsSummary.Info)})
+		}
 	}
 
 	resourceChecks := []struct {
@@ -382,40 +391,6 @@ func checkResourceStatus(oldDevice, newDevice *api.Device, statusMap statusType,
 	}
 }
 
-func getFleet(ctx context.Context, orgId uuid.UUID, owner *string, st store.Store) (*api.Fleet, error) {
-	if _, fleetName, err := util.GetResourceOwner(owner); err == nil {
-		return st.Fleet().Get(ctx, orgId, fleetName, store.GetWithDeviceSummary(false))
-	} else {
-		return nil, err
-	}
-}
-
-func calcApplicationsState(device *api.Device) api.EventReason {
-	if len(device.Status.Applications) == 0 {
-		return api.EventReasonDeviceApplicationHealthy
-	}
-	var appErrors int
-	var appDegradations int
-
-	for _, app := range device.Status.Applications {
-		switch app.Status {
-		case api.ApplicationStatusError:
-			appErrors++
-		case api.ApplicationStatusPreparing, api.ApplicationStatusStarting:
-			appDegradations++
-		}
-	}
-
-	switch {
-	case appErrors > 0:
-		return api.EventReasonDeviceApplicationError
-	case appDegradations > 0:
-		return api.EventReasonDeviceApplicationDegraded
-	default:
-		return api.EventReasonDeviceApplicationHealthy
-	}
-}
-
 // EmitMultipleOwnersEvents emits events for MultipleOwners condition changes
 func EmitMultipleOwnersEvents(ctx context.Context, device *api.Device, oldCondition, newCondition *api.Condition,
 	createEvent func(context.Context, *api.Event),
@@ -448,7 +423,7 @@ func EmitMultipleOwnersEvents(ctx context.Context, device *api.Device, oldCondit
 			ownerFleet, isOwnerAFleet, err := getOwnerFleet(device)
 			if err == nil && isOwnerAFleet && ownerFleet != "" {
 				resolutionType = api.SingleMatch
-				assignedOwner = &ownerFleet
+				assignedOwner = device.Metadata.Owner
 			}
 		}
 

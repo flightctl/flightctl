@@ -6,7 +6,7 @@ Before=getty@tty1.service
 
 # avoid systemd from attempting retry when multiple restarts happen
 StartLimitIntervalSec=5
-StartLimitBurst=infinity
+StartLimitBurst=1000
 
 
 [Service]
