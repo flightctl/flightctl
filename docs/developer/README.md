@@ -145,3 +145,5 @@ make deploy-e2e-extras
 ```
 
 The Prometheus web UI is then accessible on `http://localhost:9090`
+
+For detailed information about the metrics system architecture, see [Metrics Architecture](architecture/metrics.md).
