@@ -70,7 +70,21 @@ func dispatchTasks(serviceHandler service.Service, callbackManager tasks_client.
 				"taskName":     reference.TaskName,
 			}
 
-			event := service.GetInternalTaskFailedEvent(ctx, api.ResourceKind(reference.Kind), reference.Name, reference.TaskName, err.Error(), nil, taskParameters, log)
+			// Create the event using api package
+			event := api.GetBaseEvent(ctx, api.ResourceKind(reference.Kind), reference.Name, api.EventReasonInternalTaskFailed,
+				fmt.Sprintf("%s internal task failed: %s - %s.", api.ResourceKind(reference.Kind), reference.TaskName, err.Error()), nil)
+
+			details := api.EventDetails{}
+			if err := details.FromInternalTaskFailedDetails(api.InternalTaskFailedDetails{
+				TaskType:       reference.TaskName,
+				ErrorMessage:   err.Error(),
+				RetryCount:     nil,
+				TaskParameters: &taskParameters,
+			}); err == nil {
+				event.Details = &details
+			}
+
+			// Emit the event
 			serviceHandler.CreateEvent(ctx, event)
 		}
 

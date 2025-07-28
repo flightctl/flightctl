@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -9,7 +10,11 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 type DeviceCompletionCount struct {
@@ -375,4 +380,78 @@ func (r *RepositoryList) HideSensitiveData() error {
 		}
 	}
 	return nil
+}
+
+// GetBaseEvent creates a base event with common fields
+func GetBaseEvent(ctx context.Context, resourceKind ResourceKind, resourceName string, reason EventReason, message string, details *EventDetails) *Event {
+	var actorStr string
+	if actor := ctx.Value(consts.EventActorCtxKey); actor != nil {
+		actorStr = actor.(string)
+	}
+
+	var componentStr string
+	if component := ctx.Value(consts.EventSourceComponentCtxKey); component != nil {
+		componentStr = component.(string)
+	}
+
+	// Generate a UUID for the event name to ensure k8s compliance
+	eventName := uuid.New().String()
+
+	event := Event{
+		Metadata: ObjectMeta{
+			Name: lo.ToPtr(eventName),
+		},
+		InvolvedObject: ObjectReference{
+			Kind: string(resourceKind),
+			Name: resourceName,
+		},
+		Source: EventSource{
+			Component: componentStr,
+		},
+		Actor: actorStr,
+	}
+
+	// Add request ID to the event for correlation
+	if reqID := ctx.Value(middleware.RequestIDKey); reqID != nil {
+		event.Metadata.Annotations = &map[string]string{EventAnnotationRequestID: reqID.(string)}
+	}
+
+	event.Reason = reason
+	event.Message = message
+	event.Type = GetEventType(reason)
+	event.Details = details
+
+	return &event
+}
+
+// warningReasons contains all event reasons that should result in Warning events
+var warningReasons = map[EventReason]struct{}{
+	EventReasonResourceCreationFailed:          {},
+	EventReasonResourceUpdateFailed:            {},
+	EventReasonResourceDeletionFailed:          {},
+	EventReasonDeviceDecommissionFailed:        {},
+	EventReasonEnrollmentRequestApprovalFailed: {},
+	EventReasonDeviceApplicationDegraded:       {},
+	EventReasonDeviceApplicationError:          {},
+	EventReasonDeviceCPUCritical:               {},
+	EventReasonDeviceCPUWarning:                {},
+	EventReasonDeviceMemoryCritical:            {},
+	EventReasonDeviceMemoryWarning:             {},
+	EventReasonDeviceDiskCritical:              {},
+	EventReasonDeviceDiskWarning:               {},
+	EventReasonDeviceDisconnected:              {},
+	EventReasonDeviceSpecInvalid:               {},
+	EventReasonDeviceMultipleOwnersDetected:    {},
+	EventReasonInternalTaskFailed:              {},
+	EventReasonResourceSyncInaccessible:        {},
+	EventReasonResourceSyncParsingFailed:       {},
+	EventReasonResourceSyncSyncFailed:          {},
+}
+
+// GetEventType determines the event type based on the event reason
+func GetEventType(reason EventReason) EventType {
+	if _, contains := warningReasons[reason]; contains {
+		return Warning
+	}
+	return Normal
 }

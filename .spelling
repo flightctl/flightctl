@@ -301,3 +301,6 @@ SELinux
 SNI
 SSO
 VPN
+- docs/user/events.md
+lifecycles
+Rollouts

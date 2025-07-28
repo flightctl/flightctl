@@ -23,7 +23,7 @@ type ResourceSync interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.ResourceSyncList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback, callbackEvent EventCallback) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, eventCallback EventCallback) (*api.ResourceSync, error)
 }
 
 type ResourceSyncStore struct {
@@ -89,21 +89,21 @@ func (s *ResourceSyncStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, callbackEvent EventCallback) (*api.ResourceSync, error) {
+func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, eventCallback EventCallback) (*api.ResourceSync, error) {
 	rs, err := s.genericStore.Create(ctx, orgId, resource, nil)
-	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), nil, rs, true, nil, err)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, rs, true, err)
 	return rs, err
 }
 
-func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, callbackEvent EventCallback) (*api.ResourceSync, error) {
-	newRs, oldRs, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
-	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, false, &updatedDetails, err)
+func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, eventCallback EventCallback) (*api.ResourceSync, error) {
+	newRs, oldRs, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, false, err)
 	return newRs, err
 }
 
-func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, callbackEvent EventCallback) (*api.ResourceSync, bool, error) {
-	newRs, oldRs, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
-	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, created, &updatedDetails, err)
+func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, eventCallback EventCallback) (*api.ResourceSync, bool, error) {
+	newRs, oldRs, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, created, err)
 	return newRs, created, err
 }
 
@@ -131,7 +131,7 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 		return callback(ctx, innerTx, orgId, *owner)
 	})
 
-	s.eventCallbackCaller(ctx, callbackEvent, orgId, name, nil, nil, false, nil, err)
+	s.eventCallbackCaller(ctx, callbackEvent, orgId, name, nil, nil, false, err)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil
@@ -142,6 +142,22 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 	return nil
 }
 
-func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync) (*api.ResourceSync, error) {
-	return s.genericStore.UpdateStatus(ctx, orgId, resource)
+func (s *ResourceSyncStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, eventCallback EventCallback) (*api.ResourceSync, error) {
+	// Get the old resource to compare conditions
+	var oldResourceSync *api.ResourceSync
+	existingResource, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
+	if err == nil && existingResource != nil {
+		oldResourceSync = existingResource
+	}
+
+	// Update the status
+	newResourceSync, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
+	if err != nil {
+		return newResourceSync, err
+	}
+
+	// Call the event callback to emit condition-specific events
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldResourceSync, newResourceSync, false, err)
+
+	return newResourceSync, err
 }
