@@ -76,7 +76,7 @@ func (s *OrganizationStore) GetByID(ctx context.Context, id uuid.UUID) (*model.O
 	db := s.getDB(ctx)
 
 	var org model.Organization
-	result := db.Where("id = ?", id).First(&org)
+	result := db.Where("id = ?", id).Take(&org)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			return nil, flterrors.ErrResourceNotFound

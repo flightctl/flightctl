@@ -118,7 +118,7 @@ func (s *ResourceSyncStore) List(ctx context.Context, orgId uuid.UUID, listParam
 func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback removeOwnerCallback, callbackEvent EventCallback) error {
 	existingRecord := model.ResourceSync{Resource: model.Resource{OrgID: orgId, Name: name}}
 	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
-		result := innerTx.First(&existingRecord)
+		result := innerTx.Take(&existingRecord)
 		if result.Error != nil {
 			return ErrorFromGormError(result.Error)
 		}

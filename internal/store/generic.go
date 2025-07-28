@@ -164,7 +164,7 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 
 func (s *GenericStore[P, M, A, AL]) getExistingResource(ctx context.Context, name string, orgId uuid.UUID) (*M, error) {
 	var existingResource M
-	if err := s.getDB(ctx).Where("name = ? and org_id = ?", name, orgId).First(&existingResource).Error; err != nil {
+	if err := s.getDB(ctx).Where("name = ? and org_id = ?", name, orgId).Take(&existingResource).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
@@ -233,7 +233,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 
 func (s *GenericStore[P, M, A, AL]) Get(ctx context.Context, orgId uuid.UUID, name string) (*A, error) {
 	var resource M
-	result := s.getDB(ctx).Where("org_id = ? AND name = ? AND spec IS NOT NULL", orgId, name).First(&resource)
+	result := s.getDB(ctx).Where("org_id = ? AND name = ? AND spec IS NOT NULL", orgId, name).Take(&resource)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
