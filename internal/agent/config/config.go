@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
@@ -55,6 +56,10 @@ const (
 	EnrollmentCertFile = "client-enrollment.crt"
 	// name of the enrollment key file
 	EnrollmentKeyFile = "client-enrollment.key"
+	// DefaultTPMDevicePath is the default TPM device path
+	DefaultTPMDevicePath = "/dev/tpm0"
+	// DefaultTPMKeyBlobFile is the default filename for TPM key blob persistence
+	DefaultTPMKeyBlobFile = "ldevid-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
@@ -72,8 +77,8 @@ type Config struct {
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
 
-	// TPMPath is the path to the TPM device
-	TPMPath string `json:"tpm-path,omitempty"`
+	// TPM holds all TPM-related configuration
+	TPM
 
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
@@ -84,7 +89,10 @@ type Config struct {
 	// testRootDir is the root directory of the test agent
 	testRootDir string
 	// enrollmentMetricsCallback is a callback to report metrics about the enrollment process.
-	enrollmentMetricsCallback func(operation string, durationSeconds float64, err error)
+	enrollmentMetricsCallback client.RPCMetricsCallback
+
+	// managementMetricsCallback is a callback to report metrics about the management process.
+	managementMetricsCallback client.RPCMetricsCallback
 
 	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
 	DefaultLabels map[string]string `json:"default-labels,omitempty"`
@@ -110,6 +118,15 @@ type Config struct {
 	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
 
 	readWriter fileio.ReadWriter
+}
+
+type TPM struct {
+	// Enabled indicates whether the agent should use an available TPM for auth
+	Enabled bool `json:"tpm-auth-enabled,omitempty"`
+	// Path is the path to the TPM device
+	Path string `json:"tpm-path,omitempty"`
+	// PersistencePath specifies the file path for TPM key blob persistence
+	PersistencePath string `json:"tpm-persistence-path,omitempty"`
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included
@@ -141,6 +158,11 @@ func NewDefault() *Config {
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
+		TPM: TPM{
+			Enabled:         false,
+			Path:            DefaultTPMDevicePath,
+			PersistencePath: filepath.Join(DefaultDataDir, DefaultTPMKeyBlobFile),
+		},
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -164,8 +186,20 @@ func (cfg *Config) PathFor(filePath string) string {
 	return path.Join(cfg.testRootDir, filePath)
 }
 
-func (cfg *Config) SetEnrollmentMetricsCallback(cb func(operation string, duractionSeconds float64, err error)) {
+func (cfg *Config) SetEnrollmentMetricsCallback(cb client.RPCMetricsCallback) {
 	cfg.enrollmentMetricsCallback = cb
+}
+
+func (cfg *Config) GetEnrollmentMetricsCallback() client.RPCMetricsCallback {
+	return cfg.enrollmentMetricsCallback
+}
+
+func (cfg *Config) SetManagementMetricsCallback(cb client.RPCMetricsCallback) {
+	cfg.managementMetricsCallback = cb
+}
+
+func (cfg *Config) GetManagementMetricsCallback() client.RPCMetricsCallback {
+	return cfg.managementMetricsCallback
 }
 
 // Complete fills in defaults for fields not set by the config file
@@ -319,6 +353,11 @@ func mergeConfigs(base, override *Config) {
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
 	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
 	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+
+	// tpm
+	overrideIfNotEmpty(&base.TPM.Enabled, override.TPM.Enabled)
+	overrideIfNotEmpty(&base.TPM.Path, override.TPM.Path)
+	overrideIfNotEmpty(&base.TPM.PersistencePath, override.TPM.PersistencePath)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v

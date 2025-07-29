@@ -68,7 +68,8 @@ func setupVars(t *testing.T) *vars {
 		mockStreamClient: mockStreamClient,
 		executor:         executor,
 		logger:           logger,
-		controller: NewController(mockGrpcClient,
+		controller: NewController(
+			mockGrpcClient,
 			"mydevice",
 			executor,
 			publisher.NewSubscription(),

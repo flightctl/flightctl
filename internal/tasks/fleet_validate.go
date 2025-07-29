@@ -93,8 +93,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		},
 	}
 
-	immediateRollout := fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil
-	tv, status := t.serviceHandler.CreateTemplateVersion(ctx, templateVersion, immediateRollout)
+	tv, status := t.serviceHandler.CreateTemplateVersion(ctx, templateVersion, true)
 	if status.Code != http.StatusCreated {
 		if status.Code == http.StatusConflict {
 			t.log.Warnf("templateVersion %s already exists", templateVersionName)

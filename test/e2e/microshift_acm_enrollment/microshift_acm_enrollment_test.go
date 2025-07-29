@@ -143,11 +143,11 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				deviceSpec.Os = &osImageSpec
 				deviceSpec.Config = &deviceSpecConfig
 
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 					device.Spec = &deviceSpec
 					logrus.Infof("Updating %s with a new image and pull-secret configuration", deviceId)
 				})
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Wait for the device to get the fleet configuration")
 				err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
@@ -201,13 +201,14 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 					device.Metadata.Labels = &map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
 					}
 					logrus.Infof("Updating %s with label %s=%s", deviceId,
 						fleetSelectorKey, fleetSelectorValue)
 				})
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Wait for the device to get the fleet configuration")
 				err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)

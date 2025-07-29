@@ -232,12 +232,6 @@ func (t *TracedService) GetDevicesSummary(ctx context.Context, p api.ListDevices
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) UpdateDeviceSummaryStatusBatch(ctx context.Context, names []string, status api.DeviceSummaryStatusType, info string) api.Status {
-	ctx, span := startSpan(ctx, "UpdateDeviceSummaryStatusBatch")
-	st := t.inner.UpdateDeviceSummaryStatusBatch(ctx, names, status, info)
-	endSpan(span, st)
-	return st
-}
 func (t *TracedService) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
 	ctx, span := startSpan(ctx, "UpdateServiceSideDeviceStatus")
 	resp := t.inner.UpdateServiceSideDeviceStatus(ctx, device)
@@ -442,9 +436,9 @@ func (t *TracedService) PatchRepository(ctx context.Context, name string, patch 
 	endSpan(span, st)
 	return resp, st
 }
-func (t *TracedService) ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status) {
-	ctx, span := startSpan(ctx, "ReplaceRepositoryStatus")
-	resp, st := t.inner.ReplaceRepositoryStatus(ctx, name, repository)
+func (t *TracedService) ReplaceRepositoryStatusByError(ctx context.Context, name string, repository api.Repository, err error) (*api.Repository, api.Status) {
+	ctx, span := startSpan(ctx, "ReplaceRepositoryStatusByError")
+	resp, st := t.inner.ReplaceRepositoryStatusByError(ctx, name, repository, err)
 	endSpan(span, st)
 	return resp, st
 }
@@ -572,6 +566,14 @@ func (t *TracedService) SetCheckpoint(ctx context.Context, consumer string, key 
 func (t *TracedService) GetDatabaseTime(ctx context.Context) (time.Time, api.Status) {
 	ctx, span := startSpan(ctx, "GetDatabaseTime")
 	resp, st := t.inner.GetDatabaseTime(ctx)
+	endSpan(span, st)
+	return resp, st
+}
+
+// --- Organization ---
+func (t *TracedService) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
+	ctx, span := startSpan(ctx, "ListOrganizations")
+	resp, st := t.inner.ListOrganizations(ctx)
 	endSpan(span, st)
 	return resp, st
 }

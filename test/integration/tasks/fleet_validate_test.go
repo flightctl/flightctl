@@ -84,10 +84,10 @@ var _ = Describe("FleetValidate", func() {
 			Spec: specHttp,
 		}
 
-		repoCallback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, repository, repoCallback)
+		repoCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+		_, err = storeInst.Repository().Create(ctx, orgId, repository, nil, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, repoCallback)
+		_, err = storeInst.Repository().Create(ctx, orgId, repositoryHttp, nil, repoCallback)
 		Expect(err).ToNot(HaveOccurred())
 
 		fleet = &api.Fleet{
@@ -171,7 +171,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -224,7 +224,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -275,7 +275,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -323,7 +323,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback)
+			_, err = storeInst.Fleet().Create(ctx, orgId, fleet, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)

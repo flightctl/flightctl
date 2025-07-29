@@ -28,7 +28,6 @@
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
 ## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
-## @param global.generateSecrets Generate secrets when deploying FCTL. This should be set to false if you want to provide your own secrets or when upgrading FCTL to avoid overriding the existing secrets
 ## @param global.imagePullPolicy Image pull policy for all containers
 
 global:
@@ -57,6 +56,10 @@ global:
       externalApiUrl: ""
   metrics:
     enabled: true
+  tracing:
+    enabled: false
+    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    insecure: true
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
@@ -69,12 +72,12 @@ global:
     ui: 9000
     keycloak: 8081
     alertmanagerProxy: 8443
-    jaegerUi: 16686
   gatewayPorts:
     tls: 443
     http: 80
-  generateSecrets: true
   imagePullPolicy: IfNotPresent
+  rbac:
+    create: true
 
 
 ## @section Component specific parameters
@@ -87,7 +90,15 @@ db:
     tag: "20250214"
     pullPolicy: ""
   masterUser: admin
-  user: demouser
+  user: flightctl_app
+  # password: Leave empty to auto-generate secure password, or set to use a specific password.
+  password: ""
+  # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  masterPassword: ""
+  # userPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  userPassword: ""
+  # migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  migrationPassword: ""
   maxConnections: 200
   storage:
     size: "60Gi"
@@ -102,7 +113,8 @@ kv:
     image: quay.io/sclorg/redis-7-c9s
     tag: "20250108"
     pullPolicy: ""
-  password: adminpass
+  # password: Leave empty to auto-generate secure password, or set to use a specific password.
+  password: ""
   # Save if at least 1 key changed in 5 minutes
   save: 300 1
   loglevel: warning
@@ -156,29 +168,17 @@ alertmanagerProxy:
     pullPolicy: ""
 prometheus:
   enabled: false
-jaeger:
-  enabled: false
-  image:
-    image: jaegertracing/all-in-one
-    tag: "1.35"
-    pullPolicy: ""
-  storageType: memory
-  maxTraces: 50000
-  otlpEnabled: true
-  logLevel: info
-  resources:
-    requests:
-      memory: "128Mi"
-      cpu: "50m"
-    limits:
-      memory: "512Mi"
-      cpu: "200m"
 ui:
   enabled: true
   api:
     insecureSkipTlsVerify: true
-secretsJob:
+cleanupJob:
   image:
-    image: quay.io/openshift/origin-cli
-    tag: "4.20.0"
+    image: registry.k8s.io/kubectl
+    tag: "v1.33.0"
+    pullPolicy: ""
+dbSetup:
+  image:
+    image: quay.io/flightctl/flightctl-db-setup
+    tag: ""
     pullPolicy: ""

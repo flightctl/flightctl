@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -49,6 +50,11 @@ var _ = Describe("VM Agent behavior", func() {
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
+
+			By("The agent executable should have the proper SELinux domain")
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "ls", "-Z", "/usr/bin/flightctl-agent"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
 		})
 
 		It("Verifying generation of enrollment request link", Label("75518"), func() {
@@ -68,8 +74,11 @@ var _ = Describe("VM Agent behavior", func() {
 			logrus.Infof("Waiting for device %s to report status", enrollmentID)
 
 			// wait for the device to pickup enrollment and report measurements on device status
-			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
-				enrollmentID).ShouldNot(BeNil())
+			Eventually(func() *apiclient.GetDeviceResponse {
+				resp, err := harness.GetDeviceWithStatusSystem(enrollmentID)
+				Expect(err).ToNot(HaveOccurred())
+				return resp
+			}, TIMEOUT, POLLING).ShouldNot(BeNil())
 		})
 		It("Should report a message when a device is assigned to multiple fleets", Label("75992"), func() {
 			const (
@@ -84,7 +93,8 @@ var _ = Describe("VM Agent behavior", func() {
 			currentVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 			// ensure we start with an empty template
-			harness.SetLabelsForDevice(deviceId, nil)
+			err = harness.SetLabelsForDevice(deviceId, nil)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("creating the first fleet")
 			var configProviderSpec v1alpha1.ConfigProviderSpec
@@ -115,10 +125,11 @@ var _ = Describe("VM Agent behavior", func() {
 			defer func() { _ = harness.DeleteFleet(fleet2Name) }()
 
 			By("setting multiple labels for a device with conflicting fleets a condition should be applied")
-			harness.SetLabelsForDevice(deviceId, map[string]string{
+			err = harness.SetLabelsForDevice(deviceId, map[string]string{
 				fleet1Label: fleet1Value,
 				fleet2Label: fleet2Value,
 			})
+			Expect(err).ToNot(HaveOccurred())
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be applied", func(device *v1alpha1.Device) bool {
 				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners, v1alpha1.ConditionStatusTrue)
 			}, TIMEOUT)
@@ -134,7 +145,8 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(device.Metadata.Owner).To(BeNil(), fmt.Sprintf("%+v", *device))
 
 			By("resetting the labels should remove the condition from the device")
-			harness.SetLabelsForDevice(deviceId, nil)
+			err = harness.SetLabelsForDevice(deviceId, nil)
+			Expect(err).ToNot(HaveOccurred())
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be removed", func(device *v1alpha1.Device) bool {
 				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners, v1alpha1.ConditionStatusFalse)
 			}, TIMEOUT)
@@ -143,9 +155,10 @@ var _ = Describe("VM Agent behavior", func() {
 			expectedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.SetLabelsForDevice(deviceId, map[string]string{
+			err = harness.SetLabelsForDevice(deviceId, map[string]string{
 				fleet1Label: fleet1Value,
 			})
+			Expect(err).ToNot(HaveOccurred())
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
 			Expect(err).ToNot(HaveOccurred())
 			device, err = harness.GetDevice(deviceId)
@@ -157,10 +170,11 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(*device.Metadata.Owner).To(Equal(fmt.Sprintf("Fleet/%s", fleet1Name)))
 
 			By("readding both labels should add the multiple owners condition back")
-			harness.SetLabelsForDevice(deviceId, map[string]string{
+			err = harness.SetLabelsForDevice(deviceId, map[string]string{
 				fleet1Label: fleet1Value,
 				fleet2Label: fleet2Value,
 			})
+			Expect(err).ToNot(HaveOccurred())
 			harness.WaitForDeviceContents(deviceId, "multiple owners condition should be reapplied", func(device *v1alpha1.Device) bool {
 				return e2e.ConditionStatusExists(device.Status.Conditions, v1alpha1.ConditionTypeDeviceMultipleOwners, v1alpha1.ConditionStatusTrue)
 			}, TIMEOUT)
@@ -183,7 +197,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 			By("should report the correct device status after an inline config is added")
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 				// Create ConfigProviderSpec.
 				var configProviderSpec v1alpha1.ConfigProviderSpec
@@ -193,6 +207,7 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
 				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			logrus.Infof("Waiting for the device to pick the config")
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("the device is updated to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
@@ -214,7 +229,7 @@ var _ = Describe("VM Agent behavior", func() {
 			// The status should be "Online"
 			logrus.Infof("The device has the config %s", device.Spec.Config)
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			By("should report the correct device status when trying to upgrade to a not existing image")
 			previousRenderedVersion := newRenderedVersion
@@ -224,7 +239,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			var newImageReference string
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				currentImage := device.Status.Os.Image
 				logrus.Infof("Current image for %s is %s", deviceId, currentImage)
 				repo, _ := parseImageReference(currentImage)
@@ -232,6 +247,7 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 				logrus.Infof("Updating %s to image %s", deviceId, device.Spec.Os.Image)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.WaitForDeviceNewGeneration(deviceId, nextGeneration)
 			Expect(err).ToNot(HaveOccurred())
@@ -249,7 +265,7 @@ var _ = Describe("VM Agent behavior", func() {
 			By(`should show an error when trying to update a device with
 				"a reference to a not existing git repo, and report 'Online' status`)
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				logrus.Infof("Current device is %s", deviceId)
 
 				// Create ConfigProviderSpec.
@@ -260,6 +276,7 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
 				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			// Check the http config error is detected.
 			harness.WaitForDeviceContents(deviceId, `Error: failed fetching specified Repository definition`,
@@ -272,7 +289,7 @@ var _ = Describe("VM Agent behavior", func() {
 					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError))
 				}, TIMEOUT)
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			By(`should show an error when trying to update a device with a httpConfigProviderSpec
 			with invalid Path, and report 'Online' status`)
@@ -281,7 +298,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update the device with the http invalid config.
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				logrus.Infof("current device is %s", deviceId)
 				// Create ConfigProviderSpec.
 				var configProviderSpec v1alpha1.ConfigProviderSpec
@@ -291,6 +308,7 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
 				logrus.Infof("updating %s with config %s", deviceId, device.Spec.Config)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			// Check the http config error is detected.
 			harness.WaitForDeviceContents(deviceId, "Error: sending HTTP Request",
@@ -312,6 +330,67 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
+
+		})
+
+		It("K8s secret config source", func() {
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+
+			// Get the next expected rendered version
+			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("should report the correct device status after an inline config is added")
+
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+
+				// Create ConfigProviderSpec.
+				var configProviderSpec v1alpha1.ConfigProviderSpec
+				err := configProviderSpec.FromKubernetesSecretProviderSpec(k8sSecretConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
+				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			logrus.Infof("Waiting for the device to pick the config")
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			// The device should have the online config.
+			stdout, err := harness.VM.RunSSH([]string{"cat", "/etc/testfile.txt"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stdout.String()).To(ContainSubstring("This is used to test k8s secret config."))
+		})
+
+		It("System Info Timeout Tests", Label("81864"), func() {
+
+			By("Enroll and wait for image v9 to become online")
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v9")
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Reload the flight agent")
+			_, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "reload", "flightctl-agent"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Custom system-info infinite is empty due to timeout")
+			// wait for the device to pickup enrollment and report measurements on device status
+			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(deviceId).ShouldNot(BeNil())
+
+			response, err := harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			device := response.JSON200
+
+			// Ensure the infinite key exists in CustomInfo
+			Expect(device.Status.SystemInfo.CustomInfo).ToNot(BeNil())
+			Expect((*device.Status.SystemInfo.CustomInfo)).To(HaveKey("infinite"))
+			Expect((*device.Status.SystemInfo.CustomInfo)["infinite"]).To(Equal(""))
 
 		})
 	})
@@ -369,6 +448,19 @@ var gitConfigInvalidRepo = v1alpha1.GitConfigProviderSpec{
 		TargetRevision: "main",
 	},
 	Name: "example-git-config-provider",
+}
+
+var k8sSecretConfig = v1alpha1.KubernetesSecretProviderSpec{
+	Name: "example-k8s-secret-config-provider",
+	SecretRef: struct {
+		MountPath string "json:\"mountPath\""
+		Name      string "json:\"name\""
+		Namespace string "json:\"namespace\""
+	}{
+		MountPath: "/etc",
+		Name:      "test-config",
+		Namespace: "flightctl-e2e",
+	},
 }
 
 // suffix specifies a default path segment or query parameter that can be appended to a URL in HTTP configuration.

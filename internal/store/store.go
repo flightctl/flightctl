@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -28,7 +29,8 @@ type Store interface {
 	ResourceSync() ResourceSync
 	Event() Event
 	Checkpoint() Checkpoint
-	InitialMigration(context.Context) error
+	Organization() Organization
+	RunMigrations(context.Context) error
 	Close() error
 }
 
@@ -42,6 +44,7 @@ type DataStore struct {
 	resourceSync              ResourceSync
 	event                     Event
 	checkpoint                Checkpoint
+	organization              Organization
 
 	db *gorm.DB
 }
@@ -57,6 +60,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		resourceSync:              NewResourceSync(db, log),
 		event:                     NewEvent(db, log),
 		checkpoint:                NewCheckpoint(db, log),
+		organization:              NewOrganization(db),
 		db:                        db,
 	}
 }
@@ -97,10 +101,39 @@ func (s *DataStore) Checkpoint() Checkpoint {
 	return s.checkpoint
 }
 
-func (s *DataStore) InitialMigration(ctx context.Context) error {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/store", "InitialMigration")
+func (s *DataStore) Organization() Organization {
+	return s.organization
+}
+
+func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {
+	ctx, span := instrumentation.StartSpan(ctx, "flightctl/store", "RunMigrationWithMigrationUser")
 	defer span.End()
 
+	// Create migration database connection
+	migrationDB, err := InitMigrationDB(cfg, log)
+	if err != nil {
+		return fmt.Errorf("failed to create migration database connection: %w", err)
+	}
+	defer func() {
+		if sqlDB, err := migrationDB.DB(); err == nil {
+			sqlDB.Close()
+		}
+	}()
+
+	// Create migration store with migration user
+	migrationStore := NewStore(migrationDB, log.WithField("pkg", "migration-store"))
+	defer migrationStore.Close()
+
+	// Run migrations with migration user
+	if err := migrationStore.RunMigrations(ctx); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	log.Info("Database migration completed successfully")
+	return nil
+}
+
+func (s *DataStore) RunMigrations(ctx context.Context) error {
 	if err := s.Device().InitialMigration(ctx); err != nil {
 		return err
 	}
@@ -126,6 +159,9 @@ func (s *DataStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 	if err := s.Checkpoint().InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := s.Organization().InitialMigration(ctx); err != nil {
 		return err
 	}
 	return s.customizeMigration(ctx)

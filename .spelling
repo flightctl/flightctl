@@ -34,6 +34,7 @@ e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
+env
 EPEL
 FIDO
 filesystem
@@ -46,6 +47,7 @@ GitLab
 GitOps
 greenboot
 hostname
+hostnames
 HTTPS
 i.e.
 infos
@@ -87,6 +89,7 @@ Quadlet
 Quadlets
 quay.io
 RBAC
+read-only
 resource-unintensive
 ResourceSync
 ResourceSyncs
@@ -95,6 +98,7 @@ RHACM
 RHEL
 rollbacks
 rollout
+rootful
 runtime
 schemas
 Sigstore
@@ -152,6 +156,19 @@ OpenTelemetry
 OTLP
 crontab
 datasets
+grafana
+oauth
+grpc
+dns
+zipkin
+backends
+ansible
+openid
+pki
+uid
+idp
+systemctl
+enablement
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -247,3 +264,43 @@ alertmanager
 DeviceDisconnected
 DeviceCPUCritical
 programmatically
+ - docs/user/standalone-observability.md
+UserInfo
+Pre-configured
+is_superuser
+is_platform_auditor
+flightctl-api
+flightctl-kv
+IdPs
+- docs/user/network-requirements.md
+Air-Gapped
+Backend
+dev
+docker.io
+HTTPS
+LoadBalancer
+passthrough
+nodePort
+NodePort
+OTel
+Redis
+registry.redhat.io
+TCP
+UserInfo
+- docs/user/database-migration.md
+CREATEDB
+CREATEROLE
+DDL
+quadlet
+misconfigured
+- docs/user/security-guidelines.md
+journald
+quadlets
+Sanitization
+SELinux
+SNI
+SSO
+VPN
+- docs/user/events.md
+lifecycles
+Rollouts

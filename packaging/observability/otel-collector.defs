@@ -1,0 +1,7 @@
+# Format:
+# ENV_VAR                       | CONFIG_PATH                                 | DEFAULT                                      | TEMPLATE_FILE                                | OUTPUT_PATH
+
+OTEL_COLLECTOR_IMAGE           | .observability.otel_collector.image        | docker.io/otel/opentelemetry-collector-contrib:latest | flightctl-otel-collector.container.template | /etc/containers/systemd/flightctl-otel-collector.container
+OTEL_COLLECTOR_GRPC_PORT       | .observability.otel_collector.grpc_port    | 4317                                                   | flightctl-otel-collector.container.template | /etc/containers/systemd/flightctl-otel-collector.container
+OTEL_COLLECTOR_HTTP_PORT       | .observability.otel_collector.http_port    | 4318                                                   | flightctl-otel-collector.container.template | /etc/containers/systemd/flightctl-otel-collector.container
+

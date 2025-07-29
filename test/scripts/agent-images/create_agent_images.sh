@@ -8,7 +8,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/../functions
 
 REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST="base v2 v3 v4 v5 v6 v8"
+IMAGE_LIST="base v2 v3 v4 v5 v6 v8 v9"
 
 if is_acm_installed; then
     IMAGE_LIST="${IMAGE_LIST} v7"
@@ -128,6 +128,8 @@ build_qcow2_image() {
     if is_acm_installed; then
         sudo qemu-img resize "$(pwd)"/bin/output/qcow2/disk.qcow2 +5G # increasing disk size for microshift registration to acm test only
     fi
+    # Reset the owner to the user running make
+    sudo chown -R "${USER}:$(id -gn ${USER})" "$(pwd)"/bin/output
 }
 
 case "$BUILD_TYPE" in
