@@ -207,14 +207,8 @@ func (t *Client) AttestationCollector(ctx context.Context) string {
 	return att.String()
 }
 
-// Close closes the TPM connection and flushes any transient handles.
-// It should be called when the TPM is no longer needed to free resources.
-func (t *Client) Close(ctx context.Context) error {
-	if t == nil {
-		return nil
-	}
+func (t *Client) flushKeys() []error {
 	var errs []error
-
 	// Close LAK if it exists
 	if t.lak != nil {
 		if err := t.flushContextForHandle(t.lak.Handle); err != nil {
@@ -237,6 +231,17 @@ func (t *Client) Close(ctx context.Context) error {
 		}
 		t.ldevid = nil
 	}
+
+	return errs
+}
+
+// Close closes the TPM connection and flushes any transient handles.
+// It should be called when the TPM is no longer needed to free resources.
+func (t *Client) Close(ctx context.Context) error {
+	if t == nil {
+		return nil
+	}
+	errs := t.flushKeys()
 
 	if t.conn != nil {
 		if err := t.conn.Close(); err != nil {
@@ -734,5 +739,76 @@ func (t *Client) changeStorageHierarchyPassword(currentPassword []byte, newPassw
 		return fmt.Errorf("setting storage hierarchy password: %w", err)
 	}
 
+	return nil
+}
+
+func (t *Client) Clear() error {
+	// only the lockout and platform hierarchies can invoke tpm2.Clear
+	// it is possible to block the lockout hierarchy from performing a clear operation
+	// it is possible to add passwords to both the lockout and platform hierarchies
+	// We make a best effort to invoke clear, but if those operations fail, we attempt
+	// to reset owner password and make our keys unrecoverable.
+	hierarchies := []struct {
+		name   string
+		handle tpm2.TPMHandle
+	}{
+		{
+			name:   "lockout",
+			handle: tpm2.TPMRHLockout,
+		},
+		{
+			name:   "platform",
+			handle: tpm2.TPMRHPlatform,
+		},
+	}
+
+	var errs []error
+	for _, hier := range hierarchies {
+		cmd := tpm2.Clear{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: hier.handle,
+				Auth:   tpm2.PasswordAuth(nil),
+			},
+		}
+
+		_, err := cmd.Execute(transport.FromReadWriter(t.conn))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("clearing hierarchy %q: %w", hier.name, err))
+		}
+	}
+
+	// if all commands failed we failed to invoke clear
+	// so we try to clean up as much as we manually can
+	// but still treat everything as if it errored.
+	if len(errs) == len(hierarchies) {
+		// reset the error into a compact one
+		errs = []error{
+			fmt.Errorf("clearing hierarchy hierarchy failed: %w", errors.Join(errs...)),
+		}
+		if err := t.ownership.resetStorageHierarchyPassword(); err != nil {
+			// if we fail to reset the storage password something is very off. We shouldn't erase our
+			// password in case we can try again.
+			return fmt.Errorf("resetting storage hierarchy password: %w %w", err, errors.Join(errs...))
+		}
+		if flushErrs := t.flushKeys(); len(flushErrs) != 0 {
+			errs = append(errs, fmt.Errorf("flushing hierarchy keys: %w", errors.Join(flushErrs...)))
+		}
+	} else {
+		// if any of the above commands succeeded we consider the operation successful
+		errs = nil
+	}
+
+	t.srk = nil
+	t.lak = nil
+	t.ldevid = nil
+	t.ldevidPub = nil
+	t.storageHierarchyAuth = nil
+
+	if err := t.persistence.erase(); err != nil {
+		errs = append(errs, fmt.Errorf("clearing hierarchy persistence failed: %w", err))
+	}
+	if len(errs) != 0 {
+		return errors.Join(errs...)
+	}
 	return nil
 }

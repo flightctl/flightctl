@@ -1507,3 +1507,237 @@ func TestSkipOwnership(t *testing.T) {
 	})
 
 }
+
+func TestClear(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupFunc     func(t *testing.T) (*Client, func())
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "successfully clears TPM hierarchies and state",
+			setupFunc: func(t *testing.T) (*Client, func()) {
+				require := require.New(t)
+				simulator, err := simulator.Get()
+				require.NoError(err)
+
+				rw := createTestReadWriter(t)
+				config := &agent_config.Config{
+					TPM: agent_config.TPM{
+						Enabled:         true,
+						Path:            agent_config.DefaultTPMDevicePath,
+						PersistencePath: "test_clear.yaml",
+						EnableOwnership: true,
+					},
+				}
+
+				client, err := newClientWithConnection(simulator, agent_config.DefaultTPMDevicePath, log.NewPrefixLogger("test"), rw, config)
+				require.NoError(err)
+
+				// Verify initial state - handles should be set
+				require.NotNil(client.srk)
+				require.NotNil(client.ldevid)
+				require.NotNil(client.ldevidPub)
+				require.NotNil(client.storageHierarchyAuth)
+
+				cleanup := func() {
+					simulator.Close()
+				}
+
+				return client, cleanup
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			client, cleanup := tt.setupFunc(t)
+			defer cleanup()
+
+			err := client.Clear()
+
+			if tt.expectError {
+				require.Error(err)
+				if tt.errorContains != "" {
+					require.Contains(err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(err)
+
+				// Verify all handles are cleared
+				require.Nil(client.srk, "SRK should be nil after clear")
+				require.Nil(client.ldevid, "LDevID should be nil after clear")
+				require.Nil(client.lak, "LAK should be nil after clear")
+				require.Nil(client.ldevidPub, "LDevID public key should be nil after clear")
+				require.Nil(client.storageHierarchyAuth, "Storage hierarchy auth should be nil after clear")
+
+				// Verify persistence was cleared by checking that sealed password is gone
+				_, err = client.persistence.loadPassword()
+				require.Error(err, "Sealed password should be cleared")
+				require.Contains(err.Error(), "no sealed password data found")
+			}
+		})
+	}
+
+	t.Run("clears TPM state and allows re-initialization", func(t *testing.T) {
+		require := require.New(t)
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+
+		rw := createTestReadWriter(t)
+		config := &agent_config.Config{
+			TPM: agent_config.TPM{
+				Enabled:         true,
+				Path:            agent_config.DefaultTPMDevicePath,
+				PersistencePath: "test_clear_reinit.yaml",
+				EnableOwnership: true,
+			},
+		}
+
+		client, err := newClientWithConnection(simulator, agent_config.DefaultTPMDevicePath, log.NewPrefixLogger("test"), rw, config)
+		require.NoError(err)
+
+		// Verify initial state
+		require.NotNil(client.srk)
+		require.NotNil(client.ldevid)
+		require.NotNil(client.storageHierarchyAuth)
+
+		// Verify storage hierarchy has auth set
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.True(authSet)
+
+		// Clear the TPM
+		err = client.Clear()
+		require.NoError(err)
+
+		// Verify storage hierarchy auth is now cleared
+		authSet, err = client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.False(authSet)
+
+		// Verify we can re-initialize after clear (simulate what NewClient would do)
+		client.storageHierarchyAuth = nil
+
+		// Generate new password and set it
+		password, err := client.ownership.ensureStorageHierarchyPassword()
+		require.NoError(err)
+		require.NotNil(password)
+		client.storageHierarchyAuth = password
+
+		// Re-generate SRK
+		_, err = client.generateSRKPrimary()
+		require.NoError(err)
+		require.NotNil(client.srk)
+
+		// Re-create LDevID
+		_, err = client.ensureLDevID()
+		require.NoError(err)
+		require.NotNil(client.ldevid)
+
+		// Verify we can get public key
+		_, err = client.getLDevIDPubKey()
+		require.NoError(err)
+		require.NotNil(client.ldevidPub)
+	})
+
+	t.Run("fallback cleanup when tpm2.Clear fails due to hierarchy passwords", func(t *testing.T) {
+		require := require.New(t)
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+
+		rw := createTestReadWriter(t)
+		config := &agent_config.Config{
+			TPM: agent_config.TPM{
+				Enabled:         true,
+				Path:            agent_config.DefaultTPMDevicePath,
+				PersistencePath: "test_clear_fallback.yaml",
+				EnableOwnership: true,
+			},
+		}
+
+		client, err := newClientWithConnection(simulator, agent_config.DefaultTPMDevicePath, log.NewPrefixLogger("test"), rw, config)
+		require.NoError(err)
+
+		// Verify initial state - handles should be set
+		require.NotNil(client.srk)
+		require.NotNil(client.ldevid)
+		require.NotNil(client.ldevidPub)
+		require.NotNil(client.storageHierarchyAuth)
+
+		// Store initial handles for verification
+		initialSRK := client.srk
+		initialLDevID := client.ldevid
+		initialLDevIDPub := client.ldevidPub
+		initialAuth := client.storageHierarchyAuth
+
+		// Set passwords on lockout and platform hierarchies to force tpm2.Clear to fail
+		lockoutPassword := []byte("lockout-password")
+		platformPassword := []byte("platform-password")
+
+		// Set lockout hierarchy password
+		lockoutAuthCmd := tpm2.HierarchyChangeAuth{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: tpm2.TPMRHLockout,
+				Auth:   tpm2.PasswordAuth(nil),
+			},
+			NewAuth: tpm2.TPM2BAuth{Buffer: lockoutPassword},
+		}
+		_, err = lockoutAuthCmd.Execute(transport.FromReadWriter(client.conn))
+		require.NoError(err)
+
+		// Set platform hierarchy password
+		platformAuthCmd := tpm2.HierarchyChangeAuth{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: tpm2.TPMRHPlatform,
+				Auth:   tpm2.PasswordAuth(nil),
+			},
+			NewAuth: tpm2.TPM2BAuth{Buffer: platformPassword},
+		}
+		_, err = platformAuthCmd.Execute(transport.FromReadWriter(client.conn))
+		require.NoError(err)
+
+		// Attempt to clear - this should trigger fallback behavior
+		err = client.Clear()
+		require.Error(err) // a tpm2.Clear failure should be result in an overall failure even if we manage to clean up portions
+
+		// Verify all handles are cleared despite tpm2.Clear failing
+		require.Nil(client.srk, "SRK should be nil after fallback clear")
+		require.Nil(client.ldevid, "LDevID should be nil after fallback clear")
+		require.Nil(client.lak, "LAK should be nil after fallback clear")
+		require.Nil(client.ldevidPub, "LDevID public key should be nil after fallback clear")
+		require.Nil(client.storageHierarchyAuth, "Storage hierarchy auth should be nil after fallback clear")
+
+		// Verify that handles were actually different before clearing
+		require.NotNil(initialSRK, "Initial SRK should have been set")
+		require.NotNil(initialLDevID, "Initial LDevID should have been set")
+		require.NotNil(initialLDevIDPub, "Initial LDevID public key should have been set")
+		require.NotNil(initialAuth, "Initial auth should have been set")
+
+		// Verify persistence was cleared even when tpm2.Clear failed
+		_, err = client.persistence.loadPassword()
+		require.Error(err, "Sealed password should be cleared even during fallback")
+		require.Contains(err.Error(), "no sealed password data found")
+
+		// Verify storage hierarchy password was reset during fallback
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.False(authSet, "Storage hierarchy auth should be cleared during fallback")
+
+		// Verify we can still re-initialize after fallback clear
+		password, err := client.ownership.ensureStorageHierarchyPassword()
+		require.NoError(err)
+		require.NotNil(password)
+		client.storageHierarchyAuth = password
+
+		// Re-generate SRK after fallback
+		_, err = client.generateSRKPrimary()
+		require.NoError(err)
+		require.NotNil(client.srk)
+	})
+}
