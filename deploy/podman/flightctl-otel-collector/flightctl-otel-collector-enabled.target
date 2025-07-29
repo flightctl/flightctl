@@ -1,0 +1,45 @@
+[Unit]
+Description=Flight Control Services Group with OpenTelemetry Collector
+
+# Wants= directives starts these services with this unit (soft dependency).
+# After= directives delays this unit until these services start.
+#
+# Note: The exact startup order among the services is controlled by
+# additional directives defined within the .container files
+Wants=flightctl-network.service
+Wants=flightctl-db.service
+Wants=flightctl-kv.service
+Wants=flightctl-api-init.service
+Wants=flightctl-api.service
+Wants=flightctl-worker.service
+Wants=flightctl-periodic.service
+Wants=flightctl-alert-exporter.service
+Wants=flightctl-alertmanager.service
+Wants=flightctl-alertmanager-proxy-init.service
+Wants=flightctl-alertmanager-proxy.service
+Wants=flightctl-ui-init.service
+Wants=flightctl-ui.service
+Wants=flightctl-cli-artifacts-init.service
+Wants=flightctl-cli-artifacts.service
+Wants=flightctl-otel-collector.service
+
+After=network.target
+After=flightctl-network.service
+After=flightctl-db.service
+After=flightctl-kv.service
+After=flightctl-api-init.service
+After=flightctl-api.service
+After=flightctl-worker.service
+After=flightctl-periodic.service
+After=flightctl-alert-exporter.service
+After=flightctl-alertmanager.service
+After=flightctl-alertmanager-proxy-init.service
+After=flightctl-alertmanager-proxy.service
+After=flightctl-ui-init.service
+After=flightctl-ui.service
+After=flightctl-cli-artifacts-init.service
+After=flightctl-cli-artifacts.service
+After=flightctl-otel-collector.service
+
+[Install]
+WantedBy=multi-user.target 

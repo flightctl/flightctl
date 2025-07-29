@@ -60,7 +60,7 @@ data:
             externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         {{- end }}
     {{ end }}
-    {{ if .Values.prometheus.enabled }}
+    {{ if .Values.otelCollector.prometheus.enabled }}
     prometheus:
         address: ":15690"
         sloMax: 4.0

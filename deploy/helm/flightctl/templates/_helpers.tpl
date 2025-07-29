@@ -112,6 +112,25 @@
   {{- end }}
 {{- end }}
 
+{{- define "flightctl.getOtelCollectorUrl" }}
+  {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
+  {{- $scheme := (include "flightctl.getHttpScheme" . )}}
+  {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
+  {{- if eq $exposeMethod "nodePort" }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.otelCollector }} 
+  {{- else if eq $exposeMethod "gateway" }}
+    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80))}}
+      {{- printf "%s://otel-collector.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }}
+    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gatewayPorts.tls) 443))}}
+      {{- printf "%s://otel-collector.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
+    {{- else }}
+      {{- printf "%s://otel-collector.%s" $scheme $baseDomain }}
+    {{- end }}
+  {{- else }}
+    {{- printf "%s://otel-collector.%s" $scheme $baseDomain }}
+  {{- end }}
+{{- end }}
+
 {{/*
 Generates a random alphanumeric password in the format xxxxx-xxxxx-xxxxx-xxxxx.
 */}}

@@ -2,7 +2,6 @@ global:
   nodePorts:
     registry: ""
     gitserver: ""
-    prometheus: ""
     jaegerUi: ""
   imagePullPolicy: IfNotPresent
   imagePullSecretName: ""
@@ -13,8 +12,6 @@ registry:
   hostName: ""
 gitserver:
   image: localhost/git-server:latest
-prometheus:
-  image: quay.io/prometheus/prometheus:v2.54.1
 jaeger:
   enabled: false
   image:

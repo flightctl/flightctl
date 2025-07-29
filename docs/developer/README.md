@@ -138,10 +138,20 @@ bin/devicesimulator --count=100
 
 ## Metrics
 
-Start the observability stack:
+Prometheus is now deployed as part of the main FlightCtl chart (when not in ACM environment). To access metrics:
+
+```
+# For development environments, Prometheus is enabled by default
+make deploy
+
+# The Prometheus web UI is accessible via the configured service exposure method:
+# - NodePort: http://localhost:9090 (in dev environments with exposeServicesMethod: "nodePort")
+# - Route: https://prometheus.<baseDomain> (in OpenShift with exposeServicesMethod: "route")
+# - Gateway: https://prometheus.<baseDomain> (with Gateway API and exposeServicesMethod: "gateway")
+```
+
+For e2e testing, the observability stack is still available:
 
 ```
 make deploy-e2e-extras
 ```
-
-The Prometheus web UI is then accessible on `http://localhost:9090`
