@@ -414,7 +414,11 @@ echo "Flightctl Observability Stack uninstalled."
     SOURCE_GIT_TREE_STATE=clean \
     SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'[-~]g' '{print $2}') \
     SOURCE_GIT_TAG_NO_V=%{version} \
-    make build-cli build-agent
+    %if 0%{?rhel} == 9
+        make build-cli build-agent
+    %else
+        DISABLE_FIPS="true" make build-cli build-agent
+    %endif
 
     # SELinux modules build
     make --directory packaging/selinux
