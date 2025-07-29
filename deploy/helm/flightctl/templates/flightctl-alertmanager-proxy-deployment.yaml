@@ -7,7 +7,7 @@ metadata:
   labels:
     flightctl.service: flightctl-alertmanager-proxy
   name: flightctl-alertmanager-proxy
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
@@ -47,7 +47,7 @@ spec:
             - name: HOME
               value: "/root"
             - name: ALERTMANAGER_URL
-              value: "http://flightctl-alertmanager:9093"
+              value: "http://flightctl-alertmanager.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:9093"
             {{- if eq .Values.global.auth.type "none" }}
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
@@ -96,6 +96,7 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
+                optional: true
               {{- if or (and .Values.global.auth .Values.global.auth.caCert) (and .Values.auth .Values.auth.caCert) }}
               - key: ca_oidc.crt
                 path: ca_oidc.crt
