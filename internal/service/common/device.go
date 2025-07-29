@@ -211,7 +211,7 @@ func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context
 		}
 
 		device.Status.Updated.Info = lo.ToPtr(errorMessage)
-		return device.Status.Updated.Status != lastUpdateStatus, deviceUpdates
+		return device.Status.Updated.Status != lastUpdateStatus
 	}
 	if device.IsManaged() {
 		_, fleetName, err := util.GetResourceOwner(device.Metadata.Owner)
