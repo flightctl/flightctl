@@ -347,10 +347,10 @@ func populateConditionTimestamps(newCSR, oldCSR *api.CertificateSigningRequest) 
 }
 
 func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *api.CertificateSigningRequest) error {
-	if csr.Spec.SignerName == h.ca.Cfg.ClientBootstrapSignerName {
-		return nil
+	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+		return fmt.Errorf("signer name %q is not allowed in CertificateSigningRequest service; use the EnrollmentRequest API instead", csr.Spec.SignerName)
 	}
-	return fmt.Errorf("signer %q not allowed for CSR service", csr.Spec.SignerName)
+	return nil
 }
 
 // callbackCertificateSigningRequestUpdated is the certificate signing request-specific callback that handles CSR events
