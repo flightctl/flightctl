@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rg:*)",
+      "Bash(go build:*)",
+      "Bash(systemctl:*)",
+      "Bash(podman build:*)",
+      "Bash(podman run:*)",
+      "Bash(./scripts/run-integration-tests-container.sh:*)",
+      "Bash(find:*)"
+    ],
+    "deny": []
+  }
+}
