@@ -53,6 +53,7 @@ files_read_usr_files(flightctl_agent_t)
 files_read_boot_files(flightctl_agent_t)
 files_read_generic_pids(flightctl_agent_t)
 files_read_var_lib_files(flightctl_agent_t)
+files_manage_var_files(flightctl_agent_t)
 
 # /etc management
 manage_dirs_pattern(flightctl_agent_t, etc_t, etc_t)

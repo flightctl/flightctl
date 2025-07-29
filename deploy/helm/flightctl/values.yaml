@@ -172,10 +172,10 @@ ui:
   enabled: true
   api:
     insecureSkipTlsVerify: true
-secretsJob:
+cleanupJob:
   image:
-    image: quay.io/openshift/origin-cli
-    tag: "4.20.0"
+    image: registry.k8s.io/kubectl
+    tag: "v1.33.0"
     pullPolicy: ""
 dbSetup:
   image:
