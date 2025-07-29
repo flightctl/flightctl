@@ -20,6 +20,7 @@ spec:
       labels:
         flightctl.service: flightctl-alertmanager-proxy
     spec:
+      serviceAccountName: flightctl-alertmanager-proxy
       initContainers:
         - name: init-certs
           image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
