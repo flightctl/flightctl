@@ -16,6 +16,7 @@ import (
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	client0 "github.com/flightctl/flightctl/internal/client"
+	tpm "github.com/flightctl/flightctl/internal/tpm"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -170,4 +171,110 @@ func (m *MockProvider) WipeCredentials() error {
 func (mr *MockProviderMockRecorder) WipeCredentials() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WipeCredentials", reflect.TypeOf((*MockProvider)(nil).WipeCredentials))
+}
+
+// MockTPMProvider is a mock of TPMProvider interface.
+type MockTPMProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockTPMProviderMockRecorder
+}
+
+// MockTPMProviderMockRecorder is the mock recorder for MockTPMProvider.
+type MockTPMProviderMockRecorder struct {
+	mock *MockTPMProvider
+}
+
+// NewMockTPMProvider creates a new mock instance.
+func NewMockTPMProvider(ctrl *gomock.Controller) *MockTPMProvider {
+	mock := &MockTPMProvider{ctrl: ctrl}
+	mock.recorder = &MockTPMProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockTPMProvider) EXPECT() *MockTPMProviderMockRecorder {
+	return m.recorder
+}
+
+// GetEKCert mocks base method.
+func (m *MockTPMProvider) GetEKCert() ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEKCert")
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEKCert indicates an expected call of GetEKCert.
+func (mr *MockTPMProviderMockRecorder) GetEKCert() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEKCert", reflect.TypeOf((*MockTPMProvider)(nil).GetEKCert))
+}
+
+// GetTCGAttestation mocks base method.
+func (m *MockTPMProvider) GetTCGAttestation() (*tpm.AttestationBundle, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTCGAttestation")
+	ret0, _ := ret[0].(*tpm.AttestationBundle)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTCGAttestation indicates an expected call of GetTCGAttestation.
+func (mr *MockTPMProviderMockRecorder) GetTCGAttestation() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTCGAttestation", reflect.TypeOf((*MockTPMProvider)(nil).GetTCGAttestation))
+}
+
+// GetTPMCertifyCert mocks base method.
+func (m *MockTPMProvider) GetTPMCertifyCert() ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTPMCertifyCert")
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTPMCertifyCert indicates an expected call of GetTPMCertifyCert.
+func (mr *MockTPMProviderMockRecorder) GetTPMCertifyCert() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTPMCertifyCert", reflect.TypeOf((*MockTPMProvider)(nil).GetTPMCertifyCert))
+}
+
+// MockTPMCapable is a mock of TPMCapable interface.
+type MockTPMCapable struct {
+	ctrl     *gomock.Controller
+	recorder *MockTPMCapableMockRecorder
+}
+
+// MockTPMCapableMockRecorder is the mock recorder for MockTPMCapable.
+type MockTPMCapableMockRecorder struct {
+	mock *MockTPMCapable
+}
+
+// NewMockTPMCapable creates a new mock instance.
+func NewMockTPMCapable(ctrl *gomock.Controller) *MockTPMCapable {
+	mock := &MockTPMCapable{ctrl: ctrl}
+	mock.recorder = &MockTPMCapableMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockTPMCapable) EXPECT() *MockTPMCapableMockRecorder {
+	return m.recorder
+}
+
+// GetTPM mocks base method.
+func (m *MockTPMCapable) GetTPM() (TPMProvider, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTPM")
+	ret0, _ := ret[0].(TPMProvider)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetTPM indicates an expected call of GetTPM.
+func (mr *MockTPMCapableMockRecorder) GetTPM() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTPM", reflect.TypeOf((*MockTPMCapable)(nil).GetTPM))
 }

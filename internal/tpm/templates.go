@@ -16,7 +16,7 @@ var (
 			FixedParent:          true,  //true = can't be re-parented
 			SensitiveDataOrigin:  true,  //true = TPM generates all sensitive data during creation
 			UserWithAuth:         true,  //true = pw or hmac can be used in addition to authpolicy
-			AdminWithPolicy:      true,  //true = authValue cannot be used for auth
+			AdminWithPolicy:      false, //false = authValue CAN be used for auth (like LAK)
 			NoDA:                 false, //true = there are dictionary attack protections
 			EncryptedDuplication: false, //true = there are more robust protections for duplication
 			Restricted:           false, //true = cannot be used to sign data from outside tpm

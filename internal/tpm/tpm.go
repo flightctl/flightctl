@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -13,6 +14,18 @@ import (
 
 const (
 	MinNonceLength = 8
+
+	// TPM 2.0 Capability Constants (TPM 2.0 Specification Part 2, Rev 1.65, Section 6.5)
+	// TPMCapTPMProperties represents capability for TPM properties
+	TPMCapTPMProperties = 0x00000006
+	// TPMPTFamilyIndicator represents the TPM family indicator property
+	TPMPTFamilyIndicator = 0x0100
+
+	// NVRAM Certificate Wrapper Constants (TCG PC Client Platform TPM Profile v1.05 Rev 14, §7.3.2)
+	// NVRAMCertPrefixLength is the length of the NVRAM certificate prefix
+	NVRAMCertPrefixLength = 3
+	// NVRAMCertHeaderLength is the total length of the NVRAM certificate header
+	NVRAMCertHeaderLength = 5
 
 	// TPM Handle Ranges
 	// PersistentHandleMin is the minimum valid persistent handle value.
@@ -25,6 +38,12 @@ const (
 	versionPathTemplate = "/sys/class/tpm/%s/tpm_version_major"
 	sysClassPath        = "/sys/class/tpm"
 	sysFsPathTemplate   = "/sys/class/tpm/%s"
+)
+
+var (
+	// NVRAMCertPrefix is the 3-byte prefix for certificates stored in TPM NVRAM
+	// Per TCG PC Client Platform TPM Profile v1.05 Rev 14, Section 7.3.2
+	NVRAMCertPrefix = []byte{0x10, 0x01, 0x00}
 )
 
 // TPM represents a TPM device and its associated file paths.
@@ -58,7 +77,7 @@ func (t *TPM) ValidateVersion2() error {
 	}
 	versionStr := string(bytes.TrimSpace(versionBytes))
 	if versionStr != "2" {
-		return fmt.Errorf("TPM is not version 2.0. Found version: %s", versionStr)
+		return fmt.Errorf("TPM is not version 2.0. Found version: %s (FlightCtl requires TPM 2.0)", versionStr)
 	}
 	return nil
 }
@@ -112,17 +131,25 @@ func resolveDefault(rw fileio.ReadWriter, logger *log.PrefixLogger) (*TPM, error
 
 	logger.Debugf("Found %d TPMs", len(tpms))
 
+	var versionErrors []string
 	for _, tpm := range tpms {
 		logger.Debugf("Trying TPM %q at %q", tpm.index, tpm.resourceMgrPath)
 		if tpm.Exists() {
 			logger.Debugf("Device %q exists, validating version", tpm.index)
 			if err := tpm.ValidateVersion2(); err == nil {
 				return &tpm, nil
+			} else {
+				logger.Debugf("Device %q validation failed: %v", tpm.index, err)
+				versionErrors = append(versionErrors, fmt.Sprintf("TPM %s: %v", tpm.index, err))
 			}
-			logger.Debugf("Device %q validation failed: %v", tpm.index, err)
 		} else {
 			logger.Debugf("Device %q does not exist", tpm.index)
 		}
+	}
+
+	if len(versionErrors) > 0 {
+		logger.Warnf("Found TPM devices but none are version 2.0: %v", versionErrors)
+		return nil, fmt.Errorf("no valid TPM 2.0 devices found (detected: %s)", strings.Join(versionErrors, ", "))
 	}
 
 	return nil, fmt.Errorf("no valid TPM 2.0 devices found")

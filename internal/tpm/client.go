@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/asn1"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
+	"google.golang.org/protobuf/proto"
 	"sigs.k8s.io/yaml"
 )
 
@@ -74,6 +76,11 @@ func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config
 		return nil, fmt.Errorf("failed to open TPM device at %s: %w", tpm.resourceMgrPath, err)
 	}
 
+	if err := validateTPM2Device(conn, log); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("TPM version validation failed: %w", err)
+	}
+
 	client := &Client{
 		rmPath:  tpm.resourceMgrPath,
 		rw:      rw,
@@ -101,7 +108,7 @@ func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config
 		return nil, fmt.Errorf("reading LDevID public key: %w", err)
 	}
 
-	// Create Local Attestation Key
+	// create Local Attestation Key (LAK)
 	lak, err := client.CreateLAK()
 	if err != nil {
 		_ = client.Close(ctx)
@@ -112,12 +119,30 @@ func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config
 	return client, nil
 }
 
+// validateTPM2Device validates that the connected device is actually TPM 2.0
+func validateTPM2Device(conn io.ReadWriteCloser, log *log.PrefixLogger) error {
+	getCapCmd := tpm2.GetCapability{
+		Capability:    TPMCapTPMProperties,
+		Property:      TPMPTFamilyIndicator,
+		PropertyCount: 1,
+	}
+
+	_, err := getCapCmd.Execute(transport.FromReadWriter(conn))
+	if err != nil {
+		log.Debugf("TPM GetCapability command failed: %v", err)
+		return fmt.Errorf("device is not a TPM 2.0 device: %w", err)
+	}
+
+	log.Debugf("TPM 2.0 validation successful")
+	return nil
+}
+
 // GetPath returns the TPM device path.
 func (t *Client) GetPath() string {
 	return t.sysPath
 }
 
-// GetLocalAttestationPubKey returns the public key of the Local Attestation Key.
+// GetLocalAttestationPubKey returns the public key of the Local Attestation Key (LAK).
 func (t *Client) GetLocalAttestationPubKey() crypto.PublicKey {
 	if t.lak == nil {
 		return nil
@@ -170,21 +195,42 @@ func (t *Client) AttestationCollector(ctx context.Context) string {
 		}
 		return ""
 	}
-	if t.lak == nil {
+
+	// Use TCG-compliant attestation for system info
+	bundle, err := t.GetTCGCompliantAttestation(t.currNonce)
+	if err != nil {
 		if t.log != nil {
-			t.log.Errorf("Cannot get TPM attestation: LAK is not available")
+			t.log.Errorf("Unable to get TCG attestation: %v", err)
 		}
 		return ""
 	}
 
-	att, err := t.GetAttestation(t.currNonce, t.lak)
-	if err != nil {
-		if t.log != nil {
-			t.log.Errorf("Unable to get TPM attestation: %v", err)
-		}
-		return ""
+	// Convert to string representation for system info
+	return fmt.Sprintf("TCG Attestation Bundle: EK=%d bytes, LAK=%d bytes, LDevID=%d bytes",
+		len(bundle.EKCert), len(bundle.LAKCertifyInfo), len(bundle.LDevIDCertifyInfo))
+}
+
+// GetAttestationBytes returns TPM attestation as raw bytes for enrollment requests.
+//
+// Deprecated: Use GetTCGAttestationBytes() instead for spec-compliant attestation.
+// This method wraps the deprecated GetAttestation() method.
+func (t *Client) GetAttestationBytes(nonce []byte) ([]byte, error) {
+	if t == nil {
+		return nil, fmt.Errorf("TPM client is nil")
 	}
-	return att.String()
+	if t.conn == nil {
+		return nil, fmt.Errorf("TPM connection is unavailable")
+	}
+	if t.lak == nil {
+		return nil, fmt.Errorf("LAK is not available")
+	}
+
+	att, err := t.GetAttestation(nonce, t.lak)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get TPM attestation: %w", err)
+	}
+
+	return proto.Marshal(att)
 }
 
 // Close closes the TPM connection and flushes any transient handles.
@@ -195,13 +241,12 @@ func (t *Client) Close(ctx context.Context) error {
 	}
 	var errs []error
 
-	// Close LAK if it exists
 	if t.lak != nil {
 		t.lak.Close()
 		t.lak = nil
 	}
 
-	// Flush transient handles before closing
+	// flush transient handles before closing
 	if t.srk != nil {
 		if err := t.flushContextForHandle(t.srk.Handle); err != nil {
 			errs = append(errs, fmt.Errorf("flushing SRK handle: %w", err))
@@ -290,6 +335,9 @@ func (t *Client) CreateLAK() (*client.Key, error) {
 
 // GetAttestation generates a TPM attestation using the provided nonce and attestation key.
 // The nonce must be at least MinNonceLength bytes long for security.
+//
+// Deprecated: Use GetTCGCompliantAttestation() instead for spec-compliant attestation.
+// This method uses go-tpm-tools' simplified attestation which doesn't follow TCG spec patterns.
 func (t *Client) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attestation, error) {
 	// TODO - may want to use CertChainFetcher in the AttestOpts in the future
 	// see https://pkg.go.dev/github.com/google/go-tpm-tools/client#AttestOpts
@@ -431,6 +479,27 @@ type ecdsaSignature struct {
 	S *big.Int
 }
 
+// endorsementKey gets an endorsement key (RSA or ECC) without requiring certificates
+func (t *Client) endorsementKey() (*client.Key, error) {
+	if t.conn == nil {
+		return nil, fmt.Errorf("no connection available")
+	}
+
+	// Try RSA endorsement key first
+	key, err := client.EndorsementKeyRSA(t.conn)
+	if err == nil {
+		return key, nil
+	}
+
+	// Try ECC endorsement key if RSA fails
+	key, err = client.EndorsementKeyECC(t.conn)
+	if err == nil {
+		return key, nil
+	}
+
+	return nil, fmt.Errorf("failed to get endorsement key: no RSA or ECC endorsement key available")
+}
+
 func (t *Client) endorsementKeyCert() (*client.Key, error) {
 	if t.conn == nil {
 		return nil, fmt.Errorf("cannot read endorsement key certificate: no connection available")
@@ -442,14 +511,24 @@ func (t *Client) endorsementKeyCert() (*client.Key, error) {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("reading rsa endorsement %w", err))
 	} else {
-		return key, nil
+		if certData := key.CertDERBytes(); len(certData) > 0 {
+			return key, nil
+		}
+		// prevent resource leak if the key has no certificate data
+		key.Close()
+		errs = append(errs, fmt.Errorf("RSA endorsement key has no certificate data"))
 	}
 
 	key, err = client.EndorsementKeyECC(t.conn)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("reading ecc endorsement %w", err))
 	} else {
-		return key, nil
+		if certData := key.CertDERBytes(); len(certData) > 0 {
+			return key, nil
+		}
+		// prevent resource leak if the key has no certificate data
+		key.Close()
+		errs = append(errs, fmt.Errorf("ECC endorsement key has no certificate data"))
 	}
 	return nil, errors.Join(errs...)
 }
@@ -459,14 +538,27 @@ func (t *Client) EndorsementKeyCert() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading cert: %w", err)
 	}
-	return key.CertDERBytes(), nil
+
+	// always close the key to prevent resource leaks
+	certData := key.CertDERBytes()
+	key.Close()
+
+	if len(certData) == 0 {
+		t.log.Warnf("TPM Endorsement Key certificate is empty - this TPM may not have an embedded EK certificate")
+		return nil, fmt.Errorf("endorsement key certificate is empty - this TPM may not have an embedded EK certificate")
+	}
+
+	return certData, nil
 }
 
 func (t *Client) EndorsementKeyPublic() ([]byte, error) {
-	key, err := t.endorsementKeyCert()
+	key, err := t.endorsementKey()
 	if err != nil {
-		return nil, fmt.Errorf("reading cert: %w", err)
+		return nil, fmt.Errorf("reading endorsement key: %w", err)
 	}
+	// Always close the key to prevent resource leaks
+	defer key.Close()
+
 	res, err := key.PublicArea().Encode()
 	if err != nil {
 		return nil, fmt.Errorf("encoding public key: %w", err)
@@ -607,6 +699,28 @@ func (t *Client) ensureLDevID(path string) (*tpm2.NamedHandle, error) {
 		return t.loadLDevIDFromBlob(createRsp.OutPublic, createRsp.OutPrivate)
 	}
 
-	// File exists but couldn't be loaded (corrupted, invalid format, etc.)
+	// File exists but couldn't be loaded
 	return nil, fmt.Errorf("loading blob from file %s: %w", path, err)
+}
+
+// GetTCGAttestationBytes returns a TCG compliant attestation bundle in serialized form
+// This provides all the required attestation data according to TCG spec requirements
+func (t *Client) GetTCGAttestationBytes(qualifyingData []byte) ([]byte, error) {
+	bundle, err := t.GetTCGCompliantAttestation(qualifyingData)
+	if err != nil {
+		return nil, fmt.Errorf("getting TCG compliant attestation: %w", err)
+	}
+
+	data, err := json.Marshal(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling attestation bundle: %w", err)
+	}
+
+	return data, nil
+}
+
+// GetTCGAttestation returns the full TCG compliant attestation bundle
+// This includes EK certificate, LAK/LDevID certify operations, and public keys
+func (t *Client) GetTCGAttestation(nonce []byte) (*AttestationBundle, error) {
+	return t.GetTCGCompliantAttestation(nonce)
 }

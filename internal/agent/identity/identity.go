@@ -37,7 +37,7 @@ type Provider interface {
 	GetDeviceName() (string, error)
 	// GenerateCSR creates a certificate signing request using this identity
 	GenerateCSR(deviceName string) ([]byte, error)
-	// StoreCertificate stores/persists the certificate received from enrollment.
+	// StoreCertificate stores/persists the certificate received from enrollment
 	StoreCertificate(certPEM []byte) error
 	// HasCertificate returns true if the provider has a certificate available
 	HasCertificate() bool
@@ -45,10 +45,29 @@ type Provider interface {
 	CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error)
 	// CreateGRPCClient creates a fully configured gRPC client with this identity
 	CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error)
-	// WipeCredentials securely removes all stored credentials (certificates and keys)
+	// WipeCredentials securely removes all stored credentials
 	WipeCredentials() error
 	// Close cleans up any resources used by the provider
 	Close(ctx context.Context) error
+}
+
+// TPMProvider defines the interface for TPM-specific operations
+// This allows identity providers to optionally expose TPM functionality
+// without polluting the main identity provider interface
+type TPMProvider interface {
+	// GetEKCert returns the TPM Endorsement Key certificate (EK cert) if available
+	GetEKCert() ([]byte, error)
+	// GetTPMCertifyCert returns the TPM certify certificate that proves the LDevID was created by the TPM
+	GetTPMCertifyCert() ([]byte, error)
+	// GetTCGAttestation returns the complete TCG compliant attestation bundle
+	GetTCGAttestation() (*tpm.AttestationBundle, error)
+}
+
+// TPMCapable is an optional interface that identity providers can implement
+// to expose TPM functionality
+type TPMCapable interface {
+	// GetTPM returns the TPM provider if available, nil otherwise
+	GetTPM() (TPMProvider, bool)
 }
 
 // NewProvider creates an identity provider

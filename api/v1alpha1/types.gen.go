@@ -988,8 +988,29 @@ type EnrollmentRequestSpec struct {
 	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	DeviceStatus *DeviceStatus `json:"deviceStatus,omitempty"`
 
+	// EkCertificate X.509 public certificate for the TPM Endorsement Key (EK), issued by a trusted manufacturer CA.
+	EkCertificate *string `json:"ekCertificate,omitempty"`
+
 	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`
+
+	// LakCertifyInfo Base64-encoded TPM2_Certify attestation info for Local Attestation Key (LAK) signed by AK.
+	LakCertifyInfo *string `json:"lakCertifyInfo,omitempty"`
+
+	// LakCertifySignature Base64-encoded TPM2_Certify signature over LAK attestation info, made by AK.
+	LakCertifySignature *string `json:"lakCertifySignature,omitempty"`
+
+	// LakPublicKey Base64-encoded DER public key of the Local Attestation Key (LAK).
+	LakPublicKey *string `json:"lakPublicKey,omitempty"`
+
+	// LdevidCertifyInfo Base64-encoded TPM2_Certify attestation info for Local Device Identity (LDevID) signed by AK.
+	LdevidCertifyInfo *string `json:"ldevidCertifyInfo,omitempty"`
+
+	// LdevidCertifySignature Base64-encoded TPM2_Certify signature over LDevID attestation info, made by AK.
+	LdevidCertifySignature *string `json:"ldevidCertifySignature,omitempty"`
+
+	// LdevidPublicKey Base64-encoded DER public key of the Local Device Identity (LDevID). Must match CSR public key.
+	LdevidPublicKey *string `json:"ldevidPublicKey,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.

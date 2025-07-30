@@ -1,9 +1,13 @@
 package identity
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/asn1"
+	"encoding/binary"
 	"encoding/pem"
 	"fmt"
 	"net/http"
@@ -24,6 +28,8 @@ import (
 )
 
 var _ Provider = (*tpmProvider)(nil)
+var _ TPMCapable = (*tpmProvider)(nil)
+var _ TPMProvider = (*tpmProvider)(nil)
 
 // tpmProvider implements identity management using TPM-based keys
 type tpmProvider struct {
@@ -51,7 +57,17 @@ func (t *tpmProvider) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	if err := t.client.UpdateNonce(make([]byte, 8)); err != nil {
+	// Generate a cryptographically secure random nonce for TPM operations
+	// Per TPM 2.0 specification Part 1 Rev 1.59, Section 10.4.2: "The nonce provides
+	// replay protection and ensures attestation freshness"
+	nonce := make([]byte, 8) // MinNonceLength from TPM client
+	if _, err := rand.Read(nonce); err != nil {
+		t.log.Warnf("Failed to generate secure nonce, using fallback: %v", err)
+		// Fallback to zero nonce if crypto/rand fails (should be extremely rare)
+		nonce = make([]byte, 8)
+	}
+
+	if err := t.client.UpdateNonce(nonce); err != nil {
 		t.log.Warnf("Failed to update TPM nonce: %v", err)
 	}
 	return nil
@@ -203,9 +219,149 @@ func (t *tpmProvider) WipeCredentials() error {
 	return nil
 }
 
+// GetEKCert returns the EK certificate in PEM format
+func (t *tpmProvider) GetEKCert() ([]byte, error) {
+	der, err := t.client.EndorsementKeyCert()
+	if err != nil {
+		return nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: der,
+	}), nil
+}
+
+// GetCertifyCert returns the certify certificate in PEM format
+func (t *tpmProvider) GetCertifyCert() ([]byte, error) {
+	pub := t.client.Public()
+	return fccrypto.PEMEncodePublicKey(pub)
+}
+
+// GetTPMCertifyCert returns the TPM attestation report that proves the LDevID was created by the TPM
+// Now uses TCG compliant attestation with EK->LAK and EK->LDevID certify operations
+func (t *tpmProvider) GetTPMCertifyCert() ([]byte, error) {
+	if t.client == nil {
+		return nil, fmt.Errorf("TPM client not initialized")
+	}
+
+	// Generate cryptographically secure qualifying data (nonce) for attestation freshness
+	// Per TCG TPM 2.0 Keys for Device Identity and Attestation v1.0 Rev 12, Section 5.2:
+	// "The qualifying data (nonce) provides replay protection and ensures attestation freshness"
+	qualifyingData := make([]byte, 16) // Use 16 bytes for enhanced security
+	if _, err := rand.Read(qualifyingData); err != nil {
+		return nil, fmt.Errorf("failed to generate secure qualifying data: %w", err)
+	}
+
+	// Use the new TCG compliant attestation method
+	return t.client.GetTCGAttestationBytes(qualifyingData)
+}
+
+// GetTCGAttestation returns the complete TCG compliant attestation bundle
+// This implements TCG TPM 2.0 Keys for Device Identity and Attestation v1.0 Rev 12
+// Section 5: Device Identity and Attestation Architecture
+func (t *tpmProvider) GetTCGAttestation() (*tpm.AttestationBundle, error) {
+	if t.client == nil {
+		return nil, fmt.Errorf("TPM client not initialized")
+	}
+
+	nonce := make([]byte, 16) // Use 16 bytes for enhanced security
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("failed to generate secure qualifying data: %w", err)
+	}
+
+	return t.client.GetTCGAttestation(nonce)
+}
+
+// GetTPM returns the TPM provider (itself) since this provider supports TPM functionality
+func (t *tpmProvider) GetTPM() (TPMProvider, bool) {
+	return t, true
+}
+
 func (t *tpmProvider) Close(ctx context.Context) error {
 	if t.client != nil {
 		return t.client.Close(ctx)
 	}
 	return nil
+}
+
+func ParseEKCertificate(ekCert []byte) (*x509.Certificate, error) {
+	var isWrapped bool
+
+	// TCG PC Client Platform TPM Profile Specification v1.05 Rev 14, Section 7.3.2
+	// specifies a prefix when storing a certificate in NVRAM. We look
+	// for and unwrap the certificate if its present.
+	if len(ekCert) > tpm.NVRAMCertHeaderLength && bytes.Equal(ekCert[:tpm.NVRAMCertPrefixLength], tpm.NVRAMCertPrefix) {
+		certLen := int(binary.BigEndian.Uint16(ekCert[tpm.NVRAMCertPrefixLength:tpm.NVRAMCertHeaderLength]))
+		if len(ekCert) < certLen+tpm.NVRAMCertHeaderLength {
+			return nil, fmt.Errorf("parsing nvram header: ekCert size %d smaller than specified cert length %d", len(ekCert), certLen)
+		}
+		ekCert = ekCert[tpm.NVRAMCertHeaderLength : certLen+tpm.NVRAMCertHeaderLength]
+		isWrapped = true
+	}
+
+	cert, err := x509.ParseCertificate(ekCert)
+	if err != nil {
+		// if DER parsing fails, try PEM
+		if !isWrapped {
+			block, _ := pem.Decode(ekCert)
+			if block != nil && block.Type == "CERTIFICATE" {
+				cert, err = x509.ParseCertificate(block.Bytes)
+				if err == nil {
+					return cert, nil
+				}
+			}
+		}
+		return nil, fmt.Errorf("failed to parse EK certificate as DER or PEM: %w", err)
+	}
+
+	return cert, nil
+}
+
+// ValidateEKCertificateChain validates an EK certificate chain while handling TPM-specific critical extensions
+func ValidateEKCertificateChain(cert *x509.Certificate, roots *x509.CertPool) error {
+	// TPM certificates often contain critical extensions that Go's x509 library doesn't recognize.
+
+	// store original unhandled extensions
+	originalUnhandled := make([]asn1.ObjectIdentifier, len(cert.UnhandledCriticalExtensions))
+	copy(originalUnhandled, cert.UnhandledCriticalExtensions)
+
+	removeKnownTPMExtensions(cert)
+
+	// attempt standard validation with full security checks
+	opts := x509.VerifyOptions{
+		Roots:     roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
+	_, err := cert.Verify(opts)
+
+	// restore original unhandled extensions list
+	cert.UnhandledCriticalExtensions = originalUnhandled
+
+	return err
+}
+
+// removeKnownTPMExtensions temporarily removes known TPM critical extensions
+func removeKnownTPMExtensions(cert *x509.Certificate) {
+	// define TPM-specific critical extensions that we can safely ignore during validation
+	// these are commonly found in TPM EK certificates and contain vendor-specific data
+	knownTPMExtensionOIDs := []asn1.ObjectIdentifier{
+		{2, 5, 29, 17}, // Subject Alternative Name (with TPM-specific directoryName content)
+		{2, 5, 29, 19}, // Basic Constraints (sometimes with vendor-specific values)
+	}
+
+	// filter out known TPM extensions from unhandled critical extensions
+	filtered := cert.UnhandledCriticalExtensions[:0] // Reuse slice capacity
+	for _, unhandledOID := range cert.UnhandledCriticalExtensions {
+		isKnownExt := false
+		for _, knownOID := range knownTPMExtensionOIDs {
+			if unhandledOID.Equal(knownOID) {
+				isKnownExt = true
+				break
+			}
+		}
+		if !isKnownExt {
+			filtered = append(filtered, unhandledOID)
+		}
+	}
+	cert.UnhandledCriticalExtensions = filtered
 }

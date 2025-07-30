@@ -58,6 +58,19 @@ func HashPublicKey(key crypto.PublicKey) ([]byte, error) {
 	}
 }
 
+// PublicKeysEqual compares two public keys for equality
+func PublicKeysEqual(key1, key2 crypto.PublicKey) bool {
+	// Convert both keys to their DER representation for comparison
+	der1, err1 := x509.MarshalPKIXPublicKey(key1)
+	der2, err2 := x509.MarshalPKIXPublicKey(key2)
+
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	return bytes.Equal(der1, der2)
+}
+
 func hashECDSAKey(publicKey *ecdsa.PublicKey) []byte {
 	hash := sha256.New()
 	hash.Write(publicKey.X.Bytes())
@@ -148,6 +161,17 @@ func PEMEncodeKey(key crypto.PrivateKey) ([]byte, error) {
 		return nil, fmt.Errorf("failed to encode %s: %w", pemType, err)
 	}
 	return b.Bytes(), nil
+}
+
+func PEMEncodePublicKey(pubKey crypto.PublicKey) ([]byte, error) {
+	der, err := x509.MarshalPKIXPublicKey(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("marshal public key: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: der,
+	}), nil
 }
 
 func LoadKey(keyFile string) (crypto.PrivateKey, error) {
