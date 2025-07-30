@@ -93,14 +93,13 @@ spec:
           secret:
             secretName: flightctl-alertmanager-proxy-certs
             defaultMode: 0440
+            optional: true
             items:
               - key: ca.crt
                 path: ca.crt
-                optional: true
               {{- if or (and .Values.global.auth .Values.global.auth.caCert) (and .Values.auth .Values.auth.caCert) }}
               - key: ca_oidc.crt
                 path: ca_oidc.crt
-                optional: true
               {{- end }}
         - name: flightctl-alertmanager-proxy-config
           configMap:
