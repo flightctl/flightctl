@@ -182,3 +182,7 @@ func (p *persistence) clearPassword() error {
 		blob.Password = nil
 	})
 }
+
+func (p *persistence) erase() error {
+	return p.rw.RemoveFile(p.path)
+}

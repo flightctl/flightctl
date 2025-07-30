@@ -59,7 +59,7 @@ const (
 	// DefaultTPMDevicePath is the default TPM device path
 	DefaultTPMDevicePath = "/dev/tpm0"
 	// DefaultTPMKeyBlobFile is the default filename for TPM key blob persistence
-	DefaultTPMKeyBlobFile = "ldevid-blob.yaml"
+	DefaultTPMKeyBlobFile = "tpm-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
