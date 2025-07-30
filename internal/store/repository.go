@@ -141,7 +141,7 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	repository := model.Repository{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.getDB(ctx).Where("spec IS NOT NULL").First(&repository)
+	result := s.getDB(ctx).Where("spec IS NOT NULL").Take(&repository)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}

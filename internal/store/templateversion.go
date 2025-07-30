@@ -100,7 +100,7 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 		FleetName: fleet,
 		Name:      name,
 	}
-	result := s.getDB(ctx).First(&templateVersion)
+	result := s.getDB(ctx).Take(&templateVersion)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}

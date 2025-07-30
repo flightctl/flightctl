@@ -8,6 +8,7 @@ This document provides comprehensive security guidelines for deploying and opera
 - [Authentication and Authorization](#authentication-and-authorization)
 - [Data Protection](#data-protection)
 - [Network Security](#network-security)
+  - [Rate Limiting](#rate-limiting)
 - [Device Security](#device-security)
 - [Database Security](#database-security)
 - [Logging and Auditing](#logging-and-auditing)
@@ -175,6 +176,26 @@ Flight Control collects the following data:
 ## Network Security
 
 Flight Control requires specific network ports and firewall configuration. For detailed network requirements, see [Network Requirements](network-requirements.md).
+
+### Rate Limiting
+
+Flight Control implements IP-based rate limiting to protect against abuse and ensure fair usage. Proper configuration is essential for security, especially when using reverse proxies.
+
+#### Rate Limiting Security
+
+- **IP-Based Protection**: Rate limiting is applied per client IP address
+- **Proxy Header Support**: Automatically handles X-Forwarded-For, X-Real-IP, and True-Client-IP headers
+- **Separate Auth Limits**: Stricter rate limits for authentication endpoints
+- **Configurable Limits**: Adjustable limits for different environments
+
+#### Security Considerations
+
+1. **Reverse Proxy Configuration**: When using reverse proxies, ensure they're configured to send real client IPs
+2. **Trusted Proxies**: Only allow trusted reverse proxies to set IP headers
+3. **Network Isolation**: Restrict direct access to the Flight Control API
+4. **Monitor Abuse**: Watch for unusual rate limiting patterns
+
+For detailed rate limiting configuration and reverse proxy setup, see [Rate Limiting](rate-limiting.md).
 
 ### Service Endpoints
 
