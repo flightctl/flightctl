@@ -19,10 +19,8 @@ USER 0
 RUN git config --global --add safe.directory /app
 RUN make build-api
 
-FROM registry.access.redhat.com/ubi9/ubi as certs
-RUN dnf update --nodocs -y  && dnf install ca-certificates tzdata --nodocs -y
 
-FROM registry.access.redhat.com/ubi9/ubi-micro
+FROM quay.io/flightctl/flightctl-base:9.6-1752500771
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-api-container" \
@@ -31,8 +29,7 @@ LABEL \
   io.k8s.display-name="Flight Control API Server" \
   name="flightctl-api" \
   summary="Flight Control Edge management API server"
+
 COPY --from=build /app/bin/flightctl-api .
-COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
-COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
 
 CMD ./flightctl-api
