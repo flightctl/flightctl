@@ -174,8 +174,8 @@ ui:
     insecureSkipTlsVerify: true
 cleanupJob:
   image:
-    image: registry.k8s.io/kubectl
-    tag: "v1.33.0"
+    image: registry.access.redhat.com/ubi9/ubi-minimal
+    tag: "9.6"
     pullPolicy: ""
 dbSetup:
   image:

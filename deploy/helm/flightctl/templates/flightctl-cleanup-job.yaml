@@ -25,15 +25,58 @@ spec:
           args:
             - |
               set -e
-              echo "Starting post-delete cleanup process..."
-              echo "Deleting orphaned PVCs..."
+              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              API="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+
+              # --- JQ Installation ---
+              # Define jq version and download URL (check for latest stable version on GitHub)
+              # As of today, July 30, 2025, 1.7.1 is the latest stable.
+              JQ_VERSION="1.7.1"
+              JQ_URL="https://github.com/stedolan/jq/releases/download/jq-${JQ_VERSION}/jq-linux-amd64"
+              JQ_BIN="/tmp/jq" # Writable directory in the container
+
+              echo "Downloading jq ${JQ_VERSION}..."
+              # Use curl to download the static binary to /tmp/jq
+              curl -sSL "${JQ_URL}" -o "${JQ_BIN}"
+              # Make the downloaded binary executable
+              chmod +x "${JQ_BIN}"
+              echo "jq installed to ${JQ_BIN}"
+              # --- End JQ Installation ---
+
+              delete_pvcs() {
+                namespace="$1"
+                echo "Deleting PVCs in $namespace"
+
+                # List PVCs by label using the downloaded jq binary
+                pvc_list=$("${JQ_BIN}" -r '.items[].metadata.name' <(curl -sSf --cacert "$CACERT" \
+                  -H "Authorization: Bearer $TOKEN" \
+                  "$API/api/v1/namespaces/$namespace/persistentvolumeclaims?labelSelector=flightctl.service=flightctl-kv"))
+
+                for pvc in $pvc_list; do
+                  echo "Deleting $pvc"
+                  curl -s -X DELETE --cacert "$CACERT" \
+                    -H "Authorization: Bearer $TOKEN" \
+                    "$API/api/v1/namespaces/$namespace/persistentvolumeclaims/$pvc"
+                done
+
+                # Delete PVCs by name pattern (using jq and grep)
+                pvc_list=$("${JQ_BIN}" -r '.items[].metadata.name' <(curl -sSf --cacert "$CACERT" \
+                  -H "Authorization: Bearer $TOKEN" \
+                  "$API/api/v1/namespaces/$namespace/persistentvolumeclaims") | grep "flightctl-alertmanager-data-flightctl-alertmanager-")
+
+                for pvc in $pvc_list; do
+                  echo "Deleting $pvc"
+                  curl -s -X DELETE --cacert "$CACERT" \
+                    -H "Authorization: Bearer $TOKEN" \
+                    "$API/api/v1/namespaces/$namespace/persistentvolumeclaims/$pvc"
+                done
+              }
+
               {{- range $ns := $namespaces }}
-              kubectl delete pvc -l flightctl.service=flightctl-kv -n {{ $ns }} --ignore-not-found
-              kubectl get pvc -n {{ $ns }} -o name \
-                | grep "flightctl-alertmanager-data-flightctl-alertmanager-" \
-                | xargs --no-run-if-empty kubectl delete -n {{ $ns }} --ignore-not-found 2>/dev/null || true
+              delete_pvcs {{ $ns }}
               {{- end }}
-              echo "Cleanup completed successfully!"
-              exit 0
+              echo "Cleanup completed"
+              exit 0 
       restartPolicy: Never
       
