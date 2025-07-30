@@ -4746,6 +4746,27 @@ components:
         csr:
           type: string
           description: 'The PEM-encoded PKCS#10 certificate signing request.'
+        ekCertificate:
+          type: string
+          description: 'X.509 public certificate for the TPM Endorsement Key (EK), issued by a trusted manufacturer CA.'
+        lakCertifyInfo:
+          type: string
+          description: 'Base64-encoded TPM2_Certify attestation info for Local Attestation Key (LAK) signed by AK.'
+        lakCertifySignature:
+          type: string
+          description: 'Base64-encoded TPM2_Certify signature over LAK attestation info, made by AK.'
+        ldevidCertifyInfo:
+          type: string
+          description: 'Base64-encoded TPM2_Certify attestation info for Local Device Identity (LDevID) signed by AK.'
+        ldevidCertifySignature:
+          type: string
+          description: 'Base64-encoded TPM2_Certify signature over LDevID attestation info, made by AK.'
+        lakPublicKey:
+          type: string
+          description: 'Base64-encoded DER public key of the Local Attestation Key (LAK).'
+        ldevidPublicKey:
+          type: string
+          description: 'Base64-encoded DER public key of the Local Device Identity (LDevID). Must match CSR public key.'
         deviceStatus:
           $ref: '#/components/schemas/DeviceStatus'
         labels:
