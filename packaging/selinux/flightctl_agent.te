@@ -36,6 +36,7 @@ gen_require(`
     type usr_t;
     type node_t;
     type tpm_device_t, security_t;
+    type unconfined_service_t;
 
     attribute domain;
 ')
@@ -257,3 +258,6 @@ allow flightctl_agent_t rhsmcertd_log_t:dir write;
 allow flightctl_agent_t rhsmcertd_var_lib_t:dir { getattr search };
 allow flightctl_agent_t rhsmcertd_var_run_t:dir write;
 allow flightctl_agent_t usr_t:file write;
+
+# This prevents denials related to bootc, parts of which seem to run as unconfined_service_t.
+allow unconfined_service_t self:capability2 mac_admin;
