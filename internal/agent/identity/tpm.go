@@ -142,6 +142,12 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 		},
 	}
 
+	for _, opt := range configCopy.HTTPOptions {
+		if err = opt(httpClient); err != nil {
+			return nil, fmt.Errorf("applying HTTP option: %w", err)
+		}
+	}
+
 	clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
