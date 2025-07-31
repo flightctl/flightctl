@@ -222,11 +222,16 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	if st, blocked := h.blockedByActiveDevice(ctx, name); blocked {
-		return st
+	exists, err := h.deviceExists(ctx, name)
+	if err != nil {
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
 
-	err := h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
+	if exists {
+		return api.StatusConflict(fmt.Sprintf("cannot delete ER %q: device exists", name))
+	}
+
+	err = h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
 	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
@@ -315,22 +320,14 @@ func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.U
 	return err
 }
 
-func (h *ServiceHandler) blockedByActiveDevice(ctx context.Context, name string) (api.Status, bool) { // status, blocked?
+// deviceExists checks if a device with the given name exists in the store.
+// Error is returned if there is an error other than ErrResourceNotFound.
+func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, error) {
 	dev, err := h.store.Device().Get(ctx, store.NullOrgId, name)
-
-	switch {
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return api.Status{}, false
-
-	case err != nil:
-		return api.StatusInternalServerError(
-			fmt.Sprintf("checking device %q: %v", name, err)), true
-
-	case !dev.IsDecommissioned():
-		return api.StatusConflict(
-			fmt.Sprintf("cannot delete ER %q: device exists and isn’t decommissioned", name)), true
+	if errors.Is(err, flterrors.ErrResourceNotFound) {
+		return false, nil
 	}
-	return api.Status{}, false
+	return dev != nil, err
 }
 
 func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {

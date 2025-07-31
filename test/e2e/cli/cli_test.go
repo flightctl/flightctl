@@ -132,6 +132,11 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(device).ToNot(BeNil())
 
+			By("Attempting to delete the enrollment request for live device")
+			out, err = harness.ManageResource("delete", fmt.Sprintf("er/%s", erName))
+			Expect(err).To(HaveOccurred())
+			Expect(out).To(ContainSubstring("device exists"))
+
 			By("Attempting to reapply the same enrollment request")
 			out, err = harness.ManageResource("apply", erYAMLPath)
 			Expect(err).To(HaveOccurred())

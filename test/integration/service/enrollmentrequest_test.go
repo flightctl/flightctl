@@ -370,64 +370,6 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			Expect(retrieved).ToNot(BeNil())
 		})
 
-		It("should allow deletion when decommissioned device exists", func() {
-			er := CreateTestER()
-			erName := lo.FromPtr(er.Metadata.Name)
-
-			By("creating initial EnrollmentRequest")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
-			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
-			Expect(created).ToNot(BeNil())
-
-			By("creating a device with the same name")
-			device := api.Device{
-				Metadata: api.ObjectMeta{
-					Name: &erName,
-				},
-			}
-			_, deviceStatus := suite.Handler.CreateDevice(suite.Ctx, device)
-			Expect(deviceStatus.Code).To(BeEquivalentTo(http.StatusCreated))
-
-			By("decommissioning the device")
-			decommission := api.DeviceDecommission{
-				Target: api.DeviceDecommissionTargetTypeUnenroll,
-			}
-			_, decommissionStatus := suite.Handler.DecommissionDevice(suite.Ctx, erName, decommission)
-			Expect(decommissionStatus.Code).To(BeEquivalentTo(http.StatusOK))
-
-			By("simulating agent completing decommissioning")
-			// Get the current device to update its status
-			currentDevice, getStatus := suite.Handler.GetDevice(suite.Ctx, erName)
-			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
-
-			// Add condition to mark decommissioning as complete
-			condition := api.Condition{
-				Type:    api.ConditionTypeDeviceDecommissioning,
-				Status:  api.ConditionStatusTrue,
-				Reason:  string(api.DecommissionStateComplete),
-				Message: "Device has completed decommissioning",
-			}
-			api.SetStatusCondition(&currentDevice.Status.Conditions, condition)
-
-			// Update device status to trigger lifecycle status update
-			ctx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			_, updateStatus := suite.Handler.ReplaceDeviceStatus(ctx, erName, *currentDevice)
-			Expect(updateStatus.Code).To(BeEquivalentTo(http.StatusOK))
-
-			// Verify the device is now marked as decommissioned
-			updatedDevice, getStatus := suite.Handler.GetDevice(suite.Ctx, erName)
-			Expect(getStatus.Code).To(BeEquivalentTo(http.StatusOK))
-			Expect(updatedDevice.IsDecommissioned()).To(BeTrue(), "Device should be marked as decommissioned")
-
-			By("deleting the EnrollmentRequest after device is decommissioned")
-			deleteStatus := suite.Handler.DeleteEnrollmentRequest(suite.Ctx, erName)
-			Expect(deleteStatus.Code).To(BeEquivalentTo(http.StatusOK))
-
-			By("verifying the EnrollmentRequest is deleted")
-			_, status = suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
-			Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
-		})
-
 	})
 
 	// POST /api/v1/enrollmentrequests/{name}/approval
