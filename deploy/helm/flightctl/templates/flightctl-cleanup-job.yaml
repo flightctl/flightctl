@@ -19,8 +19,8 @@ spec:
       serviceAccountName: flightctl-cleanup
       containers:
         - name: cleanup
-          image: {{ .Values.secretsJob.image.image }}:{{ .Values.secretsJob.image.tag }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.secretsJob.image.pullPolicy }}
+          image: {{ .Values.cleanupJob.image.image }}:{{ default .Chart.AppVersion .Values.cleanupJob.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.cleanupJob.image.pullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -28,10 +28,10 @@ spec:
               echo "Starting post-delete cleanup process..."
               echo "Deleting orphaned PVCs..."
               {{- range $ns := $namespaces }}
-              oc delete pvc -l flightctl.service=flightctl-kv -n {{ $ns }} --ignore-not-found
-              oc get pvc -n {{ $ns }} -o name \
+              kubectl delete pvc -l flightctl.service=flightctl-kv -n {{ $ns }} --ignore-not-found
+              kubectl get pvc -n {{ $ns }} -o name \
                 | grep "flightctl-alertmanager-data-flightctl-alertmanager-" \
-                | xargs -r oc delete -n {{ $ns }} --ignore-not-found
+                | xargs --no-run-if-empty kubectl delete -n {{ $ns }} --ignore-not-found 2>/dev/null || true
               {{- end }}
               echo "Cleanup completed successfully!"
               exit 0

@@ -13,9 +13,11 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
+	"github.com/google/uuid"
 )
 
 const (
@@ -156,4 +158,12 @@ func ApiStatusToErr(status api.Status) error {
 		return nil
 	}
 	return errors.New(status.Message)
+}
+
+// Extracts organization ID from context with fallback to default
+func getOrgIdFromContext(ctx context.Context) uuid.UUID {
+	if orgId, ok := util.GetOrgIdFromContext(ctx); ok {
+		return orgId
+	}
+	return store.NullOrgId
 }

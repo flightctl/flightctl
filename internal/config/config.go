@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config/ca"
@@ -25,6 +27,17 @@ type Config struct {
 	Prometheus   *prometheusConfig   `json:"prometheus,omitempty"`
 	CA           *ca.Config          `json:"ca,omitempty"`
 	Tracing      *tracingConfig      `json:"tracing,omitempty"`
+	GitOps       *gitOpsConfig       `json:"gitOps,omitempty"`
+}
+
+type RateLimitConfig struct {
+	Requests     int           `json:"requests,omitempty"`     // max requests per window
+	Window       util.Duration `json:"window,omitempty"`       // e.g. "1m" for one minute
+	AuthRequests int           `json:"authRequests,omitempty"` // max auth requests per window
+	AuthWindow   util.Duration `json:"authWindow,omitempty"`   // e.g. "1h" for one hour
+	// TrustedProxies specifies IP addresses/networks that are allowed to set proxy headers
+	// If empty, proxy headers are ignored for security (only direct connection IPs are used)
+	TrustedProxies []string `json:"trustedProxies,omitempty"`
 }
 
 type dbConfig struct {
@@ -40,28 +53,29 @@ type dbConfig struct {
 }
 
 type svcConfig struct {
-	Address                string        `json:"address,omitempty"`
-	AgentEndpointAddress   string        `json:"agentEndpointAddress,omitempty"`
-	CertStore              string        `json:"cert,omitempty"`
-	BaseUrl                string        `json:"baseUrl,omitempty"`
-	BaseAgentEndpointUrl   string        `json:"baseAgentEndpointUrl,omitempty"`
-	BaseUIUrl              string        `json:"baseUIUrl,omitempty"`
-	SrvCertFile            string        `json:"srvCertificateFile,omitempty"`
-	SrvKeyFile             string        `json:"srvKeyFile,omitempty"`
-	ServerCertName         string        `json:"serverCertName,omitempty"`
-	ServerCertValidityDays int           `json:"serverCertValidityDays,omitempty"`
-	AltNames               []string      `json:"altNames,omitempty"`
-	LogLevel               string        `json:"logLevel,omitempty"`
-	HttpReadTimeout        util.Duration `json:"httpReadTimeout,omitempty"`
-	HttpReadHeaderTimeout  util.Duration `json:"httpReadHeaderTimeout,omitempty"`
-	HttpWriteTimeout       util.Duration `json:"httpWriteTimeout,omitempty"`
-	HttpIdleTimeout        util.Duration `json:"httpIdleTimeout,omitempty"`
-	HttpMaxNumHeaders      int           `json:"httpMaxNumHeaders,omitempty"`
-	HttpMaxHeaderBytes     int           `json:"httpMaxHeaderBytes,omitempty"`
-	HttpMaxUrlLength       int           `json:"httpMaxUrlLength,omitempty"`
-	HttpMaxRequestSize     int           `json:"httpMaxRequestSize,omitempty"`
-	EventRetentionPeriod   util.Duration `json:"eventRetentionPeriod,omitempty"`
-	AlertPollingInterval   util.Duration `json:"alertPollingInterval,omitempty"`
+	Address                string           `json:"address,omitempty"`
+	AgentEndpointAddress   string           `json:"agentEndpointAddress,omitempty"`
+	CertStore              string           `json:"cert,omitempty"`
+	BaseUrl                string           `json:"baseUrl,omitempty"`
+	BaseAgentEndpointUrl   string           `json:"baseAgentEndpointUrl,omitempty"`
+	BaseUIUrl              string           `json:"baseUIUrl,omitempty"`
+	SrvCertFile            string           `json:"srvCertificateFile,omitempty"`
+	SrvKeyFile             string           `json:"srvKeyFile,omitempty"`
+	ServerCertName         string           `json:"serverCertName,omitempty"`
+	ServerCertValidityDays int              `json:"serverCertValidityDays,omitempty"`
+	AltNames               []string         `json:"altNames,omitempty"`
+	LogLevel               string           `json:"logLevel,omitempty"`
+	HttpReadTimeout        util.Duration    `json:"httpReadTimeout,omitempty"`
+	HttpReadHeaderTimeout  util.Duration    `json:"httpReadHeaderTimeout,omitempty"`
+	HttpWriteTimeout       util.Duration    `json:"httpWriteTimeout,omitempty"`
+	HttpIdleTimeout        util.Duration    `json:"httpIdleTimeout,omitempty"`
+	HttpMaxNumHeaders      int              `json:"httpMaxNumHeaders,omitempty"`
+	HttpMaxHeaderBytes     int              `json:"httpMaxHeaderBytes,omitempty"`
+	HttpMaxUrlLength       int              `json:"httpMaxUrlLength,omitempty"`
+	HttpMaxRequestSize     int              `json:"httpMaxRequestSize,omitempty"`
+	EventRetentionPeriod   util.Duration    `json:"eventRetentionPeriod,omitempty"`
+	AlertPollingInterval   util.Duration    `json:"alertPollingInterval,omitempty"`
+	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
 }
 
 type kvConfig struct {
@@ -112,6 +126,12 @@ type tracingConfig struct {
 	Enabled  bool   `json:"enabled,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
 	Insecure bool   `json:"insecure,omitempty"`
+}
+
+type gitOpsConfig struct {
+	// IgnoreResourceUpdates lists JSON pointer paths that should be ignored
+	// when comparing desired vs. live resources during GitOps sync.
+	IgnoreResourceUpdates []string `json:"ignoreResourceUpdates,omitempty"`
 }
 
 type ConfigOption func(*Config)
@@ -171,6 +191,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			HttpMaxRequestSize:     50 * 1024 * 1024,                  // 50MB
 			EventRetentionPeriod:   util.Duration(7 * 24 * time.Hour), // 1 week
 			AlertPollingInterval:   util.Duration(1 * time.Minute),
+			// Rate limiting is disabled by default - set RateLimit to enable
 		},
 		KV: &kvConfig{
 			Hostname: "localhost",
@@ -188,6 +209,11 @@ func NewDefault(opts ...ConfigOption) *Config {
 			Address:        ":15690",
 			SloMax:         4.0,
 			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+		},
+		GitOps: &gitOpsConfig{
+			IgnoreResourceUpdates: []string{
+				"/metadata/resourceVersion",
+			},
 		},
 	}
 	c.CA = ca.NewDefault(CertificateDir())
@@ -248,6 +274,48 @@ func Load(cfgFile string) (*Config, error) {
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = dbMigrationPass
 	}
+	// Handle rate limit environment variables - create config if env vars are set
+	rateLimitRequests := os.Getenv("RATE_LIMIT_REQUESTS")
+	rateLimitWindow := os.Getenv("RATE_LIMIT_WINDOW")
+	authRateLimitRequests := os.Getenv("AUTH_RATE_LIMIT_REQUESTS")
+	authRateLimitWindow := os.Getenv("AUTH_RATE_LIMIT_WINDOW")
+	trustedProxies := os.Getenv("RATE_LIMIT_TRUSTED_PROXIES")
+
+	if rateLimitRequests != "" || rateLimitWindow != "" || authRateLimitRequests != "" || authRateLimitWindow != "" || trustedProxies != "" {
+		// Create rate limit config if it doesn't exist
+		if c.Service.RateLimit == nil {
+			c.Service.RateLimit = &RateLimitConfig{}
+		}
+
+		if rateLimitRequests != "" {
+			if requests, err := strconv.Atoi(rateLimitRequests); err == nil {
+				c.Service.RateLimit.Requests = requests
+			}
+		}
+		if rateLimitWindow != "" {
+			if window, err := time.ParseDuration(rateLimitWindow); err == nil {
+				c.Service.RateLimit.Window = util.Duration(window)
+			}
+		}
+		if authRateLimitRequests != "" {
+			if requests, err := strconv.Atoi(authRateLimitRequests); err == nil {
+				c.Service.RateLimit.AuthRequests = requests
+			}
+		}
+		if authRateLimitWindow != "" {
+			if window, err := time.ParseDuration(authRateLimitWindow); err == nil {
+				c.Service.RateLimit.AuthWindow = util.Duration(window)
+			}
+		}
+		if trustedProxies != "" {
+			// Split by comma and trim whitespace
+			proxies := strings.Split(trustedProxies, ",")
+			for i, proxy := range proxies {
+				proxies[i] = strings.TrimSpace(proxy)
+			}
+			c.Service.RateLimit.TrustedProxies = proxies
+		}
+	}
 
 	return c, nil
 }
@@ -264,6 +332,17 @@ func Save(cfg *Config, cfgFile string) error {
 }
 
 func Validate(cfg *Config) error {
+	allowedGitOpsIgnoreResourceUpdates := map[string]struct{}{
+		"/metadata/resourceVersion": {},
+	}
+
+	if cfg.GitOps != nil {
+		for _, path := range cfg.GitOps.IgnoreResourceUpdates {
+			if _, ok := allowedGitOpsIgnoreResourceUpdates[path]; !ok {
+				return fmt.Errorf("invalid ignoreResourceUpdates value: %s", path)
+			}
+		}
+	}
 	return nil
 }
 

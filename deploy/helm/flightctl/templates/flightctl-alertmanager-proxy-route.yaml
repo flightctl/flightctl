@@ -11,7 +11,7 @@ metadata:
     shard: internal
   {{- end }}
   name: flightctl-alertmanager-proxy-route
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   host: alertmanager-proxy.{{ include "flightctl.getBaseDomain" . }}
   port:

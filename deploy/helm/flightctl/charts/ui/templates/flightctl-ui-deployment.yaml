@@ -34,6 +34,13 @@ spec:
                 name: flightctl-ui
                 key: FLIGHTCTL_CLI_ARTIFACTS_SERVER
           {{- end }}
+          {{- if .Values.alerts.enabled }}
+          - name: FLIGHTCTL_ALERTMANAGER_PROXY
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_ALERTMANAGER_PROXY
+          {{- end }}
           - name: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
             valueFrom:
               configMapKeyRef:

@@ -8,7 +8,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
-	. "github.com/flightctl/flightctl/test/util"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -38,8 +38,8 @@ type FieldSelectorTestParams struct {
 }
 
 // EntryCase creates a test case for field selector tests with the given description, arguments, expected match status, and expected output.
-func EntryCase(desc string, args []string, shouldMatch bool, expected string) TestCase[FieldSelectorTestParams] {
-	return TestCase[FieldSelectorTestParams]{
+func EntryCase(desc string, args []string, shouldMatch bool, expected string) testutil.TestCase[FieldSelectorTestParams] {
+	return testutil.TestCase[FieldSelectorTestParams]{
 		Description: desc,
 		Params: FieldSelectorTestParams{
 			Args:        args,
@@ -55,7 +55,7 @@ func TestFieldSelectors(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	suiteCtx = InitSuiteTracerForGinkgo("Field Selectors E2E Suite")
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Field Selectors E2E Suite")
 })
 
 var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
@@ -69,7 +69,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 	)
 
 	BeforeEach(func() {
-		_ = StartSpecTracerForGinkgo(suiteCtx)
+		_ = testutil.StartSpecTracerForGinkgo(suiteCtx)
 	})
 
 	// Setup for the suite
@@ -102,10 +102,10 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 			Expect(out).To(MatchRegexp(resourceCreated))
 
 			By("Get device info from the yaml")
-			deviceInfo = harness.GetDeviceByYaml(GetTestExamplesYamlPath(deviceAYAMLPath))
+			deviceInfo = harness.GetDeviceByYaml(testutil.GetTestExamplesYamlPath(deviceAYAMLPath))
 			deviceAName = *deviceInfo.Metadata.Name
 			DeviceARegion = (*deviceInfo.Metadata.Labels)["region"]
-			deviceBInfo = harness.GetDeviceByYaml(GetTestExamplesYamlPath(deviceBYAMLPath))
+			deviceBInfo = harness.GetDeviceByYaml(testutil.GetTestExamplesYamlPath(deviceBYAMLPath))
 			deviceBName = *deviceBInfo.Metadata.Name
 			Expect(deviceAName).ToNot(BeEmpty())
 			Expect(deviceBName).ToNot(BeEmpty())
@@ -129,15 +129,15 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		})
 
 		It("Field selector filters", Label("77947", "sanity"), func() {
-			start, end := GetCurrentYearBounds()
-			tests := Cases(
+			start, end := testutil.GetCurrentYearBounds()
+			tests := testutil.Cases(
 				EntryCase("filters devices by name", []string{"--field-selector", fmt.Sprintf("metadata.name=%s", deviceAName)}, true, deviceAName),
 				EntryCase("filters devices by alias", []string{"--field-selector", fmt.Sprintf("metadata.alias=%s", (*deviceInfo.Metadata.Labels)["alias"])}, true, deviceAName),
 				EntryCase("filters devices by nameOrAlias", []string{"--field-selector", fmt.Sprintf("metadata.nameOrAlias=%s", (*deviceInfo.Metadata.Labels)["alias"])}, true, deviceAName),
 				EntryCase("filters devices by owner", []string{"--field-selector", "metadata.owner=Fleet/default", "-owide"}, true, ""),
 				EntryCase("filters devices by creation timestamp", []string{"--field-selector", fmt.Sprintf("metadata.creationTimestamp>=%s,metadata.creationTimestamp<%s", start, end), "-owide"}, true, deviceAName),
 			)
-			RunTable(tests, func(params FieldSelectorTestParams) {
+			testutil.RunTable(tests, func(params FieldSelectorTestParams) {
 				out, err := harness.CLI(append([]string{"get", "device"}, params.Args...)...)
 				if params.ShouldMatch {
 					Expect(err).ToNot(HaveOccurred())
@@ -149,7 +149,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		})
 
 		It("Label selector filters", Label("78751", "sanity"), func() {
-			tests := Cases(
+			tests := testutil.Cases(
 				EntryCase("filters by region in set", []string{"-l", fmt.Sprintf("region in (test, %s)", DeviceARegion), "-owide"}, true, deviceAName),
 				EntryCase("filters by region not in set", []string{"-l", "region notin (test, eu-west-2)", "-owide"}, true, deviceAName),
 				EntryCase("filters by label existence", []string{"-l", "region", "-owide"}, true, deviceAName),
@@ -158,7 +158,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 				EntryCase("filters by label mismatch", []string{"-l", fmt.Sprintf("region!=%s", DeviceARegion)}, false, deviceAName),
 				EntryCase("filters by label and field selector", []string{"-l", fmt.Sprintf("region=%s", DeviceARegion), "--field-selector", "status.updated.status in (UpToDate, Unknown)"}, true, deviceAName),
 			)
-			RunTable(tests, func(params FieldSelectorTestParams) {
+			testutil.RunTable(tests, func(params FieldSelectorTestParams) {
 				out, err := harness.CLI(append([]string{"get", "device"}, params.Args...)...)
 				if params.ShouldMatch {
 					Expect(err).ToNot(HaveOccurred())
@@ -170,7 +170,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		})
 
 		It("Negative field selector and label cases", Label("77948", "sanity"), func() {
-			tests := Cases(
+			tests := testutil.Cases(
 				EntryCase("invalid field selector", []string{"--field-selector", "invalid.field"}, false, unknownSelector),
 				EntryCase("unsupported field selector", []string{"--field-selector", "unsupported.field"}, false, unknownSelector),
 				EntryCase("invalid selector syntax", []string{"--field-selector", "metadata.name@=device1-name"}, false, failedToParse),
@@ -182,7 +182,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 				EntryCase("bad syntax ! outside quotes", []string{"-l", fmt.Sprintf("!'region=%s'", DeviceARegion)}, false, failedToParse),
 				EntryCase("bad syntax ! at start of quotes", []string{"-l", fmt.Sprintf("'!region=%s'", DeviceARegion)}, false, failedToParse),
 			)
-			RunTable(tests, func(params FieldSelectorTestParams) {
+			testutil.RunTable(tests, func(params FieldSelectorTestParams) {
 				out, err := harness.CLI(append([]string{"get", "device"}, params.Args...)...)
 				Expect(err).To(HaveOccurred())
 				Expect(out).To(ContainSubstring(params.Expected))

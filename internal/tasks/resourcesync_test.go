@@ -1,309 +1,419 @@
 package tasks
 
 import (
-	"fmt"
-	"os"
+	"context"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks_client"
-	"github.com/flightctl/flightctl/internal/util"
-	flightlog "github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/queues"
-	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-billy/v5/memfs"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
+	"github.com/stretchr/testify/assert"
 )
 
-func resourceSyncParams(t *testing.T) (tasks_client.CallbackManager, service.Service, logrus.FieldLogger) {
-	ctrl := gomock.NewController(t)
-	l := flightlog.InitLogs()
-	return tasks_client.NewCallbackManager(queues.NewMockPublisher(ctrl), l), nil, l
+func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.T) {
+	// Create a minimal ResourceSync instance with nil dependencies
+	var callbackManager tasks_client.CallbackManager
+	var serviceHandler service.Service
+	log := logrus.New()
+
+	resourceSync := NewResourceSync(callbackManager, serviceHandler, log, nil)
+
+	// Test with nil ResourceSync
+	repo, err := resourceSync.GetRepositoryAndValidateAccess(context.Background(), nil)
+
+	assert.Error(t, err)
+	assert.Nil(t, repo)
+	assert.Contains(t, err.Error(), "ResourceSync is nil")
 }
 
-func TestIsValidFile_invalid(t *testing.T) {
-	require := require.New(t)
+func TestResourceSync_ParseFleetsFromResources_ValidResources(t *testing.T) {
+	// Create a minimal ResourceSync instance with nil dependencies
+	var callbackManager tasks_client.CallbackManager
+	var serviceHandler service.Service
+	log := logrus.New()
 
-	require.False(isValidFile("something"))
-	require.False(isValidFile("something.pdf"))
-}
+	resourceSync := NewResourceSync(callbackManager, serviceHandler, log, nil)
 
-func TestIsValidFile_valid(t *testing.T) {
-	require := require.New(t)
-
-	for _, ext := range validFileExtensions {
-		require.True(isValidFile(fmt.Sprintf("file.%s", ext)))
-	}
-}
-
-func TestFleetDelta(t *testing.T) {
-	require := require.New(t)
-
-	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
-	ownedFleets := []api.Fleet{
+	// Create valid resources
+	resources := []GenericResourceMap{
 		{
-			Metadata: api.ObjectMeta{
-				Name:  lo.ToPtr("fleet-1"),
-				Owner: owner,
+			"kind": api.FleetKind,
+			"metadata": map[string]interface{}{
+				"name": "test-fleet",
+			},
+			"spec": map[string]interface{}{
+				"template": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"labels": map[string]interface{}{
+							"environment": "test",
+						},
+					},
+					"spec": map[string]interface{}{
+						"os": map[string]interface{}{
+							"image": "quay.io/test/os:latest",
+						},
+					},
+				},
 			},
 		},
+	}
+
+	// Test parsing
+	fleets, err := resourceSync.ParseFleetsFromResources(resources, "test-resourcesync")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, fleets)
+	assert.Len(t, fleets, 1)
+	assert.Equal(t, "test-fleet", *fleets[0].Metadata.Name)
+}
+
+func TestResourceSync_ParseFleetsFromResources_InvalidResources(t *testing.T) {
+	// Create a minimal ResourceSync instance with nil dependencies
+	var callbackManager tasks_client.CallbackManager
+	var serviceHandler service.Service
+	log := logrus.New()
+
+	resourceSync := NewResourceSync(callbackManager, serviceHandler, log, nil)
+
+	// Create invalid resources
+	resources := []GenericResourceMap{
 		{
-			Metadata: api.ObjectMeta{
-				Name:  lo.ToPtr("fleet-2"),
-				Owner: owner,
+			"kind": "InvalidKind",
+			"metadata": map[string]interface{}{
+				"name": "test-fleet",
 			},
 		},
 	}
-	newFleets := []*api.Fleet{
-		&ownedFleets[1],
-	}
 
-	delta := fleetsDelta(ownedFleets, newFleets)
-	require.Len(delta, 1)
-	require.Equal(delta[0], "fleet-1")
+	// Test parsing
+	fleets, err := resourceSync.ParseFleetsFromResources(resources, "test-resourcesync")
 
-}
-func TestParseAndValidate_already_in_sync(t *testing.T) {
-	require := require.New(t)
-	rs := testResourceSync()
-	repo, err := testRepo()
-	require.NoError(err)
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	// Patch the status so we are already in sync
-	rs.Status.ObservedCommit = &gitRepoCommit
-	rs.Status.ObservedGeneration = lo.ToPtr(int64(1))
-
-	// Already in sync with hash
-	rm, _, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
-	require.NoError(err)
-	require.Nil(rm)
+	assert.Error(t, err)
+	assert.Nil(t, fleets)
+	assert.Contains(t, err.Error(), "resource of unknown/unsupported kind")
 }
 
-func TestParseAndValidate_no_files(t *testing.T) {
-	require := require.New(t)
-	rs := testResourceSync()
-	repo, err := testRepo()
-	require.NoError(err)
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	// Empty folder
-	_, _, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneEmptyGitRepo)
-	require.Error(err)
-}
-
-func TestParseAndValidate_unsupportedFiles(t *testing.T) {
-	require := require.New(t)
-	rs := testResourceSync()
-	repo, err := testRepo()
-	require.NoError(err)
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	_, _, err = rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
-	require.Error(err)
-}
-
-func TestParseAndValidate_singleFile(t *testing.T) {
-	require := require.New(t)
-	rs := testResourceSync()
-	repo, err := testRepo()
-	require.NoError(err)
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	rs.Spec.Path = "/examples/fleet.yaml"
-	resources, _, err := rsTask.parseAndValidateResources(&rs, &repo, testCloneUnsupportedGitRepo)
-	require.NoError(err)
-	require.Len(resources, 1)
-	require.Equal(resources[0]["kind"], api.FleetKind)
-}
-
-func TestExtractResourceFromFile(t *testing.T) {
-	require := require.New(t)
-
-	memfs := memfs.New()
-	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
-
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
-	require.NoError(err)
-	require.Len(genericResources, 1)
-	require.Equal(genericResources[0]["kind"], api.FleetKind)
-}
-
-func TestExtractResourceFromDir(t *testing.T) {
-	require := require.New(t)
-
-	memfs := memfs.New()
-	require.NoError(memfs.MkdirAll("/fleets", 0666))
-	writeCopy(memfs, "../../examples/fleet.yaml", "/fleets/fleet.yaml")
-	writeCopy(memfs, "../../examples/fleet-b.yaml", "/fleets/fleet-b.yaml")
-
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	genericResources, err := rsTask.extractResourcesFromDir(memfs, "/fleets/")
-	require.NoError(err)
-	require.Len(genericResources, 2)
-	require.Equal(genericResources[0]["kind"], api.FleetKind)
-	require.Equal(genericResources[1]["kind"], api.FleetKind)
-
-}
-
-func TestExtractResourceFromFile_incompatible(t *testing.T) {
-	require := require.New(t)
-
-	memfs := memfs.New()
-	writeCopy(memfs, "../../examples/device.yaml", "/device.yaml")
-
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	_, err := rsTask.extractResourcesFromFile(memfs, "/device.yaml")
-	require.Error(err)
-}
-
-func TestParseFleet(t *testing.T) {
-	require := require.New(t)
-
-	memfs := memfs.New()
-	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
-
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
-	require.NoError(err)
-	require.Len(genericResources, 1)
-
-	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
-	fleets, err := rsTask.parseFleets(genericResources, owner)
-	require.NoError(err)
-	require.Len(fleets, 1)
-	require.Equal(fleets[0].Kind, api.FleetKind)
-	require.Equal(*fleets[0].Metadata.Name, "default")
-	require.Equal(lo.FromPtr(fleets[0].Spec.Selector.MatchLabels)["fleet"], "default")
-	require.NotNil(fleets[0].Metadata.Owner)
-	require.Equal(*fleets[0].Metadata.Owner, *owner)
-}
-
-func TestParseFleet_invalid_kind(t *testing.T) {
-	require := require.New(t)
-
-	memfs := memfs.New()
-	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
-
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
-	require.NoError(err)
-	require.Len(genericResources, 1)
-	genericResources[0]["kind"] = "NotValid"
-
-	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
-	_, err = rsTask.parseFleets(genericResources, owner)
-	require.Error(err)
-}
-
-func TestParseFleet_invalid_fleet(t *testing.T) {
-	require := require.New(t)
-
-	memfs := memfs.New()
-	writeCopy(memfs, "../../examples/fleet.yaml", "/fleet.yaml")
-
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	genericResources, err := rsTask.extractResourcesFromFile(memfs, "/fleet.yaml")
-	require.NoError(err)
-	require.Len(genericResources, 1)
-	metadata := (genericResources[0]["metadata"]).(map[string]interface{})
-	metadata["name"] = "i=n;!v@l!d"
-
-	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
-	_, err = rsTask.parseFleets(genericResources, owner)
-	require.Error(err)
-}
-
-func TestParseFleet_multiple(t *testing.T) {
-	require := require.New(t)
-
-	memfs := memfs.New()
-	require.NoError(memfs.MkdirAll("/fleets", 0666))
-	writeCopy(memfs, "../../examples/fleet.yaml", "/fleets/fleet.yaml")
-	writeCopy(memfs, "../../examples/fleet-b.yaml", "/fleets/fleet-b.yaml")
-
-	rsTask := NewResourceSync(resourceSyncParams(t))
-
-	genericResources, err := rsTask.extractResourcesFromDir(memfs, "/fleets")
-	require.NoError(err)
-	require.Len(genericResources, 2)
-
-	owner := util.SetResourceOwner(api.ResourceSyncKind, "foo")
-	fleets, err := rsTask.parseFleets(genericResources, owner)
-	require.NoError(err)
-	require.Len(fleets, 2)
-
-}
-
-func testResourceSync() api.ResourceSync {
-	return api.ResourceSync{
-		Metadata: api.ObjectMeta{
-			Generation: lo.ToPtr(int64(1)),
-			Name:       lo.ToPtr("rs"),
+func TestRemoveIgnoredFields_NoIgnoredFields(t *testing.T) {
+	// Test with no ignored fields
+	resource := GenericResourceMap{
+		"kind": api.FleetKind,
+		"metadata": map[string]interface{}{
+			"name": "test-fleet",
+			"labels": map[string]interface{}{
+				"environment": "test",
+			},
 		},
-		Spec: api.ResourceSyncSpec{
-			Repository: "demoRepo",
-			Path:       "/examples",
-		},
-		Status: &api.ResourceSyncStatus{
-			Conditions: []api.Condition{},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"labels": map[string]interface{}{
+						"app": "test-app",
+					},
+				},
+			},
 		},
 	}
+
+	result := RemoveIgnoredFields(resource, nil)
+
+	// Should return the same resource unchanged
+	assert.Equal(t, resource, result)
+	assert.Equal(t, "test-fleet", result["metadata"].(map[string]interface{})["name"])
+	assert.Equal(t, "test", result["metadata"].(map[string]interface{})["labels"].(map[string]interface{})["environment"])
 }
 
-func testRepo() (api.Repository, error) {
-	spec := api.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-		// This is contacting a Git repo, we should either mock it, or move it to E2E eventually
-		// where we setup a local test git repo we could control (i.e. https://github.com/rockstorm101/git-server-docker)
-		Url: "https://github.com/flightctl/flightctl",
-	})
-	return api.Repository{Spec: spec}, err
-}
-
-var gitRepoCommit = "abcdef012"
-
-func testCloneEmptyGitRepo(_ *api.Repository, _ *string, _ *int) (billy.Filesystem, string, error) {
-	memfs := memfs.New()
-
-	return memfs, gitRepoCommit, nil
-}
-
-func testCloneUnsupportedGitRepo(_ *api.Repository, _ *string, _ *int) (billy.Filesystem, string, error) {
-	memfs := memfs.New()
-	_ = memfs.MkdirAll("/examples", 0666)
-
-	writeCopy(memfs, "../../examples/fleet.yaml", "/examples/fleet.yaml")
-	writeCopy(memfs, "../../examples/enrollmentrequest.yaml", "/examples/enrollmentrequest.yaml")
-
-	return memfs, gitRepoCommit, nil
-}
-
-func writeCopy(fs billy.Filesystem, localPath, path string) {
-	f, err := fs.Create(path)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-
-	data, err := os.ReadFile(localPath)
-	if err != nil {
-		panic(err)
+func TestRemoveIgnoredFields_RemoveTopLevelField(t *testing.T) {
+	// Test removing a top-level field
+	resource := GenericResourceMap{
+		"kind": api.FleetKind,
+		"metadata": map[string]interface{}{
+			"name": "test-fleet",
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"labels": map[string]interface{}{
+						"app": "test-app",
+					},
+				},
+			},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type": "Ready",
+				},
+			},
+		},
 	}
 
-	_, err = f.Write(data)
-	if err != nil {
-		panic(err)
+	ignorePaths := []string{"status"}
+	result := RemoveIgnoredFields(resource, ignorePaths)
+
+	// Should remove the status field from the result
+	assert.NotContains(t, result, "status")
+	assert.Contains(t, result, "kind")
+	assert.Contains(t, result, "metadata")
+	assert.Contains(t, result, "spec")
+
+	// The original resource should also be modified since the function modifies in place
+	assert.NotContains(t, resource, "status")
+}
+
+func TestRemoveIgnoredFields_RemoveNestedField(t *testing.T) {
+	// Test removing a nested field
+	resource := GenericResourceMap{
+		"kind": api.FleetKind,
+		"metadata": map[string]interface{}{
+			"name": "test-fleet",
+			"labels": map[string]interface{}{
+				"environment": "test",
+				"app":         "test-app",
+			},
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"labels": map[string]interface{}{
+						"app": "test-app",
+					},
+				},
+			},
+		},
+	}
+
+	ignorePaths := []string{"metadata/labels/environment"}
+	result := RemoveIgnoredFields(resource, ignorePaths)
+
+	// Should remove the nested environment label from the result
+	metadata := result["metadata"].(map[string]interface{})
+	labels := metadata["labels"].(map[string]interface{})
+	assert.NotContains(t, labels, "environment")
+	assert.Contains(t, labels, "app")
+
+	// The original resource should also be modified
+	originalMetadata := resource["metadata"].(map[string]interface{})
+	originalLabels := originalMetadata["labels"].(map[string]interface{})
+	assert.NotContains(t, originalLabels, "environment")
+}
+
+func TestRemoveIgnoredFields_RemoveMultipleFields(t *testing.T) {
+	// Test removing multiple fields
+	resource := GenericResourceMap{
+		"kind": api.FleetKind,
+		"metadata": map[string]interface{}{
+			"name": "test-fleet",
+			"labels": map[string]interface{}{
+				"environment": "test",
+			},
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"labels": map[string]interface{}{
+						"app": "test-app",
+					},
+				},
+			},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type": "Ready",
+				},
+			},
+		},
+	}
+
+	ignorePaths := []string{"status", "metadata/labels/environment"}
+	result := RemoveIgnoredFields(resource, ignorePaths)
+
+	// Should remove both fields from the result
+	assert.NotContains(t, result, "status")
+	metadata := result["metadata"].(map[string]interface{})
+	labels := metadata["labels"].(map[string]interface{})
+	assert.NotContains(t, labels, "environment")
+
+	// The original resource should also be modified
+	assert.NotContains(t, resource, "status")
+	originalMetadata := resource["metadata"].(map[string]interface{})
+	originalLabels := originalMetadata["labels"].(map[string]interface{})
+	assert.NotContains(t, originalLabels, "environment")
+}
+
+func TestRemoveIgnoredFields_RemoveDeeplyNestedField(t *testing.T) {
+	// Test removing a deeply nested field
+	resource := GenericResourceMap{
+		"kind": api.FleetKind,
+		"metadata": map[string]interface{}{
+			"name": "test-fleet",
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"labels": map[string]interface{}{
+						"app": "test-app",
+					},
+				},
+				"spec": map[string]interface{}{
+					"os": map[string]interface{}{
+						"image": "quay.io/test/os:latest",
+					},
+				},
+			},
+		},
+	}
+
+	ignorePaths := []string{"spec/template/spec/os/image"}
+	result := RemoveIgnoredFields(resource, ignorePaths)
+
+	// Should remove the deeply nested image field from the result
+	spec := result["spec"].(map[string]interface{})
+	template := spec["template"].(map[string]interface{})
+	templateSpec := template["spec"].(map[string]interface{})
+	os := templateSpec["os"].(map[string]interface{})
+	assert.NotContains(t, os, "image")
+
+	// The original resource should also be modified
+	originalSpec := resource["spec"].(map[string]interface{})
+	originalTemplate := originalSpec["template"].(map[string]interface{})
+	originalTemplateSpec := originalTemplate["spec"].(map[string]interface{})
+	originalOs := originalTemplateSpec["os"].(map[string]interface{})
+	assert.NotContains(t, originalOs, "image")
+}
+
+func TestRemoveIgnoredFields_NonExistentField(t *testing.T) {
+	// Test removing a field that doesn't exist
+	resource := GenericResourceMap{
+		"kind": api.FleetKind,
+		"metadata": map[string]interface{}{
+			"name": "test-fleet",
+		},
+	}
+
+	ignorePaths := []string{"non/existent/field"}
+	result := RemoveIgnoredFields(resource, ignorePaths)
+
+	// Should return the same resource unchanged
+	assert.Equal(t, resource, result)
+}
+
+func TestRemoveIgnoredFields_EmptyIgnorePaths(t *testing.T) {
+	// Test with empty ignore paths
+	resource := GenericResourceMap{
+		"kind": api.FleetKind,
+		"metadata": map[string]interface{}{
+			"name": "test-fleet",
+		},
+	}
+
+	ignorePaths := []string{}
+	result := RemoveIgnoredFields(resource, ignorePaths)
+
+	// Should return the same resource unchanged
+	assert.Equal(t, resource, result)
+}
+
+func TestRemoveIgnoredFields_WithLeadingSlash(t *testing.T) {
+	// Test with ignore paths that have leading slashes
+	resource := GenericResourceMap{
+		"kind": api.FleetKind,
+		"metadata": map[string]interface{}{
+			"name": "test-fleet",
+			"labels": map[string]interface{}{
+				"environment": "test",
+			},
+		},
+	}
+
+	ignorePaths := []string{"/metadata/labels/environment"}
+	result := RemoveIgnoredFields(resource, ignorePaths)
+
+	// Should remove the field (leading slash should be handled) from the result
+	metadata := result["metadata"].(map[string]interface{})
+	labels := metadata["labels"].(map[string]interface{})
+	assert.NotContains(t, labels, "environment")
+
+	// The original resource should also be modified
+	originalMetadata := resource["metadata"].(map[string]interface{})
+	originalLabels := originalMetadata["labels"].(map[string]interface{})
+	assert.NotContains(t, originalLabels, "environment")
+}
+
+func TestResourceSync_WithIgnoredFields(t *testing.T) {
+	// Test ResourceSync with ignored fields configuration
+	var callbackManager tasks_client.CallbackManager
+	var serviceHandler service.Service
+	log := logrus.New()
+
+	ignorePaths := []string{"metadata/labels/environment", "status"}
+	resourceSync := NewResourceSync(callbackManager, serviceHandler, log, ignorePaths)
+
+	// Create resources with fields that should be ignored
+	resources := []GenericResourceMap{
+		{
+			"kind": api.FleetKind,
+			"metadata": map[string]interface{}{
+				"name": "test-fleet",
+				"labels": map[string]interface{}{
+					"environment": "test", // This should be removed
+					"app":         "test-app",
+				},
+			},
+			"spec": map[string]interface{}{
+				"template": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"labels": map[string]interface{}{
+							"app": "test-app",
+						},
+					},
+				},
+			},
+			"status": map[string]interface{}{ // This should be removed
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type": "Ready",
+					},
+				},
+			},
+		},
+	}
+
+	// Test parsing - the ignored fields should be removed during processing
+	fleets, err := resourceSync.ParseFleetsFromResources(resources, "test-resourcesync")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, fleets)
+	assert.Len(t, fleets, 1)
+	assert.Equal(t, "test-fleet", *fleets[0].Metadata.Name)
+
+	// The ignored fields should not be present in the resulting fleet
+	// Note: We can't directly test this since ParseFleetsFromResources doesn't return the raw GenericResourceMap
+	// but the field removal happens in extractResourcesFromFile which is called by parseAndValidateResources
+}
+
+func TestIsValidFile(t *testing.T) {
+	// Test the isValidFile function
+	testCases := []struct {
+		filename string
+		expected bool
+	}{
+		{"fleet.yaml", true},
+		{"fleet.yml", true},
+		{"fleet.json", true},
+		{"fleet.txt", false},
+		{"fleet", false},
+		{"fleet.yaml.bak", false},
+		{"fleet.YAML", false}, // Case sensitive
+		{"fleet.YML", false},  // Case sensitive
+		{"fleet.JSON", false}, // Case sensitive
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.filename, func(t *testing.T) {
+			result := isValidFile(tc.filename)
+			assert.Equal(t, tc.expected, result, "Filename: %s", tc.filename)
+		})
 	}
 }

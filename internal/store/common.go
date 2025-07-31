@@ -21,9 +21,9 @@ const retryIterations = 10
 
 type CreateOrUpdateMode string
 
-type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, updateDesc *api.ResourceUpdatedDetails, err error)
+type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
-type EventCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, updateDesc *api.ResourceUpdatedDetails, err error)
+type EventCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
 func ErrorFromGormError(err error) error {
 	switch {
@@ -299,18 +299,17 @@ func createParamsFromKey(key string) string {
 	return params
 }
 
-func retryCreateOrUpdate[A any](fn func() (*A, *A, bool, bool, api.ResourceUpdatedDetails, error)) (*A, *A, bool, api.ResourceUpdatedDetails, error) {
+func retryCreateOrUpdate[A any](fn func() (*A, *A, bool, bool, error)) (*A, *A, bool, error) {
 	var (
 		a, b           *A
 		created, retry bool
-		updateDesc     api.ResourceUpdatedDetails
 		err            error
 	)
 	i := 0
-	for a, b, created, retry, updateDesc, err = fn(); retry && i < retryIterations; a, b, created, retry, updateDesc, err = fn() {
+	for a, b, created, retry, err = fn(); retry && i < retryIterations; a, b, created, retry, err = fn() {
 		i++
 	}
-	return a, b, created, updateDesc, err
+	return a, b, created, err
 }
 
 func retryUpdate(fn func() (bool, error)) error {
@@ -339,14 +338,14 @@ func SafeEventCallback(log logrus.FieldLogger, callback func()) {
 	callback()
 }
 
-func CallEventCallback(resourceKind api.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
-	return func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
+func CallEventCallback(resourceKind api.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	return func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 		if callbackEvent == nil {
 			return
 		}
 
 		SafeEventCallback(log, func() {
-			callbackEvent(ctx, resourceKind, orgId, name, oldResource, newResource, created, updateDesc, err)
+			callbackEvent(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 		})
 	}
 }

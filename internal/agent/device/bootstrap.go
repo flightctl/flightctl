@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/identity"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -41,6 +42,7 @@ type Bootstrap struct {
 	managementServiceConfig   *baseclient.Config
 	managementClient          client.Management
 	managementMetricsCallback client.RPCMetricsCallback
+	identityProvider          identity.Provider
 
 	log *log.PrefixLogger
 }
@@ -58,6 +60,7 @@ func NewBootstrap(
 	systemInfoManager systeminfo.Manager,
 	managementMetricsCallback client.RPCMetricsCallback,
 	podmanClient *client.Podman,
+	identityProvider identity.Provider,
 	log *log.PrefixLogger,
 ) *Bootstrap {
 	return &Bootstrap{
@@ -73,6 +76,7 @@ func NewBootstrap(
 		systemInfoManager:         systemInfoManager,
 		managementMetricsCallback: managementMetricsCallback,
 		podmanClient:              podmanClient,
+		identityProvider:          identityProvider,
 		log:                       log,
 	}
 }
@@ -279,26 +283,14 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 }
 
 func (b *Bootstrap) setManagementClient() error {
-	managementCertExists, err := b.deviceReadWriter.PathExists(b.managementServiceConfig.GetClientCertificatePath())
-	if err != nil {
-		return fmt.Errorf("generated cert: %q: %w", b.managementServiceConfig.GetClientCertificatePath(), err)
-	}
-
-	if !managementCertExists {
-		// TODO: we must re-enroll the device in this case
-		return fmt.Errorf("management client certificate does not exist")
-	}
-
-	// create the management client
-	managementHTTPClient, err := client.NewFromConfig(b.managementServiceConfig)
+	var err error
+	b.managementClient, err = b.identityProvider.CreateManagementClient(b.managementServiceConfig, b.managementMetricsCallback)
 	if err != nil {
 		return fmt.Errorf("create management client: %w", err)
 	}
-	b.managementClient = client.NewManagement(managementHTTPClient, b.managementMetricsCallback)
 
 	// initialize the management client for spec and status managers
 	b.statusManager.SetClient(b.managementClient)
 	b.devicePublisher.SetClient(b.managementClient)
-	b.log.Info("Management client set")
 	return nil
 }

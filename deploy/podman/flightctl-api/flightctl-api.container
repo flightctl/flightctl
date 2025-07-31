@@ -15,6 +15,7 @@ Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
 
+
 PublishPort=3443:3443
 PublishPort=7443:7443
 Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z

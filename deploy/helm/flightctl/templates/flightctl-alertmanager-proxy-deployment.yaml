@@ -7,7 +7,7 @@ metadata:
   labels:
     flightctl.service: flightctl-alertmanager-proxy
   name: flightctl-alertmanager-proxy
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
@@ -20,6 +20,7 @@ spec:
       labels:
         flightctl.service: flightctl-alertmanager-proxy
     spec:
+      serviceAccountName: flightctl-alertmanager-proxy
       initContainers:
         - name: init-certs
           image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
@@ -46,7 +47,7 @@ spec:
             - name: HOME
               value: "/root"
             - name: ALERTMANAGER_URL
-              value: "http://flightctl-alertmanager:9093"
+              value: "http://flightctl-alertmanager.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:9093"
             {{- if eq .Values.global.auth.type "none" }}
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
@@ -92,13 +93,13 @@ spec:
           secret:
             secretName: flightctl-alertmanager-proxy-certs
             defaultMode: 0440
+            optional: true
             items:
               - key: ca.crt
                 path: ca.crt
               {{- if or (and .Values.global.auth .Values.global.auth.caCert) (and .Values.auth .Values.auth.caCert) }}
               - key: ca_oidc.crt
                 path: ca_oidc.crt
-                optional: true
               {{- end }}
         - name: flightctl-alertmanager-proxy-config
           configMap:

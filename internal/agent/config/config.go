@@ -59,7 +59,7 @@ const (
 	// DefaultTPMDevicePath is the default TPM device path
 	DefaultTPMDevicePath = "/dev/tpm0"
 	// DefaultTPMKeyBlobFile is the default filename for TPM key blob persistence
-	DefaultTPMKeyBlobFile = "ldevid-blob.yaml"
+	DefaultTPMKeyBlobFile = "tpm-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
@@ -127,6 +127,8 @@ type TPM struct {
 	Path string `json:"tpm-path,omitempty"`
 	// PersistencePath specifies the file path for TPM key blob persistence
 	PersistencePath string `json:"tpm-persistence-path,omitempty"`
+	// EnableOwnership indicates whether we will assume ownership of the TPM's Owner Hierarchy
+	EnableOwnership bool `json:"tpm-enable-ownership,omitempty"`
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included
@@ -158,6 +160,12 @@ func NewDefault() *Config {
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
+		TPM: TPM{
+			Enabled:         false,
+			Path:            DefaultTPMDevicePath,
+			PersistencePath: filepath.Join(DefaultDataDir, DefaultTPMKeyBlobFile),
+			EnableOwnership: false,
+		},
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -348,6 +356,12 @@ func mergeConfigs(base, override *Config) {
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
 	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
 	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+
+	// tpm
+	overrideIfNotEmpty(&base.TPM.Enabled, override.TPM.Enabled)
+	overrideIfNotEmpty(&base.TPM.Path, override.TPM.Path)
+	overrideIfNotEmpty(&base.TPM.PersistencePath, override.TPM.PersistencePath)
+	overrideIfNotEmpty(&base.TPM.EnableOwnership, override.TPM.EnableOwnership)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v

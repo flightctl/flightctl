@@ -62,13 +62,13 @@ func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
 	return &FleetStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-func (s *FleetStore) callEventCallback(ctx context.Context, eventCallback EventCallback, orgId uuid.UUID, name string, oldFleet, newFleet *api.Fleet, created bool, updateDesc *api.ResourceUpdatedDetails, err error) {
+func (s *FleetStore) callEventCallback(ctx context.Context, eventCallback EventCallback, orgId uuid.UUID, name string, oldFleet, newFleet *api.Fleet, created bool, err error) {
 	if eventCallback == nil {
 		return
 	}
 
 	SafeEventCallback(s.log, func() {
-		eventCallback(ctx, api.FleetKind, orgId, name, oldFleet, newFleet, created, updateDesc, err)
+		eventCallback(ctx, api.FleetKind, orgId, name, oldFleet, newFleet, created, err)
 	})
 }
 func (s *FleetStore) getDB(ctx context.Context) *gorm.DB {
@@ -114,19 +114,19 @@ func (s *FleetStore) InitialMigration(ctx context.Context) error {
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, error) {
 	fleet, err := s.genericStore.Create(ctx, orgId, resource, callback)
 	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, nil, fleet, true, nil, err)
+	s.callEventCallback(ctx, eventCallback, orgId, name, nil, fleet, true, err)
 	return fleet, err
 }
 
 func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, error) {
-	newFleet, oldFleet, updatedDetails, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
-	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, false, &updatedDetails, err)
+	newFleet, oldFleet, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
+	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, false, err)
 	return newFleet, err
 }
 
 func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, callback FleetStoreCallback, eventCallback EventCallback) (*api.Fleet, bool, error) {
-	newFleet, oldFleet, created, updatedDetails, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
-	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, created, &updatedDetails, err)
+	newFleet, oldFleet, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil, callback)
+	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, created, err)
 	return newFleet, created, err
 }
 
@@ -367,7 +367,7 @@ func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 		ctx,
 		model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}},
 		callback)
-	s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, nil, err)
+	s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
 	return err
 }
 func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
@@ -406,7 +406,7 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 
 func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
 	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -461,7 +461,7 @@ func (s *FleetStore) updateAnnotations(ctx context.Context, existingRecord model
 
 func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error {
 	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return ErrorFromGormError(result.Error)
 	}
@@ -481,7 +481,7 @@ func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, nam
 	newFleet := &api.Fleet{Metadata: api.ObjectMeta{
 		Annotations: &newAnnotations,
 	}}
-	s.callEventCallback(ctx, eventCallback, orgId, name, oldFleet, newFleet, false, nil, err)
+	s.callEventCallback(ctx, eventCallback, orgId, name, oldFleet, newFleet, false, err)
 	return err
 }
 

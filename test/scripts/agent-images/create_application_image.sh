@@ -5,7 +5,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/../functions
 
 REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST="v1 v2"
+IMAGE_LIST=$(ls $SCRIPT_DIR | grep Containerfile-sleep-app | cut -d '-' -f 4)
 
 
 for img in $IMAGE_LIST; do

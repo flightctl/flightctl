@@ -299,6 +299,7 @@ func ValidateSignerName(s string) []error {
 		"flightctl.io/enrollment":        {},
 		"flightctl.io/device-enrollment": {},
 		"flightctl.io/device-svc-client": {},
+		"flightctl.io/server-svc":        {},
 	}
 
 	if _, exists := validSigners[s]; exists {

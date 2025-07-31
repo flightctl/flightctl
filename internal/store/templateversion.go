@@ -90,8 +90,7 @@ func (s *TemplateVersionStore) InitialMigration(ctx context.Context) error {
 
 func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, callback TemplateVersionStoreCallback, eventCallback EventCallback) (*api.TemplateVersion, error) {
 	tv, err := s.genericStore.Create(ctx, orgId, resource, callback)
-	name := lo.FromPtr(resource.Metadata.Name)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, tv, true, nil, err)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, tv, true, err)
 	return tv, err
 }
 
@@ -101,7 +100,7 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 		FleetName: fleet,
 		Name:      name,
 	}
-	result := s.getDB(ctx).First(&templateVersion)
+	result := s.getDB(ctx).Take(&templateVersion)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
@@ -125,7 +124,9 @@ func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, f
 
 func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string, eventCallback EventCallback) (bool, error) {
 	deleted, err := s.genericStore.Delete(ctx, model.TemplateVersion{OrgID: orgId, Name: name, FleetName: fleet}, nil)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, nil, false, nil, err)
+	if deleted {
+		s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, nil, false, err)
+	}
 	return deleted, err
 }
 

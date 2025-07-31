@@ -74,3 +74,7 @@ func StatusNotImplemented(message string) Status {
 func StatusAuthNotConfigured(message string) Status {
 	return NewFailureStatus(http.StatusTeapot, "Auth not configured", message)
 }
+
+func StatusTooManyRequests(message string) Status {
+	return NewFailureStatus(http.StatusTooManyRequests, http.StatusText(http.StatusTooManyRequests), message)
+}

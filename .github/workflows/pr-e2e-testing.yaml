@@ -55,7 +55,7 @@ jobs:
 
       - name: Deploy the flightctl server
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: make deploy
+        run: DISABLE_FIPS="true" make deploy
 
       - name: Deploy the E2E side services, registry and git
         run: make deploy-e2e-extras

@@ -66,12 +66,20 @@ const (
 	DeviceDecommissionTargetTypeUnenroll     DeviceDecommissionTargetType = "Unenroll"
 )
 
+// Defines values for DeviceIntegrityCheckStatusType.
+const (
+	DeviceIntegrityCheckStatusFailed      DeviceIntegrityCheckStatusType = "Failed"
+	DeviceIntegrityCheckStatusUnknown     DeviceIntegrityCheckStatusType = "Unknown"
+	DeviceIntegrityCheckStatusUnsupported DeviceIntegrityCheckStatusType = "Unsupported"
+	DeviceIntegrityCheckStatusVerified    DeviceIntegrityCheckStatusType = "Verified"
+)
+
 // Defines values for DeviceIntegrityStatusSummaryType.
 const (
 	DeviceIntegrityStatusFailed      DeviceIntegrityStatusSummaryType = "Failed"
-	DeviceIntegrityStatusPassed      DeviceIntegrityStatusSummaryType = "Passed"
 	DeviceIntegrityStatusUnknown     DeviceIntegrityStatusSummaryType = "Unknown"
 	DeviceIntegrityStatusUnsupported DeviceIntegrityStatusSummaryType = "Unsupported"
+	DeviceIntegrityStatusVerified    DeviceIntegrityStatusSummaryType = "Verified"
 )
 
 // Defines values for DeviceLifecycleHookType.
@@ -183,10 +191,15 @@ const (
 	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
 	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
 	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
-	EventReasonResourceSyncCompleted           EventReason = "ResourceSyncCompleted"
+	EventReasonResourceSyncAccessible          EventReason = "ResourceSyncAccessible"
+	EventReasonResourceSyncCommitDetected      EventReason = "ResourceSyncCommitDetected"
+	EventReasonResourceSyncInaccessible        EventReason = "ResourceSyncInaccessible"
+	EventReasonResourceSyncParsed              EventReason = "ResourceSyncParsed"
+	EventReasonResourceSyncParsingFailed       EventReason = "ResourceSyncParsingFailed"
+	EventReasonResourceSyncSyncFailed          EventReason = "ResourceSyncSyncFailed"
+	EventReasonResourceSyncSynced              EventReason = "ResourceSyncSynced"
 	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
 	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
-	EventReasonTemplateVersionDeleted          EventReason = "TemplateVersionDeleted"
 )
 
 // Defines values for EventType.
@@ -591,13 +604,34 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
+// DeviceIntegrityCheckStatus DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+type DeviceIntegrityCheckStatus struct {
+	// Info Human-readable information about the integrity check status.
+	Info *string `json:"info,omitempty"`
+
+	// Status Status of the integrity check performed on the device.
+	Status DeviceIntegrityCheckStatusType `json:"status"`
+}
+
+// DeviceIntegrityCheckStatusType Status of the integrity check performed on the device.
+type DeviceIntegrityCheckStatusType string
+
 // DeviceIntegrityStatus Summary status of the integrity of the device.
 type DeviceIntegrityStatus struct {
+	// DeviceIdentity DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+	DeviceIdentity *DeviceIntegrityCheckStatus `json:"deviceIdentity,omitempty"`
+
 	// Info Human readable information about the last integrity transition.
 	Info *string `json:"info,omitempty"`
 
+	// LastVerified Timestamp of the last integrity verification.
+	LastVerified *time.Time `json:"lastVerified,omitempty"`
+
 	// Status Status of the integrity of the device.
 	Status DeviceIntegrityStatusSummaryType `json:"status"`
+
+	// Tpm DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+	Tpm *DeviceIntegrityCheckStatus `json:"tpm,omitempty"`
 }
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
@@ -1489,6 +1523,45 @@ type ObjectReference struct {
 
 	// Name The name of the referenced object.
 	Name string `json:"name"`
+}
+
+// Organization defines model for Organization.
+type Organization struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec OrganizationSpec describes an organization.
+	Spec *OrganizationSpec `json:"spec,omitempty"`
+}
+
+// OrganizationList OrganizationList is a list of Organizations.
+type OrganizationList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of Organizations.
+	Items []Organization `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// OrganizationSpec OrganizationSpec describes an organization.
+type OrganizationSpec struct {
+	// DisplayName Human readable name shown to users.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// ExternalId External ID of the organization.
+	ExternalId *string `json:"externalId,omitempty"`
 }
 
 // PatchRequest defines model for PatchRequest.

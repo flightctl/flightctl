@@ -6,12 +6,11 @@ import (
 	"errors"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
 
 func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, params api.GetEnrollmentConfigParams) (*api.EnrollmentConfig, api.Status) {
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	caCert, err := h.ca.GetCABundle()
 	if err != nil {

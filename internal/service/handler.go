@@ -9,6 +9,7 @@ import (
 )
 
 type ServiceHandler struct {
+	*EventHandler
 	store           store.Store
 	ca              *crypto.CAClient
 	log             logrus.FieldLogger
@@ -20,6 +21,7 @@ type ServiceHandler struct {
 
 func NewServiceHandler(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CAClient, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
 	return &ServiceHandler{
+		EventHandler:    NewEventHandler(store, log),
 		store:           store,
 		ca:              ca,
 		log:             log,

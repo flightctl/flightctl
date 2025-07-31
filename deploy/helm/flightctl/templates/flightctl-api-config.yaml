@@ -38,6 +38,19 @@ data:
           - flightctl-api
           - flightctl-api.{{ .Release.Namespace }}
           - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
+        {{ if .Values.api.rateLimit }}
+        rateLimit:
+            requests: {{ .Values.api.rateLimit.requests }}
+            window: {{ .Values.api.rateLimit.window }}
+            authRequests: {{ .Values.api.rateLimit.authRequests }}
+            authWindow: {{ .Values.api.rateLimit.authWindow }}
+            {{- if .Values.api.rateLimit.trustedProxies }}
+            trustedProxies:
+            {{- range .Values.api.rateLimit.trustedProxies }}
+                - {{ . | quote }}
+            {{- end }}
+            {{- end }}
+        {{ end }}
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379

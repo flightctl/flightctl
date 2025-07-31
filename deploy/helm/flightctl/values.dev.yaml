@@ -27,6 +27,8 @@ api:
     image:  localhost/flightctl-api
     tag: latest
   baseUIUrl: "http://localhost:9000"
+  # Disable rate limiting for development
+  rateLimit: null
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"

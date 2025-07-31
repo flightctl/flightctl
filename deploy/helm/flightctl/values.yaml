@@ -134,7 +134,21 @@ api:
     image: quay.io/flightctl/flightctl-api
     pullPolicy: ""
     tag: ""
-  baseUIUrl: "" # ui.flightctl.example.com
+  baseUIUrl: "" # ui.flightctl.example.com
+  # Rate limiting configuration - enabled by default for production
+  rateLimit:
+    # General API rate limiting
+    requests: 60
+    window: "1m"
+    # Auth-specific rate limiting
+    authRequests: 10
+    authWindow: "1h"
+    # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
+    # This should include your load balancer and UI proxy IPs
+    trustedProxies:
+      - "10.0.0.0/8"    # Example: Internal network range
+      - "172.16.0.0/12" # Example: Docker/container network range
+      - "192.168.0.0/16" # Example: Private network range
 cliArtifacts:
   enabled: true
   image:
@@ -172,10 +186,10 @@ ui:
   enabled: true
   api:
     insecureSkipTlsVerify: true
-secretsJob:
+cleanupJob:
   image:
-    image: quay.io/openshift/origin-cli
-    tag: "4.20.0"
+    image: registry.k8s.io/kubectl
+    tag: "v1.33.0"
     pullPolicy: ""
 dbSetup:
   image:

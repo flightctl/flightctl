@@ -58,8 +58,8 @@ func createRepository(ctx context.Context, repostore store.Repository, log *logr
 		Spec: spec,
 	}
 
-	callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-	repo, err = repostore.Create(ctx, orgId, &resource, callback, nil)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	repo, err = repostore.Create(ctx, orgId, &resource, nil, callback)
 	return repo, err
 }
 

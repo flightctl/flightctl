@@ -8,6 +8,10 @@ subjects:
   - kind: ServiceAccount
     name: flightctl-worker
     namespace: flightctl-internal
+  # Some test envs use a single namespace for everything
+  - kind: ServiceAccount
+    name: flightctl-worker
+    namespace: flightctl
 roleRef:
   kind: ClusterRole
   name: flightctl-worker

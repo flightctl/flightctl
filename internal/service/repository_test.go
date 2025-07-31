@@ -32,9 +32,12 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*
 		},
 		Spec: spec,
 	}
+
 	serviceHandler := ServiceHandler{
+		EventHandler:    NewEventHandler(&TestStore{}, logrus.New()),
 		store:           &TestStore{},
 		callbackManager: dummyCallbackManager(),
+		log:             logrus.New(),
 	}
 	ctx := context.Background()
 	_, err = serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &repository, nil, nil)
@@ -163,8 +166,9 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 	}
 
 	serviceHandler := ServiceHandler{
-		store: &TestStore{},
-		log:   logrus.New(),
+		EventHandler: NewEventHandler(&TestStore{}, logrus.New()),
+		store:        &TestStore{},
+		log:          logrus.New(),
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &api.Repository{
@@ -193,8 +197,8 @@ func createRepository(ctx context.Context, r store.Repository, orgId uuid.UUID, 
 		Spec: spec,
 	}
 
-	callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-	_, err = r.Create(ctx, orgId, &resource, callback, nil)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err = r.Create(ctx, orgId, &resource, nil, callback)
 	return err
 }
 
@@ -214,8 +218,9 @@ func TestRepoTester_SetAccessCondition(t *testing.T) {
 	require := require.New(t)
 
 	serviceHandler := ServiceHandler{
-		store: &TestStore{},
-		log:   logrus.New(),
+		EventHandler: NewEventHandler(&TestStore{}, logrus.New()),
+		store:        &TestStore{},
+		log:          logrus.New(),
 	}
 	r := serviceHandler.store.Repository()
 	ctx := context.Background()
