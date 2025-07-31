@@ -92,7 +92,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer repoTesterThread.Stop()
 
 	// resource sync
-	resourceSync := tasks.NewResourceSync(callbackManager, serviceHandler, s.log)
+	resourceSync := tasks.NewResourceSync(callbackManager, serviceHandler, s.log, s.cfg.GitOps.IgnoreResourceUpdates)
 	resourceSyncThread := s.newTaskThread(ctx, tasks.ResourceSyncTaskName, "ResourceSync", 2*time.Minute, resourceSync.Poll)
 	resourceSyncThread.Start()
 	defer resourceSyncThread.Stop()

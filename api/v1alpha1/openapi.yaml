@@ -56,6 +56,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -179,6 +185,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -227,6 +239,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -267,6 +285,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -338,6 +362,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -399,6 +429,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -438,6 +474,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -503,6 +545,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -551,6 +599,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -591,6 +645,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -662,6 +722,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -701,6 +767,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -762,6 +834,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -833,6 +911,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -881,6 +965,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -921,6 +1011,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -992,6 +1088,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1031,6 +1133,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -1096,6 +1204,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1136,6 +1250,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -1191,6 +1311,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -1256,6 +1382,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1308,6 +1440,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -1371,6 +1509,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1417,6 +1561,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -1482,6 +1632,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1530,6 +1686,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1570,6 +1732,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -1641,6 +1809,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1702,6 +1876,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1751,6 +1931,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1791,6 +1977,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -1840,6 +2032,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -1905,6 +2103,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -1957,6 +2161,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2022,6 +2232,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2066,6 +2282,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2132,6 +2354,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2172,6 +2400,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2243,6 +2477,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2282,6 +2522,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2344,6 +2590,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2415,6 +2667,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2459,6 +2717,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2509,6 +2773,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2580,6 +2850,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2641,6 +2917,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2680,6 +2962,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2724,6 +3012,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2783,6 +3077,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2828,6 +3128,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -2899,6 +3205,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2949,6 +3261,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -2994,6 +3312,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -3069,6 +3393,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -3133,6 +3463,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -3167,6 +3503,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -4181,6 +4523,30 @@ components:
           type: string
           description: Human readable information about the device lifecycle status.
       description: Current status of the device lifecycle.
+    DeviceIntegrityCheckStatus:
+      type: object
+      description: DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceIntegrityCheckStatusType"
+        info:
+          type: string
+          description: Human-readable information about the integrity check status.
+    DeviceIntegrityCheckStatusType:
+      type: string
+      description: Status of the integrity check performed on the device.
+      enum:
+        - "Unknown"
+        - "Unsupported"
+        - "Failed"
+        - "Verified"
+      x-enum-varnames:
+        - "DeviceIntegrityCheckStatusUnknown"
+        - "DeviceIntegrityCheckStatusUnsupported"
+        - "DeviceIntegrityCheckStatusFailed"
+        - "DeviceIntegrityCheckStatusVerified"
     DeviceLifecycleStatusType:
       type: string
       enum:
@@ -4200,21 +4566,29 @@ components:
       required:
         - status
       properties:
+        deviceIdentity:
+          $ref: "#/components/schemas/DeviceIntegrityCheckStatus"
+        tpm:
+          $ref: "#/components/schemas/DeviceIntegrityCheckStatus"
         status:
           $ref: "#/components/schemas/DeviceIntegrityStatusSummaryType"
         info:
           type: string
           description: Human readable information about the last integrity transition.
+        lastVerified:
+          type: string
+          format: date-time
+          description: Timestamp of the last integrity verification.
     DeviceIntegrityStatusSummaryType:
       type: string
       description: Status of the integrity of the device.
       enum:
-        - "Passed"
+        - "Verified"
         - "Failed"
         - "Unknown"
         - "Unsupported"
       x-enum-varnames:
-        - "DeviceIntegrityStatusPassed"
+        - "DeviceIntegrityStatusVerified"
         - "DeviceIntegrityStatusFailed"
         - "DeviceIntegrityStatusUnknown"
         - "DeviceIntegrityStatusUnsupported"

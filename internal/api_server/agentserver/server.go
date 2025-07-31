@@ -152,6 +152,25 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
+	// Rate limiting middleware - applied before validation (only if configured)
+	// Note: Agent server doesn't need trusted proxy validation since it's mTLS
+	if s.cfg.Service.RateLimit != nil {
+		requests := 60        // Default requests limit
+		window := time.Minute // Default window
+		if s.cfg.Service.RateLimit.Requests > 0 {
+			requests = s.cfg.Service.RateLimit.Requests
+		}
+		if s.cfg.Service.RateLimit.Window > 0 {
+			window = time.Duration(s.cfg.Service.RateLimit.Window)
+		}
+		tlsmiddleware.InstallRateLimiter(router, tlsmiddleware.RateLimitOptions{
+			Requests:       requests,
+			Window:         window,
+			Message:        "Rate limit exceeded, please try again later",
+			TrustedProxies: []string{}, // No proxy headers for mTLS
+		})
+	}
+
 	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
 	server.HandlerFromMux(h, router)
 

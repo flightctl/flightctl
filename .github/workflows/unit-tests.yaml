@@ -36,3 +36,5 @@ jobs:
       - name: Running Unit tests
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make unit-test
+        env:
+          DISABLE_FIPS: "true"

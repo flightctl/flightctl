@@ -188,7 +188,7 @@ rules:
 
   ## Allowed and required responses
   responses-collection-post-required:
-    description: POST on resource collections must have responses 201, 400, 401, 403, 409, 503.
+    description: POST on resource collections must have responses 201, 400, 401, 403, 409, 429, 503.
     message: "Response {{property}} is required."
     severity: error
     given: "#PathToResourceCollection.post"
@@ -203,11 +203,13 @@ rules:
         function: truthy
       - field: responses.409
         function: truthy
+      - field: responses.429
+        function: truthy
       - field: responses.503
         function: truthy
 
   responses-collection-post-allowed:
-    description: POST on resource collections must not have responses other than 201, 400, 401, 403, 409, 503.
+    description: POST on resource collections must not have responses other than 201, 400, 401, 403, 409, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResourceCollection.post.responses.*~"
@@ -215,10 +217,10 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["201", "400", "401", "403", "409", "503"]
+        values: ["201", "400", "401", "403", "409", "429", "503"]
 
   responses-collection-get-required:
-    description: GET on resource collections must have responses 200, 400, 401, 403, 503.
+    description: GET on resource collections must have responses 200, 400, 401, 403, 429, 503.
     message: "Response {{property}} is required."
     severity: error
     given: "#PathToResourceCollection.get"
@@ -231,11 +233,13 @@ rules:
         function: truthy
       - field: responses.403
         function: truthy
+      - field: responses.429
+        function: truthy
       - field: responses.503
         function: truthy
 
   responses-collection-get-allowed:
-    description: GET on resource collections must not have responses other than 200, 400, 401, 403, 404, 503.
+    description: GET on resource collections must not have responses other than 200, 400, 401, 403, 404, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResourceCollection.get.responses.*~"
@@ -243,10 +247,10 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "400", "401", "403", "404", "503"]
+        values: ["200", "400", "401", "403", "404", "429", "503"]
 
   responses-collection-delete-required:
-    description: DELETE on resource collections must have responses 200, 401, 403, 503.
+    description: DELETE on resource collections must have responses 200, 401, 403, 429, 503.
     message: "Response {{property}} is required."
     severity: error
     given: "#PathToResourceCollection.delete"
@@ -257,11 +261,13 @@ rules:
         function: truthy
       - field: responses.403
         function: truthy
+      - field: responses.429
+        function: truthy
       - field: responses.503
         function: truthy
 
   responses-collection-delete-allowed:
-    description: DELETE on resource collections must not have responses other than 200, 401, 403, 404, 503.
+    description: DELETE on resource collections must not have responses other than 200, 401, 403, 404, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResourceCollection.delete.responses.*~"
@@ -269,10 +275,10 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "401", "403", "404", "503"]
+        values: ["200", "401", "403", "404", "429", "503"]
 
   responses-resource-get-required:
-    description: GET on a resource must have responses 200, 401, 403, 404, 503.
+    description: GET on a resource must have responses 200, 401, 403, 404, 429, 503.
     message: "Response {{property}} is required."
     severity: error
     given: "#PathToResource.get"
@@ -285,11 +291,13 @@ rules:
         function: truthy
       - field: responses.404
         function: truthy
+      - field: responses.429
+        function: truthy
       - field: responses.503
         function: truthy
 
   responses-resource-get-allowed:
-    description: GET on a resource must not have responses other than 200, 401, 403, 404, 503.
+    description: GET on a resource must not have responses other than 200, 401, 403, 404, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResource.get.responses.*~"
@@ -297,10 +305,10 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "401", "403", "404", "503"]
+        values: ["200", "401", "403", "404", "429", "503"]
 
   responses-resource-put-required:
-    description: PUT on a resource must have responses 200, 201, 400, 401, 403, 404, 409, 503.
+    description: PUT on a resource must have responses 200, 201, 400, 401, 403, 404, 409, 429, 503.
     message: "Response {{property}} is required."
     severity: error
     given: "#PathToResource.put"
@@ -319,11 +327,13 @@ rules:
         function: truthy
       - field: responses.409
         function: truthy
+      - field: responses.429
+        function: truthy
       - field: responses.503
         function: truthy
 
   responses-resource-put-allowed:
-    description: PUT on a resource must not have responses other than 200, 201, 400, 401, 403, 404, 409, 503.
+    description: PUT on a resource must not have responses other than 200, 201, 400, 401, 403, 404, 409, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResource.put.responses.*~"
@@ -331,10 +341,10 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "201", "400", "401", "403", "404", "409", "503"]
+        values: ["200", "201", "400", "401", "403", "404", "409", "429", "503"]
 
   responses-resource-patch-required:
-    description: PATCH on a resource must have responses 200, 400, 401, 403, 404, 409, 503.
+    description: PATCH on a resource must have responses 200, 400, 401, 403, 404, 409, 429, 503.
     message: "Response {{property}} is required."
     severity: error
     given: "#PathToResource.patch"
@@ -351,11 +361,13 @@ rules:
         function: truthy
       - field: responses.409
         function: truthy
+      - field: responses.429
+        function: truthy
       - field: responses.503
         function: truthy
 
   responses-resource-patch-allowed:
-    description: PATCH on a resource must not have responses other than 200, 400, 401, 403, 404, 409, 503.
+    description: PATCH on a resource must not have responses other than 200, 400, 401, 403, 404, 409, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResource.patch.responses.*~"
@@ -363,10 +375,10 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "400", "401", "403", "404", "409", "503"]
+        values: ["200", "400", "401", "403", "404", "409", "429", "503"]
 
   responses-resource-delete-required:
-    description: DELETE on a resource must have responses 200, 401, 403, 503.
+    description: DELETE on a resource must have responses 200, 401, 403, 429, 503.
     message: "Response {{property}} is required."
     severity: error
     given: "#PathToResource.delete"
@@ -377,13 +389,13 @@ rules:
         function: truthy
       - field: responses.403
         function: truthy
-      - field: responses.404
+      - field: responses.429
         function: truthy
       - field: responses.503
         function: truthy
 
   responses-resource-delete-allowed:
-    description: DELETE on a resource must not have responses other than 200, 401, 403, 404, 409, 503.
+    description: DELETE on a resource must not have responses other than 200, 401, 403, 404, 409, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResource.delete.responses.*~"
@@ -391,7 +403,7 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "401", "403", "404", "409", "503"]
+        values: ["200", "401", "403", "404", "409", "429", "503"]
 
   ## Allowed and required media types
   request-media-type-patch:
