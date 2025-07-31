@@ -62,6 +62,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printEnrollmentRequestsTable(w, data.(*apiclient.ListEnrollmentRequestsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.FleetKind):
 		return f.printFleetsTable(w, options.Summary, data.(*apiclient.ListFleetsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.OrganizationKind):
+		return f.printOrganizationsTable(w, data.(*apiclient.ListOrganizationsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.TemplateVersionKind):
 		return f.printTemplateVersionsTable(w, data.(*apiclient.ListTemplateVersionsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.RepositoryKind):
@@ -164,7 +166,7 @@ func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devic
 		f.printTableRow(w,
 			*d.Metadata.Name,
 			alias,
-			util.DefaultIfNil(d.Metadata.Owner, "<none>"),
+			util.DefaultIfNil(d.Metadata.Owner, NoneString),
 			string(d.Status.Summary.Status),
 			string(d.Status.Updated.Status),
 			string(d.Status.ApplicationsSummary.Status),
@@ -182,7 +184,7 @@ func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devic
 func (f *TableFormatter) printEnrollmentRequestsTable(w *tabwriter.Writer, ers ...api.EnrollmentRequest) error {
 	f.printHeaderRowLn(w, "NAME", "APPROVAL", "APPROVER", "APPROVED LABELS")
 	for _, e := range ers {
-		approval, approver, approvedLabels := "Pending", "<none>", ""
+		approval, approver, approvedLabels := "Pending", NoneString, ""
 		if e.Status.Approval != nil {
 			approval = util.BoolToStr(e.Status.Approval.Approved, "Approved", "Denied")
 			approver = e.Status.Approval.ApprovedBy
@@ -206,7 +208,7 @@ func (f *TableFormatter) printFleetsTable(w *tabwriter.Writer, showSummary bool,
 	}
 	for i := range fleets {
 		fleet := fleets[i]
-		selector := "<none>"
+		selector := NoneString
 		if fleet.Spec.Selector != nil {
 			selector = strings.Join(util.LabelMapToArray(fleet.Spec.Selector.MatchLabels), ",")
 		}
@@ -225,7 +227,7 @@ func (f *TableFormatter) printFleetsTable(w *tabwriter.Writer, showSummary bool,
 
 		f.printTableRow(w,
 			*fleet.Metadata.Name,
-			util.DefaultIfNil(fleet.Metadata.Owner, "<none>"),
+			util.DefaultIfNil(fleet.Metadata.Owner, NoneString),
 			selector,
 			valid,
 		)
@@ -234,6 +236,20 @@ func (f *TableFormatter) printFleetsTable(w *tabwriter.Writer, showSummary bool,
 			f.printTableRow(w, "", numDevices)
 		}
 		fmt.Fprintln(w)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printOrganizationsTable(w *tabwriter.Writer, orgs ...api.Organization) error {
+	f.printHeaderRowLn(w, "NAME", "DISPLAY NAME", "EXTERNAL ID")
+	for _, org := range orgs {
+		displayName := util.DefaultIfNil(org.Spec.DisplayName, NoneString)
+		externalID := util.DefaultIfNil(org.Spec.ExternalId, NoneString)
+		f.printTableRowLn(w,
+			*org.Metadata.Name,
+			displayName,
+			externalID,
+		)
 	}
 	return nil
 }
