@@ -304,3 +304,14 @@ VPN
 - docs/user/events.md
 lifecycles
 Rollouts
+- docs/user/rate-limiting.md
+1m
+1h
+authRequests
+authWindow
+CIDR
+HAProxy
+nginx
+rateLimit
+real_ip
+untrusted

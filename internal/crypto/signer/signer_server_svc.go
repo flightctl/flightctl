@@ -85,13 +85,9 @@ func (s *SignerServerSvc) Sign(ctx context.Context, request api.CertificateSigni
 		expirySeconds = *request.Spec.ExpirationSeconds
 	}
 
-	opts := []certOption{
-		WithExtension(OIDOrgID, NullOrgId.String()),
-	}
 	return s.ca.IssueRequestedServerCertificate(
 		ctx,
 		cert,
 		int(expirySeconds),
-		opts...,
 	)
 }

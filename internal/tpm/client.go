@@ -10,8 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math/big"
-	"os"
 
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -23,19 +23,15 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
-	"sigs.k8s.io/yaml"
+)
+
+var (
+	// errHandleBlobNotFound indicates that no LDevID data was found in the TPM blob
+	errHandleBlobNotFound = errors.New("handle blob not found")
 )
 
 // Ensure Client implements crypto.Signer interface
 var _ crypto.Signer = (*Client)(nil)
-
-// ldevIDBlob represents a serialized LDevID key pair for storage.
-type ldevIDBlob struct {
-	// PublicBlob contains the serialized public key data.
-	PublicBlob []byte `json:"public"`
-	// PrivateBlob contains the serialized private key data.
-	PrivateBlob []byte `json:"private"`
-}
 
 // ClientConfig contains configuration options for creating a TPM client.
 type ClientConfig struct {
@@ -43,21 +39,22 @@ type ClientConfig struct {
 	DeviceWriter    fileio.ReadWriter
 	PersistencePath string
 	DevicePath      string
-	DataDir         string // Used for default persistence path construction
 }
 
 // Client represents a connection to a TPM device and manages TPM operations.
 type Client struct {
-	rmPath    string
-	sysPath   string
-	conn      io.ReadWriteCloser
-	rw        fileio.ReadWriter
-	srk       *tpm2.NamedHandle
-	ldevid    *tpm2.NamedHandle
-	ldevidPub crypto.PublicKey
-	lak       *client.Key
-	currNonce []byte
-	log       *log.PrefixLogger
+	sysPath              string
+	conn                 io.ReadWriteCloser
+	rw                   fileio.ReadWriter
+	srk                  *tpm2.NamedHandle
+	ldevid               *tpm2.NamedHandle
+	ldevidPub            crypto.PublicKey
+	lak                  *tpm2.NamedHandle
+	currNonce            []byte
+	storageHierarchyAuth []byte
+	log                  *log.PrefixLogger
+	persistence          *persistence
+	ownership            *ownership
 }
 
 // NewClient creates a new TPM client with the given configuration.
@@ -74,22 +71,47 @@ func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config
 		return nil, fmt.Errorf("failed to open TPM device at %s: %w", tpm.resourceMgrPath, err)
 	}
 
+	return newClientWithConnection(conn, sysPath, log, rw, config)
+}
+
+// newClientWithConnection creates a new TPM client with the provided connection.
+// This helper function is useful for testing with simulators.
+func newClientWithConnection(conn io.ReadWriteCloser, sysPath string, log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config.Config) (*Client, error) {
 	client := &Client{
-		rmPath:  tpm.resourceMgrPath,
 		rw:      rw,
 		conn:    conn,
 		sysPath: sysPath,
 		log:     log,
 	}
 
+	// Create persistence and ownership components
+	var err error
+	client.persistence, err = newPersistence(rw, config.TPM.PersistencePath)
+	if err != nil {
+		return nil, fmt.Errorf("creating persistence: %w", err)
+	}
+	client.ownership = newOwnership(client, client.persistence)
+
 	ctx := context.Background()
+
+	if config.TPM.EnableOwnership {
+		password, err := client.ownership.ensureStorageHierarchyPassword()
+		if err != nil {
+			_ = client.Close(ctx)
+			return nil, fmt.Errorf("ensuring storage hierarchy password: %w", err)
+		}
+		client.storageHierarchyAuth = password
+	} else {
+		client.storageHierarchyAuth = nil
+	}
+
 	_, err = client.generateSRKPrimary()
 	if err != nil {
 		_ = client.Close(ctx)
 		return nil, fmt.Errorf("generating SRK: %w", err)
 	}
 
-	_, err = client.ensureLDevID(config.PersistencePath)
+	_, err = client.ensureLDevID()
 	if err != nil {
 		_ = client.Close(ctx)
 		return nil, fmt.Errorf("creating LDevID: %w", err)
@@ -101,13 +123,11 @@ func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config
 		return nil, fmt.Errorf("reading LDevID public key: %w", err)
 	}
 
-	// Create Local Attestation Key
-	lak, err := client.CreateLAK()
+	_, err = client.ensureLAK()
 	if err != nil {
 		_ = client.Close(ctx)
 		return nil, fmt.Errorf("creating LAK: %w", err)
 	}
-	client.lak = lak
 
 	return client, nil
 }
@@ -118,11 +138,11 @@ func (t *Client) GetPath() string {
 }
 
 // GetLocalAttestationPubKey returns the public key of the Local Attestation Key.
-func (t *Client) GetLocalAttestationPubKey() crypto.PublicKey {
+func (t *Client) GetLocalAttestationPubKey() (crypto.PublicKey, error) {
 	if t.lak == nil {
-		return nil
+		return nil, fmt.Errorf("lak is not yet initialized")
 	}
-	return t.lak.PublicKey()
+	return t.eccPublicKey(t.lak)
 }
 
 // UpdateNonce updates the current nonce for attestation operations.
@@ -187,17 +207,13 @@ func (t *Client) AttestationCollector(ctx context.Context) string {
 	return att.String()
 }
 
-// Close closes the TPM connection and flushes any transient handles.
-// It should be called when the TPM is no longer needed to free resources.
-func (t *Client) Close(ctx context.Context) error {
-	if t == nil {
-		return nil
-	}
+func (t *Client) flushKeys() []error {
 	var errs []error
-
 	// Close LAK if it exists
 	if t.lak != nil {
-		t.lak.Close()
+		if err := t.flushContextForHandle(t.lak.Handle); err != nil {
+			errs = append(errs, fmt.Errorf("flushing LAK handle: %w", err))
+		}
 		t.lak = nil
 	}
 
@@ -215,6 +231,17 @@ func (t *Client) Close(ctx context.Context) error {
 		}
 		t.ldevid = nil
 	}
+
+	return errs
+}
+
+// Close closes the TPM connection and flushes any transient handles.
+// It should be called when the TPM is no longer needed to free resources.
+func (t *Client) Close(ctx context.Context) error {
+	if t == nil {
+		return nil
+	}
+	errs := t.flushKeys()
 
 	if t.conn != nil {
 		if err := t.conn.Close(); err != nil {
@@ -265,8 +292,11 @@ func (t *Client) ReadPCRValues(measurements map[string]string) error {
 // This key is deterministically generated from the Storage Primary Seed + input parameters.
 func (t *Client) generateSRKPrimary() (*tpm2.NamedHandle, error) {
 	createPrimaryCmd := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHOwner,
-		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
+		PrimaryHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(t.storageHierarchyAuth),
+		},
+		InPublic: tpm2.New2B(tpm2.ECCSRKTemplate),
 	}
 	createPrimaryRsp, err := createPrimaryCmd.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
@@ -283,14 +313,19 @@ func (t *Client) generateSRKPrimary() (*tpm2.NamedHandle, error) {
 // The LAK is an asymmetric key that persists for the device's lifecycle and can be used
 // to sign TPM-internal data such as attestations. This is a Restricted signing key.
 // Key attributes: Restricted=yes, Sign=yes, Decrypt=no, FixedTPM=yes, SensitiveDataOrigin=yes
-func (t *Client) CreateLAK() (*client.Key, error) {
-	// AttestationKeyECC generates and loads a key from AKTemplateECC in the Owner (aka 'Storage') hierarchy.
-	return client.AttestationKeyECC(t.conn)
+// The LAK is created as a child of the SRK to properly handle storage hierarchy authentication.
+func (t *Client) ensureLAK() (*tpm2.NamedHandle, error) {
+	var err error
+	t.lak, err = t.ensureKey(t.persistence.loadLAKBlob, t.persistence.saveLAKBlob, AttestationKeyTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("ensuring LAK: %w", err)
+	}
+	return t.lak, nil
 }
 
 // GetAttestation generates a TPM attestation using the provided nonce and attestation key.
 // The nonce must be at least MinNonceLength bytes long for security.
-func (t *Client) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attestation, error) {
+func (t *Client) GetAttestation(nonce []byte, ak *tpm2.NamedHandle) (*pbattest.Attestation, error) {
 	// TODO - may want to use CertChainFetcher in the AttestOpts in the future
 	// see https://pkg.go.dev/github.com/google/go-tpm-tools/client#AttestOpts
 
@@ -301,11 +336,42 @@ func (t *Client) GetAttestation(nonce []byte, ak *client.Key) (*pbattest.Attesta
 		return nil, fmt.Errorf("no attestation key provided")
 	}
 
-	attestation, err := ak.Attest(client.AttestOpts{Nonce: nonce})
+	akPubKey, err := t.getAttestationKeyPublic(ak)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get attestation: %w", err)
+		return nil, fmt.Errorf("failed to get AK public key: %w", err)
 	}
+
+	pcrSelection := createFullPCRSelection()
+
+	quote, err := t.GetQuote(nonce, ak, pcrSelection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get quote: %w", err)
+	}
+
+	// Create attestation response
+	attestation := &pbattest.Attestation{
+		AkPub:  akPubKey,
+		Quotes: []*pbtpm.Quote{quote},
+		// Other fields like AkCert, IntermediateCerts are optional
+	}
+
 	return attestation, nil
+}
+
+// getAttestationKeyPublic reads the public area of the attestation key and marshals it
+func (t *Client) getAttestationKeyPublic(ak *tpm2.NamedHandle) ([]byte, error) {
+	readPubCmd := tpm2.ReadPublic{
+		ObjectHandle: ak.Handle,
+	}
+
+	readPubRsp, err := readPubCmd.Execute(transport.FromReadWriter(t.conn))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read public area: %w", err)
+	}
+
+	// Marshal the public area to bytes
+	pubBytes := tpm2.Marshal(readPubRsp.OutPublic)
+	return pubBytes, nil
 }
 
 // createLDevID creates an ECC LDevID key pair under the Storage/Owner hierarchy with the Storage Root Key as parent.
@@ -339,14 +405,12 @@ func (t *Client) createLDevID() (*tpm2.NamedHandle, error) {
 
 	return t.ldevid, nil
 }
-
-func (t *Client) getLDevIDPubKey() (crypto.PublicKey, error) {
-	if t.ldevid == nil {
-		return nil, fmt.Errorf("ldevid not initialized")
+func (t *Client) eccPublicKey(namedHandle *tpm2.NamedHandle) (crypto.PublicKey, error) {
+	if namedHandle == nil {
+		return nil, fmt.Errorf("invalid handle provided")
 	}
-
 	pub, err := tpm2.ReadPublic{
-		ObjectHandle: t.ldevid.Handle,
+		ObjectHandle: namedHandle.Handle,
 	}.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
 		return nil, fmt.Errorf("could not read public key: %w", err)
@@ -375,9 +439,16 @@ func (t *Client) getLDevIDPubKey() (crypto.PublicKey, error) {
 		X:     new(big.Int).SetBytes(unique.X.Buffer),
 		Y:     new(big.Int).SetBytes(unique.Y.Buffer),
 	}
-	// converts ecdsa.PublicKey to crypto.PublicKey
-	t.ldevidPub = pubkey
 	return pubkey, nil
+}
+
+func (t *Client) getLDevIDPubKey() (crypto.PublicKey, error) {
+	pubKey, err := t.eccPublicKey(t.ldevid)
+	if err != nil {
+		return nil, fmt.Errorf("ldevid public key: %w", err)
+	}
+	t.ldevidPub = pubKey
+	return pubKey, nil
 }
 
 func (t *Client) Public() crypto.PublicKey {
@@ -431,39 +502,41 @@ type ecdsaSignature struct {
 	S *big.Int
 }
 
-func (t *Client) endorsementKeyCert() (*client.Key, error) {
+func (t *Client) endorsementKey() (*client.Key, error) {
 	if t.conn == nil {
 		return nil, fmt.Errorf("cannot read endorsement key certificate: no connection available")
 	}
 	// gather errors so that we can report all the types we attempted
 	// but if any method returns a key we return that key and drop the errors
 	var errs []error
-	key, err := client.EndorsementKeyRSA(t.conn)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("reading rsa endorsement %w", err))
-	} else {
-		return key, nil
+	keyFactories := []struct {
+		name    string
+		factory func(io.ReadWriter) (*client.Key, error)
+	}{
+		{"rsa", client.EndorsementKeyRSA},
+		{"ecc", client.EndorsementKeyECC},
 	}
-
-	key, err = client.EndorsementKeyECC(t.conn)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("reading ecc endorsement %w", err))
-	} else {
-		return key, nil
+	for _, keyFactory := range keyFactories {
+		key, err := keyFactory.factory(t.conn)
+		if err == nil {
+			return key, nil
+		}
+		errs = append(errs, fmt.Errorf("reading %s endorsement: %w", keyFactory.name, err))
 	}
 	return nil, errors.Join(errs...)
 }
 
 func (t *Client) EndorsementKeyCert() ([]byte, error) {
-	key, err := t.endorsementKeyCert()
+	key, err := t.endorsementKey()
 	if err != nil {
 		return nil, fmt.Errorf("reading cert: %w", err)
 	}
+	defer key.Close()
 	return key.CertDERBytes(), nil
 }
 
 func (t *Client) EndorsementKeyPublic() ([]byte, error) {
-	key, err := t.endorsementKeyCert()
+	key, err := t.endorsementKey()
 	if err != nil {
 		return nil, fmt.Errorf("reading cert: %w", err)
 	}
@@ -471,13 +544,14 @@ func (t *Client) EndorsementKeyPublic() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encoding public key: %w", err)
 	}
+	defer key.Close()
 	return res, nil
 }
 
-// loadLDevIDFromBlob will load a LDevID for the existing SRK from key blob parts
+// loadKeyFromBlob will load a key for the existing SRK from key blob parts
 // According to https://trustedcomputinggroup.org/wp-content/uploads/TPM-2p0-Keys-for-Device-Identity-and-Attestation_v1_r12_pub10082021.pdf
 // the blobs returned are safe to be stored as the private portion returned is encrypted by the TPM.
-func (t *Client) loadLDevIDFromBlob(public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate) (*tpm2.NamedHandle, error) {
+func (t *Client) loadKeyFromBlob(public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate) (*tpm2.NamedHandle, error) {
 	loadCmd := tpm2.Load{
 		ParentHandle: t.srk,
 		InPrivate:    private,
@@ -486,14 +560,13 @@ func (t *Client) loadLDevIDFromBlob(public tpm2.TPM2BPublic, private tpm2.TPM2BP
 
 	loadRsp, err := loadCmd.Execute(transport.FromReadWriter(t.conn))
 	if err != nil {
-		return nil, fmt.Errorf("loading ldevid key: %w", err)
+		return nil, fmt.Errorf("loading key: %w", err)
 	}
 
-	t.ldevid = &tpm2.NamedHandle{
+	return &tpm2.NamedHandle{
 		Handle: loadRsp.ObjectHandle,
 		Name:   loadRsp.Name,
-	}
-	return t.ldevid, nil
+	}, nil
 }
 
 // flushContextForHandle flushes the TPM context for the specified handle if it's transient.
@@ -515,83 +588,69 @@ func (t *Client) flushContextForHandle(handle tpm2.TPMHandle) error {
 
 // GetQuote generates a TPM quote using the provided nonce, attestation key, and PCR selection.
 // The quote provides cryptographic evidence of the current PCR values.
-func (t *Client) GetQuote(nonce []byte, ak *client.Key, pcr_selection *legacy.PCRSelection) (*pbtpm.Quote, error) {
+func (t *Client) GetQuote(nonce []byte, ak *tpm2.NamedHandle, pcrSelection *tpm2.TPMLPCRSelection) (*pbtpm.Quote, error) {
 	if len(nonce) < MinNonceLength {
 		return nil, fmt.Errorf("nonce does not meet minimum length of %d bytes", MinNonceLength)
 	}
-
 	if ak == nil {
 		return nil, fmt.Errorf("no attestation key provided")
 	}
-	if pcr_selection == nil {
+	if pcrSelection == nil {
 		return nil, fmt.Errorf("no pcr selection provided")
 	}
 
-	quote, err := ak.Quote(*pcr_selection, nonce)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get TPM quote: %w", err)
+	// Create TPM2 Quote command using the correct API
+	quoteCmd := tpm2.Quote{
+		SignHandle: tpm2.AuthHandle{
+			Handle: ak.Handle,
+			Name:   ak.Name,
+			Auth:   tpm2.PasswordAuth(nil), // LAK uses password auth
+		},
+		QualifyingData: tpm2.TPM2BData{Buffer: nonce},
+		InScheme: tpm2.TPMTSigScheme{
+			Scheme: tpm2.TPMAlgECDSA,
+			Details: tpm2.NewTPMUSigScheme(
+				tpm2.TPMAlgECDSA,
+				&tpm2.TPMSSchemeHash{HashAlg: tpm2.TPMAlgSHA256},
+			),
+		},
+		PCRSelect: *pcrSelection,
 	}
+
+	quoteRsp, err := quoteCmd.Execute(transport.FromReadWriter(t.conn))
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute TPM quote: %w", err)
+	}
+
+	// Convert signature to bytes using Marshal
+	sigBytes := tpm2.Marshal(quoteRsp.Signature)
+
+	// Create the quote response in the expected protobuf format
+	quote := &pbtpm.Quote{
+		Quote:  quoteRsp.Quoted.Bytes(),
+		RawSig: sigBytes,
+	}
+
+	pcrs, err := client.ReadPCRs(t.conn, convertTPMLPCRSelectionToPCRSelection(pcrSelection))
+	if err != nil {
+		return nil, fmt.Errorf("reading PCRs: %w", err)
+	}
+
+	quote.Pcrs = pcrs
+
 	return quote, nil
 }
 
-func (t *Client) saveLDevIDBlob(public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate, path string) error {
-	blob := ldevIDBlob{
-		PublicBlob:  public.Bytes(),
-		PrivateBlob: private.Buffer,
-	}
-
-	data, err := yaml.Marshal(blob)
-	if err != nil {
-		return fmt.Errorf("marshaling blob to YAML: %w", err)
-	}
-
-	err = t.rw.WriteFile(path, data, 0600)
-	if err != nil {
-		return fmt.Errorf("writing blob to file %s: %v", path, err)
-	}
-
-	return nil
-}
-
-func (t *Client) loadLDevIDBlob(path string) (*tpm2.TPM2BPublic, *tpm2.TPM2BPrivate, error) {
-	var public tpm2.TPM2BPublic
-	var private tpm2.TPM2BPrivate
-
-	data, err := t.rw.ReadFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var blob ldevIDBlob
-	err = yaml.Unmarshal(data, &blob)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unmarshaling YAML from file %s: %v", path, err)
-	}
-
-	public = tpm2.BytesAs2B[tpm2.TPMTPublic](blob.PublicBlob)
-	private.Buffer = blob.PrivateBlob
-
-	return &public, &private, nil
-}
-
-// ensureLDevID ensures an LDevID key exists using blob storage at the specified path.
-// The Storage Root Key (srk) is used as the parent for the LDevID.
-func (t *Client) ensureLDevID(path string) (*tpm2.NamedHandle, error) {
-	if path == "" {
-		return nil, fmt.Errorf("blob path cannot be empty")
-	}
-
+func (t *Client) ensureKey(load loadBlobFunc, save saveBlobFunc, template tpm2.TPMTPublic) (*tpm2.NamedHandle, error) {
 	// Try to load existing blob from file
-	public, private, err := t.loadLDevIDBlob(path)
+	public, private, err := load()
 	if err == nil {
-		return t.loadLDevIDFromBlob(*public, *private)
+		return t.loadKeyFromBlob(*public, *private)
 	}
-
-	// If file doesn't exist, create new key and persist it
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errHandleBlobNotFound) {
 		createCmd := tpm2.Create{
 			ParentHandle: *t.srk,
-			InPublic:     tpm2.New2B(LDevIDTemplate),
+			InPublic:     tpm2.New2B(template),
 		}
 		transportTPM := transport.FromReadWriter(t.conn)
 		createRsp, err := createCmd.Execute(transportTPM)
@@ -599,14 +658,157 @@ func (t *Client) ensureLDevID(path string) (*tpm2.NamedHandle, error) {
 			return nil, fmt.Errorf("creating LDevID key: %w", err)
 		}
 
-		err = t.saveLDevIDBlob(createRsp.OutPublic, createRsp.OutPrivate, path)
+		err = save(createRsp.OutPublic, createRsp.OutPrivate)
 		if err != nil {
 			return nil, fmt.Errorf("saving blob to file: %w", err)
 		}
 
-		return t.loadLDevIDFromBlob(createRsp.OutPublic, createRsp.OutPrivate)
+		return t.loadKeyFromBlob(createRsp.OutPublic, createRsp.OutPrivate)
+	}
+	// File exists but couldn't be loaded (corrupted, invalid format, etc.)
+	return nil, fmt.Errorf("loading blob from persistence: %w", err)
+}
+
+// ensureLDevID ensures an LDevID key exists using blob storage at the specified path.
+// The Storage Root Key (srk) is used as the parent for the LDevID.
+func (t *Client) ensureLDevID() (*tpm2.NamedHandle, error) {
+	var err error
+	t.ldevid, err = t.ensureKey(t.persistence.loadLDevIDBlob, t.persistence.saveLDevIDBlob, LDevIDTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("ensuring ldevid: %w", err)
+	}
+	return t.ldevid, nil
+}
+
+// checkStorageHierarchyAuthStatus checks if the storage hierarchy has a password set
+// using TPM GetCapabilities command. Returns true if a password is set.
+func (t *Client) checkStorageHierarchyAuthStatus() (bool, error) {
+	getCapCmd := tpm2.GetCapability{
+		Capability:    tpm2.TPMCapTPMProperties,
+		Property:      uint32(tpm2.TPMPTPermanent),
+		PropertyCount: 1,
 	}
 
-	// File exists but couldn't be loaded (corrupted, invalid format, etc.)
-	return nil, fmt.Errorf("loading blob from file %s: %w", path, err)
+	rsp, err := getCapCmd.Execute(transport.FromReadWriter(t.conn))
+	if err != nil {
+		return false, fmt.Errorf("getting TPM capabilities: %w", err)
+	}
+
+	data, err := rsp.CapabilityData.Data.TPMProperties()
+	if err != nil {
+		return false, fmt.Errorf("parsing properties: %w", err)
+	}
+	for _, prop := range data.TPMProperty {
+		if prop.Property == tpm2.TPMPTPermanent {
+			// ownerAuthSet is bit 0 of this value.
+			return prop.Value&0x1 != 0, nil
+		}
+	}
+	return false, fmt.Errorf("no valid properties found")
+}
+
+func (t *Client) generateStoragePassword() ([]byte, error) {
+	// Use TPM's hardware random number generator for 32-byte password
+	getRandCmd := tpm2.GetRandom{
+		BytesRequested: 32,
+	}
+
+	rsp, err := getRandCmd.Execute(transport.FromReadWriter(t.conn))
+	if err != nil {
+		return nil, fmt.Errorf("generating TPM random password: %w", err)
+	}
+
+	if len(rsp.RandomBytes.Buffer) != 32 {
+		return nil, fmt.Errorf("TPM returned %d bytes, expected 32", len(rsp.RandomBytes.Buffer))
+	}
+
+	return rsp.RandomBytes.Buffer, nil
+}
+
+func (t *Client) changeStorageHierarchyPassword(currentPassword []byte, newPassword []byte) error {
+	changeAuthCmd := tpm2.HierarchyChangeAuth{
+		AuthHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(currentPassword),
+		},
+		NewAuth: tpm2.TPM2BAuth{Buffer: newPassword},
+	}
+
+	_, err := changeAuthCmd.Execute(transport.FromReadWriter(t.conn))
+	if err != nil {
+		return fmt.Errorf("setting storage hierarchy password: %w", err)
+	}
+
+	return nil
+}
+
+func (t *Client) Clear() error {
+	// only the lockout and platform hierarchies can invoke tpm2.Clear
+	// it is possible to block the lockout hierarchy from performing a clear operation
+	// it is possible to add passwords to both the lockout and platform hierarchies
+	// We make a best effort to invoke clear, but if those operations fail, we attempt
+	// to reset owner password and make our keys unrecoverable.
+	hierarchies := []struct {
+		name   string
+		handle tpm2.TPMHandle
+	}{
+		{
+			name:   "lockout",
+			handle: tpm2.TPMRHLockout,
+		},
+		{
+			name:   "platform",
+			handle: tpm2.TPMRHPlatform,
+		},
+	}
+
+	var errs []error
+	for _, hier := range hierarchies {
+		cmd := tpm2.Clear{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: hier.handle,
+				Auth:   tpm2.PasswordAuth(nil),
+			},
+		}
+
+		_, err := cmd.Execute(transport.FromReadWriter(t.conn))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("clearing hierarchy %q: %w", hier.name, err))
+		}
+	}
+
+	// if all commands failed we failed to invoke clear
+	// so we try to clean up as much as we manually can
+	// but still treat everything as if it errored.
+	if len(errs) == len(hierarchies) {
+		// reset the error into a compact one
+		errs = []error{
+			fmt.Errorf("clearing hierarchy hierarchy failed: %w", errors.Join(errs...)),
+		}
+		if err := t.ownership.resetStorageHierarchyPassword(); err != nil {
+			// if we fail to reset the storage password something is very off. We shouldn't erase our
+			// password in case we can try again.
+			return fmt.Errorf("resetting storage hierarchy password: %w %w", err, errors.Join(errs...))
+		}
+		if flushErrs := t.flushKeys(); len(flushErrs) != 0 {
+			errs = append(errs, fmt.Errorf("flushing hierarchy keys: %w", errors.Join(flushErrs...)))
+		}
+	} else {
+		// if any of the above commands succeeded we consider the operation successful
+		errs = nil
+	}
+
+	t.srk = nil
+	t.lak = nil
+	t.ldevid = nil
+	t.ldevidPub = nil
+	t.storageHierarchyAuth = nil
+
+	if err := t.persistence.erase(); err != nil {
+		errs = append(errs, fmt.Errorf("clearing hierarchy persistence failed: %w", err))
+	}
+	if len(errs) != 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }

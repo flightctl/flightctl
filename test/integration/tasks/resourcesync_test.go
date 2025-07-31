@@ -2,6 +2,7 @@ package tasks_test
 
 import (
 	"context"
+	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -49,7 +50,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
-		resourceSync = tasks.NewResourceSync(callbackManager, serviceHandler, log)
+		resourceSync = tasks.NewResourceSync(callbackManager, serviceHandler, log, nil)
 
 		// Set up mock expectations for the publisher
 		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
@@ -407,6 +408,371 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 				Expect(event.InvolvedObject.Name).To(Equal(resourceSyncName))
 				Expect(event.Metadata.Name).ToNot(BeNil())
 			}
+		})
+	})
+
+	Context("ResourceSync GitOps Field Removal", func() {
+		It("should test RemoveIgnoredFields function directly", func() {
+			// Test the RemoveIgnoredFields function directly
+			resource := tasks.GenericResourceMap{
+				"kind": api.FleetKind,
+				"metadata": map[string]interface{}{
+					"name":            "test-fleet",
+					"resourceVersion": "12345",
+					"labels": map[string]interface{}{
+						"test-label": "should-be-removed",
+						"keep-label": "should-be-kept",
+					},
+				},
+			}
+
+			ignoreFields := []string{"/metadata/resourceVersion", "/metadata/labels/test-label"}
+
+			// Apply field removal
+			cleanedResource := tasks.RemoveIgnoredFields(resource, ignoreFields)
+
+			// Debug: Print the cleaned resource to see what happened
+			fmt.Printf("Original resource: %+v\n", resource)
+			fmt.Printf("Cleaned resource: %+v\n", cleanedResource)
+
+			// Check the results directly on the map
+			metadata, ok := cleanedResource["metadata"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+
+			// Check that resourceVersion was removed
+			_, hasResourceVersion := metadata["resourceVersion"]
+			fmt.Printf("Has resourceVersion: %v\n", hasResourceVersion)
+			Expect(hasResourceVersion).To(BeFalse())
+
+			// Check that name was preserved
+			name, hasName := metadata["name"]
+			Expect(hasName).To(BeTrue())
+			Expect(name).To(Equal("test-fleet"))
+
+			// Check that test-label was removed but keep-label was preserved
+			labels, ok := metadata["labels"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+			_, hasTestLabel := labels["test-label"]
+			Expect(hasTestLabel).To(BeFalse())
+			_, hasKeepLabel := labels["keep-label"]
+			Expect(hasKeepLabel).To(BeTrue())
+			Expect(labels["keep-label"]).To(Equal("should-be-kept"))
+		})
+
+		It("should remove ignored fields during resource parsing", func() {
+			// Create a ResourceSync with custom ignore fields
+			ignoreFields := []string{"/metadata/resourceVersion", "/metadata/labels/test-label"}
+			resourceSyncWithIgnores := tasks.NewResourceSync(callbackManager, serviceHandler, log, ignoreFields)
+
+			// Create test resources with fields that should be ignored
+			resources := []tasks.GenericResourceMap{
+				{
+					"kind": api.FleetKind,
+					"metadata": map[string]interface{}{
+						"name":            "test-fleet",
+						"resourceVersion": "12345",
+						"labels": map[string]interface{}{
+							"test-label": "should-be-removed",
+							"keep-label": "should-be-kept",
+						},
+					},
+					"spec": map[string]interface{}{
+						"selector": map[string]interface{}{
+							"matchLabels": map[string]interface{}{
+								"fleet": "test",
+							},
+						},
+						"template": map[string]interface{}{
+							"metadata": map[string]interface{}{
+								"labels": map[string]interface{}{
+									"fleet": "test",
+								},
+							},
+							"spec": map[string]interface{}{
+								"os": map[string]interface{}{
+									"image": "quay.io/test/os:latest",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// Apply field removal manually to test the function
+			cleanedResources := make([]tasks.GenericResourceMap, len(resources))
+			for i, resource := range resources {
+				cleanedResources[i] = tasks.RemoveIgnoredFields(resource, ignoreFields)
+			}
+
+			// Test the field removal directly on the cleaned resource
+			cleanedResource := cleanedResources[0]
+			metadata, ok := cleanedResource["metadata"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+
+			// Check that resourceVersion was removed
+			_, hasResourceVersion := metadata["resourceVersion"]
+			Expect(hasResourceVersion).To(BeFalse())
+
+			// Check that name was preserved
+			name, hasName := metadata["name"]
+			Expect(hasName).To(BeTrue())
+			Expect(name).To(Equal("test-fleet"))
+
+			// Check that test-label was removed but keep-label was preserved
+			labels, ok := metadata["labels"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+			_, hasTestLabel := labels["test-label"]
+			Expect(hasTestLabel).To(BeFalse())
+			_, hasKeepLabel := labels["keep-label"]
+			Expect(hasKeepLabel).To(BeTrue())
+			Expect(labels["keep-label"]).To(Equal("should-be-kept"))
+
+			// Parse fleets from cleaned resources
+			fleets, err := resourceSyncWithIgnores.ParseFleetsFromResources(cleanedResources, "test-resourcesync")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleets).To(HaveLen(1))
+
+			// Verify that ignored fields were removed by checking the parsed fleet
+			fleet := fleets[0]
+			Expect(*fleet.Metadata.Name).To(Equal("test-fleet"))
+			Expect(fleet.Metadata.ResourceVersion).To(BeNil())
+
+			// Check that test-label was removed but keep-label was preserved
+			Expect(fleet.Metadata.Labels).ToNot(BeNil())
+			_, hasTestLabel = (*fleet.Metadata.Labels)["test-label"]
+			Expect(hasTestLabel).To(BeFalse())
+			_, hasKeepLabel = (*fleet.Metadata.Labels)["keep-label"]
+			Expect(hasKeepLabel).To(BeTrue())
+			Expect((*fleet.Metadata.Labels)["keep-label"]).To(Equal("should-be-kept"))
+		})
+
+		It("should not remove fields when no ignore list is provided", func() {
+			// Create a ResourceSync without ignore fields
+			resourceSyncNoIgnores := tasks.NewResourceSync(callbackManager, serviceHandler, log, nil)
+
+			// Create test resources with fields that would normally be ignored
+			resources := []tasks.GenericResourceMap{
+				{
+					"kind": api.FleetKind,
+					"metadata": map[string]interface{}{
+						"name":            "test-fleet",
+						"resourceVersion": "12345",
+						"labels": map[string]interface{}{
+							"test-label": "should-be-kept",
+						},
+					},
+					"spec": map[string]interface{}{
+						"selector": map[string]interface{}{
+							"matchLabels": map[string]interface{}{
+								"fleet": "test",
+							},
+						},
+						"template": map[string]interface{}{
+							"metadata": map[string]interface{}{
+								"labels": map[string]interface{}{
+									"fleet": "test",
+								},
+							},
+							"spec": map[string]interface{}{
+								"os": map[string]interface{}{
+									"image": "quay.io/test/os:latest",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// Apply field removal with empty ignore list - should NOT remove fields
+			cleanedResources := make([]tasks.GenericResourceMap, len(resources))
+			for i, resource := range resources {
+				cleanedResources[i] = tasks.RemoveIgnoredFields(resource, nil)
+			}
+
+			// Parse fleets from cleaned resources
+			fleets, err := resourceSyncNoIgnores.ParseFleetsFromResources(cleanedResources, "test-resourcesync")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleets).To(HaveLen(1))
+
+			// Verify that fields were NOT removed
+			fleet := fleets[0]
+			Expect(*fleet.Metadata.Name).To(Equal("test-fleet"))
+			Expect(fleet.Metadata.ResourceVersion).ToNot(BeNil())
+			Expect(*fleet.Metadata.ResourceVersion).To(Equal("12345"))
+
+			// Check that test-label was preserved
+			Expect(fleet.Metadata.Labels).ToNot(BeNil())
+			testLabel, hasTestLabel := (*fleet.Metadata.Labels)["test-label"]
+			Expect(hasTestLabel).To(BeTrue())
+			Expect(testLabel).To(Equal("should-be-kept"))
+		})
+
+		It("should remove nested ignored fields", func() {
+			// Create ignore fields for nested field removal
+			ignoreFields := []string{"/metadata/labels/nested/field"}
+
+			// Create test resources with nested fields that should be ignored
+			resources := []tasks.GenericResourceMap{
+				{
+					"kind": api.FleetKind,
+					"metadata": map[string]interface{}{
+						"name": "test-fleet",
+						"labels": map[string]interface{}{
+							"nested": map[string]interface{}{
+								"field": "should-be-removed",
+								"other": "should-be-kept",
+							},
+							"top-level": "should-be-kept",
+						},
+					},
+					"spec": map[string]interface{}{
+						"selector": map[string]interface{}{
+							"matchLabels": map[string]interface{}{
+								"fleet": "test",
+							},
+						},
+						"template": map[string]interface{}{
+							"metadata": map[string]interface{}{
+								"labels": map[string]interface{}{
+									"fleet": "test",
+								},
+							},
+							"spec": map[string]interface{}{
+								"os": map[string]interface{}{
+									"image": "quay.io/test/os:latest",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// Apply field removal manually to test the function
+			cleanedResources := make([]tasks.GenericResourceMap, len(resources))
+			for i, resource := range resources {
+				cleanedResources[i] = tasks.RemoveIgnoredFields(resource, ignoreFields)
+			}
+
+			// Test the field removal directly on the cleaned resource
+			cleanedResource := cleanedResources[0]
+			metadata, ok := cleanedResource["metadata"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+
+			labels, ok := metadata["labels"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+
+			nested, ok := labels["nested"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+
+			// Check that the specific nested field was removed
+			_, hasNestedField := nested["field"]
+			Expect(hasNestedField).To(BeFalse())
+
+			// Check that other nested field was preserved
+			otherField, hasOtherField := nested["other"]
+			Expect(hasOtherField).To(BeTrue())
+			Expect(otherField).To(Equal("should-be-kept"))
+
+			// Check that top-level field was preserved
+			topLevel, hasTopLevel := labels["top-level"]
+			Expect(hasTopLevel).To(BeTrue())
+			Expect(topLevel).To(Equal("should-be-kept"))
+		})
+
+		It("should handle non-existent paths gracefully", func() {
+			// Create a ResourceSync with ignore fields that don't exist in the resource
+			ignoreFields := []string{"/metadata/nonExistentField", "/spec/nonExistentField"}
+			resourceSyncWithIgnores := tasks.NewResourceSync(callbackManager, serviceHandler, log, ignoreFields)
+
+			// Create test resources without the fields that should be ignored
+			resources := []tasks.GenericResourceMap{
+				{
+					"kind": api.FleetKind,
+					"metadata": map[string]interface{}{
+						"name": "test-fleet",
+					},
+					"spec": map[string]interface{}{
+						"selector": map[string]interface{}{
+							"matchLabels": map[string]interface{}{
+								"fleet": "test",
+							},
+						},
+						"template": map[string]interface{}{
+							"metadata": map[string]interface{}{
+								"labels": map[string]interface{}{
+									"fleet": "test",
+								},
+							},
+							"spec": map[string]interface{}{
+								"os": map[string]interface{}{
+									"image": "quay.io/test/os:latest",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// Parse fleets from resources - should not error
+			fleets, err := resourceSyncWithIgnores.ParseFleetsFromResources(resources, "test-resourcesync")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleets).To(HaveLen(1))
+
+			// Verify the resource is intact
+			fleet := fleets[0]
+			Expect(*fleet.Metadata.Name).To(Equal("test-fleet"))
+		})
+
+		It("should apply field removal during full sync process", func() {
+			// Create a ResourceSync instance with ignore fields
+			ignoreFields := []string{"/metadata/resourceVersion"}
+			resourceSyncWithIgnores := tasks.NewResourceSync(callbackManager, serviceHandler, log, ignoreFields)
+
+			// Create test resources with resourceVersion that should be removed
+			resources := []tasks.GenericResourceMap{
+				{
+					"kind": api.FleetKind,
+					"metadata": map[string]interface{}{
+						"name":            "test-fleet",
+						"resourceVersion": "12345",
+					},
+					"spec": map[string]interface{}{
+						"selector": map[string]interface{}{
+							"matchLabels": map[string]interface{}{
+								"fleet": "test",
+							},
+						},
+						"template": map[string]interface{}{
+							"metadata": map[string]interface{}{
+								"labels": map[string]interface{}{
+									"fleet": "test",
+								},
+							},
+							"spec": map[string]interface{}{
+								"os": map[string]interface{}{
+									"image": "quay.io/test/os:latest",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// Apply field removal manually to simulate the extraction process
+			cleanedResources := make([]tasks.GenericResourceMap, len(resources))
+			for i, resource := range resources {
+				cleanedResources[i] = tasks.RemoveIgnoredFields(resource, ignoreFields)
+			}
+
+			// Parse fleets from cleaned resources
+			fleets, err := resourceSyncWithIgnores.ParseFleetsFromResources(cleanedResources, "gitops-test-resourcesync")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleets).To(HaveLen(1))
+
+			// Verify that the fleet was parsed without resourceVersion
+			fleet := fleets[0]
+			Expect(*fleet.Metadata.Name).To(Equal("test-fleet"))
+			Expect(fleet.Metadata.ResourceVersion).To(BeNil())
 		})
 	})
 })

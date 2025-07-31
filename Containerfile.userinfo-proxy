@@ -15,10 +15,8 @@ COPY .git .git
 USER 0
 RUN make build-userinfo-proxy
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal as certs
-RUN microdnf update --nodocs -y  && microdnf install ca-certificates --nodocs -y
 
-FROM registry.access.redhat.com/ubi9/ubi-micro
+FROM quay.io/flightctl/flightctl-base:9.6-1752500771
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-userinfo-proxy-container" \
@@ -27,8 +25,8 @@ LABEL \
   io.k8s.display-name="Flight Control UserInfo Proxy" \
   name="flightctl-userinfo-proxy" \
   summary="Flight Control UserInfo proxy for Grafana authentication"
+
 COPY --from=build /app/bin/flightctl-userinfo-proxy .
-COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
 
 EXPOSE 8080
 

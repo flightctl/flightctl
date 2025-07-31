@@ -79,7 +79,7 @@ jobs:
 
       - name: Build
         run: |
-          GOOS="${{ matrix.os }}" GOARCH="${{ matrix.arch }}" make build-cli
+          DISABLE_FIPS="true" GOOS="${{ matrix.os }}" GOARCH="${{ matrix.arch }}" make build-cli
           mv "bin/flightctl${{ matrix.ext }}" "flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}"
           SHA=$(shasum -a 256 flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }} | cut -d' ' -f1)
           echo ${SHA} > flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
