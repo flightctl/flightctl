@@ -301,7 +301,11 @@ func TestPeriodicTaskConsumer_Start_Success(t *testing.T) {
 	executors := createTestExecutors()
 	log := createTestLogger()
 
-	consumer := NewPeriodicTaskConsumer(mockProvider, log, executors)
+	consumer := NewPeriodicTaskConsumer(PeriodicTaskConsumerConfig{
+		QueuesProvider: mockProvider,
+		Log:            log,
+		Executors:      executors,
+	})
 
 	ctx := context.Background()
 	err := consumer.Start(ctx)
@@ -312,10 +316,10 @@ func TestPeriodicTaskConsumer_Start_Success(t *testing.T) {
 	require.Eventually(t, func() bool {
 		mockProvider.mu.Lock()
 		defer mockProvider.mu.Unlock()
-		return len(mockProvider.consumers) == DefaultNumConsumers
+		return len(mockProvider.consumers) == DefaultConsumerCount
 	}, 1*time.Second, 10*time.Millisecond)
 
-	require.Len(t, mockProvider.consumers, DefaultNumConsumers, "should create default number of consumers")
+	require.Len(t, mockProvider.consumers, DefaultConsumerCount, "should create default number of consumers")
 	for i, mockConsumer := range mockProvider.consumers {
 		mockConsumer.mu.Lock()
 		handler := mockConsumer.consumeHandler
@@ -333,7 +337,11 @@ func TestPeriodicTaskConsumer_Start_ConsumerCreationError(t *testing.T) {
 	executors := createTestExecutors()
 	log := createTestLogger()
 
-	consumer := NewPeriodicTaskConsumer(mockProvider, log, executors)
+	consumer := NewPeriodicTaskConsumer(PeriodicTaskConsumerConfig{
+		QueuesProvider: mockProvider,
+		Log:            log,
+		Executors:      executors,
+	})
 
 	ctx := context.Background()
 	err := consumer.Start(ctx)
@@ -349,7 +357,11 @@ func TestPeriodicTaskConsumer_MultipleConsumers(t *testing.T) {
 	testProvider := testutil.NewTestProvider(log)
 	defer testProvider.Stop()
 
-	consumer := NewPeriodicTaskConsumer(testProvider, log, executors)
+	consumer := NewPeriodicTaskConsumer(PeriodicTaskConsumerConfig{
+		QueuesProvider: testProvider,
+		Log:            log,
+		Executors:      executors,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -388,7 +400,11 @@ func TestPeriodicTaskConsumer_Stop(t *testing.T) {
 	executors := createTestExecutors()
 	log := createTestLogger()
 
-	consumer := NewPeriodicTaskConsumer(mockProvider, log, executors)
+	consumer := NewPeriodicTaskConsumer(PeriodicTaskConsumerConfig{
+		QueuesProvider: mockProvider,
+		Log:            log,
+		Executors:      executors,
+	})
 
 	ctx := context.Background()
 	err := consumer.Start(ctx)

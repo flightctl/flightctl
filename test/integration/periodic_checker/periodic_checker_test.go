@@ -133,6 +133,7 @@ var _ = Describe("Periodic", func() {
 		callbackManager       tasks_client.CallbackManager
 		orgId                 uuid.UUID
 		publisherConfig       periodic.PeriodicTaskPublisherConfig
+		consumerConfig        periodic.PeriodicTaskConsumerConfig
 	)
 
 	BeforeEach(func() {
@@ -179,6 +180,13 @@ var _ = Describe("Periodic", func() {
 			QueuesProvider:     queuesProvider,
 			TasksMetadata:      testPeriodicTasks,
 			TaskTickerInterval: 100 * time.Millisecond,
+		}
+
+		consumerConfig = periodic.PeriodicTaskConsumerConfig{
+			QueuesProvider: queuesProvider,
+			Log:            log,
+			Executors:      createTestExecutors(),
+			ConsumerCount:  3,
 		}
 	})
 
@@ -288,7 +296,7 @@ var _ = Describe("Periodic", func() {
 	When("Consuming tasks", func() {
 		It("consumes tasks once per publish", func() {
 			// Start the consumer
-			periodicTaskConsumer = periodic.NewPeriodicTaskConsumer(queuesProvider, log, createTestExecutors())
+			periodicTaskConsumer = periodic.NewPeriodicTaskConsumer(consumerConfig)
 			err := periodicTaskConsumer.Start(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -323,7 +331,7 @@ var _ = Describe("Periodic", func() {
 	When("running periodic tasks", func() {
 		It("works for a single organization", func() {
 			// Start the consumer
-			periodicTaskConsumer = periodic.NewPeriodicTaskConsumer(queuesProvider, log, createTestExecutors())
+			periodicTaskConsumer = periodic.NewPeriodicTaskConsumer(consumerConfig)
 			err := periodicTaskConsumer.Start(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -355,7 +363,7 @@ var _ = Describe("Periodic", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Start the consumer
-			periodicTaskConsumer = periodic.NewPeriodicTaskConsumer(queuesProvider, log, createTestExecutors())
+			periodicTaskConsumer = periodic.NewPeriodicTaskConsumer(consumerConfig)
 			err = periodicTaskConsumer.Start(ctx)
 			Expect(err).ToNot(HaveOccurred())
 

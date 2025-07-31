@@ -65,7 +65,12 @@ func (s *Server) Run(ctx context.Context) error {
 	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, callbackManager, s.cfg)
 
 	// Periodic task consumer
-	periodicTaskConsumer := NewPeriodicTaskConsumer(queuesProvider, s.log, periodicTaskExecutors)
+	periodicTaskConsumer := NewPeriodicTaskConsumer(PeriodicTaskConsumerConfig{
+		QueuesProvider: queuesProvider,
+		Log:            s.log,
+		Executors:      periodicTaskExecutors,
+		ConsumerCount:  s.cfg.Periodic.Consumers,
+	})
 	if err := periodicTaskConsumer.Start(ctx); err != nil {
 		return err
 	}

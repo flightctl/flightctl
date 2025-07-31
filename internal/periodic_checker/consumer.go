@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	DefaultNumConsumers = 5
+	DefaultConsumerCount = 5
 )
 
 func executeWithRecover(executor PeriodicTaskExecutor, ctx context.Context, log logrus.FieldLogger, taskType PeriodicTaskType, orgID string) {
@@ -59,20 +59,29 @@ type PeriodicTaskConsumer struct {
 	queuesProvider queues.Provider
 	log            logrus.FieldLogger
 	executors      map[PeriodicTaskType]PeriodicTaskExecutor
-	numConsumers   int
 	consumers      []queues.Consumer
 	wg             sync.WaitGroup
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
 
-func NewPeriodicTaskConsumer(queuesProvider queues.Provider, log logrus.FieldLogger, executors map[PeriodicTaskType]PeriodicTaskExecutor) *PeriodicTaskConsumer {
+type PeriodicTaskConsumerConfig struct {
+	QueuesProvider queues.Provider
+	Log            logrus.FieldLogger
+	Executors      map[PeriodicTaskType]PeriodicTaskExecutor
+	ConsumerCount  int
+}
+
+func NewPeriodicTaskConsumer(config PeriodicTaskConsumerConfig) *PeriodicTaskConsumer {
+	if config.ConsumerCount == 0 {
+		config.ConsumerCount = DefaultConsumerCount
+	}
+
 	return &PeriodicTaskConsumer{
-		queuesProvider: queuesProvider,
-		log:            log,
-		executors:      executors,
-		numConsumers:   DefaultNumConsumers,
-		consumers:      make([]queues.Consumer, 0),
+		queuesProvider: config.QueuesProvider,
+		log:            config.Log,
+		executors:      config.Executors,
+		consumers:      make([]queues.Consumer, config.ConsumerCount),
 	}
 }
 
@@ -95,20 +104,19 @@ func (c *PeriodicTaskConsumer) Start(ctx context.Context) error {
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
 	// Create all consumers first
-	consumers := make([]queues.Consumer, 0, c.numConsumers)
-	for i := 0; i < c.numConsumers; i++ {
+	for i := 0; i < len(c.consumers); i++ {
 		consumer, err := c.queuesProvider.NewConsumer(consts.PeriodicTaskQueue)
 		if err != nil {
 			// Clean up already created consumers
-			for _, c := range consumers {
-				c.Close()
+			for _, c := range c.consumers {
+				if c != nil {
+					c.Close()
+				}
 			}
 			return err
 		}
-		consumers = append(consumers, consumer)
+		c.consumers[i] = consumer
 	}
-
-	c.consumers = consumers
 
 	// Start all consumers
 	for i, consumer := range c.consumers {
@@ -116,7 +124,7 @@ func (c *PeriodicTaskConsumer) Start(ctx context.Context) error {
 		go c.runConsumer(i, consumer)
 	}
 
-	c.log.Infof("Started %d periodic task consumers", c.numConsumers)
+	c.log.Infof("Started %d periodic task consumers", len(c.consumers))
 	return nil
 }
 
