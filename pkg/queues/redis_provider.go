@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -31,7 +32,7 @@ type redisProvider struct {
 	mu      sync.Mutex
 }
 
-func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password string) (Provider, error) {
+func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password config.SecureString) (Provider, error) {
 	ctx, span := instrumentation.StartSpan(ctx, "flightctl/queues", "RedisProvider")
 	defer span.End()
 
@@ -39,7 +40,7 @@ func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname stri
 	wg.Add(1)
 	client := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", hostname, port),
-		Password: password,
+		Password: password.Value(),
 		DB:       0,
 	})
 

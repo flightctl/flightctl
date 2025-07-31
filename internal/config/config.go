@@ -41,15 +41,15 @@ type RateLimitConfig struct {
 }
 
 type dbConfig struct {
-	Type     string `json:"type,omitempty"`
-	Hostname string `json:"hostname,omitempty"`
-	Port     uint   `json:"port,omitempty"`
-	Name     string `json:"name,omitempty"`
-	User     string `json:"user,omitempty"`
-	Password string `json:"password,omitempty"`
+	Type     string       `json:"type,omitempty"`
+	Hostname string       `json:"hostname,omitempty"`
+	Port     uint         `json:"port,omitempty"`
+	Name     string       `json:"name,omitempty"`
+	User     string       `json:"user,omitempty"`
+	Password SecureString `json:"password,omitempty"`
 	// Migration user configuration for schema changes
-	MigrationUser     string `json:"migrationUser,omitempty"`
-	MigrationPassword string `json:"migrationPassword,omitempty"`
+	MigrationUser     string       `json:"migrationUser,omitempty"`
+	MigrationPassword SecureString `json:"migrationPassword,omitempty"`
 }
 
 type svcConfig struct {
@@ -79,9 +79,9 @@ type svcConfig struct {
 }
 
 type kvConfig struct {
-	Hostname string `json:"hostname,omitempty"`
-	Port     uint   `json:"port,omitempty"`
-	Password string `json:"password,omitempty"`
+	Hostname string       `json:"hostname,omitempty"`
+	Port     uint         `json:"port,omitempty"`
+	Password SecureString `json:"password,omitempty"`
 }
 
 type alertmanagerConfig struct {
@@ -260,19 +260,19 @@ func Load(cfgFile string) (*Config, error) {
 	}
 
 	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
-		c.KV.Password = kvPass
+		c.KV.Password = SecureString(kvPass)
 	}
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
 		c.Database.User = dbUser
 	}
 	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
-		c.Database.Password = dbPass
+		c.Database.Password = SecureString(dbPass)
 	}
 	if dbMigrationUser := os.Getenv("DB_MIGRATION_USER"); dbMigrationUser != "" {
 		c.Database.MigrationUser = dbMigrationUser
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
-		c.Database.MigrationPassword = dbMigrationPass
+		c.Database.MigrationPassword = SecureString(dbMigrationPass)
 	}
 	// Handle rate limit environment variables - create config if env vars are set
 	rateLimitRequests := os.Getenv("RATE_LIMIT_REQUESTS")
