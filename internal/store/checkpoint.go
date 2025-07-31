@@ -62,7 +62,7 @@ func (s *CheckpointStore) Set(ctx context.Context, consumer string, key string, 
 
 func (s *CheckpointStore) Get(ctx context.Context, consumer string, key string) ([]byte, error) {
 	var checkpoint model.Checkpoint
-	result := s.getDB(ctx).First(&checkpoint, "consumer = ? AND key = ?", consumer, key)
+	result := s.getDB(ctx).Take(&checkpoint, "consumer = ? AND key = ?", consumer, key)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, nil

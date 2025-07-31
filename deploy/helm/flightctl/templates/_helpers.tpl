@@ -1,15 +1,13 @@
 {{- define "flightctl.getBaseDomain" }}
   {{- if .Values.global.baseDomain }}
     {{- printf .Values.global.baseDomain }}
-  {{- else if eq .Values.global.target "acm" }}
+  {{- else }}
     {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
     {{- if .noNs }}
       {{- printf "apps.%s" $openShiftBaseDomain }}
     {{- else }}
       {{- printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
     {{- end }}
-  {{- else }}
-    {{- printf "flightctl.local" }}
   {{- end }}
 {{- end }}
 
@@ -111,6 +109,25 @@
     {{- end }}
   {{- else }}
     {{- printf "%s://cli-artifacts.%s" $scheme $baseDomain }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getAlertManagerProxyUrl" }}
+  {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
+  {{- $scheme := (include "flightctl.getHttpScheme" . )}}
+  {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
+  {{- if eq $exposeMethod "nodePort" }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.alertmanagerProxy }}
+  {{- else if eq $exposeMethod "gateway" }}
+    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80))}}
+      {{- printf "%s://alertmanager-proxy.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }}
+    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gatewayPorts.tls) 443))}}
+      {{- printf "%s://alertmanager-proxy.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
+    {{- else }}
+      {{- printf "%s://alertmanager-proxy.%s" $scheme $baseDomain }}
+    {{- end }}
+  {{- else }}
+    {{- printf "%s://alertmanager-proxy.%s" $scheme $baseDomain }}
   {{- end }}
 {{- end }}
 

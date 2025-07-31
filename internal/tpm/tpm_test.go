@@ -10,18 +10,14 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
 	"testing"
 
+	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm-tools/simulator"
-	legacy "github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/stretchr/testify/require"
@@ -35,9 +31,8 @@ type TestData struct {
 	client           *Client
 	srk              *tpm2.NamedHandle
 	ldevid           *tpm2.NamedHandle
-	lak              *client.Key
 	nonce            []byte
-	pcrSel           *legacy.PCRSelection
+	pcrSel           *tpm2.TPMLPCRSelection
 	persistentHandle *tpm2.TPMHandle
 }
 
@@ -48,9 +43,19 @@ func openTPMSimulator(t *testing.T) (*Client, error) {
 	simulator, err := simulator.Get()
 	require.NoError(err)
 
+	// Create a test ReadWriter and temporary path for persistence
+	rw := createTestReadWriter(t)
+	tempPath := "test_persistence.yaml"
+
 	tpm := &Client{
 		conn: simulator,
+		rw:   rw,
 	}
+
+	// Initialize persistence and ownership components
+	tpm.persistence, err = newPersistence(rw, tempPath)
+	require.NoError(err)
+	tpm.ownership = newOwnership(tpm, tpm.persistence)
 
 	// Auto-generate keys like OpenTPM does
 	_, err = tpm.generateSRKPrimary()
@@ -83,14 +88,11 @@ func setupTestData(t *testing.T) (TestData, func()) {
 	f, err := setupTestFixture(t)
 	require.NoError(err)
 
-	lak, err := f.client.CreateLAK()
-	require.NoError(err)
-
 	nonce := make([]byte, 8)
 	_, err = io.ReadFull(rand.Reader, nonce)
 	require.NoError(err)
 
-	selection := client.FullPcrSel(legacy.AlgSHA256)
+	selection := createFullPCRSelection()
 
 	// Use a test handle
 	handle := persistentHandleMin + 1
@@ -99,15 +101,13 @@ func setupTestData(t *testing.T) (TestData, func()) {
 		client:           f.client,
 		srk:              f.client.srk,
 		ldevid:           f.client.ldevid,
-		lak:              lak,
 		nonce:            nonce,
-		pcrSel:           &selection,
+		pcrSel:           selection,
 		persistentHandle: &handle,
 	}
 
 	cleanup := func() {
 		data.client.Close(context.Background())
-		data.lak.Close()
 	}
 
 	return data, cleanup
@@ -123,33 +123,19 @@ func TestLAK(t *testing.T) {
 	data, cleanup := setupTestData(t)
 	defer cleanup()
 
-	// This template is based on that used for AK ECC key creation in go-tpm-tools, see:
-	// https://github.com/google/go-tpm-tools/blob/3e063ade7f302972d7b893ca080a75efa3db5506/client/template.go#L108
-	//
-	// For more template options, see https://pkg.go.dev/github.com/google/go-tpm/legacy/tpm2#Public
-	params := legacy.ECCParams{
-		Symmetric: nil,
-		CurveID:   legacy.CurveNISTP256,
-		Point: legacy.ECPoint{
-			XRaw: make([]byte, 32),
-			YRaw: make([]byte, 32),
-		},
-	}
-	params.Sign = &legacy.SigScheme{
-		Alg:  legacy.AlgECDSA,
-		Hash: legacy.AlgSHA256,
-	}
-	template := legacy.Public{
-		Type:          legacy.AlgECC,
-		NameAlg:       legacy.AlgSHA256,
-		Attributes:    legacy.FlagSignerDefault,
-		ECCParameters: &params,
-	}
+	lak, err := data.client.ensureLAK()
+	data.client.lak = lak
+	require.NoError(t, err)
 
-	pub := data.lak.PublicArea()
-	if !pub.MatchesTemplate(template) {
-		t.Errorf("local attestation key does not match template")
-	}
+	// Test that we can get the public key from the LAK
+	pubKey, err := data.client.GetLocalAttestationPubKey()
+	require.NoError(t, err)
+	require.NotNil(t, pubKey)
+
+	// Verify it's an ECDSA public key with P-256 curve
+	ecdsaPubKey, ok := pubKey.(*ecdsa.PublicKey)
+	require.True(t, ok, "LAK public key should be *ecdsa.PublicKey")
+	require.Equal(t, "P-256", ecdsaPubKey.Curve.Params().Name)
 }
 
 func TestGetQuote(t *testing.T) {
@@ -157,23 +143,38 @@ func TestGetQuote(t *testing.T) {
 	data, cleanup := setupTestData(t)
 	defer cleanup()
 
-	_, err := data.client.GetQuote(data.nonce, data.lak, data.pcrSel)
+	lak, err := data.client.ensureLAK()
 	require.NoError(err)
+
+	quote, err := data.client.GetQuote(data.nonce, lak, data.pcrSel)
+	require.NoError(err)
+	require.NotNil(quote)
+	require.NotEmpty(quote.Quote)
+	require.NotEmpty(quote.RawSig)
+	require.NotNil(quote.Pcrs)
+	require.NotEmpty(quote.Pcrs.Pcrs)
 }
 
 func TestGetAttestation(t *testing.T) {
-	// Skip this test when running in a CI environment where the event log file is not available
-	_, err := os.ReadFile("/sys/kernel/security/tpm0/binary_bios_measurements")
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
-		t.Skip("Skipping test: TCG Event Log not available")
-	}
-
 	require := require.New(t)
 	data, cleanup := setupTestData(t)
 	defer cleanup()
 
-	_, err = data.client.GetAttestation(data.nonce, data.lak)
+	lak, err := data.client.ensureLAK()
 	require.NoError(err)
+
+	attestation, err := data.client.GetAttestation(data.nonce, lak)
+	require.NoError(err)
+	require.NotNil(attestation)
+	require.NotEmpty(attestation.AkPub)
+	require.NotEmpty(attestation.Quotes)
+	require.Len(attestation.Quotes, 1)
+
+	// Check the quote within the attestation
+	quote := attestation.Quotes[0]
+	require.NotEmpty(quote.Quote)
+	require.NotEmpty(quote.RawSig)
+	require.NotNil(quote.Pcrs)
 }
 
 func TestReadPCRValues(t *testing.T) {
@@ -197,9 +198,9 @@ func TestLoadLDevIDErrors(t *testing.T) {
 	invalidPrivate := tpm2.TPM2BPrivate{
 		Buffer: []byte{0x00, 0x01, 0x02},
 	}
-	_, err := data.client.loadLDevIDFromBlob(invalidPublic, invalidPrivate)
+	_, err := data.client.loadKeyFromBlob(invalidPublic, invalidPrivate)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "loading ldevid key")
+	require.Contains(t, err.Error(), "loading key")
 }
 
 func TestLoadLDevIDFromBlob(t *testing.T) {
@@ -215,7 +216,7 @@ func TestLoadLDevIDFromBlob(t *testing.T) {
 	createRsp, err := createCmd.Execute(transportTPM)
 	require.NoError(err)
 
-	loadedLDevID, err := data.client.loadLDevIDFromBlob(createRsp.OutPublic, createRsp.OutPrivate)
+	loadedLDevID, err := data.client.loadKeyFromBlob(createRsp.OutPublic, createRsp.OutPrivate)
 	require.NoError(err)
 	require.NotNil(loadedLDevID)
 	require.NotEqual(tpm2.TPMHandle(0), loadedLDevID.Handle)
@@ -229,14 +230,13 @@ func TestEnsureLDevID(t *testing.T) {
 
 	readWriter := createTestReadWriter(t)
 	data.client.rw = readWriter
-	blobPath := "ldevid.yaml"
 
-	ldevid1, err := data.client.ensureLDevID(blobPath)
+	ldevid1, err := data.client.ensureLDevID()
 	require.NoError(err)
 	require.NotNil(ldevid1)
 	err = data.client.flushContextForHandle(ldevid1.Handle)
 	require.NoError(err)
-	ldevid2, err := data.client.ensureLDevID(blobPath)
+	ldevid2, err := data.client.ensureLDevID()
 	require.NoError(err)
 	require.NotNil(ldevid2)
 
@@ -293,55 +293,34 @@ func TestFlushContextForHandle(t *testing.T) {
 func TestEnsureLDevIDEdgeCases(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupFunc     func(t *testing.T) (*Client, *tpm2.NamedHandle, string)
+		setupFunc     func(t *testing.T) (*Client, *tpm2.NamedHandle)
 		expectError   bool
 		errorContains string
 	}{
 		{
-			name: "empty blob path",
-			setupFunc: func(t *testing.T) (*Client, *tpm2.NamedHandle, string) {
-				data, cleanup := setupTestData(t)
-				t.Cleanup(cleanup)
-
-				readWriter := createTestReadWriter(t)
-				data.client.rw = readWriter
-
-				return data.client, data.srk, ""
-			},
-			expectError:   true,
-			errorContains: "blob path cannot be empty",
-		},
-		{
 			name: "corrupted file recovery",
-			setupFunc: func(t *testing.T) (*Client, *tpm2.NamedHandle, string) {
+			setupFunc: func(t *testing.T) (*Client, *tpm2.NamedHandle) {
 				data, cleanup := setupTestData(t)
 				t.Cleanup(cleanup)
 
-				readWriter := createTestReadWriter(t)
-				data.client.rw = readWriter
-
-				// Write corrupted file first
-				path := "corrupted_recovery.yaml"
+				// Write corrupted file to the existing persistence path
 				corruptedContent := "invalid yaml content: [unclosed bracket"
-				err := readWriter.WriteFile(path, []byte(corruptedContent), 0600)
+				err := data.client.rw.WriteFile(data.client.persistence.path, []byte(corruptedContent), 0600)
 				require.NoError(t, err)
 
-				return data.client, data.srk, path
+				return data.client, data.srk
 			},
 			expectError:   true,
-			errorContains: "loading blob from file",
+			errorContains: "loading blob from persistence",
 		},
 		{
 			name: "successful recovery from missing file",
-			setupFunc: func(t *testing.T) (*Client, *tpm2.NamedHandle, string) {
+			setupFunc: func(t *testing.T) (*Client, *tpm2.NamedHandle) {
 				data, cleanup := setupTestData(t)
 				t.Cleanup(cleanup)
 
-				readWriter := createTestReadWriter(t)
-				data.client.rw = readWriter
-
-				// Use a path that doesn't exist - should create new key
-				return data.client, data.srk, "new_key.yaml"
+				// File doesn't exist by default - should create new key
+				return data.client, data.srk
 			},
 			expectError:   false,
 			errorContains: "",
@@ -350,9 +329,9 @@ func TestEnsureLDevIDEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tpmClient, _, path := tt.setupFunc(t)
+			tpmClient, _ := tt.setupFunc(t)
 
-			_, err := tpmClient.ensureLDevID(path)
+			_, err := tpmClient.ensureLDevID()
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -462,7 +441,7 @@ func TestSaveLDevIDBlob(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpClient, _, public, private := tt.setupFunc(t)
 
-			err := tmpClient.saveLDevIDBlob(public, private, tt.path)
+			err := tmpClient.persistence.saveLDevIDBlob(public, private)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -479,74 +458,64 @@ func TestSaveLDevIDBlob(t *testing.T) {
 func TestLoadLDevIDBlobErrors(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupFunc     func(t *testing.T) (*Client, string)
+		setupFunc     func(t *testing.T) *Client
 		expectError   bool
 		errorContains string
 	}{
 		{
 			name: "file not found",
-			setupFunc: func(t *testing.T) (*Client, string) {
+			setupFunc: func(t *testing.T) *Client {
 				data, cleanup := setupTestData(t)
 				t.Cleanup(cleanup)
 
-				readWriter := createTestReadWriter(t)
-				data.client.rw = readWriter
-
-				return data.client, "nonexistent_file.yaml"
+				// File doesn't exist by default - should get file not found error
+				return data.client
 			},
 			expectError:   true,
 			errorContains: "",
 		},
 		{
 			name: "corrupted YAML",
-			setupFunc: func(t *testing.T) (*Client, string) {
+			setupFunc: func(t *testing.T) *Client {
 				data, cleanup := setupTestData(t)
 				t.Cleanup(cleanup)
 
-				readWriter := createTestReadWriter(t)
-				data.client.rw = readWriter
-
-				// Write corrupted YAML
+				// Write corrupted YAML to the persistence path
 				corruptedContent := "invalid yaml content: [unclosed bracket"
-				path := "corrupted.yaml"
-				err := readWriter.WriteFile(path, []byte(corruptedContent), 0600)
+				err := data.client.rw.WriteFile(data.client.persistence.path, []byte(corruptedContent), 0600)
 				require.NoError(t, err)
 
-				return data.client, path
+				return data.client
 			},
 			expectError:   true,
 			errorContains: "unmarshaling YAML",
 		},
 		{
 			name: "invalid blob structure",
-			setupFunc: func(t *testing.T) (*Client, string) {
+			setupFunc: func(t *testing.T) *Client {
 				data, cleanup := setupTestData(t)
 				t.Cleanup(cleanup)
 
-				readWriter := createTestReadWriter(t)
-				data.client.rw = readWriter
-
-				// Write YAML with wrong structure
+				// Write YAML with wrong structure to the persistence path
 				invalidYAML := `
 invalid_field: "value"
 another_field: 123
 `
-				path := "invalid_structure.yaml"
-				err := readWriter.WriteFile(path, []byte(invalidYAML), 0600)
+				err := data.client.rw.WriteFile(data.client.persistence.path, []byte(invalidYAML), 0600)
 				require.NoError(t, err)
 
-				return data.client, path
+				return data.client
 			},
-			expectError:   false, // This might not error due to YAML unmarshaling into empty struct
-			errorContains: "",
+			expectError:   true, // Should error when no LDevID data is found
+			errorContains: "handle blob not found",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tpmClient, path := tt.setupFunc(t)
+			tmpClient := tt.setupFunc(t)
 
-			_, _, err := tpmClient.loadLDevIDBlob(path)
+			_, _, err := tmpClient.persistence.loadLDevIDBlob()
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -613,7 +582,7 @@ func TestGetLDevIDPubKey(t *testing.T) {
 
 		_, err = tpm.getLDevIDPubKey()
 		require.Error(err)
-		require.Contains(err.Error(), "ldevid not initialized")
+		require.Contains(err.Error(), "invalid handle provided")
 	})
 }
 
@@ -1267,4 +1236,508 @@ func TestResolve(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStorageAuthStatus(t *testing.T) {
+	data, cleanup := setupTestData(t)
+	defer cleanup()
+	require := require.New(t)
+	set, err := data.client.checkStorageHierarchyAuthStatus()
+	require.NoError(err)
+	require.False(set)
+	err = data.client.changeStorageHierarchyPassword(nil, []byte("test"))
+	require.NoError(err)
+	set, err = data.client.checkStorageHierarchyAuthStatus()
+	require.NoError(err)
+	require.True(set)
+}
+
+func TestSetStorageHierarchyPassword(t *testing.T) {
+	data, cleanup := setupTestData(t)
+	defer cleanup()
+	require := require.New(t)
+	err := data.client.changeStorageHierarchyPassword(nil, []byte("test"))
+	require.NoError(err)
+	data.client.storageHierarchyAuth = nil
+	// fails to create when there is no auth
+	_, err = data.client.generateSRKPrimary()
+	require.Error(err)
+	data.client.storageHierarchyAuth = []byte("test")
+	// creates successfully when auth
+	_, err = data.client.generateSRKPrimary()
+	require.NoError(err)
+}
+
+func TestOwnershipEnsureStorageHierarchyPassword(t *testing.T) {
+	t.Run("returns cached password when already set", func(t *testing.T) {
+		require := require.New(t)
+		data, cleanup := setupTestData(t)
+		defer cleanup()
+
+		// Set a known password in the client cache
+		expectedPassword := []byte("test-cached-password-123")
+		data.client.storageHierarchyAuth = expectedPassword
+
+		// Call the function
+		password, err := data.client.ownership.ensureStorageHierarchyPassword()
+
+		// Should return cached password immediately
+		require.NoError(err)
+		require.Equal(expectedPassword, password)
+	})
+
+	t.Run("generates new password when auth not set", func(t *testing.T) {
+		require := require.New(t)
+
+		// Use lighter setup like TestSealPassword to avoid TPM object memory issues
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+
+		rw := createTestReadWriter(t)
+		client := &Client{
+			conn: simulator,
+			rw:   rw,
+		}
+		defer client.Close(context.Background())
+
+		// Initialize persistence and ownership
+		client.persistence, err = newPersistence(rw, "test_ownership.yaml")
+		require.NoError(err)
+		client.ownership = newOwnership(client, client.persistence)
+
+		// Ensure client cache is empty (should be default)
+		require.Nil(client.storageHierarchyAuth)
+
+		// Verify TPM has no storage hierarchy auth set (default for fresh simulator)
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.False(authSet)
+
+		// Call the function
+		password, err := client.ownership.ensureStorageHierarchyPassword()
+
+		// Should generate and return a new password
+		require.NoError(err)
+		require.NotNil(password)
+		require.Equal(32, len(password)) // TPM passwords are 32 bytes
+
+		// Verify TPM storage hierarchy auth is now set
+		authSet, err = client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.True(authSet)
+
+		// Verify sealed password file exists and can be loaded
+		_, err = client.persistence.loadPassword()
+		require.NoError(err)
+
+		// ensure we can still generate keys with ownership
+		client.storageHierarchyAuth = password
+		_, err = client.generateSRKPrimary()
+		require.NoError(err)
+	})
+
+	t.Run("uses existing password when auth already set", func(t *testing.T) {
+		require := require.New(t)
+
+		// Use lighter setup like TestSealPassword to avoid TPM object memory issues
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+
+		rw := createTestReadWriter(t)
+		client := &Client{
+			conn: simulator,
+			rw:   rw,
+		}
+		defer client.Close(context.Background())
+
+		// Initialize persistence and ownership
+		client.persistence, err = newPersistence(rw, "test_ownership2.yaml")
+		require.NoError(err)
+		client.ownership = newOwnership(client, client.persistence)
+
+		// Pre-setup: Generate and seal a password
+		originalPassword, err := client.generateStoragePassword()
+		require.NoError(err)
+		require.Equal(32, len(originalPassword))
+
+		// Write the password to file
+		err = client.persistence.savePassword(originalPassword)
+		require.NoError(err)
+
+		// Set the password on TPM to simulate existing setup
+		err = client.changeStorageHierarchyPassword(nil, originalPassword)
+		require.NoError(err)
+
+		// Verify auth is now set on TPM
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.True(authSet)
+
+		// Reset client cache to simulate fresh client load
+		client.storageHierarchyAuth = nil
+
+		// Call the function
+		password, err := client.ownership.ensureStorageHierarchyPassword()
+
+		// Should load and return the original password
+		require.NoError(err)
+		require.NotNil(password)
+		require.Equal(originalPassword, password)
+
+	})
+
+	t.Run("resets password after it has been set", func(t *testing.T) {
+		require := require.New(t)
+		// Use lighter setup like TestSealPassword to avoid TPM object memory issues
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+		rw := createTestReadWriter(t)
+		client := &Client{
+			conn: simulator,
+			rw:   rw,
+		}
+		defer client.Close(context.Background())
+
+		// Initialize persistence and ownership
+		client.persistence, err = newPersistence(rw, "test_ownership_reset.yaml")
+		require.NoError(err)
+		client.ownership = newOwnership(client, client.persistence)
+
+		// First, set up a password like the ensureStorageHierarchyPassword would do
+		password, err := client.ownership.ensureStorageHierarchyPassword()
+		require.NoError(err)
+		require.NotNil(password)
+		// Set the client auth like NewClient does
+		client.storageHierarchyAuth = password
+
+		// Verify TPM has auth set and sealed password exists
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.True(authSet)
+
+		_, err = client.persistence.loadPassword()
+		require.NoError(err)
+
+		// Now reset the password
+		err = client.ownership.resetStorageHierarchyPassword()
+		require.NoError(err)
+
+		// Verify TPM storage hierarchy auth is now unset
+		authSet, err = client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.False(authSet)
+
+		// Verify sealed password blob has been removed
+		_, err = client.persistence.loadPassword()
+		require.Error(err)
+		require.Contains(err.Error(), "no sealed password data found")
+	})
+}
+
+func TestSkipOwnership(t *testing.T) {
+	t.Run("skips ownership when SkipOwnership is true", func(t *testing.T) {
+		require := require.New(t)
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+
+		rw := createTestReadWriter(t)
+		config := &agent_config.Config{
+			TPM: agent_config.TPM{
+				Enabled:         true,
+				Path:            agent_config.DefaultTPMDevicePath,
+				PersistencePath: "test_skip_ownership.yaml",
+				EnableOwnership: false,
+			},
+		}
+
+		client, err := newClientWithConnection(simulator, agent_config.DefaultTPMDevicePath, log.NewPrefixLogger("test"), rw, config)
+		require.NoError(err)
+		defer client.Close(context.Background())
+
+		// Verify that storageHierarchyAuth is nil when SkipOwnership is true
+		require.Nil(client.storageHierarchyAuth)
+
+		// Verify TPM storage hierarchy auth is not set (default state)
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.False(authSet)
+
+		// Verify no sealed password blob was created
+		_, err = client.persistence.loadPassword()
+		require.Error(err)
+		require.Contains(err.Error(), "no sealed password data found")
+	})
+
+	t.Run("runs ownership when SkipOwnership is false", func(t *testing.T) {
+		require := require.New(t)
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+
+		rw := createTestReadWriter(t)
+		config := &agent_config.Config{
+			TPM: agent_config.TPM{
+				Enabled:         true,
+				Path:            agent_config.DefaultTPMDevicePath,
+				PersistencePath: "test_run_ownership.yaml",
+				EnableOwnership: true,
+			},
+		}
+
+		client, err := newClientWithConnection(simulator, agent_config.DefaultTPMDevicePath, log.NewPrefixLogger("test"), rw, config)
+		require.NoError(err)
+		defer client.Close(context.Background())
+
+		// Verify that storageHierarchyAuth is set when SkipOwnership is false
+		require.NotNil(client.storageHierarchyAuth)
+		require.Equal(32, len(client.storageHierarchyAuth)) // TPM passwords are 32 bytes
+
+		// Verify TPM storage hierarchy auth is set
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.True(authSet)
+
+		// Verify sealed password blob was created
+		_, err = client.persistence.loadPassword()
+		require.NoError(err)
+	})
+
+}
+
+func TestClear(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupFunc     func(t *testing.T) (*Client, func())
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "successfully clears TPM hierarchies and state",
+			setupFunc: func(t *testing.T) (*Client, func()) {
+				require := require.New(t)
+				simulator, err := simulator.Get()
+				require.NoError(err)
+
+				rw := createTestReadWriter(t)
+				config := &agent_config.Config{
+					TPM: agent_config.TPM{
+						Enabled:         true,
+						Path:            agent_config.DefaultTPMDevicePath,
+						PersistencePath: "test_clear.yaml",
+						EnableOwnership: true,
+					},
+				}
+
+				client, err := newClientWithConnection(simulator, agent_config.DefaultTPMDevicePath, log.NewPrefixLogger("test"), rw, config)
+				require.NoError(err)
+
+				// Verify initial state - handles should be set
+				require.NotNil(client.srk)
+				require.NotNil(client.ldevid)
+				require.NotNil(client.ldevidPub)
+				require.NotNil(client.storageHierarchyAuth)
+
+				cleanup := func() {
+					simulator.Close()
+				}
+
+				return client, cleanup
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			client, cleanup := tt.setupFunc(t)
+			defer cleanup()
+
+			err := client.Clear()
+
+			if tt.expectError {
+				require.Error(err)
+				if tt.errorContains != "" {
+					require.Contains(err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(err)
+
+				// Verify all handles are cleared
+				require.Nil(client.srk, "SRK should be nil after clear")
+				require.Nil(client.ldevid, "LDevID should be nil after clear")
+				require.Nil(client.lak, "LAK should be nil after clear")
+				require.Nil(client.ldevidPub, "LDevID public key should be nil after clear")
+				require.Nil(client.storageHierarchyAuth, "Storage hierarchy auth should be nil after clear")
+
+				// Verify persistence was cleared by checking that sealed password is gone
+				_, err = client.persistence.loadPassword()
+				require.Error(err, "Sealed password should be cleared")
+				require.Contains(err.Error(), "no sealed password data found")
+			}
+		})
+	}
+
+	t.Run("clears TPM state and allows re-initialization", func(t *testing.T) {
+		require := require.New(t)
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+
+		rw := createTestReadWriter(t)
+		config := &agent_config.Config{
+			TPM: agent_config.TPM{
+				Enabled:         true,
+				Path:            agent_config.DefaultTPMDevicePath,
+				PersistencePath: "test_clear_reinit.yaml",
+				EnableOwnership: true,
+			},
+		}
+
+		client, err := newClientWithConnection(simulator, agent_config.DefaultTPMDevicePath, log.NewPrefixLogger("test"), rw, config)
+		require.NoError(err)
+
+		// Verify initial state
+		require.NotNil(client.srk)
+		require.NotNil(client.ldevid)
+		require.NotNil(client.storageHierarchyAuth)
+
+		// Verify storage hierarchy has auth set
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.True(authSet)
+
+		// Clear the TPM
+		err = client.Clear()
+		require.NoError(err)
+
+		// Verify storage hierarchy auth is now cleared
+		authSet, err = client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.False(authSet)
+
+		// Verify we can re-initialize after clear (simulate what NewClient would do)
+		client.storageHierarchyAuth = nil
+
+		// Generate new password and set it
+		password, err := client.ownership.ensureStorageHierarchyPassword()
+		require.NoError(err)
+		require.NotNil(password)
+		client.storageHierarchyAuth = password
+
+		// Re-generate SRK
+		_, err = client.generateSRKPrimary()
+		require.NoError(err)
+		require.NotNil(client.srk)
+
+		// Re-create LDevID
+		_, err = client.ensureLDevID()
+		require.NoError(err)
+		require.NotNil(client.ldevid)
+
+		// Verify we can get public key
+		_, err = client.getLDevIDPubKey()
+		require.NoError(err)
+		require.NotNil(client.ldevidPub)
+	})
+
+	t.Run("fallback cleanup when tpm2.Clear fails due to hierarchy passwords", func(t *testing.T) {
+		require := require.New(t)
+		simulator, err := simulator.Get()
+		require.NoError(err)
+		defer simulator.Close()
+
+		rw := createTestReadWriter(t)
+		config := &agent_config.Config{
+			TPM: agent_config.TPM{
+				Enabled:         true,
+				Path:            agent_config.DefaultTPMDevicePath,
+				PersistencePath: "test_clear_fallback.yaml",
+				EnableOwnership: true,
+			},
+		}
+
+		client, err := newClientWithConnection(simulator, agent_config.DefaultTPMDevicePath, log.NewPrefixLogger("test"), rw, config)
+		require.NoError(err)
+
+		// Verify initial state - handles should be set
+		require.NotNil(client.srk)
+		require.NotNil(client.ldevid)
+		require.NotNil(client.ldevidPub)
+		require.NotNil(client.storageHierarchyAuth)
+
+		// Store initial handles for verification
+		initialSRK := client.srk
+		initialLDevID := client.ldevid
+		initialLDevIDPub := client.ldevidPub
+		initialAuth := client.storageHierarchyAuth
+
+		// Set passwords on lockout and platform hierarchies to force tpm2.Clear to fail
+		lockoutPassword := []byte("lockout-password")
+		platformPassword := []byte("platform-password")
+
+		// Set lockout hierarchy password
+		lockoutAuthCmd := tpm2.HierarchyChangeAuth{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: tpm2.TPMRHLockout,
+				Auth:   tpm2.PasswordAuth(nil),
+			},
+			NewAuth: tpm2.TPM2BAuth{Buffer: lockoutPassword},
+		}
+		_, err = lockoutAuthCmd.Execute(transport.FromReadWriter(client.conn))
+		require.NoError(err)
+
+		// Set platform hierarchy password
+		platformAuthCmd := tpm2.HierarchyChangeAuth{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: tpm2.TPMRHPlatform,
+				Auth:   tpm2.PasswordAuth(nil),
+			},
+			NewAuth: tpm2.TPM2BAuth{Buffer: platformPassword},
+		}
+		_, err = platformAuthCmd.Execute(transport.FromReadWriter(client.conn))
+		require.NoError(err)
+
+		// Attempt to clear - this should trigger fallback behavior
+		err = client.Clear()
+		require.Error(err) // a tpm2.Clear failure should be result in an overall failure even if we manage to clean up portions
+
+		// Verify all handles are cleared despite tpm2.Clear failing
+		require.Nil(client.srk, "SRK should be nil after fallback clear")
+		require.Nil(client.ldevid, "LDevID should be nil after fallback clear")
+		require.Nil(client.lak, "LAK should be nil after fallback clear")
+		require.Nil(client.ldevidPub, "LDevID public key should be nil after fallback clear")
+		require.Nil(client.storageHierarchyAuth, "Storage hierarchy auth should be nil after fallback clear")
+
+		// Verify that handles were actually different before clearing
+		require.NotNil(initialSRK, "Initial SRK should have been set")
+		require.NotNil(initialLDevID, "Initial LDevID should have been set")
+		require.NotNil(initialLDevIDPub, "Initial LDevID public key should have been set")
+		require.NotNil(initialAuth, "Initial auth should have been set")
+
+		// Verify persistence was cleared even when tpm2.Clear failed
+		_, err = client.persistence.loadPassword()
+		require.Error(err, "Sealed password should be cleared even during fallback")
+		require.Contains(err.Error(), "no sealed password data found")
+
+		// Verify storage hierarchy password was reset during fallback
+		authSet, err := client.checkStorageHierarchyAuthStatus()
+		require.NoError(err)
+		require.False(authSet, "Storage hierarchy auth should be cleared during fallback")
+
+		// Verify we can still re-initialize after fallback clear
+		password, err := client.ownership.ensureStorageHierarchyPassword()
+		require.NoError(err)
+		require.NotNil(password)
+		client.storageHierarchyAuth = password
+
+		// Re-generate SRK after fallback
+		_, err = client.generateSRKPrimary()
+		require.NoError(err)
+		require.NotNil(client.srk)
+	})
 }

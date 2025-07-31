@@ -13,28 +13,25 @@ import (
 	"github.com/samber/lo"
 )
 
-func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, tv api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
+func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, templateVersion api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
-	if errs := tv.Validate(); len(errs) > 0 {
+	if errs := templateVersion.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	var name = lo.FromPtr(tv.Metadata.Name)
-	var version = tv.Spec.Fleet
-
 	var callback store.TemplateVersionStoreCallback = func(ctx context.Context, u uuid.UUID, before *api.TemplateVersion, after *api.TemplateVersion) {
-		h.log.Infof("fleet %s: template version %s created with rollout device selection, not executing task for immediate rollout", version, name)
+		h.log.Infof("fleet %s: template version %s created with rollout device selection, not executing task for immediate rollout", templateVersion.Spec.Fleet, lo.FromPtr(templateVersion.Metadata.Name))
 	}
 	if immediateRollout {
 		callback = h.callbackManager.TemplateVersionCreatedCallback
 	}
-	eventCallback := func(ctx context.Context, _ api.ResourceKind, _ uuid.UUID, name string, _, _ interface{}, _ bool, _ *api.ResourceUpdatedDetails, err error) {
-		h.eventCallbackFleetRolloutStarted(ctx, name, version, immediateRollout, err, h.log)
-	}
 
-	result, err := h.store.TemplateVersion().Create(ctx, orgId, &tv, callback, eventCallback)
-	return result, StoreErrorToApiStatus(err, true, api.TemplateVersionKind, tv.Metadata.Name)
+	result, err := h.store.TemplateVersion().Create(ctx, orgId, &templateVersion, callback, h.callbackTemplateVersionUpdated)
+	if err == nil {
+		h.EmitFleetRolloutStartedEvent(ctx, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
+	}
+	return result, StoreErrorToApiStatus(err, true, api.TemplateVersionKind, templateVersion.Metadata.Name)
 }
 
 func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string, params api.ListTemplateVersionsParams) (*api.TemplateVersionList, api.Status) {
@@ -97,7 +94,7 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string
 		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, fleet, name)
 	}
 
-	_, err = h.store.TemplateVersion().Delete(ctx, orgId, fleet, name, h.eventDeleteCallback)
+	_, err = h.store.TemplateVersion().Delete(ctx, orgId, fleet, name, h.callbackTemplateVersionDeleted)
 	return StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
 }
 
@@ -106,4 +103,14 @@ func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, fleet str
 
 	result, err := h.store.TemplateVersion().GetLatest(ctx, orgId, fleet)
 	return result, StoreErrorToApiStatus(err, false, api.TemplateVersionKind, nil)
+}
+
+// callbackTemplateVersionUpdated is the template version-specific callback that handles template version events
+func (h *ServiceHandler) callbackTemplateVersionUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackTemplateVersionDeleted is the template version-specific callback that handles template version deletion events
+func (h *ServiceHandler) callbackTemplateVersionDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

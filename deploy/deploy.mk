@@ -17,7 +17,7 @@ cluster: bin/e2e-certs/ca.pem
 clean-cluster:
 	kind delete cluster
 
-deploy: cluster build deploy-helm deploy-e2e-extras prepare-agent-config
+deploy: cluster build-cli deploy-helm deploy-e2e-extras prepare-agent-config
 
 redeploy-api: flightctl-api-container
 	test/scripts/redeploy.sh api
@@ -83,4 +83,36 @@ kill-alertmanager-proxy:
 show-podman-secret:
 	sudo podman secret inspect $(SECRET_NAME) --showsecret | jq '.[] | .SecretData'
 
-.PHONY: deploy-db deploy cluster
+# Can set the image tag to a specific version by using the PACKIT_CURRENT_VERSION variable
+# which builds the rpm with the specified version.
+#
+# Example cmd:
+# PACKIT_CURRENT_VERSION=latest make services-container
+services-container: PACKIT_CURRENT_VERSION ?= latest
+services-container: rpm
+	@test -f bin/rpm/flightctl-services-*.rpm || (echo "No RPM file found - RPM build failed" && exit 1)
+	sudo podman build -t flightctl-services:latest -f test/scripts/services-images/Containerfile.services .
+
+run-services-container:
+	@if ! sudo podman image exists localhost/flightctl-services:latest; then \
+		echo "Container image not found, building flightctl-services container..."; \
+		$(MAKE) services-container; \
+	else \
+		echo "Using existing flightctl-services container image"; \
+	fi
+	sudo podman run -d --privileged --replace \
+	--name flightctl-services \
+	-p 443:443 \
+	-p 3443:3443 \
+	-p 7443:7443 \
+	-p 8090:8090 \
+	-p 8443:8443 \
+	-p 9093:9093 \
+	localhost/flightctl-services:latest
+
+clean-services-container:
+	sudo podman stop flightctl-services || true
+	sudo podman rm flightctl-services || true
+	sudo podman rmi localhost/flightctl-services:latest || true
+
+PHONY: deploy-db deploy cluster services-container run-services-container clean-services-container

@@ -7,7 +7,7 @@ metadata:
   labels:
     flightctl.service: flightctl-alertmanager-proxy
   name: flightctl-alertmanager-proxy
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   {{- if and .Values.global.nodePorts.alertmanagerProxy (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
   type: NodePort

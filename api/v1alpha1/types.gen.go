@@ -66,12 +66,20 @@ const (
 	DeviceDecommissionTargetTypeUnenroll     DeviceDecommissionTargetType = "Unenroll"
 )
 
+// Defines values for DeviceIntegrityCheckStatusType.
+const (
+	DeviceIntegrityCheckStatusFailed      DeviceIntegrityCheckStatusType = "Failed"
+	DeviceIntegrityCheckStatusUnknown     DeviceIntegrityCheckStatusType = "Unknown"
+	DeviceIntegrityCheckStatusUnsupported DeviceIntegrityCheckStatusType = "Unsupported"
+	DeviceIntegrityCheckStatusVerified    DeviceIntegrityCheckStatusType = "Verified"
+)
+
 // Defines values for DeviceIntegrityStatusSummaryType.
 const (
 	DeviceIntegrityStatusFailed      DeviceIntegrityStatusSummaryType = "Failed"
-	DeviceIntegrityStatusPassed      DeviceIntegrityStatusSummaryType = "Passed"
 	DeviceIntegrityStatusUnknown     DeviceIntegrityStatusSummaryType = "Unknown"
 	DeviceIntegrityStatusUnsupported DeviceIntegrityStatusSummaryType = "Unsupported"
+	DeviceIntegrityStatusVerified    DeviceIntegrityStatusSummaryType = "Verified"
 )
 
 // Defines values for DeviceLifecycleHookType.
@@ -183,10 +191,15 @@ const (
 	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
 	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
 	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
-	EventReasonResourceSyncCompleted           EventReason = "ResourceSyncCompleted"
+	EventReasonResourceSyncAccessible          EventReason = "ResourceSyncAccessible"
+	EventReasonResourceSyncCommitDetected      EventReason = "ResourceSyncCommitDetected"
+	EventReasonResourceSyncInaccessible        EventReason = "ResourceSyncInaccessible"
+	EventReasonResourceSyncParsed              EventReason = "ResourceSyncParsed"
+	EventReasonResourceSyncParsingFailed       EventReason = "ResourceSyncParsingFailed"
+	EventReasonResourceSyncSyncFailed          EventReason = "ResourceSyncSyncFailed"
+	EventReasonResourceSyncSynced              EventReason = "ResourceSyncSynced"
 	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
 	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
-	EventReasonTemplateVersionDeleted          EventReason = "TemplateVersionDeleted"
 )
 
 // Defines values for EventType.
@@ -591,13 +604,34 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
+// DeviceIntegrityCheckStatus DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+type DeviceIntegrityCheckStatus struct {
+	// Info Human-readable information about the integrity check status.
+	Info *string `json:"info,omitempty"`
+
+	// Status Status of the integrity check performed on the device.
+	Status DeviceIntegrityCheckStatusType `json:"status"`
+}
+
+// DeviceIntegrityCheckStatusType Status of the integrity check performed on the device.
+type DeviceIntegrityCheckStatusType string
+
 // DeviceIntegrityStatus Summary status of the integrity of the device.
 type DeviceIntegrityStatus struct {
+	// DeviceIdentity DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+	DeviceIdentity *DeviceIntegrityCheckStatus `json:"deviceIdentity,omitempty"`
+
 	// Info Human readable information about the last integrity transition.
 	Info *string `json:"info,omitempty"`
 
+	// LastVerified Timestamp of the last integrity verification.
+	LastVerified *time.Time `json:"lastVerified,omitempty"`
+
 	// Status Status of the integrity of the device.
 	Status DeviceIntegrityStatusSummaryType `json:"status"`
+
+	// Tpm DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+	Tpm *DeviceIntegrityCheckStatus `json:"tpm,omitempty"`
 }
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.

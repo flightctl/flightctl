@@ -21,7 +21,7 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.Resource
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.ResourceSync().Create(ctx, orgId, &rs, h.eventCallback)
+	result, err := h.store.ResourceSync().Create(ctx, orgId, &rs, h.callbackResourceSyncUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.ResourceSyncKind, rs.Metadata.Name)
 }
 
@@ -68,7 +68,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, name string, r
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs, h.eventCallback)
+	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs, h.callbackResourceSyncUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.ResourceSyncKind, &name)
 }
 
@@ -79,7 +79,7 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, name string) ap
 		return h.store.Fleet().UnsetOwner(ctx, tx, orgId, owner)
 	}
 
-	err := h.store.ResourceSync().Delete(ctx, orgId, name, callback, h.eventDeleteCallback)
+	err := h.store.ResourceSync().Delete(ctx, orgId, name, callback, h.callbackResourceSyncDeleted)
 	status := StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 	return status
 }
@@ -108,17 +108,30 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, name string, pat
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
-	result, err := h.store.ResourceSync().Update(ctx, orgId, newObj, h.eventDeleteCallback)
+	result, err := h.store.ResourceSync().Update(ctx, orgId, newObj, h.callbackResourceSyncUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 }
 
 func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, name string, resourceSync api.ResourceSync) (*api.ResourceSync, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
+	if errs := resourceSync.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
 	if name != *resourceSync.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, err := h.store.ResourceSync().UpdateStatus(ctx, orgId, &resourceSync)
+	result, err := h.store.ResourceSync().UpdateStatus(ctx, orgId, &resourceSync, h.callbackResourceSyncUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
+}
+
+// callbackResourceSyncUpdated is the resource sync-specific callback that handles resource sync events
+func (h *ServiceHandler) callbackResourceSyncUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleResourceSyncUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackResourceSyncDeleted is the resource sync-specific callback that handles resource sync deletion events
+func (h *ServiceHandler) callbackResourceSyncDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
