@@ -331,7 +331,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 		})
 
-		It("K8s secret config source", func() {
+		It("K8s secret config source", Label("76687"), func() {
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
 			// Get the next expected rendered version

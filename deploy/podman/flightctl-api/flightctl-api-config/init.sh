@@ -35,6 +35,19 @@ AAP_API_URL=""
 AAP_EXTERNAL_API_URL=""
 FLIGHTCTL_DISABLE_AUTH=""
 
+# Extract rate limit values (defaults if not configured)
+# Extract from service.rateLimit section
+RATE_LIMIT_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*requests:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
+RATE_LIMIT_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*window:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+RATE_LIMIT_AUTH_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*authRequests:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
+RATE_LIMIT_AUTH_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*authWindow:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+
+# Use defaults if not found
+RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-60}
+RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-1m}
+RATE_LIMIT_AUTH_REQUESTS=${RATE_LIMIT_AUTH_REQUESTS:-10}
+RATE_LIMIT_AUTH_WINDOW=${RATE_LIMIT_AUTH_WINDOW:-1h}
+
 # Verify required values were found
 if [ -z "$BASE_DOMAIN" ]; then
   echo "Error: Could not find baseDomain in service config file"
@@ -100,10 +113,19 @@ sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     -e "s|{{SRV_KEY_FILE}}|$SRV_KEY_FILE|g" \
     -e "s|{{INSECURE_SKIP_TLS_VERIFY}}|$INSECURE_SKIP_TLS_VERIFY|g" \
     -e "s|{{AUTH_CA_CERT}}|$AUTH_CA_CERT|g" \
+    -e "s|{{RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_REQUESTS|g" \
+    -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
+    -e "s|{{RATE_LIMIT_AUTH_REQUESTS}}|$RATE_LIMIT_AUTH_REQUESTS|g" \
+    -e "s|{{RATE_LIMIT_AUTH_WINDOW}}|$RATE_LIMIT_AUTH_WINDOW|g" \
     "${AUTH_SED_CMDS[@]}" \
     "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT"
 
 # Template the environment file
-sed "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" "$ENV_TEMPLATE" > "$ENV_OUTPUT"
+sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
+    -e "s|{{RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_REQUESTS|g" \
+    -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
+    -e "s|{{AUTH_RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_AUTH_REQUESTS|g" \
+    -e "s|{{AUTH_RATE_LIMIT_WINDOW}}|$RATE_LIMIT_AUTH_WINDOW|g" \
+    "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 echo "Initialization complete"

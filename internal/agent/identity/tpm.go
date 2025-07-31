@@ -106,22 +106,26 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 	if err != nil {
 		return nil, err
 	}
+	configCopy := config.DeepCopy()
+	if err := configCopy.Flatten(); err != nil {
+		return nil, err
+	}
 
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{*tlsCert},
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	if config.Service.CertificateAuthorityData != nil {
+	if configCopy.Service.CertificateAuthorityData != nil {
 		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(config.Service.CertificateAuthorityData)
+		caCertPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
 		tlsConfig.RootCAs = caCertPool
 	}
 
-	if config.Service.TLSServerName != "" {
-		tlsConfig.ServerName = config.Service.TLSServerName
+	if configCopy.Service.TLSServerName != "" {
+		tlsConfig.ServerName = configCopy.Service.TLSServerName
 	} else {
-		u, err := url.Parse(config.Service.Server)
+		u, err := url.Parse(configCopy.Service.Server)
 		if err == nil {
 			tlsConfig.ServerName = u.Hostname()
 		}
@@ -133,7 +137,7 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 		},
 	}
 
-	clientWithResponses, err := agent_client.NewClientWithResponses(config.Service.Server, agent_client.WithHTTPClient(httpClient))
+	clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -199,6 +203,9 @@ func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.Rout
 func (t *tpmProvider) WipeCredentials() error {
 	// clear certificate data from memory
 	t.certificateData = nil
+	if err := t.client.Clear(); err != nil {
+		return fmt.Errorf("clearing TPM client: %w", err)
+	}
 	t.log.Info("Wiped TPM-stored certificate data from memory")
 	return nil
 }

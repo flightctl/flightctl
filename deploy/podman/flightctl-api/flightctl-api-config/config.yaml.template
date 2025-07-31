@@ -15,6 +15,11 @@ service:
     - flightctl-api
   srvCertificateFile: {{SRV_CERT_FILE}}
   srvKeyFile: {{SRV_KEY_FILE}}
+  rateLimit:
+    requests: {{RATE_LIMIT_REQUESTS}}
+    window: {{RATE_LIMIT_WINDOW}}
+    authRequests: {{RATE_LIMIT_AUTH_REQUESTS}}
+    authWindow: {{RATE_LIMIT_AUTH_WINDOW}}
 kv:
   hostname: flightctl-kv
   port: 6379
