@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -83,11 +84,6 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 		harness.Cleanup(false)
 	})
 
-	AfterAll(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
-	})
-
 	Context("Basic Functionality Tests", func() {
 		It("We can list devices and create resources", Label("77917", "sanity"), func() {
 			By("Listing devices")
@@ -110,7 +106,12 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 			Expect(deviceAName).ToNot(BeEmpty())
 			Expect(deviceBName).ToNot(BeEmpty())
 
-			_, _ = harness.ManageResource("delete", "device")
+			_, err = resources.Delete(harness, "device", deviceAName)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = resources.Delete(harness, "device", deviceBName)
+			Expect(err).ToNot(HaveOccurred())
+
 			out, err = harness.ManageResource("apply", deviceAYAMLPath)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
