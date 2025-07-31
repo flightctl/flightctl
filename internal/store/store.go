@@ -8,14 +8,14 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 var (
-	NullOrgId              = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	NullOrgId              = org.DefaultID
 	CurrentContinueVersion = 1
 )
 

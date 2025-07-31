@@ -2,21 +2,22 @@ package middleware
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	chi "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
-	"github.com/jellydator/ttlcache/v3"
 )
 
 // RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
@@ -65,41 +66,30 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 	})
 }
 
-func AddOrgIDToCtx(orgStore store.Organization) func(http.Handler) http.Handler {
-	// Create a TTL cache with 5-minute expiration for organization validation
-	cache := ttlcache.New[uuid.UUID, bool](
-		ttlcache.WithTTL[uuid.UUID, bool](5 * time.Minute),
-	)
-	go cache.Start()
+// OrgIDExtractor extracts an organization ID from an HTTP request.
+type OrgIDExtractor func(*http.Request) (uuid.UUID, error)
 
+// QueryOrgIDExtractor is the default extractor that reads the org_id from the query string.
+var QueryOrgIDExtractor OrgIDExtractor = extractOrgIDFromRequestQuery
+
+// CertOrgIDExtractor reads the org_id from the client certificate.
+var CertOrgIDExtractor OrgIDExtractor = extractOrgIDFromRequestCert
+
+// AddOrgIDToCtx extracts organization ID using the supplied extractor, validates it
+// using the provided resolver, and injects it into the request context.
+func AddOrgIDToCtx(resolver *org.Resolver, extractor OrgIDExtractor) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			orgIDParam := r.URL.Query().Get("org_id")
 
-			var orgID uuid.UUID
-			if orgIDParam != "" {
-				parsedID, err := uuid.Parse(orgIDParam)
-				if err != nil {
-					http.Error(w, fmt.Sprintf("Invalid org_id parameter: %s", err.Error()), http.StatusBadRequest)
-					return
-				}
-				orgID = parsedID
-			} else {
-				// Fall back to the default organization.
-				orgID = store.NullOrgId
-			}
-
-			// Check cache first
-			if item := cache.Get(orgID); item != nil {
-				ctx = util.WithOrganizationID(ctx, orgID)
-				next.ServeHTTP(w, r.WithContext(ctx))
+			orgID, err := extractor(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 
-			// Not in cache, validate that the organization exists from the store
-			_, err := orgStore.GetByID(ctx, orgID)
-			if err != nil {
+			// Validate the organization ID
+			if err := resolver.Validate(ctx, orgID); err != nil {
 				if errors.Is(err, flterrors.ErrResourceNotFound) {
 					http.Error(w, fmt.Sprintf("Organization not found: %s", orgID), http.StatusNotFound)
 					return
@@ -108,9 +98,63 @@ func AddOrgIDToCtx(orgStore store.Organization) func(http.Handler) http.Handler 
 				return
 			}
 
-			cache.Set(orgID, true, ttlcache.DefaultTTL)
+			// Set org ID in context and proceed
 			ctx = util.WithOrganizationID(ctx, orgID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func extractOrgIDFromRequestQuery(r *http.Request) (uuid.UUID, error) {
+	orgIDParam := r.URL.Query().Get("org_id")
+	if orgIDParam == "" {
+		return org.DefaultID, nil
+	}
+
+	parsedID, err := org.Parse(orgIDParam)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid org_id parameter: %w", err)
+	}
+	return parsedID, nil
+}
+
+// getOrgIDFromCert tries to extract the OrgID (as a uuid.UUID) from the given
+// X.509 certificate. The OrgID is expected to be stored in a custom extension
+// identified by OIDOrgID. If the extension is not found or cannot be parsed as
+// a UUID, an error is returned.
+func getOrgIDFromCert(cert *x509.Certificate) (uuid.UUID, error) {
+	if cert == nil {
+		return uuid.Nil, fmt.Errorf("certificate is nil")
+	}
+
+	v, err := fccrypto.GetExtensionValue(cert, signer.OIDOrgID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	orgID, parseErr := org.Parse(v)
+	if parseErr != nil {
+		return uuid.Nil, fmt.Errorf("invalid org_id extension value: %w", parseErr)
+	}
+	return orgID, nil
+}
+
+// extractOrgIDFromRequestCert extracts organization ID from the client certificate.
+// Returns the default organization ID if no certificate is available or if the
+// certificate doesn't contain an org ID extension.
+func extractOrgIDFromRequestCert(r *http.Request) (uuid.UUID, error) {
+	ctx := r.Context()
+	peerCertificate, err := signer.PeerCertificateFromCtx(ctx)
+	if err != nil {
+		return org.DefaultID, nil
+	}
+
+	certOrgID, err := getOrgIDFromCert(peerCertificate)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrExtensionNotFound) {
+			return org.DefaultID, nil
+		}
+		return uuid.Nil, fmt.Errorf("failed to extract organization ID from certificate: %w", err)
+	}
+	return certOrgID, nil
 }
