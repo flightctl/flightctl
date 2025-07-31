@@ -224,7 +224,14 @@ func TestNewPeriodicTaskPublisher_Success(t *testing.T) {
 		publisher: mockPub,
 	}
 
-	publisher, err := NewPeriodicTaskPublisher(log, kvStore, orgService, provider, tasksMetadata)
+	publisherConfig := PeriodicTaskPublisherConfig{
+		Log:            log,
+		KvStore:        kvStore,
+		OrgService:     orgService,
+		QueuesProvider: provider,
+		TasksMetadata:  tasksMetadata,
+	}
+	publisher, err := NewPeriodicTaskPublisher(publisherConfig)
 
 	require.NoError(t, err)
 	require.NotNil(t, publisher)
@@ -233,8 +240,8 @@ func TestNewPeriodicTaskPublisher_Success(t *testing.T) {
 	require.Equal(t, orgService, publisher.orgService)
 	require.Equal(t, tasksMetadata, publisher.tasksMetadata)
 	require.Equal(t, mockPub, publisher.publisher)
-	require.Equal(t, 5*time.Second, publisher.taskTickerInterval)
-	require.Equal(t, 5*time.Minute, publisher.orgTickerInterval)
+	require.Equal(t, DefaultTaskTickerInterval, publisher.taskTickerInterval)
+	require.Equal(t, DefaultOrgTickerInterval, publisher.orgTickerInterval)
 }
 
 func TestNewPeriodicTaskPublisher_ProviderError(t *testing.T) {
@@ -247,7 +254,14 @@ func TestNewPeriodicTaskPublisher_ProviderError(t *testing.T) {
 		newPublisherError: expectedError,
 	}
 
-	publisher, err := NewPeriodicTaskPublisher(log, kvStore, orgService, provider, tasksMetadata)
+	publisherConfig := PeriodicTaskPublisherConfig{
+		Log:            log,
+		KvStore:        kvStore,
+		OrgService:     orgService,
+		QueuesProvider: provider,
+		TasksMetadata:  tasksMetadata,
+	}
+	publisher, err := NewPeriodicTaskPublisher(publisherConfig)
 
 	require.Error(t, err)
 	require.Nil(t, publisher)
@@ -655,7 +669,7 @@ func TestPeriodicTaskPublisher_Start_MultipleTickerEvents(t *testing.T) {
 	}, 100*time.Millisecond, 1*time.Millisecond, "Should have called sync at least once (initial sync)")
 }
 
-func TestPeriodicTaskPublisher_stopAll(t *testing.T) {
+func TestPeriodicTaskPublisher_clearOrganizations(t *testing.T) {
 	publisher := createTestPublisher()
 
 	// Add some test organizations
@@ -666,7 +680,7 @@ func TestPeriodicTaskPublisher_stopAll(t *testing.T) {
 
 	require.Equal(t, 2, publisher.getOrganizationCount())
 
-	publisher.stopAll()
+	publisher.clearOrganizations()
 
 	// Organizations should be cleared
 	require.Equal(t, 0, publisher.getOrganizationCount())
@@ -683,7 +697,14 @@ func TestPeriodicTaskPublisher_FullWorkflow(t *testing.T) {
 	mockPub := &mockPublisher{}
 	provider := &mockPublisherProvider{publisher: mockPub}
 
-	publisher, err := NewPeriodicTaskPublisher(log, mockKV, mockOrg, provider, tasksMetadata)
+	publisherConfig := PeriodicTaskPublisherConfig{
+		Log:            log,
+		KvStore:        mockKV,
+		OrgService:     mockOrg,
+		QueuesProvider: provider,
+		TasksMetadata:  tasksMetadata,
+	}
+	publisher, err := NewPeriodicTaskPublisher(publisherConfig)
 	require.NoError(t, err)
 
 	// Set shorter intervals for testing

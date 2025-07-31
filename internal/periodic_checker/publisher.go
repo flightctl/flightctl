@@ -44,20 +44,41 @@ type PeriodicTaskPublisher struct {
 	orgTickerInterval  time.Duration
 }
 
-func NewPeriodicTaskPublisher(log logrus.FieldLogger, kvStore kvstore.KVStore, orgService OrganizationService, queuesProvider queues.Provider, tasksMetadata []PeriodicTaskMetadata) (*PeriodicTaskPublisher, error) {
-	publisher, err := queuesProvider.NewPublisher(consts.PeriodicTaskQueue)
+type PeriodicTaskPublisherConfig struct {
+	Log                logrus.FieldLogger
+	KvStore            kvstore.KVStore
+	OrgService         OrganizationService
+	QueuesProvider     queues.Provider
+	TasksMetadata      []PeriodicTaskMetadata
+	TaskTickerInterval time.Duration
+	OrgTickerInterval  time.Duration
+}
+
+func NewPeriodicTaskPublisher(publisherConfig PeriodicTaskPublisherConfig) (*PeriodicTaskPublisher, error) {
+	publisher, err := publisherConfig.QueuesProvider.NewPublisher(consts.PeriodicTaskQueue)
 	if err != nil {
-		log.WithError(err).Error("failed to create periodic task publisher")
+		publisherConfig.Log.WithError(err).Error("failed to create periodic task publisher")
 		return nil, err
+	}
+
+	var taskTickerInterval, orgTickerInterval = publisherConfig.TaskTickerInterval, publisherConfig.OrgTickerInterval
+
+	// if tickers are not set use default values
+	if taskTickerInterval == 0 {
+		taskTickerInterval = DefaultTaskTickerInterval
+	}
+	if orgTickerInterval == 0 {
+		orgTickerInterval = DefaultOrgTickerInterval
 	}
 	return &PeriodicTaskPublisher{
 		publisher:          publisher,
-		log:                log,
-		orgService:         orgService,
-		kvStore:            kvStore,
-		tasksMetadata:      tasksMetadata,
-		taskTickerInterval: DefaultTaskTickerInterval,
-		orgTickerInterval:  DefaultOrgTickerInterval,
+		log:                publisherConfig.Log,
+		orgService:         publisherConfig.OrgService,
+		kvStore:            publisherConfig.KvStore,
+		tasksMetadata:      publisherConfig.TasksMetadata,
+		taskTickerInterval: taskTickerInterval,
+		orgTickerInterval:  orgTickerInterval,
+		organizations:      make(map[uuid.UUID]bool),
 	}, nil
 }
 
@@ -184,7 +205,7 @@ func (p *PeriodicTaskPublisher) Start(ctx context.Context) {
 			case <-orgTicker.C:
 				p.syncOrganizations(ctx)
 			case <-ctx.Done():
-				p.stopAll()
+				p.clearOrganizations()
 				return
 			}
 		}
@@ -211,14 +232,11 @@ func (p *PeriodicTaskPublisher) syncOrganizations(ctx context.Context) {
 		}
 
 		p.mu.RLock()
-		isRegistered := p.organizations[orgId]
-		p.mu.RUnlock()
-
-		if !isRegistered {
+		if !p.organizations[orgId] {
 			p.log.Infof("Registering organization %s", orgId)
 		}
-
 		organizations[orgId] = true
+		p.mu.RUnlock()
 	}
 
 	p.mu.Lock()
@@ -227,14 +245,13 @@ func (p *PeriodicTaskPublisher) syncOrganizations(ctx context.Context) {
 	for orgID := range p.organizations {
 		if !organizations[orgID] {
 			p.log.Infof("Organization %s is no longer registered, removing from tracking", orgID)
-			delete(p.organizations, orgID)
 		}
 	}
 
 	p.organizations = organizations
 }
 
-func (p *PeriodicTaskPublisher) stopAll() {
+func (p *PeriodicTaskPublisher) clearOrganizations() {
 	// Clear all organizations
 	p.mu.Lock()
 	p.organizations = make(map[uuid.UUID]bool)
@@ -261,8 +278,4 @@ func (p *PeriodicTaskPublisher) hasOrganization(orgID uuid.UUID) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.organizations[orgID]
-}
-
-func (p *PeriodicTaskPublisher) SetTaskTicker(interval time.Duration) {
-	p.taskTickerInterval = interval
 }

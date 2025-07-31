@@ -132,6 +132,7 @@ var _ = Describe("Periodic", func() {
 		periodicTaskPublisher *periodic.PeriodicTaskPublisher
 		callbackManager       tasks_client.CallbackManager
 		orgId                 uuid.UUID
+		publisherConfig       periodic.PeriodicTaskPublisherConfig
 	)
 
 	BeforeEach(func() {
@@ -170,6 +171,15 @@ var _ = Describe("Periodic", func() {
 
 		repositoryTesterExecutor = &mockPeriodicTaskExecutor{}
 		resourceSyncExecutor = &mockPeriodicTaskExecutor{}
+
+		publisherConfig = periodic.PeriodicTaskPublisherConfig{
+			Log:                log,
+			KvStore:            kvStore,
+			OrgService:         serviceHandler,
+			QueuesProvider:     queuesProvider,
+			TasksMetadata:      testPeriodicTasks,
+			TaskTickerInterval: 100 * time.Millisecond,
+		}
 	})
 
 	AfterEach(func() {
@@ -202,10 +212,8 @@ var _ = Describe("Periodic", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(lastPublish).To(BeNil())
 
-			// Initialize and start periodic task publisher
-			periodicTaskPublisher, err = periodic.NewPeriodicTaskPublisher(log, kvStore, serviceHandler, queuesProvider, testPeriodicTasks)
+			periodicTaskPublisher, err = periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
-			periodicTaskPublisher.SetTaskTicker(100 * time.Millisecond)
 			periodicTaskPublisher.Start(ctx)
 
 			// Give some time for tasks to be processed and published
@@ -229,9 +237,8 @@ var _ = Describe("Periodic", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Initialize and start periodic task publisher
-			periodicTaskPublisher, err = periodic.NewPeriodicTaskPublisher(log, kvStore, serviceHandler, queuesProvider, testPeriodicTasks)
+			periodicTaskPublisher, err = periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
-			periodicTaskPublisher.SetTaskTicker(100 * time.Millisecond)
 			periodicTaskPublisher.Start(ctx)
 
 			// Give some time for tasks to be processed and published
@@ -260,9 +267,8 @@ var _ = Describe("Periodic", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Initialize and start periodic task publisher
-			periodicTaskPublisher, err = periodic.NewPeriodicTaskPublisher(log, kvStore, serviceHandler, queuesProvider, testPeriodicTasks)
+			periodicTaskPublisher, err = periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
-			periodicTaskPublisher.SetTaskTicker(100 * time.Millisecond)
 			periodicTaskPublisher.Start(ctx)
 
 			// Give some time for tasks to be processed and published
@@ -322,9 +328,8 @@ var _ = Describe("Periodic", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Initialize and start periodic task publisher
-			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(log, kvStore, serviceHandler, queuesProvider, testPeriodicTasks)
+			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
-			periodicTaskPublisher.SetTaskTicker(100 * time.Millisecond)
 			periodicTaskPublisher.Start(ctx)
 
 			// Repository tester should be called once since it has a minute interval
@@ -355,9 +360,8 @@ var _ = Describe("Periodic", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Initialize and start periodic task publisher
-			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(log, kvStore, serviceHandler, queuesProvider, testPeriodicTasks)
+			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
-			periodicTaskPublisher.SetTaskTicker(100 * time.Millisecond)
 			periodicTaskPublisher.Start(ctx)
 
 			// Repository tester should be called once for each org since it has a minute interval

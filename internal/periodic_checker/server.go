@@ -72,7 +72,14 @@ func (s *Server) Run(ctx context.Context) error {
 	defer periodicTaskConsumer.Stop()
 
 	// Periodic task publisher
-	periodicTaskPublisher, err := NewPeriodicTaskPublisher(s.log, kvStore, serviceHandler, queuesProvider, periodicTasks)
+	publisherConfig := PeriodicTaskPublisherConfig{
+		Log:            s.log,
+		KvStore:        kvStore,
+		OrgService:     serviceHandler,
+		QueuesProvider: queuesProvider,
+		TasksMetadata:  periodicTasks,
+	}
+	periodicTaskPublisher, err := NewPeriodicTaskPublisher(publisherConfig)
 	if err != nil {
 		return err
 	}
