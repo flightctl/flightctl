@@ -184,7 +184,10 @@ func (s *Server) Run(ctx context.Context) error {
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
-		fcmiddleware.AddOrgIDToCtx(s.store.Organization()),
+		fcmiddleware.AddOrgIDToCtx(
+			store.NewOrgResolver(s.store.Organization(), 5*time.Minute),
+			fcmiddleware.QueryOrgIDExtractor,
+		),
 		middleware.Logger,
 		middleware.Recoverer,
 	)
