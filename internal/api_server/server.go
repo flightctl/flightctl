@@ -192,6 +192,43 @@ func (s *Server) Run(ctx context.Context) error {
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
 		s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 
+	// a group is a new mux copy, with its own copy of the middleware stack
+	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
+	router.Group(func(r chi.Router) {
+		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
+		// to avoid issues with websocket connections
+		if s.metrics != nil {
+			r.Use(s.metrics.ApiServerMiddleware)
+		}
+		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
+		r.Use(authMiddewares...)
+		// Add general rate limiting (only if configured)
+		if s.cfg.Service.RateLimit != nil {
+			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+			requests := 60        // Default requests limit
+			window := time.Minute // Default window
+			if s.cfg.Service.RateLimit.Requests > 0 {
+				requests = s.cfg.Service.RateLimit.Requests
+			}
+			if s.cfg.Service.RateLimit.Window > 0 {
+				window = time.Duration(s.cfg.Service.RateLimit.Window)
+			}
+			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+				Requests:       requests,
+				Window:         window,
+				Message:        "Rate limit exceeded, please try again later",
+				TrustedProxies: trustedProxies,
+			})
+		}
+
+		h := transport.NewTransportHandler(serviceHandler)
+
+		// Register all other endpoints with general rate limiting (already applied at router level)
+		// Create a custom handler that excludes the auth validate endpoint
+		customHandler := &customTransportHandler{h}
+		server.HandlerFromMux(customHandler, r)
+	})
+
 	// Register auth validate endpoint with stricter rate limiting (outside main API group)
 	// This ensures it gets all the necessary middleware with stricter rate limiting
 	router.Group(func(r chi.Router) {
@@ -231,43 +268,6 @@ func (s *Server) Run(ctx context.Context) error {
 			},
 		}
 		r.Get("/api/v1/auth/validate", wrapper.AuthValidate)
-	})
-
-	// a group is a new mux copy, with its own copy of the middleware stack
-	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
-	router.Group(func(r chi.Router) {
-		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
-		// to avoid issues with websocket connections
-		if s.metrics != nil {
-			r.Use(s.metrics.ApiServerMiddleware)
-		}
-		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-		r.Use(authMiddewares...)
-		// Add general rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
-			window := time.Minute // Default window
-			if s.cfg.Service.RateLimit.Requests > 0 {
-				requests = s.cfg.Service.RateLimit.Requests
-			}
-			if s.cfg.Service.RateLimit.Window > 0 {
-				window = time.Duration(s.cfg.Service.RateLimit.Window)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
-
-		h := transport.NewTransportHandler(serviceHandler)
-
-		// Register all other endpoints with general rate limiting (already applied at router level)
-		// Create a custom handler that excludes the auth validate endpoint
-		customHandler := &customTransportHandler{h}
-		server.HandlerFromMux(customHandler, r)
 	})
 
 	// ws handling
