@@ -238,12 +238,12 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 				handlerSpan.RecordError(err)
 				handlerSpan.SetStatus(codes.Error, "unexpected body type")
 
-				// Acknowledge the bad message to remove it from pending
-				if err := r.client.XAck(ctx, r.name, r.name, entry.ID).Err(); err != nil {
+				// Acknowledge and delete the bad message to remove it completely
+				if err := r.ackAndDeleteMessage(ctx, entry.ID); err != nil {
 					parentSpan.RecordError(err)
 					parentSpan.SetStatus(codes.Error, err.Error())
 					handlerSpan.End()
-					return fmt.Errorf("failed to acknowledge message ID %s after body type error: %w", entry.ID, err)
+					return fmt.Errorf("failed to purge message ID %s after body type error: %w", entry.ID, err)
 				}
 
 				handlerSpan.End()
@@ -258,12 +258,12 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 				handlerErrs = append(handlerErrs, fmt.Errorf("handler error on ID %s: %w", entry.ID, err))
 			}
 
-			// Always acknowledge the message to remove it from the stream
-			if err := r.client.XAck(ctx, r.name, r.name, entry.ID).Err(); err != nil {
+			// Always acknowledge and delete the message to remove it completely
+			if err := r.ackAndDeleteMessage(ctx, entry.ID); err != nil {
 				parentSpan.RecordError(err)
 				parentSpan.SetStatus(codes.Error, err.Error())
 				handlerSpan.End()
-				return fmt.Errorf("failed to acknowledge message ID %s: %w", entry.ID, err)
+				return fmt.Errorf("failed to purge message ID %s: %w", entry.ID, err)
 			}
 
 			handlerSpan.End()
@@ -273,6 +273,18 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 	// After processing all entries, report handler errors if any
 	if len(handlerErrs) > 0 {
 		return fmt.Errorf("one or more handler errors occurred: %v", handlerErrs)
+	}
+
+	return nil
+}
+
+func (r *redisQueue) ackAndDeleteMessage(ctx context.Context, messageID string) error {
+	if err := r.client.XAck(ctx, r.name, r.name, messageID).Err(); err != nil {
+		return fmt.Errorf("failed to acknowledge message ID %s: %w", messageID, err)
+	}
+
+	if err := r.client.XDel(ctx, r.name, messageID).Err(); err != nil {
+		return fmt.Errorf("failed to delete message ID %s: %w", messageID, err)
 	}
 
 	return nil
