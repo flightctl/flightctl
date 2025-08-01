@@ -3,9 +3,16 @@ global:
     registry: 5000
     gitserver: 3222
     prometheus: 9090
+    jaegerUi: 16686
 registry:
   image: quay.io/flightctl/e2eregistry:2
   route: false
   hostName: ""
 gitserver:
   image: localhost/git-server:latest
+jaeger:
+  enabled: true
+  storageType: memory
+  maxTraces: 50000
+  otlpEnabled: true
+  logLevel: info

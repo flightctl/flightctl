@@ -10,3 +10,5 @@ test/e2e/cli/*.key
 /packaging/rpm/flightctl-*-vendor.tar.bz2
 flightctl-*.rpm
 *.tar
+.claude/
+.cursor/

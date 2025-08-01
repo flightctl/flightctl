@@ -53,13 +53,16 @@ var _ = Describe("DeviceStore create", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		orgId, _ = uuid.NewUUID()
 		log = flightlog.InitLogs()
 		numDevices = 3
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		devStore = storeInst.Device()
 		called = false
 		callback = store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) { called = true })
+
+		orgId = uuid.New()
+		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
+		Expect(err).ToNot(HaveOccurred())
 
 		testutil.CreateTestDevices(ctx, 3, devStore, orgId, nil, false)
 	})
@@ -91,7 +94,7 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		_, created, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+		_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(BeFalse())
 	})
@@ -125,7 +128,7 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		dev, created, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(Equal(false))
 		Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -141,12 +144,12 @@ var _ = Describe("DeviceStore create", func() {
 		dev.Metadata.Owner = lo.ToPtr("newowner")
 		dev.Spec.Os.Image = "oldos"
 		// Update but don't save the new device, so we still have the old resourceVersion
-		dev, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(called).To(BeTrue())
 
 		dev.Spec.Os.Image = "newos"
-		_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
+		_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 	})
@@ -172,14 +175,14 @@ var _ = Describe("DeviceStore create", func() {
 		})
 
 		It("Delete device success", func() {
-			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeTrue())
 			Expect(called).To(BeTrue())
 		})
 
 		It("Delete device success when not found", func() {
-			deleted, err := devStore.Delete(ctx, orgId, "nonexistent", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "nonexistent", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeFalse())
 			Expect(called).To(BeFalse())
@@ -203,7 +206,7 @@ var _ = Describe("DeviceStore create", func() {
 				updatedStatus := fmt.Sprintf("updated-%d", i)
 				d.Status.Updated.Status = api.DeviceUpdatedStatusType(updatedStatus)
 				expectedUpdatedMap[updatedStatus] = expectedUpdatedMap[updatedStatus] + 1
-				_, err = devStore.UpdateStatus(ctx, orgId, d)
+				_, err = devStore.UpdateStatus(ctx, orgId, d, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 			allDevices, err = devStore.List(ctx, orgId, store.ListParams{})
@@ -325,7 +328,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: nil,
 			}
-			dev, created, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -346,7 +349,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: &status,
 			}
-			dev, created, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -359,12 +362,12 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = lo.ToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
-			dev, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
 			dev.Spec.Os.Image = "newos"
-			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback)
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, true, nil, callback, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 		})
@@ -554,7 +557,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Create the first device with comprehensive spec
 			device1 := createComprehensiveTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), nil)
-			_, _, _, err := devStore.CreateOrUpdate(ctx, orgId, &device1, nil, false, nil, callback)
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device1, nil, false, nil, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the device from the store
@@ -566,7 +569,7 @@ var _ = Describe("DeviceStore create", func() {
 			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
 
 			// This should succeed because only labels (metadata) are different, not the spec
-			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback)
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, true, nil, callback, nil)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
@@ -592,7 +595,7 @@ var _ = Describe("DeviceStore create", func() {
 				Status: &status,
 			}
 			api.SetStatusCondition(&device.Status.Conditions, condition)
-			_, err := devStore.UpdateStatus(ctx, orgId, &device)
+			_, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -608,7 +611,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			dev.Metadata.Owner = lo.ToPtr("newowner")
-			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback)
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, false, nil, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -619,7 +622,7 @@ var _ = Describe("DeviceStore create", func() {
 
 			called = false
 			dev.Metadata.Owner = nil
-			_, _, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, false, nil, callback)
+			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, false, nil, callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -696,15 +699,12 @@ var _ = Describe("DeviceStore create", func() {
 			firstConfig, err := createTestConfigProvider("this is the first config")
 			Expect(err).ToNot(HaveOccurred())
 
-			fmt.Printf("firstConfig: %+v\n", firstConfig)
-
 			// Set first rendered config
 			err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
 			renderedDevice, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
-			fmt.Printf("renderedDevice: %+v\n", renderedDevice)
 			Expect(err).ToNot(HaveOccurred())
 			renderedConfig := *renderedDevice.Spec.Config
 			Expect(len(renderedConfig)).To(BeNumerically(">", 0))
@@ -783,10 +783,265 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
+			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeTrue())
 			Expect(called).To(BeTrue())
+		})
+
+		It("DeviceSpecsAreEqual integration scenarios", func() {
+			// Test DeviceSpecsAreEqual in realistic database scenarios
+
+			// Create a device with complex spec including union types and maps
+			gitConfig := api.ConfigProviderSpec{}
+			err := gitConfig.FromGitConfigProviderSpec(api.GitConfigProviderSpec{
+				Name: "test-git-config",
+				GitRef: struct {
+					Path           string `json:"path"`
+					Repository     string `json:"repository"`
+					TargetRevision string `json:"targetRevision"`
+				}{
+					Path:           "/config/path",
+					Repository:     "test-repo",
+					TargetRevision: "main",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			inlineConfig := api.ConfigProviderSpec{}
+			err = inlineConfig.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{
+				Name: "test-inline-config",
+				Inline: []api.FileSpec{
+					{Path: "/file1.yaml", Content: "key1: value1"},
+					{Path: "/file2.yaml", Content: "key2: value2"},
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			originalSpec := api.DeviceSpec{
+				Os: &api.DeviceOsSpec{
+					Image: "quay.io/test/os:v1.0.0",
+				},
+				Config: &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
+				Applications: &[]api.ApplicationProviderSpec{
+					{
+						Name:    lo.ToPtr("test-app"),
+						AppType: lo.ToPtr(api.AppTypeCompose),
+						EnvVars: &map[string]string{
+							"ENV1": "value1",
+							"ENV2": "value2",
+							"ENV3": "value3",
+						},
+					},
+				},
+				UpdatePolicy: &api.DeviceUpdatePolicySpec{
+					DownloadSchedule: &api.UpdateSchedule{
+						At:       "0 2 * * *",
+						TimeZone: lo.ToPtr("UTC"),
+					},
+				},
+			}
+
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("complex-device"),
+					Labels: &map[string]string{
+						"environment": "test",
+						"team":        "integration",
+						"version":     "v1.0.0",
+					},
+				},
+				Spec: &originalSpec,
+			}
+
+			// Store the device in database
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Retrieve the device from database
+			retrieved, err := devStore.Get(ctx, orgId, "complex-device")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Test: Specs should be equal after database round-trip
+			Expect(api.DeviceSpecsAreEqual(originalSpec, *retrieved.Spec)).To(BeTrue(),
+				"DeviceSpec should be equal after database round-trip")
+
+			// Test: Create equivalent spec with different map ordering
+			equivalentSpec := api.DeviceSpec{
+				Os: &api.DeviceOsSpec{
+					Image: "quay.io/test/os:v1.0.0",
+				},
+				Config: &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
+				Applications: &[]api.ApplicationProviderSpec{
+					{
+						Name:    lo.ToPtr("test-app"),
+						AppType: lo.ToPtr(api.AppTypeCompose),
+						EnvVars: &map[string]string{
+							"ENV3": "value3", // Different key order
+							"ENV1": "value1",
+							"ENV2": "value2",
+						},
+					},
+				},
+				UpdatePolicy: &api.DeviceUpdatePolicySpec{
+					DownloadSchedule: &api.UpdateSchedule{
+						At:       "0 2 * * *",
+						TimeZone: lo.ToPtr("UTC"),
+					},
+				},
+			}
+
+			// Test: Specs should be equal despite different map ordering
+			Expect(api.DeviceSpecsAreEqual(originalSpec, equivalentSpec)).To(BeTrue(),
+				"DeviceSpecs should be equal despite different map key ordering")
+
+			// Test: JSON serialization consistency
+			originalJSON, err := json.Marshal(originalSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			retrievedJSON, err := json.Marshal(*retrieved.Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			var originalParsed, retrievedParsed interface{}
+			err = json.Unmarshal(originalJSON, &originalParsed)
+			Expect(err).ToNot(HaveOccurred())
+			err = json.Unmarshal(retrievedJSON, &retrievedParsed)
+			Expect(err).ToNot(HaveOccurred())
+
+			// The normalized comparison should work
+			Expect(originalParsed).To(Equal(retrievedParsed),
+				"JSON-normalized DeviceSpecs should be equal")
+
+			// Test: Different configs should not be equal
+			differentConfig := api.ConfigProviderSpec{}
+			err = differentConfig.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{
+				Name: "different-config",
+				Inline: []api.FileSpec{
+					{Path: "/different.yaml", Content: "different: content"},
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			differentSpec := originalSpec
+			differentSpec.Config = &[]api.ConfigProviderSpec{differentConfig}
+
+			Expect(api.DeviceSpecsAreEqual(originalSpec, differentSpec)).To(BeFalse(),
+				"DeviceSpecs with different configs should not be equal")
+
+			// Test: nil vs empty slice differences
+			nilSliceSpec := originalSpec
+			nilSliceSpec.Applications = nil
+
+			emptySliceSpec := originalSpec
+			emptySliceSpec.Applications = &[]api.ApplicationProviderSpec{}
+
+			Expect(api.DeviceSpecsAreEqual(nilSliceSpec, emptySliceSpec)).To(BeFalse(),
+				"DeviceSpecs with nil vs empty slice should not be equal")
+		})
+
+		It("FleetSpec database scenarios", func() {
+			// Test FleetSpecsAreEqual in realistic fleet scenarios
+			fleetStore := storeInst.Fleet()
+
+			originalFleetSpec := api.FleetSpec{
+				Selector: &api.LabelSelector{
+					MatchLabels: &map[string]string{
+						"environment": "production",
+						"team":        "backend",
+						"zone":        "us-east-1",
+					},
+				},
+				Template: struct {
+					Metadata *api.ObjectMeta `json:"metadata,omitempty"`
+					Spec     api.DeviceSpec  `json:"spec"`
+				}{
+					Metadata: &api.ObjectMeta{
+						Labels: &map[string]string{
+							"fleet":   "web-servers",
+							"version": "v1.0.0",
+							"tier":    "production",
+						},
+					},
+					Spec: api.DeviceSpec{
+						Os: &api.DeviceOsSpec{
+							Image: "quay.io/fleet/web-server:v1.0.0",
+						},
+					},
+				},
+				RolloutPolicy: &api.RolloutPolicy{
+					DisruptionBudget: &api.DisruptionBudget{
+						MaxUnavailable: lo.ToPtr(2),
+					},
+				},
+			}
+
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("test-fleet"),
+				},
+				Spec: originalFleetSpec,
+			}
+
+			// Store fleet in database
+			_, err := fleetStore.Create(ctx, orgId, &fleet, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Retrieve fleet from database
+			retrieved, err := fleetStore.Get(ctx, orgId, "test-fleet")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Test: FleetSpecs should be equal after database round-trip
+			Expect(api.FleetSpecsAreEqual(originalFleetSpec, retrieved.Spec)).To(BeTrue(),
+				"FleetSpec should be equal after database round-trip")
+
+			// Test: Create equivalent spec with different map ordering
+			equivalentFleetSpec := api.FleetSpec{
+				Selector: &api.LabelSelector{
+					MatchLabels: &map[string]string{
+						"zone":        "us-east-1", // Different order
+						"environment": "production",
+						"team":        "backend",
+					},
+				},
+				Template: struct {
+					Metadata *api.ObjectMeta `json:"metadata,omitempty"`
+					Spec     api.DeviceSpec  `json:"spec"`
+				}{
+					Metadata: &api.ObjectMeta{
+						Labels: &map[string]string{
+							"tier":    "production", // Different order
+							"fleet":   "web-servers",
+							"version": "v1.0.0",
+						},
+					},
+					Spec: api.DeviceSpec{
+						Os: &api.DeviceOsSpec{
+							Image: "quay.io/fleet/web-server:v1.0.0",
+						},
+					},
+				},
+				RolloutPolicy: &api.RolloutPolicy{
+					DisruptionBudget: &api.DisruptionBudget{
+						MaxUnavailable: lo.ToPtr(2),
+					},
+				},
+			}
+
+			// Test: FleetSpecs should be equal despite map ordering differences
+			Expect(api.FleetSpecsAreEqual(originalFleetSpec, equivalentFleetSpec)).To(BeTrue(),
+				"FleetSpecs should be equal despite different map key ordering")
+
+			// Test: Different rollout policies should not be equal
+			differentFleetSpec := originalFleetSpec
+			differentFleetSpec.RolloutPolicy = &api.RolloutPolicy{
+				DisruptionBudget: &api.DisruptionBudget{
+					MaxUnavailable: lo.ToPtr(1), // Different value
+				},
+			}
+
+			Expect(api.FleetSpecsAreEqual(originalFleetSpec, differentFleetSpec)).To(BeFalse(),
+				"FleetSpecs with different rollout policies should not be equal")
 		})
 	})
 })

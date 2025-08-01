@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -x -e
 
-CONTAINER_IMAGES="flightctl-api flightctl-worker flightctl-periodic cli-artifacts"
+CONTAINER_IMAGES="flightctl-api flightctl-worker flightctl-periodic flightctl-alert-exporter cli-artifacts"
 
 
 GIT_REF=$(git rev-parse --short HEAD)

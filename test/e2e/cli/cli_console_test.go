@@ -71,12 +71,13 @@ var _ = Describe("CLI - device console", Serial, func() {
 		cs2.Close()
 	})
 
-	It("keeps console sessions open during a device update", Label("81786", "sanity"), func() {
+	It("keeps console sessions open during a device update", Label("81786"), func() {
 		const sessionsToOpen = 4
 		const expectedRenderedVersion = 2 + sessionsToOpen*2
 
 		// kick off an update
-		device, _ := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		device, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		Expect(err).ToNot(HaveOccurred())
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
@@ -104,7 +105,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 				return d.Status.ApplicationsSummary.Status
 			}, Equal(v1alpha1.ApplicationsSummaryStatusHealthy)))
 
-		Expect(harness.GetCurrentDeviceRenderedVersion(deviceID)).To(Equal(expectedRenderedVersion))
+		currentRenderedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(currentRenderedVersion).To(Equal(expectedRenderedVersion))
 
 		By("returns a helpful error when the device is not found")
 		out, err := harness.CLI("console", "device/nonexistent")
@@ -112,7 +115,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 		Expect(out).To(ContainSubstring("not found"))
 	})
 
-	It("allows tuning spec-fetch-interval", Label("82538", "sanity"), func() {
+	It("allows tuning spec-fetch-interval", Label("82538"), func() {
 		const (
 			cfgFile              = "/etc/flightctl/config.yaml"
 			specFetchKey         = "spec-fetch-interval"
@@ -161,16 +164,17 @@ var _ = Describe("CLI - device console", Serial, func() {
 		}, 2*time.Minute, 10*time.Second).Should(BeTrue())
 	})
 
-	It("recovers from image pull network disruption", Label("82541", "sanity"), func() {
+	It("recovers from image pull network disruption", Label("82541"), func() {
 		const disruptionTime = 1 * time.Minute
-		_, _ = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		_, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
 		logrus.Infof("Simulating network failure")
-		err := harness.SimulateNetworkFailure()
+		err = harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
 		logrus.Infof("Waiting for image pull activity")
@@ -194,12 +198,13 @@ var _ = Describe("CLI - device console", Serial, func() {
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
-	It("recovers from image pull network connection error", Label("83029", "sanity"), func() {
+	It("recovers from image pull network connection error", Label("83029"), func() {
 		logrus.Infof("Simulating network failure")
 		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		_, _ = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		Expect(err).ToNot(HaveOccurred())
 
 		logrus.Infof("Waiting for image pull activity")
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
@@ -233,7 +238,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 	})
 
 	It("provides console --help and auxiliary features", Label("81866", "sanity"), func() {
-		Expect(harness.CLI("console", "--help")).To(
+		out, err := harness.CLI("console", "--help")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(
 			And(
 				ContainSubstring("Usage:"),
 				ContainSubstring("flightctl console device/NAME [-- COMMAND [ARG...]]"),
@@ -246,17 +253,23 @@ var _ = Describe("CLI - device console", Serial, func() {
 		Eventually(cs.Stdout.Closed).Should(BeTrue())
 
 		By("running a command without opening a shell")
-		Expect(harness.RunConsoleCommand(deviceID, nil, "flightctl-agent", "system-info")).To(ContainSubstring("hostname"))
+		out, err = harness.RunConsoleCommand(deviceID, nil, "flightctl-agent", "system-info")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(ContainSubstring("hostname"))
 
 		By("running a background command without a TTY")
-		Expect(harness.RunConsoleCommand(deviceID, []string{"--notty"}, "pwd")).To(ContainSubstring("/"))
+		out, err = harness.RunConsoleCommand(deviceID, []string{"--notty"}, "pwd")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(ContainSubstring("/"))
 
 		By("generating a remote sos-report")
 		// "sos: command not found" when running "console device/{device} -- sos" in a non-interactive shell. a bug?
-		Expect(harness.RunConsoleCommand(deviceID, nil, "/usr/sbin/sos", "report", "--batch", "--quiet")).To(ContainSubstring("sos report has been generated"))
+		out, err = harness.RunConsoleCommand(deviceID, nil, "/usr/sbin/sos", "report", "--batch", "--quiet")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(ContainSubstring("sos report has been generated"))
 
 		By("failing when required command args are missing")
-		out, err := harness.CLI("console", "--tty")
+		out, err = harness.CLI("console", "--tty")
 		Expect(err).To(HaveOccurred())
 		Expect(out).To(ContainSubstring("Error:"))
 	})

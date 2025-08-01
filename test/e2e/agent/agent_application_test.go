@@ -20,13 +20,17 @@ const (
 	inlineAppName = "my-app"
 )
 
+func sleepAppImageName(harness *e2e.Harness, tag string) string {
+	extIP := harness.RegistryEndpoint()
+	return fmt.Sprintf("%s/sleep-app:%s", extIP, tag)
+}
+
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
 		ctx      context.Context
 		harness  *e2e.Harness
 		deviceId string
 		device   *v1alpha1.Device
-		extIP    string
 	)
 
 	BeforeEach(func() {
@@ -44,46 +48,37 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			By("Add the application spec to the device")
 
 			// Make sure the device status right after bootstrap is Online
-			response := harness.GetDeviceWithStatusSystem(deviceId)
+			response, err := harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
 			Expect(response).ToNot(BeNil())
 			device = response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
-			// Get the next expected rendered version
-			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
-			Expect(err).ToNot(HaveOccurred())
+			imageName := sleepAppImageName(harness, "v1")
 
-			// Get the application url in the local registry and create the application config
-			extIP = harness.RegistryEndpoint()
-			sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
-			var applicationConfig = v1alpha1.ImageApplicationProviderSpec{
-				Image: sleepAppImage,
-			}
+			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
+				var applicationConfig = v1alpha1.ImageApplicationProviderSpec{
+					Image: imageName,
+				}
 
-			// Update the device with the application config
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
-				// Create applicationSpec.
-				var applicationSpec v1alpha1.ApplicationProviderSpec
-				err := applicationSpec.FromImageApplicationProviderSpec(applicationConfig)
+				var appSpec v1alpha1.ApplicationProviderSpec
+				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{applicationSpec}
-				logrus.Infof("Updating %s with application %s", deviceId, sleepAppImage)
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+				logrus.Infof("Updating %s with application %s", deviceId, imageName)
 			})
-
-			logrus.Infof("Waiting for the device to pick the config")
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the application compose is copied to the device")
-			manifestPath := fmt.Sprintf("%s/%s", ComposeManifestPath, sleepAppImage)
-			stdout, err := harness.VM.RunSSH([]string{"ls", manifestPath}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(ComposeFile))
+			manifestPath := fmt.Sprintf("%s/%s", ComposeManifestPath, imageName)
+			verifyCommandOutputsSubstring(
+				harness,
+				[]string{"ls", manifestPath},
+				ComposeFile)
 
 			By("Wait for the reported application running status in the device")
-			WaitForApplicationRunningStatus(harness, deviceId, sleepAppImage)
+			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
 			By("Check the general device application status")
 			Expect(device.Status.ApplicationsSummary.Status).To(Equal(v1alpha1.ApplicationsSummaryStatusHealthy))
@@ -94,85 +89,124 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(output).To(ContainSubstring(ExpectedNumSleepAppV1Containers))
 
 			By("Update an application image tag")
-			repo, tag := parseImageReference(sleepAppImage)
-			Expect(repo).ToNot(Equal(""))
-			Expect(tag).ToNot(Equal(""))
 
-			logrus.Infof("Updating from tag %s to v2", tag)
+			imageName = sleepAppImageName(harness, "v2")
 
-			updateImage := repo + ":v2"
-			updateApplicationConfig := v1alpha1.ImageApplicationProviderSpec{
-				Image: updateImage,
-			}
+			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
+				applicationVars := map[string]string{
+					"FFO":      "FFO",
+					"SIMPLE":   "SIMPLE",
+					"SOME_KEY": "SOME_KEY",
+				}
 
-			// Get the next expected rendered version before the update
-			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
-			Expect(err).ToNot(HaveOccurred())
+				applicationConfig := v1alpha1.ImageApplicationProviderSpec{
+					Image: imageName,
+				}
 
-			applicationVars := map[string]string{
-				"FFO":      "FFO",
-				"SIMPLE":   "SIMPLE",
-				"SOME_KEY": "SOME_KEY",
-			}
-
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
-				// Create applicationSpec.
-				var updateApplicationSpec v1alpha1.ApplicationProviderSpec
-				err := updateApplicationSpec.FromImageApplicationProviderSpec(updateApplicationConfig)
+				var appSpec v1alpha1.ApplicationProviderSpec
+				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				updateApplicationSpec.EnvVars = &applicationVars
+				appSpec.EnvVars = &applicationVars
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{updateApplicationSpec}
-				logrus.Infof("Updating %s with application %s", deviceId, updateImage)
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+				logrus.Infof("Updating %s with application %s", deviceId, imageName)
 			})
-
-			By("Check that the device received the new config")
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for the application running status")
-			WaitForApplicationRunningStatus(harness, deviceId, updateImage)
+			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
 			By("Check that the new application containers are running")
-			out, err := harness.CheckRunningContainers()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(ExpectedNumSleepAppV2Containers))
+			verifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
 
 			By("Check that the envs of v2 app are present in the containers")
-			containerName, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "\"{{.Names}} {{.Names}}\"", "|", "head", "-n", "1", "|", "awk", "'{print $1}'"}, nil)
-			containerNameString := strings.Trim(containerName.String(), "\n")
-			Expect(err).ToNot(HaveOccurred())
+			containerName := extractSingleContainerNameFromVM(harness)
 
-			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "exec", containerNameString, "printenv"}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring("SIMPLE"))
-
-			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
-			Expect(err).ToNot(HaveOccurred())
+			verifyCommandOutputsSubstring(harness, []string{"sudo", "podman", "exec", containerName, "printenv"}, "SIMPLE")
 
 			By("Delete the application from the fleet configuration")
 			logrus.Infof("Removing all the applications from %s", deviceId)
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
+			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
-				logrus.Infof("Updating %s removing application %s", deviceId, updateImage)
+				logrus.Infof("Updating %s removing application %s", deviceId, imageName)
 			})
-
-			By("Check that the device received the new config")
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check all the containers are deleted")
-			out, err = harness.CheckRunningContainers()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(ZeroContainers))
-
+			verifyContainerCount(harness, 0)
 		})
 
-		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990", "sanity"), func() {
+		It("Should handle application volumes from images correctly", Label("83000"), func() {
+			By("Update the application to include artifact volumes")
+
+			imageName := sleepAppImageName(harness, "v3")
+
+			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
+				volumeConfig := v1alpha1.ApplicationVolume{
+					Name: "testvol",
+				}
+				err := volumeConfig.FromImageVolumeProviderSpec(
+					v1alpha1.ImageVolumeProviderSpec{
+						Image: v1alpha1.ImageVolumeSource{
+							// This contains a single tar.gz file layer called sqlite--3.50.2.x86_64_linux.bottle.tar.gz
+							Reference:  "ghcr.io/homebrew/core/sqlite:3.50.2",
+							PullPolicy: lo.ToPtr(v1alpha1.PullIfNotPresent),
+						},
+					})
+				Expect(err).ToNot(HaveOccurred())
+
+				appConfig := v1alpha1.ImageApplicationProviderSpec{
+					Image:   imageName,
+					Volumes: &[]v1alpha1.ApplicationVolume{volumeConfig},
+				}
+
+				var appSpec v1alpha1.ApplicationProviderSpec
+				err = appSpec.FromImageApplicationProviderSpec(appConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+			})
+
+			By("Wait for the application running status")
+			WaitForApplicationRunningStatus(harness, deviceId, imageName)
+
+			By("Check that the new application containers are running")
+			verifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
+			containerName := extractSingleContainerNameFromVM(harness)
+
+			verifyCommandOutputsSubstring(
+				harness,
+				[]string{"sudo", "podman", "inspect", "--format", `"{{.Mounts}}"`, containerName},
+				"testvol")
+
+			By("downgrading to v2 we should not have the mount anymore")
+			imageName = sleepAppImageName(harness, "v2")
+
+			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
+				appConfig := v1alpha1.ImageApplicationProviderSpec{
+					Image: imageName,
+				}
+
+				var appSpec v1alpha1.ApplicationProviderSpec
+				err := appSpec.FromImageApplicationProviderSpec(appConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+			})
+			WaitForApplicationRunningStatus(harness, deviceId, imageName)
+
+			verifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
+			containerName = extractSingleContainerNameFromVM(harness)
+
+			verifyCommandLacksSubstring(
+				harness,
+				[]string{"sudo", "podman", "inspect", "--format", `"{{.Mounts}}"`, containerName},
+				"testvol")
+		})
+
+		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990"), func() {
 			By("Creating the first application")
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
@@ -249,9 +283,10 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Remove the application from the spec")
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for device to pick up the removal config")
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
@@ -288,7 +323,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			}, TIMEOUT).Should(Equal(envVarValue))
 		})
 
-		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998", "sanity"), func() {
+		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998"), func() {
 			By("Create initial application")
 			initialRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
@@ -346,9 +381,6 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 })
 
 const (
-
-	// ApplicationRunningStatus represents the status string used to signify that an application is currently running.
-	ApplicationRunningStatus = "status: Running"
 
 	// ComposeManifestPath defines the file system path where compose manifests are stored, typically used in deployment setups.
 	ComposeManifestPath = "/etc/compose/manifests"
@@ -426,41 +458,3 @@ ports:
 - "80:80"
 `
 )
-
-// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status within a timeout.
-func WaitForApplicationRunningStatus(h *e2e.Harness, deviceId string, applicationImage string) {
-	logrus.Infof("Waiting for the application ready status")
-	h.WaitForDeviceContents(deviceId, ApplicationRunningStatus,
-		func(device *v1alpha1.Device) bool {
-			for _, application := range device.Status.Applications {
-				if application.Name == applicationImage && application.Status == v1alpha1.ApplicationStatusRunning {
-					return true
-				}
-			}
-			return false
-		}, TIMEOUT)
-}
-
-func createInlineApplicationSpec(content string, path string) v1alpha1.InlineApplicationProviderSpec {
-	return v1alpha1.InlineApplicationProviderSpec{
-		Inline: []v1alpha1.ApplicationContent{
-			{
-				Content: &content,
-				Path:    path,
-			},
-		},
-	}
-}
-
-func updateDeviceApplicationFromInline(device *v1alpha1.Device, inlineAppName string, inlineApp v1alpha1.InlineApplicationProviderSpec) error {
-	for i, app := range *device.Spec.Applications {
-		if app.Name != nil && *app.Name == inlineAppName {
-			err := (*device.Spec.Applications)[i].FromInlineApplicationProviderSpec(inlineApp)
-			if err != nil {
-				return fmt.Errorf("failed to update application %s from inline spec: %w", inlineAppName, err)
-			}
-			return nil
-		}
-	}
-	return fmt.Errorf("application %s not found in device spec", inlineAppName)
-}

@@ -13,14 +13,25 @@ service:
   altNames:
     - {{BASE_DOMAIN}}
     - flightctl-api
-  srvCertFile: {{SRV_CERT_FILE}}
+  srvCertificateFile: {{SRV_CERT_FILE}}
   srvKeyFile: {{SRV_KEY_FILE}}
+  rateLimit:
+    requests: {{RATE_LIMIT_REQUESTS}}
+    window: {{RATE_LIMIT_WINDOW}}
+    authRequests: {{RATE_LIMIT_AUTH_REQUESTS}}
+    authWindow: {{RATE_LIMIT_AUTH_WINDOW}}
 kv:
   hostname: flightctl-kv
   port: 6379
 auth:
   insecureSkipTlsVerify: {{INSECURE_SKIP_TLS_VERIFY}}
   caCert: {{AUTH_CA_CERT}}
+  {{if AAP}}
   aap:
     apiUrl: {{AAP_API_URL}}
     externalApiUrl: {{AAP_EXTERNAL_API_URL}}
+  {{elseif OIDC}}
+  oidc:
+    oidcAuthority: {{OIDC_URL}}
+    externalOidcAuthority: {{OIDC_EXTERNAL_URL}}
+  {{endif}}

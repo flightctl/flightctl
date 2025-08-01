@@ -85,7 +85,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			},
 		}
 
-		f, err := storeInst.Fleet().Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := storeInst.Fleet().Create(ctx, store.NullOrgId, fleet, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -99,13 +99,13 @@ var _ = Describe("Rollout disruption budget test", func() {
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
 		}
-		tv, err := storeInst.TemplateVersion().Create(ctx, store.NullOrgId, &templateVersion, nil)
+		tv, err := storeInst.TemplateVersion().Create(ctx, store.NullOrgId, &templateVersion, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 		tvName = *tv.Metadata.Name
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)).ToNot(HaveOccurred())
+		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
 	}
 	var (
 		labels1 = map[string]string{
@@ -119,7 +119,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 	)
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, _, err := storeInst.Device().Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, err := storeInst.Device().Update(ctx, store.NullOrgId, device, nil, false, nil, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -172,7 +172,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d)
+					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 					annotations := make(map[string]string)
 					if annotateTv {
@@ -184,7 +184,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 					annotations[api.DeviceAnnotationRenderedVersion] = "5"
 					Expect(storeInst.Device().UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 					d.Status.Config.RenderedVersion = "5"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d)
+					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}
@@ -201,7 +201,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		})
 		It("One fleet - one device with matching fleet - non matching disruption budget", func() {
 			initTest(nil, 1, true, false)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
 			reconciler.Reconcile(ctx)
 		})
@@ -213,31 +213,31 @@ var _ = Describe("Rollout disruption budget test", func() {
 		It("One fleet - one device with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 1, true, false)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - two devices with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 2, true, false)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 6, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
 			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), equalLabels(labels1))
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), equalLabels(labels2))
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), equalLabels(labels1))
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), equalLabels(labels2))
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels - without unavailable", func() {
 			initTest(disruptionBudget(nil, lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 9, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 3})
 			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), equalLabels(labels2)).Times(2)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), equalLabels(labels1)).Times(3)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(ctx, gomock.Any(), gomock.Any())
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), equalLabels(labels2)).Times(2)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), equalLabels(labels1)).Times(3)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 	})

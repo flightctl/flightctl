@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -20,6 +21,8 @@ import (
 // Provider defines the interface for supplying and managing an application's spec
 // and lifecycle operations for installation to disk.
 type Provider interface {
+	// OCITargets returns the list of OCI images and artifacts required by the provider.
+	OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error)
 	// Verify the application content is valid and dependencies are met.
 	Verify(ctx context.Context) error
 	// Install the application content to the device.
@@ -85,16 +88,10 @@ func FromDeviceSpec(
 			if err != nil {
 				return nil, err
 			}
-			if err := provider.Verify(ctx); err != nil {
-				return nil, err
-			}
 			providers = append(providers, provider)
 		case v1alpha1.InlineApplicationProviderType:
 			provider, err := newInline(log, podman, &providerSpec, readWriter)
 			if err != nil {
-				return nil, err
-			}
-			if err := provider.Verify(ctx); err != nil {
 				return nil, err
 			}
 			providers = append(providers, provider)
@@ -106,6 +103,14 @@ func FromDeviceSpec(
 	if cfg.embedded {
 		if err := parseEmbedded(ctx, log, podman, readWriter, &providers); err != nil {
 			return nil, err
+		}
+	}
+
+	if cfg.verify {
+		for _, provider := range providers {
+			if err := provider.Verify(ctx); err != nil {
+				return nil, fmt.Errorf("verify: %w", err)
+			}
 		}
 	}
 
@@ -140,9 +145,6 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 				// ensure the embedded application
 				provider, err := newEmbedded(log, podman, readWriter, name, appType)
 				if err != nil {
-					return err
-				}
-				if err := provider.Verify(ctx); err != nil {
 					return err
 				}
 				*providers = append(*providers, provider)
@@ -212,12 +214,19 @@ type ParseOpt func(*parseConfig)
 
 type parseConfig struct {
 	embedded      bool
+	verify        bool
 	providerTypes map[v1alpha1.ApplicationProviderType]struct{}
 }
 
 func WithEmbedded() ParseOpt {
 	return func(c *parseConfig) {
 		c.embedded = true
+	}
+}
+
+func WithVerify() ParseOpt {
+	return func(c *parseConfig) {
+		c.verify = true
 	}
 }
 
@@ -247,12 +256,12 @@ func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (stri
 		}
 		typePath = lifecycle.ComposeAppPath
 	default:
-		return "", fmt.Errorf("unsupported application type: %s", appType)
+		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 	return filepath.Join(typePath, name), nil
 }
 
-func ensureCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, appPath string) error {
+func ensureCompose(readWriter fileio.ReadWriter, appPath string) error {
 	// note: errors like "error converting YAML to JSON: yaml: line 5: found
 	// character that cannot start any token" is often improperly formatted yaml
 	// (double check the yaml spacing)
@@ -265,11 +274,6 @@ func ensureCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 		return fmt.Errorf("validating compose spec: %w", errors.Join(errs...))
 	}
 
-	for _, svc := range spec.Services {
-		if err := ensureImageExists(ctx, log, podman, svc.Image, v1alpha1.PullIfNotPresent); err != nil {
-			return fmt.Errorf("pulling service image: %w", err)
-		}
-	}
 	return nil
 }
 
@@ -307,30 +311,6 @@ func ensureDependenciesFromAppType(appType v1alpha1.AppType) error {
 	return fmt.Errorf("%w: %v", errors.ErrAppDependency, deps)
 }
 
-// ensureImageExists ensures that the image exists in the container storage.
-func ensureImageExists(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, image string, pullPolicy v1alpha1.ImagePullPolicy) error {
-	if pullPolicy == v1alpha1.PullNever {
-		log.Tracef("Pull policy is set to never, skipping image pull: %s", image)
-		return nil
-	}
-	// if the image is not set, return
-	// pull the image if it does not exist. it is possible that the image
-	// tag such as latest in which case it will be pulled later. but we
-	// don't want to require calling out the network on every sync.
-	if podman.ImageExists(ctx, image) && pullPolicy != v1alpha1.PullAlways {
-		log.Tracef("Image already exists in container storage: %s", image)
-		return nil
-	}
-
-	_, err := podman.Pull(ctx, image, client.WithRetry())
-	if err != nil {
-		log.Warnf("Failed to pull image %q: %v", image, err)
-		return err
-	}
-
-	return nil
-}
-
 func validateEnvVars(envVars map[string]string) error {
 	if envVars != nil {
 		// validate the env var keys this cant be done earlier because we there could be fleet templates
@@ -339,4 +319,39 @@ func validateEnvVars(envVars map[string]string) error {
 		}
 	}
 	return nil
+}
+
+func extractVolumeTargets(vols *[]v1alpha1.ApplicationVolume, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	var targets []dependency.OCIPullTarget
+	if vols == nil {
+		return targets, nil
+	}
+
+	for _, v := range *vols {
+		vType, err := v.Type()
+		if err != nil {
+			return nil, fmt.Errorf("getting volume type: %w", err)
+		}
+		if vType != v1alpha1.ImageApplicationVolumeProviderType {
+			continue
+		}
+		spec, err := v.AsImageVolumeProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting image volume spec: %w", err)
+		}
+
+		policy := v1alpha1.PullIfNotPresent
+		if spec.Image.PullPolicy != nil {
+			policy = *spec.Image.PullPolicy
+		}
+
+		targets = append(targets, dependency.OCIPullTarget{
+			Type:       dependency.OCITypeArtifact,
+			Reference:  spec.Image.Reference,
+			PullPolicy: policy,
+			PullSecret: pullSecret,
+		})
+	}
+
+	return targets, nil
 }

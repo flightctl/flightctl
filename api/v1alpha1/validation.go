@@ -44,7 +44,16 @@ func (r Device) Validate() []error {
 	if r.Spec != nil {
 		allErrs = append(allErrs, r.Spec.Validate(false)...)
 	}
+
 	return allErrs
+}
+
+// ValidateUpdate ensures immutable fields are unchanged for Device.
+func (d *Device) ValidateUpdate(newObj *Device) []error {
+	return validateImmutableCoreFields(d.Metadata.Name, newObj.Metadata.Name,
+		d.ApiVersion, newObj.ApiVersion,
+		d.Kind, newObj.Kind,
+		d.Status, newObj.Status)
 }
 
 func (r DeviceSpec) Validate(fleetTemplate bool) []error {
@@ -73,9 +82,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 			allErrs = append(allErrs, resource.Validate()...)
 		}
 	}
-	if r.Systemd != nil {
+	if r.Systemd != nil && r.Systemd.MatchPatterns != nil {
 		for i, matchPattern := range *r.Systemd.MatchPatterns {
-			allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i), 1, 256, nil, "")...)
+			allErrs = append(allErrs, validation.ValidateSystemdName(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i))...)
 		}
 	}
 	return allErrs
@@ -403,6 +412,14 @@ func (r EnrollmentRequest) Validate() []error {
 	return allErrs
 }
 
+// ValidateUpdate ensures immutable fields are unchanged for EnrollmentRequest.
+func (er *EnrollmentRequest) ValidateUpdate(newObj *EnrollmentRequest) []error {
+	return validateImmutableCoreFields(er.Metadata.Name, newObj.Metadata.Name,
+		er.ApiVersion, newObj.ApiVersion,
+		er.Kind, newObj.Kind,
+		er.Status, newObj.Status)
+}
+
 func (r EnrollmentRequestApproval) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateLabelsWithPath(r.Labels, "labels")...)
@@ -419,6 +436,14 @@ func (r CertificateSigningRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateSignerName(r.Spec.SignerName)...)
 	allErrs = append(allErrs, validation.ValidateCSR(r.Spec.Request)...)
 	return allErrs
+}
+
+// ValidateUpdate ensures immutable fields are unchanged for CertificateSigningRequest.
+func (csr *CertificateSigningRequest) ValidateUpdate(newObj *CertificateSigningRequest) []error {
+	return validateImmutableCoreFields(csr.Metadata.Name, newObj.Metadata.Name,
+		csr.ApiVersion, newObj.ApiVersion,
+		csr.Kind, newObj.Kind,
+		csr.Status, newObj.Status)
 }
 
 func (b *Batch_Limit) Validate() []error {
@@ -529,6 +554,14 @@ func (r Fleet) Validate() []error {
 	return allErrs
 }
 
+// ValidateUpdate ensures immutable fields are unchanged for Fleet.
+func (f *Fleet) ValidateUpdate(newObj *Fleet) []error {
+	return validateImmutableCoreFields(f.Metadata.Name, newObj.Metadata.Name,
+		f.ApiVersion, newObj.ApiVersion,
+		f.Kind, newObj.Kind,
+		f.Status, newObj.Status)
+}
+
 func (u DeviceUpdatePolicySpec) Validate() []error {
 	allErrs := []error{}
 	if u.DownloadSchedule != nil {
@@ -569,7 +602,10 @@ func (u UpdateSchedule) Validate() []error {
 	return allErrs
 }
 
-func (r Repository) Validate() []error {
+func (r *Repository) Validate() []error {
+	if r == nil {
+		return nil
+	}
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
@@ -602,6 +638,14 @@ func (r Repository) Validate() []error {
 	return allErrs
 }
 
+// ValidateUpdate ensures immutable fields are unchanged for Repository.
+func (r *Repository) ValidateUpdate(newObj *Repository) []error {
+	return validateImmutableCoreFields(r.Metadata.Name, newObj.Metadata.Name,
+		r.ApiVersion, newObj.ApiVersion,
+		r.Kind, newObj.Kind,
+		r.Status, newObj.Status)
+}
+
 func (r ResourceSync) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
@@ -611,6 +655,14 @@ func (r ResourceSync) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateGitRevision(&r.Spec.TargetRevision, "spec.targetRevision")...)
 	allErrs = append(allErrs, validation.ValidateString(&r.Spec.Path, "spec.path", 0, 2048, nil, "")...)
 	return allErrs
+}
+
+// ValidateUpdate ensures immutable fields are unchanged for ResourceSync.
+func (rs *ResourceSync) ValidateUpdate(newObj *ResourceSync) []error {
+	return validateImmutableCoreFields(rs.Metadata.Name, newObj.Metadata.Name,
+		rs.ApiVersion, newObj.ApiVersion,
+		rs.Kind, newObj.Kind,
+		rs.Status, newObj.Status)
 }
 
 func (tv TemplateVersion) Validate() []error {
@@ -1095,4 +1147,22 @@ func validatePercentage(p Percentage) error {
 		return fmt.Errorf("'%s' doesn't match percentage pattern '%s'", p, pattern)
 	}
 	return nil
+}
+
+// validateImmutableCoreFields is a helper used by ValidateUpdate to ensure name, apiVersion, kind and status are unchanged.
+func validateImmutableCoreFields(currentName, newName *string, currentAPIVersion, newAPIVersion, currentKind, newKind string, currentStatus, newStatus interface{}) []error {
+	var errs []error
+	if newName == nil || *currentName != *newName {
+		errs = append(errs, fmt.Errorf("metadata.name is immutable"))
+	}
+	if currentAPIVersion != newAPIVersion {
+		errs = append(errs, fmt.Errorf("apiVersion is immutable"))
+	}
+	if currentKind != newKind {
+		errs = append(errs, fmt.Errorf("kind is immutable"))
+	}
+	if !reflect.DeepEqual(currentStatus, newStatus) {
+		errs = append(errs, fmt.Errorf("status is immutable"))
+	}
+	return errs
 }

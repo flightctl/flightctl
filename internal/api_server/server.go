@@ -32,6 +32,18 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
+// customTransportHandler wraps the transport handler to exclude the auth validate endpoint
+// since it's handled separately with stricter rate limiting
+type customTransportHandler struct {
+	*transport.TransportHandler
+}
+
+// AuthValidate is overridden to return 404 for this handler
+// since the auth validate endpoint is handled separately
+func (c *customTransportHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params api.AuthValidateParams) {
+	http.NotFound(w, r)
+}
+
 const (
 	gracefulShutdownTimeout = 5 * time.Second
 )
@@ -172,6 +184,7 @@ func (s *Server) Run(ctx context.Context) error {
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
+		fcmiddleware.AddOrgIDToCtx(s.store.Organization()),
 		middleware.Logger,
 		middleware.Recoverer,
 	)
@@ -180,7 +193,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 
 	// a group is a new mux copy, with its own copy of the middleware stack
-	// this one handles the OpenAPI handling of the service
+	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
 	router.Group(func(r chi.Router) {
 		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
 		// to avoid issues with websocket connections
@@ -189,15 +202,96 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
+		// Add general rate limiting (only if configured)
+		if s.cfg.Service.RateLimit != nil {
+			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+			requests := 60        // Default requests limit
+			window := time.Minute // Default window
+			if s.cfg.Service.RateLimit.Requests > 0 {
+				requests = s.cfg.Service.RateLimit.Requests
+			}
+			if s.cfg.Service.RateLimit.Window > 0 {
+				window = time.Duration(s.cfg.Service.RateLimit.Window)
+			}
+			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+				Requests:       requests,
+				Window:         window,
+				Message:        "Rate limit exceeded, please try again later",
+				TrustedProxies: trustedProxies,
+			})
+		}
 
 		h := transport.NewTransportHandler(serviceHandler)
-		server.HandlerFromMux(h, r)
+
+		// Register all other endpoints with general rate limiting (already applied at router level)
+		// Create a custom handler that excludes the auth validate endpoint
+		customHandler := &customTransportHandler{h}
+		server.HandlerFromMux(customHandler, r)
+	})
+
+	// Register auth validate endpoint with stricter rate limiting (outside main API group)
+	// This ensures it gets all the necessary middleware with stricter rate limiting
+	router.Group(func(r chi.Router) {
+		// Add conditional middleware
+		if s.metrics != nil {
+			r.Use(s.metrics.ApiServerMiddleware)
+		}
+		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
+		r.Use(authMiddewares...)
+
+		// Add auth-specific rate limiting (only if configured)
+		if s.cfg.Service.RateLimit != nil {
+			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+			authRequests := 10      // Default auth requests limit
+			authWindow := time.Hour // Default auth window
+			if s.cfg.Service.RateLimit.AuthRequests > 0 {
+				authRequests = s.cfg.Service.RateLimit.AuthRequests
+			}
+			if s.cfg.Service.RateLimit.AuthWindow > 0 {
+				authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
+			}
+			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+				Requests:       authRequests,
+				Window:         authWindow,
+				Message:        "Login rate limit exceeded, please try again later",
+				TrustedProxies: trustedProxies,
+			})
+		}
+
+		h := transport.NewTransportHandler(serviceHandler)
+		// Use the wrapper to handle the AuthValidate method signature
+		wrapper := &server.ServerInterfaceWrapper{
+			Handler:            h,
+			HandlerMiddlewares: nil,
+			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+				oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+			},
+		}
+		r.Get("/api/v1/auth/validate", wrapper.AuthValidate)
 	})
 
 	// ws handling
 	router.Group(func(r chi.Router) {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
+		// Add websocket rate limiting (only if configured)
+		if s.cfg.Service.RateLimit != nil {
+			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+			requests := 60        // Default requests limit
+			window := time.Minute // Default window
+			if s.cfg.Service.RateLimit.Requests > 0 {
+				requests = s.cfg.Service.RateLimit.Requests
+			}
+			if s.cfg.Service.RateLimit.Window > 0 {
+				window = time.Duration(s.cfg.Service.RateLimit.Window)
+			}
+			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+				Requests:       requests,
+				Window:         window,
+				Message:        "Rate limit exceeded, please try again later",
+				TrustedProxies: trustedProxies,
+			})
+		}
 
 		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
 		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)

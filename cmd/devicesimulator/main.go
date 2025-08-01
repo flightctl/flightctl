@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/experimental"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -133,6 +135,12 @@ func main() {
 	log.Infoln("creating agents")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Create simulator fleet configuration
+	if err := createSimulatorFleet(ctx, serviceClient, log); err != nil {
+		log.Warnf("Failed to create simulator fleet: %v", err)
+	}
+
 	agents, agentsFolders := createAgents(log, *numDevices, *initialDeviceIndex, agentConfigTemplate)
 
 	sigShutdown := make(chan os.Signal, 1)
@@ -212,7 +220,7 @@ func createAgentConfigTemplate(dataDir string, configFile string) *agent_config.
 	if err := agentConfigTemplate.ParseConfigFile(configFile); err != nil {
 		log.Fatalf("Error parsing config: %v", err)
 	}
-	//create data directory if not exists
+	// create data directory if not exists
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		log.Fatalf("Error creating data directory: %v", err)
 	}
@@ -232,6 +240,10 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 	log.Infoln("creating agents")
 	agents := make([]*agent.Agent, numDevices)
 	agentsFolders := make([]string, numDevices)
+	ex := experimental.NewFeatures()
+	if ex.IsEnabled() && numDevices > 1 {
+		log.Warnf("Using experimental features with more than one device could cause unexpected issues.")
+	}
 	for i := 0; i < numDevices; i++ {
 		agentName := fmt.Sprintf("device-%05d", initialDeviceIndex+i)
 		certDir := filepath.Join(agentConfigTemplate.ConfigDir, "certs")
@@ -240,6 +252,10 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		os.RemoveAll(agentDir)
 		if err := os.MkdirAll(filepath.Join(agentDir, agent_config.DefaultConfigDir), 0700); err != nil {
 			log.Fatalf("Error creating directory: %v", err)
+		}
+
+		if ex.IsEnabled() {
+			setupTPMLinks(agentDir, log)
 		}
 
 		err := os.Setenv(client.TestRootDirEnvKey, agentDir)
@@ -268,7 +284,9 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		}
 		cfg.SpecFetchInterval = agentConfigTemplate.SpecFetchInterval
 		cfg.StatusUpdateInterval = agentConfigTemplate.StatusUpdateInterval
-		cfg.TPMPath = ""
+		cfg.TPM.Enabled = agentConfigTemplate.TPM.Enabled
+		cfg.TPM.Path = agentConfigTemplate.TPM.Path
+		cfg.TPM.PersistencePath = agentConfigTemplate.TPM.PersistencePath
 		cfg.LogPrefix = agentName
 
 		// create managementService config
@@ -376,4 +394,114 @@ func formatLabels(lableArgs *[]string) *map[string]string {
 
 	formattedLabels["created_by"] = "device-simulator"
 	return &formattedLabels
+}
+
+func setupTPMLinks(agentDir string, log *logrus.Logger) {
+	// Create /dev directory in agent dir
+	devDir := filepath.Join(agentDir, "dev")
+	if err := os.MkdirAll(devDir, 0700); err != nil {
+		log.Warnf("Failed to create /dev directory for TPM links: %v", err)
+		return
+	}
+
+	// Create /sys/class/tpm directory in agent dir
+	sysTPMDir := filepath.Join(agentDir, "sys", "class", "tpm")
+	if err := os.MkdirAll(sysTPMDir, 0700); err != nil {
+		log.Warnf("Failed to create /sys/class/tpm directory for TPM links: %v", err)
+		return
+	}
+
+	// Check if host has TPM devices by looking for /sys/class/tpm
+	hostTPMDir := "/sys/class/tpm"
+	if _, err := os.Stat(hostTPMDir); os.IsNotExist(err) {
+		log.Infof("No TPM devices found on host, skipping TPM link setup")
+		return
+	}
+
+	// Read TPM devices from host
+	entries, err := os.ReadDir(hostTPMDir)
+	if err != nil {
+		log.Warnf("Failed to read TPM devices from host: %v", err)
+		return
+	}
+
+	for _, entry := range entries {
+		// skip tpmrm entries but keep the tpm entries
+		if !strings.HasPrefix(entry.Name(), "tpm") || strings.HasPrefix(entry.Name(), "tpmrm") {
+			continue
+		}
+		log.Infof("Linking tpm device %s", entry.Name())
+
+		deviceNum := strings.TrimPrefix(entry.Name(), "tpm")
+
+		// Create symlinks for device files
+		hostDevicePath := fmt.Sprintf("/dev/tpm%s", deviceNum)
+		hostResourceMgrPath := fmt.Sprintf("/dev/tpmrm%s", deviceNum)
+		agentDevicePath := filepath.Join(devDir, fmt.Sprintf("tpm%s", deviceNum))
+		agentResourceMgrPath := filepath.Join(devDir, fmt.Sprintf("tpmrm%s", deviceNum))
+
+		// Only create symlinks if the host device files exist
+		if _, err := os.Stat(hostDevicePath); err == nil {
+			if err := os.Symlink(hostDevicePath, agentDevicePath); err != nil {
+				log.Warnf("Failed to create symlink %s -> %s: %v", agentDevicePath, hostDevicePath, err)
+			}
+		}
+
+		if _, err := os.Stat(hostResourceMgrPath); err == nil {
+			if err := os.Symlink(hostResourceMgrPath, agentResourceMgrPath); err != nil {
+				log.Warnf("Failed to create symlink %s -> %s: %v", agentResourceMgrPath, hostResourceMgrPath, err)
+			}
+		}
+
+		// Create symlink for sysfs directory
+		hostSysfsPath := filepath.Join(hostTPMDir, entry.Name())
+		agentSysfsPath := filepath.Join(sysTPMDir, entry.Name())
+		if err := os.Symlink(hostSysfsPath, agentSysfsPath); err != nil {
+			log.Warnf("Failed to create symlink %s -> %s: %v", agentSysfsPath, hostSysfsPath, err)
+		}
+	}
+}
+
+func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWithResponses, log *logrus.Logger) error {
+	fleetName := "simulator-disk-monitoring"
+
+	// Check if fleet already exists
+	response, err := serviceClient.GetFleetWithResponse(ctx, fleetName, &v1alpha1.GetFleetParams{})
+	if err == nil && response.HTTPResponse != nil && response.HTTPResponse.StatusCode == 200 {
+		log.Infof("Fleet %s already exists, skipping creation", fleetName)
+		return nil
+	}
+
+	log.Infof("Creating fleet configuration: %s", fleetName)
+
+	// Load fleet configuration from YAML file
+	fleetYAMLPath := filepath.Join("examples", "fleet-disk-simulator.yaml")
+	fleetYAMLData, err := os.ReadFile(fleetYAMLPath)
+	if err != nil {
+		return fmt.Errorf("reading fleet YAML file %s: %w", fleetYAMLPath, err)
+	}
+
+	var fleet v1alpha1.Fleet
+	if err := yaml.Unmarshal(fleetYAMLData, &fleet); err != nil {
+		return fmt.Errorf("unmarshaling fleet YAML: %w", err)
+	}
+
+	// Convert to JSON
+	fleetJSON, err := json.Marshal(fleet)
+	if err != nil {
+		return fmt.Errorf("marshaling fleet configuration: %w", err)
+	}
+
+	// Create the fleet
+	createResponse, err := serviceClient.ReplaceFleetWithBodyWithResponse(ctx, fleetName, "application/json", bytes.NewReader(fleetJSON))
+	if err != nil {
+		return fmt.Errorf("creating fleet: %w", err)
+	}
+
+	if createResponse.HTTPResponse != nil && createResponse.HTTPResponse.StatusCode >= 200 && createResponse.HTTPResponse.StatusCode < 300 {
+		log.Infof("Successfully created fleet: %s", fleetName)
+		return nil
+	}
+
+	return fmt.Errorf("failed to create fleet: status %d, body: %s", createResponse.HTTPResponse.StatusCode, string(createResponse.Body))
 }

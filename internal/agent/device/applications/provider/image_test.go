@@ -42,7 +42,6 @@ func TestImageProvider(t *testing.T) {
 			composeSpec: util.NewComposeSpec(),
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
 				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
 				)
 			},
@@ -60,7 +59,6 @@ func TestImageProvider(t *testing.T) {
 			composeSpec: util.NewComposeSpec(),
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
 				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
 				)
 			},
@@ -81,12 +79,10 @@ func TestImageProvider(t *testing.T) {
 			composeSpec: util.NewComposeSpec(),
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
 				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
 
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
 				)
@@ -124,7 +120,6 @@ services:
     image: quay.io/flightctl-tests/alpine:v1`,
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
 				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
@@ -146,7 +141,6 @@ services:
 image: quay.io/flightctl-tests/alpine:v1`,
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
 				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
@@ -171,7 +165,7 @@ image: quay.io/flightctl-tests/alpine:v1`,
 			require.NoError(err)
 			err = rw.WriteFile("/mount/podman-compose.yaml", []byte(tt.composeSpec), fileio.DefaultFilePermissions)
 			require.NoError(err)
-			podman := client.NewPodman(log, mockExec, rw, util.NewBackoff())
+			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 			spec := v1alpha1.ImageApplicationProviderSpec{
 				Image: tt.image,

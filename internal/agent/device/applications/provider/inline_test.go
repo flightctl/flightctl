@@ -26,7 +26,6 @@ func TestInlineProvider(t *testing.T) {
 		image         string
 		spec          *v1alpha1.ApplicationProviderSpec
 		content       []v1alpha1.ApplicationContent
-		setupMocks    func(*executer.MockExecuter)
 		wantVerifyErr error
 	}{
 		{
@@ -46,11 +45,6 @@ func TestInlineProvider(t *testing.T) {
 					Path:    "docker-compose.yml",
 				},
 			},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", appImage}).Return("", "", 0),
-				)
-			},
 		},
 		{
 			name:  "invalid compose path",
@@ -64,9 +58,6 @@ func TestInlineProvider(t *testing.T) {
 					Content: lo.ToPtr(util.NewComposeSpec()),
 					Path:    "invalid-compose.yml",
 				},
-			},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder()
 			},
 			wantVerifyErr: errors.ErrNoComposeFile,
 		},
@@ -85,9 +76,6 @@ func TestInlineProvider(t *testing.T) {
 					Content: lo.ToPtr(util.NewComposeSpec()),
 					Path:    "docker-compose.yml",
 				},
-			},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder()
 			},
 			wantVerifyErr: errors.ErrInvalidSpec,
 		},
@@ -108,11 +96,6 @@ func TestInlineProvider(t *testing.T) {
 					Path:    "podman-compose.override.yml",
 				},
 			},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "docker.io/override:latest"}).Return("", "", 0),
-				)
-			},
 		},
 	}
 	for _, tt := range tests {
@@ -126,7 +109,7 @@ func TestInlineProvider(t *testing.T) {
 			tmpDir := t.TempDir()
 			rw := fileio.NewReadWriter()
 			rw.SetRootdir(tmpDir)
-			podman := client.NewPodman(log, mockExec, rw, util.NewBackoff())
+			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 			spec := v1alpha1.InlineApplicationProviderSpec{
 				Inline: tt.content,
@@ -140,7 +123,6 @@ func TestInlineProvider(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			tt.setupMocks(mockExec)
 			err = inlineProvider.Verify(ctx)
 			if tt.wantVerifyErr != nil {
 				require.Error(err)

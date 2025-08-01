@@ -34,7 +34,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 	Context("parametrisable_templates", func() {
 		It(`Verifies that Flightctl fleet resource supports parametrisable device
 		    templates to configure items that are specific to an individual device
-			or a group of devices selected by labels`, Label("75486", "sanity"), func() {
+			or a group of devices selected by labels`, Label("75486"), func() {
 
 			By("Create a fleet with template variables in InlineConfigProviderSpec")
 			err := configProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidWithFunction)
@@ -50,7 +50,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Metadata.Labels = &map[string]string{
 					fleetSelectorKey: fleetSelectorValue,
 					teamLabelKey:     teamLabelValue,
@@ -58,6 +58,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				logrus.Infof("Updating %s with label %s=%s and %s=%s", deviceId,
 					fleetSelectorKey, fleetSelectorValue, teamLabelKey, teamLabelValue)
 			})
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Verify the Device is updated with the labels")
 			device, err := harness.GetDevice(deviceId)
@@ -101,12 +102,13 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 					(*device.Metadata.Labels)[fleetSelectorKey] = fleetSelectorValue
 					logrus.Infof("Updating %s with label %s=%s", deviceId,
 						fleetSelectorKey, fleetSelectorValue)
 				})
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Check the device will fail to reconcile")
 				harness.WaitForDeviceContents(deviceId, `The device could not be updated to the fleet`,
@@ -121,12 +123,13 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect((*device.Metadata.Annotations)["fleet-controller/lastRolloutError"]).To(ContainSubstring("no entry for key \"team\""))
 
 				By("Add the team label to the device")
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 					(*device.Metadata.Labels)[teamLabelKey] = teamLabelValue
 					logrus.Infof("Updating %s with label %s=%s", deviceId,
 						teamLabelKey, teamLabelValue)
 				})
+				Expect(err).ToNot(HaveOccurred())
 				resp, err = harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device = resp.JSON200
@@ -197,7 +200,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 					device.Metadata.Labels = &map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
@@ -209,6 +212,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 					}
 					logrus.Infof("Updating %s with labels", deviceId)
 				})
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Wait for the device to pick the fleet config")
 				err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
@@ -242,11 +246,12 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				nextGeneration, err := harness.PrepareNextDeviceGeneration(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 					(*device.Metadata.Labels)[revisionLabelKey] = branchTargetRevision
 					logrus.Infof("Updating the device with label %s=%s", revisionLabelKey, branchTargetRevision)
 				})
+				Expect(err).ToNot(HaveOccurred())
 
 				err = harness.WaitForDeviceNewGeneration(deviceId, nextGeneration)
 				Expect(err).ToNot(HaveOccurred())
@@ -276,7 +281,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				logrus.Infof("Removing %s labels", teamLabelKey)
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
 					device.Metadata.Labels = &map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
@@ -287,6 +292,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 					}
 					logrus.Infof("Updating %s with labels", deviceId)
 				})
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Wait for the device to pick the fleet config")
 				err = harness.WaitForDeviceNewGeneration(deviceId, nextGeneration)

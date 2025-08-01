@@ -24,3 +24,6 @@ nodes:
   - containerPort: 8090 # cli artifacts
     hostPort: 8090
     protocol: TCP
+  - containerPort: 16686 # jaeger ui
+    hostPort: 16686
+    protocol: TCP

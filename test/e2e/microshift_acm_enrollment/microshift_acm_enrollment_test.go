@@ -98,16 +98,6 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 				logrus.Infof("Created git repository %s", *httpRepoMetadata.Name)
 
-				// This step will be removed after selinux issue resolution (EDM-1579)
-				By("Set selinux permissive")
-				_, err = harness.VM.RunSSH([]string{"sudo", "sed", "-i", "s/^SELINUX=enforcing/SELINUX=permissive/", "/etc/selinux/config"}, nil)
-				Expect(err).ToNot(HaveOccurred())
-				_, err = harness.VM.RunSSH([]string{"sudo", "setenforce", "permissive"}, nil)
-				Expect(err).ToNot(HaveOccurred())
-				stdout, err := harness.VM.RunSSH([]string{"sudo", "getenforce"}, nil)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(stdout.String()).To(ContainSubstring("Permissive"))
-
 				By("Get the Pull-Secret")
 				out, err = exec.Command("bash", "-c", "oc get secret/pull-secret -n openshift-config -o json | jq '.data.\".dockerconfigjson\"' | base64 -di").CombinedOutput()
 				Expect(err).ToNot(HaveOccurred())
@@ -143,11 +133,11 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				deviceSpec.Os = &osImageSpec
 				deviceSpec.Config = &deviceSpecConfig
 
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 					device.Spec = &deviceSpec
 					logrus.Infof("Updating %s with a new image and pull-secret configuration", deviceId)
 				})
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Wait for the device to get the fleet configuration")
 				err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
@@ -156,7 +146,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				By("Make sure the pull-secret was injected")
 				psPath := "/etc/crio/openshift-pull-secret"
 				readyMsg := "The file was found"
-				stdout, err = harness.WaitForFileInDevice(psPath, util.TIMEOUT, util.POLLING)
+				stdout, err := harness.WaitForFileInDevice(psPath, util.TIMEOUT, util.POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
@@ -201,13 +191,14 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 					device.Metadata.Labels = &map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
 					}
 					logrus.Infof("Updating %s with label %s=%s", deviceId,
 						fleetSelectorKey, fleetSelectorValue)
 				})
+				Expect(err).ToNot(HaveOccurred())
 
 				By("Wait for the device to get the fleet configuration")
 				err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)

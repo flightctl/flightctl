@@ -24,10 +24,9 @@ import (
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
-	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -59,7 +58,7 @@ func DefaultCertificateOptions() *CertificateOptions {
 		Output:        "embedded",
 		OutputDir:     ".",
 		EncryptKey:    false,
-		SignerName:    "enrollment",
+		SignerName:    "flightctl.io/enrollment",
 	}
 }
 
@@ -94,7 +93,7 @@ func (o *CertificateOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Expiration, "expiration", "x", o.Expiration, "Specify desired certificate expiration in days, example: 7d.")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, "Specify desired output format for an enrollment cert: either 'reference' to have the config file reference key and cert file paths, or 'embedded' to have the key and cert embedded in the config file.")
 	fs.StringVarP(&o.OutputDir, "output-dir", "d", o.OutputDir, "Specify desired output directory for key, cert, and ca files.")
-	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of certificate requested: 'enrollment' or 'ca'.")
+	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of the certificate request.")
 	fs.BoolVarP(&o.EncryptKey, "encrypt", "e", o.EncryptKey, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime.")
 }
 
@@ -103,8 +102,12 @@ func (o *CertificateOptions) Complete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if o.SignerName == "enrollment" {
+		o.SignerName = "flightctl.io/enrollment"
+	}
+
 	if len(o.Name) == 0 {
-		if o.SignerName == "enrollment" {
+		if o.SignerName == "flightctl.io/enrollment" {
 			o.Name = "client-enrollment"
 		} else {
 			o.Name = "cert"
@@ -123,12 +126,12 @@ func (o *CertificateOptions) Validate(args []string) error {
 	}
 
 	if errs := validation.ValidateSignerName(o.SignerName); len(errs) > 0 {
-		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca'")
+		return fmt.Errorf("invalid signer name %q: %w", o.SignerName, errors.Join(errs...))
 	}
 
 	// check if user updated output format while requesting a cert that is not an enrollment cert -
 	// output format is only relevant for enrollment certs
-	if o.SignerName != "enrollment" && len(o.Output) > 0 {
+	if o.SignerName != "flightctl.io/enrollment" && len(o.Output) > 0 {
 		return fmt.Errorf("output format cannot be set for certificate types other than 'enrollment'")
 	}
 
@@ -167,7 +170,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		}
 	}
 
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -179,7 +182,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 
 	// if this isn't an enrollment cert, approval may take arbitrary time, so don't poll for
 	// the cert here - we're done!
-	if o.SignerName != "enrollment" {
+	if o.SignerName != "flightctl.io/enrollment" {
 		return nil
 	}
 
@@ -266,7 +269,10 @@ func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apicli
 			continue
 		default:
 			fmt.Fprintln(os.Stderr, " failed.")
-			return "", fmt.Errorf("submitting CSR failed with status %q: %w", response.HTTPResponse.Status, err)
+			if response.JSON400 != nil {
+				return "", fmt.Errorf("submitting CSR failed with status %q: %s", response.HTTPResponse.Status, response.JSON400.Message)
+			}
+			return "", fmt.Errorf("submitting CSR failed with status %q", response.HTTPResponse.Status)
 		}
 	}
 	return "", fmt.Errorf("submitting CSR failed after %d attempts, giving up", maxAttempts)

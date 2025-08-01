@@ -27,12 +27,26 @@ const (
 )
 
 var ResourceTypes = [...]string{
-	Device,
+	ResourceSync,
 	Fleet,
+	Device,
 	EnrollmentRequest,
 	Repository,
-	ResourceSync,
 	CertificateSigningRequest,
+}
+
+// RequiredSystemInfoKeys defines the required system info keys that should be present
+var DefaultSystemInfo = []string{
+	"hostname",
+	"kernel",
+	"distroName",
+	"distroVersion",
+	"productName",
+	"productUuid",
+	"productSerial",
+	"netInterfaceDefault",
+	"netIpDefault",
+	"netMacDefault",
 }
 
 const TIMEOUT = "5m"

@@ -20,6 +20,27 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// The fleet rollout task updates all devices in a fleet to match the latest template
+// version.
+//
+// Behavior:
+// - Iterates over devices that belong to the fleet.
+// - Skips devices that:
+//     - Have no owner
+//     - Have multiple owners
+//     - Are already being rolled out
+// - For each eligible device:
+//     - Compares the device spec and template version with the latest desired version.
+//     - Updates the device spec and annotation only if necessary.
+//
+// Idempotency:
+// - The task checks whether the device is already up to date.
+// - No updates are made if the spec and version match.
+// - Retries on conflict (409) to safely handle concurrent updates.
+// - Skips devices not eligible for rollout, avoiding partial or duplicate writes.
+//
+// This design ensures the task can be run repeatedly without side effects.
+
 func fleetRollout(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
 	if resourceRef.Op != tasks_client.FleetRolloutOpUpdate {
 		log.Errorf("received unknown op %s", resourceRef.Op)

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/flightctl/flightctl/pkg/poll"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -32,6 +33,9 @@ var (
 	// compose
 	ErrNoComposeFile     = errors.New("no valid compose file found")
 	ErrNoComposeServices = errors.New("no services found in compose spec")
+
+	// application status
+	ErrUnknownApplicationStatus = errors.New("unknown application status")
 
 	// container images
 	ErrImageShortName = errors.New("failed to resolve image short name: use the full name i.e registry/image:tag")
@@ -79,6 +83,9 @@ var (
 	ErrUpdatePolicyNotReady   = errors.New("update policy not ready")
 	ErrInvalidPolicyType      = errors.New("invalid policy type")
 
+	// prefetch
+	ErrPrefetchNotReady = errors.New("oci prefetch not ready")
+
 	// bootc
 	ErrBootcStatusInvalidJSON = errors.New("bootc status did not return valid JSON")
 )
@@ -94,6 +101,8 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
+	case errors.Is(err, ErrPrefetchNotReady):
+		return true
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a
 		// new template version
@@ -102,6 +111,8 @@ func IsRetryable(err error) bool {
 		// this is a retryable error because it means the bootc status did not
 		// return valid JSON. this is a bug in the bootc status and we should
 		// retry the request as the error is transient.
+		return true
+	case errors.Is(err, poll.ErrMaxSteps):
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false

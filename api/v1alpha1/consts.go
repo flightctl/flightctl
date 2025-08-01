@@ -51,6 +51,8 @@ const (
 	FleetAnnotationLastBatchCompletionReport = "fleet-controller/lastBatchCompletionReport"
 	// A frozen digest of device selection definition during rollout
 	FleetAnnotationDeviceSelectionConfigDigest = "fleet-controller/deviceSelectionConfigDigest"
+	// The requestID related to an event
+	EventAnnotationRequestID = "event-controller/requestID"
 
 	RepositoryAPIVersion = "v1alpha1"
 	RepositoryKind       = "Repository"
@@ -67,6 +69,10 @@ const (
 	EventAPIVersion = "v1alpha1"
 	EventKind       = "Event"
 	EventListKind   = "EventList"
+
+	OrganizationAPIVersion = "v1alpha1"
+	OrganizationKind       = "Organization"
+	OrganizationListKind   = "OrganizationList"
 )
 
 type UpdateState string

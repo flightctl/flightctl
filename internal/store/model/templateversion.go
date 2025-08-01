@@ -17,6 +17,7 @@ import (
 
 type TemplateVersion struct {
 	OrgID           uuid.UUID               `gorm:"type:uuid;primary_key;"`
+	Organization    Organization            `gorm:"foreignKey:OrgID"`
 	Name            string                  `gorm:"primary_key;" selector:"metadata.name"`
 	FleetName       string                  `gorm:"primary_key;" selector:"metadata.owner"`
 	Fleet           Fleet                   `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`

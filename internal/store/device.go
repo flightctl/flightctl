@@ -21,20 +21,20 @@ type Device interface {
 	InitialMigration(ctx context.Context) error
 
 	// Exposed to users
-	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
-	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, api.ResourceUpdatedDetails, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error)
+	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device) (*api.Device, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventCallback) (bool, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventCallback) (*api.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
-	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
+	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 
@@ -46,13 +46,12 @@ type Device interface {
 	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 
-	// Used only by device_disconnected
-	UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error
+	// Used by fleet selector
+	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams ListParams) (*api.DeviceList, error)
 
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 }
-
 type DeviceStore struct {
 	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
@@ -62,6 +61,8 @@ type DeviceStore struct {
 type DeviceStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device)
 type DeviceStoreValidationCallback func(ctx context.Context, before *api.Device, after *api.Device) error
 type DeviceStoreAllDeletedCallback func(ctx context.Context, orgId uuid.UUID)
+
+type ServiceConditionsCallback func(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition)
 
 // Make sure we conform to Device interface
 var _ Device = (*DeviceStore)(nil)
@@ -75,6 +76,16 @@ func NewDevice(db *gorm.DB, log logrus.FieldLogger) Device {
 		model.DevicesToApiResource,
 	)
 	return &DeviceStore{dbHandler: db, log: log, genericStore: genericStore}
+}
+
+func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback EventCallback, orgId uuid.UUID, name string, oldDevice, newDevice *api.Device, created bool, err error) {
+	if eventCallback == nil {
+		return
+	}
+
+	SafeEventCallback(s.log, func() {
+		eventCallback(ctx, api.DeviceKind, orgId, name, oldDevice, newDevice, created, err)
+	})
 }
 
 func (s *DeviceStore) getDB(ctx context.Context) *gorm.DB {
@@ -92,20 +103,53 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
-	// Create index for device primary key 'name'
-	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_primary_key_name") {
-		if db.Dialector.Name() == "postgres" {
-			if err := db.Exec("CREATE INDEX idx_device_primary_key_name ON devices USING BTREE (name)").Error; err != nil {
-				return err
-			}
-		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "PrimaryKeyColumnName"); err != nil {
-				return err
-			}
-		}
+	if err := s.createDeviceNameIndex(db); err != nil {
+		return err
 	}
 
-	// Create indexes for device 'Alias' column
+	if err := s.createDeviceAliasIndexes(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceLabelsIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceAnnotationsIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceStatusIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceLabelsPartialIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createServiceConditionsIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceLabelsTrigger(db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *DeviceStore) createDeviceNameIndex(db *gorm.DB) error {
+	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_primary_key_name") {
+		if db.Dialector.Name() == "postgres" {
+			return db.Exec("CREATE INDEX idx_device_primary_key_name ON devices USING BTREE (name)").Error
+		} else {
+			return db.Migrator().CreateIndex(&model.Device{}, "PrimaryKeyColumnName")
+		}
+	}
+	return nil
+}
+
+func (s *DeviceStore) createDeviceAliasIndexes(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.Device{}, "device_alias") {
 		if db.Dialector.Name() == "postgres" {
 			// Enable pg_trgm extension if not already enabled
@@ -117,56 +161,48 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 				return err
 			}
 			// Create a GIN index for substring matches on the 'Alias' field
-			if err := db.Exec("CREATE INDEX IF NOT EXISTS device_alias_gin ON devices USING GIN (alias gin_trgm_ops)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX IF NOT EXISTS device_alias_gin ON devices USING GIN (alias gin_trgm_ops)").Error
 		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "device_alias"); err != nil {
-				return err
-			}
+			return db.Migrator().CreateIndex(&model.Device{}, "device_alias")
 		}
 	}
+	return nil
+}
 
-	// Create GIN index for device labels
+func (s *DeviceStore) createDeviceLabelsIndex(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_labels") {
 		if db.Dialector.Name() == "postgres" {
-			if err := db.Exec("CREATE INDEX idx_device_labels ON devices USING GIN (labels)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX idx_device_labels ON devices USING GIN (labels)").Error
 		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "Labels"); err != nil {
-				return err
-			}
+			return db.Migrator().CreateIndex(&model.Device{}, "Labels")
 		}
 	}
+	return nil
+}
 
-	// Create GIN index for device annotations
+func (s *DeviceStore) createDeviceAnnotationsIndex(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_annotations") {
 		if db.Dialector.Name() == "postgres" {
-			if err := db.Exec("CREATE INDEX idx_device_annotations ON devices USING GIN (annotations)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX idx_device_annotations ON devices USING GIN (annotations)").Error
 		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "Annotations"); err != nil {
-				return err
-			}
+			return db.Migrator().CreateIndex(&model.Device{}, "Annotations")
 		}
 	}
+	return nil
+}
 
-	// Create GIN index for device status
+func (s *DeviceStore) createDeviceStatusIndex(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.Device{}, "idx_device_status") {
 		if db.Dialector.Name() == "postgres" {
-			if err := db.Exec("CREATE INDEX idx_device_status ON devices USING GIN (status)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX idx_device_status ON devices USING GIN (status)").Error
 		} else {
-			if err := db.Migrator().CreateIndex(&model.Device{}, "Status"); err != nil {
-				return err
-			}
+			return db.Migrator().CreateIndex(&model.Device{}, "Status")
 		}
 	}
+	return nil
+}
 
-	// Create indexes for device_labels (Partial Matching Support)
+func (s *DeviceStore) createDeviceLabelsPartialIndex(db *gorm.DB) error {
 	if !db.Migrator().HasIndex(&model.DeviceLabel{}, "idx_device_labels_partial") {
 		if db.Dialector.Name() == "postgres" {
 			// Enable pg_trgm extension for partial matching
@@ -174,13 +210,26 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 				return err
 			}
 			// Create GIN index for partial match searches
-			if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error; err != nil {
-				return err
-			}
+			return db.Exec("CREATE INDEX IF NOT EXISTS idx_device_labels_partial ON device_labels USING GIN (label_key gin_trgm_ops, label_value gin_trgm_ops)").Error
 		}
 	}
+	return nil
+}
 
-	// Ensure trigger is created for INSERT & UPDATE (labels JSONB changes)
+func (s *DeviceStore) createServiceConditionsIndex(db *gorm.DB) error {
+	if !db.Migrator().HasIndex(&model.Device{}, "idx_devices_service_conditions") {
+		if db.Dialector.Name() == "postgres" {
+			// Create a GIN index on the service_conditions JSONB field
+			// This provides optimal performance for JSONB path operations
+			return db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_service_conditions ON devices USING GIN ((service_conditions->'conditions')) WHERE service_conditions IS NOT NULL").Error
+		} else {
+			return db.Migrator().CreateIndex(&model.Device{}, "ServiceConditions")
+		}
+	}
+	return nil
+}
+
+func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
 	if db.Dialector.Name() == "postgres" {
 		triggerSQL := `
 		DROP TRIGGER IF EXISTS device_labels_insert ON devices;
@@ -220,23 +269,30 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		WHEN (OLD.labels IS DISTINCT FROM NEW.labels)
 		EXECUTE FUNCTION sync_device_labels();
 		`
-		if err := db.Exec(triggerSQL).Error; err != nil {
-			return err
-		}
+		return db.Exec(triggerSQL).Error
 	}
 	return nil
 }
 
-func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback) (*api.Device, error) {
-	return s.genericStore.Create(ctx, orgId, resource, callback)
+func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error) {
+	device, err := s.genericStore.Create(ctx, orgId, resource, callback)
+	name := lo.FromPtr(resource.Metadata.Name)
+	s.callEventCallback(ctx, eventCallback, orgId, name, nil, device, true, err)
+	return device, err
 }
 
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, api.ResourceUpdatedDetails, error) {
-	return s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error) {
+	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+	name := lo.FromPtr(resource.Metadata.Name)
+	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, false, err)
+	return device, err
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback) (*api.Device, bool, api.ResourceUpdatedDetails, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, bool, error) {
+	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+	name := lo.FromPtr(resource.Metadata.Name)
+	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, created, err)
+	return device, created, err
 }
 
 func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
@@ -279,12 +335,14 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams Li
 	return labelStrings, nil
 }
 
-func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback) (bool, error) {
-	return s.genericStore.Delete(
+func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventCallback) (bool, error) {
+	deleted, err := s.genericStore.Delete(
 		ctx,
 		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
 		callback,
 		Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
+	s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
+	return deleted, err
 }
 
 func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {
@@ -317,19 +375,19 @@ func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, own
 	} else {
 		updateTimeoutValue = gorm.Expr("false")
 	}
-	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count, 
-                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version, 
+	err := s.getDB(ctx).Raw(fmt.Sprintf(`select count(*) as count,
+                                 status -> 'config' ->> 'renderedVersion' = annotations->>'%s' AS same_rendered_version,
                                  elem ->> 'reason' as updating_reason,
-                                 annotations->>'%s' = ? as same_template_version, 
+                                 annotations->>'%s' = ? as same_template_version,
 								 ? as update_timed_out
                           from devices d LEFT JOIN LATERAL (
                             SELECT elem
 						    FROM jsonb_array_elements(d.status->'conditions') AS elem
 						    WHERE elem->>'type' = 'Updating'
 						    LIMIT 1
-							) subquery ON TRUE 
+							) subquery ON TRUE
 						     where
-						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null 
+						        org_id = ? and owner = ? and annotations ? '%s' and deleted_at is null
 						        group by same_rendered_version, updating_reason, same_template_version, update_timed_out`,
 		api.DeviceAnnotationRenderedVersion, api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationSelectedForRollout),
 		templateVersion,
@@ -478,43 +536,25 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 	}, nil
 }
 
-func (s *DeviceStore) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
-	if len(deviceNames) == 0 {
-		return nil
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device, eventCallback EventCallback) (*api.Device, error) {
+	var oldDevice api.Device
+	device, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
+	if err == nil && device != nil {
+		// Capture old device with deep copy
+		var devices []api.Device
+		devices = append(devices, *device)
+		oldDevice = devices[0]
 	}
 
-	tokens := strings.Repeat("?,", len(deviceNames))
-	// trim tailing comma
-	tokens = tokens[:len(tokens)-1]
-
-	// https://www.postgresql.org/docs/current/functions-json.html
-	// jsonb_set(target jsonb, path text[], new_value jsonb, create_missing boolean)
-	createMissing := "false"
-	query := fmt.Sprintf(`
-        UPDATE devices
-        SET 
-            status = jsonb_set(
-                jsonb_set(status, '{summary,status}', '"%s"', %s), 
-                '{summary,info}', '"%s"'
-            ),
-            resource_version = resource_version + 1
-        WHERE name IN (%s)`, status, createMissing, statusInfo, tokens)
-
-	args := make([]interface{}, len(deviceNames))
-	for i, name := range deviceNames {
-		args[i] = name
-	}
-
-	return s.getDB(ctx).Exec(query, args...).Error
-}
-
-func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device) (*api.Device, error) {
-	return s.genericStore.UpdateStatus(ctx, orgId, resource)
+	device, err = s.genericStore.UpdateStatus(ctx, orgId, resource)
+	name := lo.FromPtr(resource.Metadata.Name)
+	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, device, false, err)
+	return device, err
 }
 
 func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -561,7 +601,7 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 
 func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -610,7 +650,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	deviceModel := model.Device{
 		Resource: model.Resource{OrgID: orgId, Name: name},
 	}
-	result := s.getDB(ctx).First(&deviceModel)
+	result := s.getDB(ctx).Take(&deviceModel)
 	if result.Error != nil {
 		return nil, ErrorFromGormError(result.Error)
 	}
@@ -618,13 +658,21 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
 }
 
-func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (retry bool, err error) {
+func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
 
+	// Capture old conditions with deep copy
+	var oldConditions []api.Condition
+	if existingRecord.ServiceConditions != nil && existingRecord.ServiceConditions.Data.Conditions != nil {
+		// Deep copy the conditions to avoid shared memory issues
+		oldConditions = append(oldConditions, *existingRecord.ServiceConditions.Data.Conditions...)
+	}
+
+	// Initialize service conditions if needed
 	if existingRecord.ServiceConditions == nil {
 		existingRecord.ServiceConditions = model.MakeJSONField(model.ServiceConditions{})
 	}
@@ -632,10 +680,12 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 		existingRecord.ServiceConditions.Data.Conditions = &[]api.Condition{}
 	}
 
+	// Set new conditions
 	for _, condition := range conditions {
 		api.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
 	}
 
+	// Update using the original pattern with specific field updates and optimistic locking
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"service_conditions": existingRecord.ServiceConditions,
 		"resource_version":   gorm.Expr("resource_version + 1"),
@@ -647,12 +697,40 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
 	}
+
+	// Call callback if provided (but don't fail the operation if callback fails)
+	if callback != nil {
+		// Convert the updated model to API resource for the callback
+		apiDevice, convertErr := existingRecord.ToApiResource()
+		if convertErr != nil {
+			// Log the error but don't fail the operation
+			s.log.Errorf("Failed to convert device to API resource for callback: %v", convertErr)
+		} else {
+			// Call callback in a defer with error recovery to prevent callback failures from affecting the main operation
+			defer func() {
+				if r := recover(); r != nil {
+					s.log.Errorf("Callback panicked during service conditions update: %v", r)
+				}
+			}()
+
+			// Call the callback - if it fails, log the error but don't propagate it
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						s.log.Errorf("Service conditions callback panicked: %v", r)
+					}
+				}()
+				callback(ctx, orgId, apiDevice, oldConditions, *existingRecord.ServiceConditions.Data.Conditions)
+			}()
+		}
+	}
+
 	return false, nil
 }
 
-func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error {
 	return retryUpdate(func() (bool, error) {
-		return s.setServiceConditions(ctx, orgId, name, conditions)
+		return s.setServiceConditions(ctx, orgId, name, conditions, callback)
 	})
 }
 
@@ -682,4 +760,72 @@ func (s *DeviceStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, na
 		return nil, err
 	}
 	return &repositories, nil
+}
+
+func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams ListParams) (*api.DeviceList, error) {
+	// Use raw SQL to efficiently query JSONB service_conditions field
+	// The service_conditions field is stored as JSONB for optimal performance
+	var devices []model.Device
+	var nextContinue *string
+	var numRemaining *int64
+
+	// Build the raw SQL query with proper pagination support for JSONB
+	baseSQL := `
+		SELECT * FROM devices
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND service_conditions IS NOT NULL
+			AND EXISTS (
+				SELECT 1 FROM jsonb_array_elements(service_conditions->'conditions') AS elem
+				WHERE elem->>'type' = ? AND elem->>'status' = ?
+			)`
+
+	// Handle pagination - add WHERE condition before ORDER BY
+	var args []interface{}
+	args = append(args, orgId, conditionType, conditionStatus)
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		baseSQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	// Add ORDER BY after all WHERE conditions
+	baseSQL += " ORDER BY name ASC"
+
+	// Add limit
+	baseSQL += " LIMIT ?"
+	args = append(args, listParams.Limit)
+
+	// Execute the query
+	if err := s.getDB(ctx).Raw(baseSQL, args...).Scan(&devices).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	// Calculate pagination metadata
+	if len(devices) > 0 && len(devices) == listParams.Limit {
+		// Check if there are more results
+		var count int64
+		countSQL := `
+			SELECT COUNT(*) FROM devices
+			WHERE org_id = ?
+				AND deleted_at IS NULL
+				AND service_conditions IS NOT NULL
+				AND EXISTS (
+					SELECT 1 FROM jsonb_array_elements(service_conditions->'conditions') AS elem
+					WHERE elem->>'type' = ? AND elem->>'status' = ?
+				) AND name > ?`
+
+		countArgs := []interface{}{orgId, conditionType, conditionStatus, devices[len(devices)-1].Name}
+		if err := s.getDB(ctx).Raw(countSQL, countArgs...).Scan(&count).Error; err != nil {
+			return nil, ErrorFromGormError(err)
+		}
+
+		if count > 0 {
+			nextContinue = BuildContinueString([]string{devices[len(devices)-1].Name}, count)
+			numRemaining = &count
+		}
+	}
+
+	result, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	return &result, err
 }

@@ -3,6 +3,10 @@ global:
     type: "none"
     oidc:
       oidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8081/realms/flightctl
+  tracing:
+    enabled: true
+    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    insecure: true
   internalNamespace: flightctl-internal
   storageClassName: standard
   exposeServicesMethod: "nodePort"
@@ -11,6 +15,8 @@ global:
     agent: 7443
     db: 5432
     kv: 6379
+    alertmanager: 9093
+    alertmanagerProxy: 8443
     keycloak: 8081
     prometheus: 9090
     gitserver: 3222
@@ -21,6 +27,11 @@ api:
     image:  localhost/flightctl-api
     tag: latest
   baseUIUrl: "http://localhost:9000"
+  # Disable rate limiting for development
+  rateLimit: null
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 cliArtifacts:
   enabled: true
   image:
@@ -30,13 +41,36 @@ worker:
   image:
     image: localhost/flightctl-worker
     tag: latest
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 periodic:
   image:
     image: localhost/flightctl-periodic
+    tag: latest
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+alertExporter:
+  image:
+    image: localhost/flightctl-alert-exporter
+    tag: latest
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+alertmanagerProxy:
+  image:
+    image: localhost/flightctl-alertmanager-proxy
+    tag: latest
 prometheus:
   enabled: true
 ui:
   enabled: false
+
+dbSetup:
+  image:
+    image: localhost/flightctl-db-setup
+    tag: latest
 
 keycloak:
   realm:

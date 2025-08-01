@@ -5,14 +5,28 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
+
+func CreateTestOrganization(ctx context.Context, storeInst store.Store, orgId uuid.UUID) error {
+	org := &model.Organization{
+		ID: orgId,
+	}
+	_, err := storeInst.Organization().Create(ctx, org)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) api.Device {
 	deviceStatus := api.NewDeviceStatus()
@@ -77,7 +91,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
 	callback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
-	_, _, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback)
+	_, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback, nil)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
@@ -113,7 +127,7 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
 	callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
+	_, err := fleetStore.Create(ctx, orgId, &resource, callback, nil)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
 	}
@@ -146,7 +160,8 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 	}
 
 	callback := store.TemplateVersionStoreCallback(func(context.Context, uuid.UUID, *api.TemplateVersion, *api.TemplateVersion) {})
-	_, err := tvStore.Create(ctx, orgId, &resource, callback)
+	eventCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := tvStore.Create(ctx, orgId, &resource, callback, eventCallback)
 
 	return err
 }
@@ -179,8 +194,8 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 			Spec: spec,
 		}
 
-		callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
+		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+		_, err = storeInst.Repository().Create(ctx, orgId, &resource, nil, callback)
 		if err != nil {
 			return err
 		}
@@ -203,11 +218,11 @@ func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context,
 			},
 		}
 
-		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource)
+		_, err := store.EnrollmentRequest().Create(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("creating enrollmentrequest: %v", err)
 		}
-		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource)
+		_, err = store.EnrollmentRequest().UpdateStatus(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("updating enrollmentrequest status: %v", err)
 		}
@@ -227,7 +242,7 @@ func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, storeIns
 			},
 		}
 
-		_, err := storeInst.ResourceSync().Create(ctx, orgId, &resource)
+		_, err := storeInst.ResourceSync().Create(ctx, orgId, &resource, nil)
 		if err != nil {
 			log.Fatalf("creating resourcesync: %v", err)
 		}
@@ -237,6 +252,14 @@ func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, storeIns
 func NewBackoff() wait.Backoff {
 	return wait.Backoff{
 		Steps: 1,
+	}
+}
+
+func NewPollConfig() poll.Config {
+	return poll.Config{
+		BaseDelay: 1 * time.Millisecond,
+		Factor:    1.0,
+		MaxDelay:  1 * time.Millisecond,
 	}
 }
 

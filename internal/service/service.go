@@ -5,6 +5,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 )
 
@@ -21,6 +22,7 @@ type Service interface {
 	// Device
 	CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status)
 	ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status)
+	ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status)
 	UpdateDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, error)
 	GetDevice(ctx context.Context, name string) (*api.Device, api.Status)
 	ReplaceDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status)
@@ -42,7 +44,6 @@ type Service interface {
 	GetDeviceCompletionCounts(ctx context.Context, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, api.Status)
 	CountDevicesByLabels(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status)
 	GetDevicesSummary(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status)
-	UpdateDeviceSummaryStatusBatch(ctx context.Context, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) api.Status
 	UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool
 
 	// EnrollmentConfig
@@ -85,7 +86,7 @@ type Service interface {
 	ReplaceRepository(ctx context.Context, name string, repo api.Repository) (*api.Repository, api.Status)
 	DeleteRepository(ctx context.Context, name string) api.Status
 	PatchRepository(ctx context.Context, name string, patch api.PatchRequest) (*api.Repository, api.Status)
-	ReplaceRepositoryStatus(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status)
+	ReplaceRepositoryStatusByError(ctx context.Context, name string, repository api.Repository, err error) (*api.Repository, api.Status)
 	GetRepositoryFleetReferences(ctx context.Context, name string) (*api.FleetList, api.Status)
 	GetRepositoryDeviceReferences(ctx context.Context, name string) (*api.DeviceList, api.Status)
 
@@ -109,4 +110,12 @@ type Service interface {
 	CreateEvent(ctx context.Context, event *api.Event)
 	ListEvents(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status)
 	DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, api.Status)
+
+	// Checkpoint
+	GetCheckpoint(ctx context.Context, consumer string, key string) ([]byte, api.Status)
+	SetCheckpoint(ctx context.Context, consumer string, key string, value []byte) api.Status
+	GetDatabaseTime(ctx context.Context) (time.Time, api.Status)
+
+	// Organization
+	ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status)
 }

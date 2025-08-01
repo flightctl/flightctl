@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -11,7 +13,6 @@ import (
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -33,9 +34,10 @@ var _ = Describe("VM Agent behavior during updates", func() {
 	})
 
 	Context("updates", func() {
-		It("should update to the requested image", Label("75523", "sanity"), func() {
+		It("should update to the requested image", Label("75523"), func() {
 			By("Verifying update to agent  with requested image")
-			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
+			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
+			Expect(err).ToNot(HaveOccurred())
 
 			currentImage := device.Status.Os.Image
 			logrus.Infof("Current image is: %s", currentImage)
@@ -73,7 +75,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 		It("Should update to v4 with embedded application", Label("77671", "sanity"), func() {
 			By("Verifying update to agent  with embedded application")
 
-			device, newImageReference := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
+			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
+			Expect(err).ToNot(HaveOccurred())
 
 			currentImage := device.Status.Os.Image
 			logrus.Infof("Current image is: %s", currentImage)
@@ -116,7 +119,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			logrus.Info("We expect podman containers with sleep infinity process to be present but not running 👌")
 
-			device, newImageReference = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":base")
+			device, newImageReference, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":base")
+			Expect(err).ToNot(HaveOccurred())
 
 			currentImage = device.Status.Os.Image
 			logrus.Infof("Current image is: %s", currentImage)
@@ -160,8 +164,14 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(stdout1.String()).NotTo(ContainSubstring("sleep infinity"))
 
 			logrus.Info("Went back to base image and checked that there is no application now👌")
+
+			By("The agent executable should have the proper SELinux domain after the upgrade")
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "ls", "-Z", "/usr/bin/flightctl-agent"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
 		})
-		It("Should resolve to the latest version when multiple updates are applied", Label("77672", "sanity"), func() {
+
+		It("Should resolve to the latest version when multiple updates are applied", Label("77672"), func() {
 			initialVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -194,16 +204,11 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			for i, factory := range configFactories {
 				specVersion := i + 1
 				By(fmt.Sprintf("Applying spec: %d", specVersion))
-				harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-					var configProviderSpec v1alpha1.ConfigProviderSpec
-					err := factory(&configProviderSpec)
-					Expect(err).ToNot(HaveOccurred())
-					// append, not overwrite, new specs
-					specs := lo.FromPtr(device.Spec.Config)
-					specs = append(specs, configProviderSpec)
-					device.Spec.Config = &specs
-					logrus.Infof("Updating %s with config %+v", deviceId, *device.Spec.Config)
-				})
+				var configProviderSpec v1alpha1.ConfigProviderSpec
+				err := factory(&configProviderSpec)
+				Expect(err).ToNot(HaveOccurred())
+				err = harness.AddConfigToDeviceWithRetries(deviceId, configProviderSpec)
+				Expect(err).ToNot(HaveOccurred())
 				expectedVersion := currentVersion + 1
 				desc := fmt.Sprintf("Updating to desired renderedVersion: %d", expectedVersion)
 				By(fmt.Sprintf("Waiting for update %d to be picked up", specVersion))
@@ -225,7 +230,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 			initialImage := dev.Status.Os.Image
 			// The v8 image should contain a bad compose file
-			harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v8")
+			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v8")
+			Expect(err).ToNot(HaveOccurred())
 
 			harness.WaitForDeviceContents(deviceId, "device image should be updated to the new image", func(device *v1alpha1.Device) bool {
 				return device.Spec.Os.Image != initialImage
@@ -272,6 +278,156 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 			*/
 		})
+		It("Should respect the spec's update schedule", Label("79220", "sanity"), func() {
+			const everyMinuteExpression = "* * * * *"
+			startGracePeriod := "1m"
+
+			// function for generating a cron expression to execute in a specified number of minutes from the current time
+			inNMinutes := func(minutes int) string {
+				now := time.Now().Add(time.Duration(minutes) * time.Minute)
+				return fmt.Sprintf("%d * * * *", now.Minute())
+			}
+			// cron is time based and since we can't control when this specific test will run, we do our best to ensure
+			// that this test will always succeed whenever it is run.
+			yesterday := time.Now().AddDate(0, 0, -1)
+			// To ensure an update won't ever occur, we set the update time to midnight yesterday.
+			wontUpdatePolicy := fmt.Sprintf("0 0 %d %d *", yesterday.Day(), yesterday.Month())
+			currentVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+			expectedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Updating the device with a policy that won't trigger should prevent an update from occurring")
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.UpdatePolicy = &v1alpha1.DeviceUpdatePolicySpec{
+					UpdateSchedule: &v1alpha1.UpdateSchedule{
+						At:                 wontUpdatePolicy,
+						StartGraceDuration: &startGracePeriod,
+					},
+					DownloadSchedule: &v1alpha1.UpdateSchedule{
+						At:                 wontUpdatePolicy,
+						StartGraceDuration: &startGracePeriod,
+					},
+				}
+			})
+			Expect(err).ToNot(HaveOccurred())
+			harness.WaitForDeviceContents(deviceId, "the update should be registered but not applied", func(device *v1alpha1.Device) bool {
+				return device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusOutOfDate
+			}, TIMEOUT)
+
+			// A reasonable amount of time spent polling to ensure the spec doesn't change
+			harness.EnsureDeviceContents(deviceId, "the spec contents should not apply", func(device *v1alpha1.Device) bool {
+				return device.Status.Config.RenderedVersion == strconv.Itoa(currentVersion)
+			}, "1m30s")
+
+			By("Reducing the policies, the spec should be applied")
+			// pick a time two minutes in the future so that we can confirm that we wait at least some time before applying the update
+			inTwoMinutes := inNMinutes(2)
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
+				device.Spec.UpdatePolicy.DownloadSchedule.At = inTwoMinutes
+			})
+			Expect(err).ToNot(HaveOccurred())
+			expectedVersion++
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
+			Expect(err).NotTo(HaveOccurred())
+
+			currentVersion, err = harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(currentVersion).To(Equal(expectedVersion))
+			expectedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying another spec, the update should be applied quickly")
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				// change the spec to update every minute so that we don't have to wait as long
+				device.Spec.UpdatePolicy.UpdateSchedule.At = everyMinuteExpression
+				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+			})
+			Expect(err).ToNot(HaveOccurred())
+			// eventually the next update should be applied
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
+			Expect(err).NotTo(HaveOccurred())
+
+			expectedVersion++
+			inTwoMinutes = inNMinutes(2)
+			By("applying an immediate download policy and an eventual update policy, the process should stall at updating")
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
+				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+			})
+			Expect(err).ToNot(HaveOccurred())
+			harness.WaitForDeviceContents(deviceId, "status should indicate that we are blocked by updating", func(device *v1alpha1.Device) bool {
+				cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.ConditionTypeDeviceUpdating)
+				if cond == nil {
+					return false
+				}
+				return cond.Reason == string(v1alpha1.UpdateStateApplyingUpdate) &&
+					strings.Contains(cond.Message, "update policy not ready")
+			}, TIMEOUT)
+		})
+		It("Should not crash in case of unexpected services configs", Label("78711", "sanity"), func() {
+			const (
+				rapidFilesCount  = 10
+				firewallZonesDir = "/etc/firewalld/zones"
+				badZoneFile      = firewallZonesDir + "/bad-zone.xml"
+				conflictFile     = firewallZonesDir + "/conflict.json"
+			)
+
+			// ------------------------------------------------------------------
+			// Malformed XML — should cause firewall reload hook to fail
+			// ------------------------------------------------------------------
+			By(fmt.Sprintf("Applying malformed XML to %s", badZoneFile))
+			err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigForPath("bad-zone", badZoneFile, "<invalid")}
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1alpha1.Device) bool {
+				return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError))
+			}, TIMEOUT)
+
+			// ------------------------------------------------------------------
+			// Rapidly add, remove, or update multiple files
+			// ------------------------------------------------------------------
+			By("Rapidly applying multiple config changes in quick succession")
+			for i := 1; i <= rapidFilesCount; i++ {
+				logrus.Infof("Applying update %d", i)
+				path := fmt.Sprintf("%s/rapid-%d.json", firewallZonesDir, i)
+				name := fmt.Sprintf("rapid-%d", i)
+				err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+					device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigForPath(name, path, name)}
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+			By("Verifying the last file remains after rapid updates")
+			listFiles := func() ([]string, error) {
+				stdout, err := harness.VM.RunSSH([]string{"sudo", "ls", firewallZonesDir}, nil)
+				if err != nil {
+					return nil, err
+				}
+				return strings.Fields(stdout.String()), nil
+			}
+			lastFile := fmt.Sprintf("rapid-%d.json", rapidFilesCount)
+			// Can take a few seconds to process all updates
+			Eventually(listFiles, TIMEOUT, POLLING).
+				Should(ConsistOf(lastFile))
+
+			// ------------------------------------------------------------------
+			// Conflicting inline configs targeting the same path
+			// ------------------------------------------------------------------
+			By("Applying two inline configs that write to the same file path - through UpdateDevice")
+			cfg1 := newInlineConfigForPath("c1", conflictFile, "cfg1")
+			cfg2 := newInlineConfigForPath("c2", conflictFile, "cfg2")
+
+			Expect(harness.UpdateDevice(deviceId, func(device *v1alpha1.Device) {
+				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{cfg1, cfg2}
+			})).To(MatchError(ContainSubstring("must be unique")))
+
+		})
 	})
 })
 
@@ -310,4 +466,33 @@ func isDeviceUpdateObserved(device *v1alpha1.Device, expectedVersion int) bool {
 		v1alpha1.UpdateStateApplyingUpdate,
 	}
 	return slices.Contains(validReasons, v1alpha1.UpdateState(cond.Reason))
+}
+
+func newInlineConfigVersion(version int) v1alpha1.ConfigProviderSpec {
+	configCopy := inlineConfig
+	configCopy.Content = fmt.Sprintf("%s %d", configCopy.Content, version)
+	cfg := v1alpha1.InlineConfigProviderSpec{
+		Inline: []v1alpha1.FileSpec{configCopy},
+		Name:   validInlineConfig.Name,
+	}
+	var provider v1alpha1.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(cfg)
+	Expect(err).NotTo(HaveOccurred())
+	return provider
+}
+
+func newInlineConfigForPath(name string, path string, content string) v1alpha1.ConfigProviderSpec {
+	var inlineConfig = v1alpha1.FileSpec{
+		Content: content,
+		Mode:    modePointer,
+		Path:    path,
+	}
+	cfg := v1alpha1.InlineConfigProviderSpec{
+		Inline: []v1alpha1.FileSpec{inlineConfig},
+		Name:   name,
+	}
+	var provider v1alpha1.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(cfg)
+	Expect(err).NotTo(HaveOccurred())
+	return provider
 }

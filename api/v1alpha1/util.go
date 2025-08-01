@@ -2,12 +2,19 @@ package v1alpha1
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/util"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 type DeviceCompletionCount struct {
@@ -168,130 +175,11 @@ func PercentageAsInt(p Percentage) (int, error) {
 }
 
 func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
-	return deepEqualWithSpecialHandling(reflect.ValueOf(d1), reflect.ValueOf(d2))
-}
-
-// deepEqualWithSpecialHandling performs deep comparison with special handling for union types
-func deepEqualWithSpecialHandling(v1, v2 reflect.Value) bool {
-	if v1.Type() != v2.Type() {
-		return false
-	}
-
-	switch v1.Kind() {
-	case reflect.Ptr:
-		if v1.IsNil() && v2.IsNil() {
-			return true
-		}
-		if v1.IsNil() || v2.IsNil() {
-			return false
-		}
-		return deepEqualWithSpecialHandling(v1.Elem(), v2.Elem())
-
-	case reflect.Slice:
-		if v1.IsNil() && v2.IsNil() {
-			return true
-		}
-		if v1.IsNil() || v2.IsNil() {
-			return false
-		}
-		if v1.Len() != v2.Len() {
-			return false
-		}
-		for i := 0; i < v1.Len(); i++ {
-			if !deepEqualWithSpecialHandling(v1.Index(i), v2.Index(i)) {
-				return false
-			}
-		}
-		return true
-
-	case reflect.Struct:
-		// Special handling for union types that contain json.RawMessage
-		if isUnionType(v1.Type()) {
-			return compareUnionTypeAsJSON(v1, v2)
-		}
-
-		// Regular struct comparison
-		for i := 0; i < v1.NumField(); i++ {
-			if !deepEqualWithSpecialHandling(v1.Field(i), v2.Field(i)) {
-				return false
-			}
-		}
-		return true
-
-	case reflect.Map:
-		if v1.IsNil() && v2.IsNil() {
-			return true
-		}
-		if v1.IsNil() || v2.IsNil() {
-			return false
-		}
-		if v1.Len() != v2.Len() {
-			return false
-		}
-		for _, key := range v1.MapKeys() {
-			val1 := v1.MapIndex(key)
-			val2 := v2.MapIndex(key)
-			if !val2.IsValid() || !deepEqualWithSpecialHandling(val1, val2) {
-				return false
-			}
-		}
-		return true
-
-	default:
-		// For basic types, use reflect.DeepEqual
-		return reflect.DeepEqual(v1.Interface(), v2.Interface())
-	}
-}
-
-// isUnionType checks if a type is one of our known union types that contain json.RawMessage
-func isUnionType(t reflect.Type) bool {
-	if t.Kind() != reflect.Struct {
-		return false
-	}
-
-	// Check if struct contains a json.RawMessage field named "union"
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		if field.Name == "union" && field.Type == reflect.TypeOf(json.RawMessage{}) {
-			return true
-		}
-	}
-	return false
-}
-
-// compareUnionTypeAsJSON compares union types using normalized JSON serialization
-func compareUnionTypeAsJSON(v1, v2 reflect.Value) bool {
-	json1, err1 := json.Marshal(v1.Interface())
-	json2, err2 := json.Marshal(v2.Interface())
-
-	if err1 != nil || err2 != nil {
-		return false
-	}
-
-	// Normalize JSON by unmarshaling and remarshaling to ensure consistent formatting
-	var obj1, obj2 interface{}
-	if err := json.Unmarshal(json1, &obj1); err != nil {
-		return false
-	}
-	if err := json.Unmarshal(json2, &obj2); err != nil {
-		return false
-	}
-
-	// Use reflect.DeepEqual on the unmarshaled objects for semantic comparison
-	return reflect.DeepEqual(obj1, obj2)
+	return util.DeepEqualWithUnionHandling(reflect.ValueOf(d1), reflect.ValueOf(d2))
 }
 
 func FleetSpecsAreEqual(f1, f2 FleetSpec) bool {
-	// Use JSON comparison for consistent, automatic handling of all fields
-	json1, err := json.Marshal(f1)
-	if err != nil {
-		return false
-	}
-	json2, err := json.Marshal(f2)
-	if err != nil {
-		return false
-	}
-	return bytes.Equal(json1, json2)
+	return util.DeepEqualWithUnionHandling(reflect.ValueOf(f1), reflect.ValueOf(f2))
 }
 
 // Some functions that we provide to users.  In case of a missing label,
@@ -438,4 +326,132 @@ func GetNextDeviceRenderedVersion(annotations map[string]string) (string, error)
 
 	currentRenderedVersion++
 	return strconv.FormatInt(currentRenderedVersion, 10), nil
+}
+
+type SensitiveDataHider interface {
+	HideSensitiveData() error
+}
+
+func hideValue(value *string) {
+	if value != nil {
+		*value = "*****"
+	}
+}
+
+func (r *Repository) HideSensitiveData() error {
+	if r == nil {
+		return nil
+	}
+	spec := r.Spec
+
+	_, err := spec.GetGenericRepoSpec()
+	if err != nil {
+		gitHttpSpec, err := spec.GetHttpRepoSpec()
+		if err == nil {
+			hideValue(gitHttpSpec.HttpConfig.Password)
+			hideValue(gitHttpSpec.HttpConfig.TlsKey)
+			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
+			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
+				return err
+			}
+
+		} else {
+			gitSshRepoSpec, err := spec.GetSshRepoSpec()
+			if err == nil {
+				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
+				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
+				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	r.Spec = spec
+	return nil
+}
+
+func (r *RepositoryList) HideSensitiveData() error {
+	if r == nil {
+		return nil
+	}
+	for _, repo := range r.Items {
+		if err := repo.HideSensitiveData(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetBaseEvent creates a base event with common fields
+func GetBaseEvent(ctx context.Context, resourceKind ResourceKind, resourceName string, reason EventReason, message string, details *EventDetails) *Event {
+	var actorStr string
+	if actor := ctx.Value(consts.EventActorCtxKey); actor != nil {
+		actorStr = actor.(string)
+	}
+
+	var componentStr string
+	if component := ctx.Value(consts.EventSourceComponentCtxKey); component != nil {
+		componentStr = component.(string)
+	}
+
+	// Generate a UUID for the event name to ensure k8s compliance
+	eventName := uuid.New().String()
+
+	event := Event{
+		Metadata: ObjectMeta{
+			Name: lo.ToPtr(eventName),
+		},
+		InvolvedObject: ObjectReference{
+			Kind: string(resourceKind),
+			Name: resourceName,
+		},
+		Source: EventSource{
+			Component: componentStr,
+		},
+		Actor: actorStr,
+	}
+
+	// Add request ID to the event for correlation
+	if reqID := ctx.Value(middleware.RequestIDKey); reqID != nil {
+		event.Metadata.Annotations = &map[string]string{EventAnnotationRequestID: reqID.(string)}
+	}
+
+	event.Reason = reason
+	event.Message = message
+	event.Type = GetEventType(reason)
+	event.Details = details
+
+	return &event
+}
+
+// warningReasons contains all event reasons that should result in Warning events
+var warningReasons = map[EventReason]struct{}{
+	EventReasonResourceCreationFailed:          {},
+	EventReasonResourceUpdateFailed:            {},
+	EventReasonResourceDeletionFailed:          {},
+	EventReasonDeviceDecommissionFailed:        {},
+	EventReasonEnrollmentRequestApprovalFailed: {},
+	EventReasonDeviceApplicationDegraded:       {},
+	EventReasonDeviceApplicationError:          {},
+	EventReasonDeviceCPUCritical:               {},
+	EventReasonDeviceCPUWarning:                {},
+	EventReasonDeviceMemoryCritical:            {},
+	EventReasonDeviceMemoryWarning:             {},
+	EventReasonDeviceDiskCritical:              {},
+	EventReasonDeviceDiskWarning:               {},
+	EventReasonDeviceDisconnected:              {},
+	EventReasonDeviceSpecInvalid:               {},
+	EventReasonDeviceMultipleOwnersDetected:    {},
+	EventReasonInternalTaskFailed:              {},
+	EventReasonResourceSyncInaccessible:        {},
+	EventReasonResourceSyncParsingFailed:       {},
+	EventReasonResourceSyncSyncFailed:          {},
+}
+
+// GetEventType determines the event type based on the event reason
+func GetEventType(reason EventReason) EventType {
+	if _, contains := warningReasons[reason]; contains {
+		return Warning
+	}
+	return Normal
 }

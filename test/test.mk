@@ -4,7 +4,7 @@ GO_TEST_FORMAT = pkgname
 GO_TESTING_FLAGS= -count=1 -race $(GO_BUILD_FLAGS)
 
 GO_UNITTEST_DIRS 		= ./internal/... ./api/...
-GO_INTEGRATIONTEST_DIRS = ./test/integration/...
+GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
 GO_E2E_DIRS 			= ./test/e2e/...
 
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
@@ -46,17 +46,24 @@ unit-test:
 run-integration-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
-prepare-integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
-prepare-integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
-prepare-integration-test: deploy-db deploy-kv
-
+integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
+integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
+integration-test: export FLIGHTCTL_POSTGRESQL_USER_PASSWORD=adminpass
+integration-test: export DB_APP_PASSWORD=adminpass
+integration-test: export DB_MIGRATION_PASSWORD=adminpass
 integration-test:
-	@$(MAKE) prepare-integration-test && \
-	$(MAKE) run-integration-test;        \
-	rc=$$?;                              \
-	$(MAKE) -s kill-kv kill-db;          \
-	exit $$rc
-
+	@set -e; \
+	$(MAKE) deploy-db deploy-kv deploy-alertmanager; \
+	echo "Granting migration privileges to flightctl_app user for integration tests..."; \
+	timeout --foreground 60s bash -c ' \
+		while ! sudo podman exec flightctl-db psql -U admin -d flightctl -c "SELECT 1" >/dev/null 2>&1; do \
+			echo "Waiting for database to be ready..."; \
+			sleep 2; \
+		done \
+	'; \
+	sudo podman exec flightctl-db psql -U admin -d flightctl -c "ALTER USER flightctl_app CREATEDB; GRANT CREATE ON SCHEMA public TO flightctl_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO flightctl_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flightctl_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO flightctl_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO flightctl_app;" || true; \
+	trap '$(MAKE) -k kill-alertmanager kill-kv kill-db' EXIT; \
+	$(MAKE) run-integration-test
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh

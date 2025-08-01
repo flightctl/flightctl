@@ -1,16 +1,18 @@
 [Unit]
 Description=Flight Control Worker service
 PartOf=flightctl.target
-After=flightctl-db.service flightctl-kv.service
-Requires=flightctl-db.service flightctl-kv.service
+After=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
+Requires=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
 
 [Container]
 ContainerName=flightctl-worker
 Image=quay.io/flightctl/flightctl-worker:latest
+Pull=newer
 Network=flightctl.network
 Environment=HOME=/root
-Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
+Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+Environment=DB_USER=flightctl_app
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 [Service]

@@ -34,13 +34,19 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
-                  key: masterPassword
+                  name: flightctl-db-app-secret
+                  key: userPassword
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
-                  key: masterUser
+                  name: flightctl-db-app-secret
+                  key: user
+            {{- if .Values.worker.env }}
+            {{- range $key, $value := .Values.worker.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-worker-config

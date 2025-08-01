@@ -23,13 +23,21 @@ import (
 )
 
 func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
+	return initDBWithUser(cfg, log, cfg.Database.User, cfg.Database.Password)
+}
+
+func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
+	return initDBWithUser(cfg, log, cfg.Database.MigrationUser, cfg.Database.MigrationPassword)
+}
+
+func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password config.SecureString) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
 	if cfg.Database.Type == "pgsql" {
 		dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
 			cfg.Database.Hostname,
-			cfg.Database.User,
-			cfg.Database.Password,
+			user,
+			password.Value(),
 			cfg.Database.Port,
 		)
 		if cfg.Database.Name != "" {

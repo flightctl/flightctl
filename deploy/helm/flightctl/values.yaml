@@ -28,7 +28,6 @@
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
 ## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
-## @param global.generateSecrets Generate secrets when deploying FCTL. This should be set to false if you want to provide your own secrets or when upgrading FCTL to avoid overriding the existing secrets
 ## @param global.imagePullPolicy Image pull policy for all containers
 
 global:
@@ -57,6 +56,10 @@ global:
       externalApiUrl: ""
   metrics:
     enabled: true
+  tracing:
+    enabled: false
+    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    insecure: true
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
@@ -68,11 +71,13 @@ global:
     agent: 7443
     ui: 9000
     keycloak: 8081
+    alertmanagerProxy: 8443
   gatewayPorts:
     tls: 443
     http: 80
-  generateSecrets: true
   imagePullPolicy: IfNotPresent
+  rbac:
+    create: true
 
 
 ## @section Component specific parameters
@@ -85,7 +90,15 @@ db:
     tag: "20250214"
     pullPolicy: ""
   masterUser: admin
-  user: demouser
+  user: flightctl_app
+  # password: Leave empty to auto-generate secure password, or set to use a specific password.
+  password: ""
+  # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  masterPassword: ""
+  # userPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  userPassword: ""
+  # migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  migrationPassword: ""
   maxConnections: 200
   storage:
     size: "60Gi"
@@ -100,11 +113,18 @@ kv:
     image: quay.io/sclorg/redis-7-c9s
     tag: "20250108"
     pullPolicy: ""
-  password: adminpass
+  # password: Leave empty to auto-generate secure password, or set to use a specific password.
+  password: ""
   # Save if at least 1 key changed in 5 minutes
   save: 300 1
   loglevel: warning
   fsGroup: ""
+alertmanager:
+  enabled: true
+  image:
+    image: quay.io/prometheus/alertmanager
+    tag: "v0.28.1"
+    pullPolicy: ""
 keycloak:
   db:
     fsGroup: ""
@@ -114,7 +134,21 @@ api:
     image: quay.io/flightctl/flightctl-api
     pullPolicy: ""
     tag: ""
-  baseUIUrl: "" # ui.flightctl.example.com
+  baseUIUrl: "" # ui.flightctl.example.com
+  # Rate limiting configuration - enabled by default for production
+  rateLimit:
+    # General API rate limiting
+    requests: 60
+    window: "1m"
+    # Auth-specific rate limiting
+    authRequests: 10
+    authWindow: "1h"
+    # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
+    # This should include your load balancer and UI proxy IPs
+    trustedProxies:
+      - "10.0.0.0/8"    # Example: Internal network range
+      - "172.16.0.0/12" # Example: Docker/container network range
+      - "192.168.0.0/16" # Example: Private network range
 cliArtifacts:
   enabled: true
   image:
@@ -134,14 +168,31 @@ periodic:
     image: quay.io/flightctl/flightctl-periodic
     tag: ""
     pullPolicy: ""
+alertExporter:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alert-exporter
+    tag: ""
+    pullPolicy: ""
+alertmanagerProxy:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alertmanager-proxy
+    tag: ""
+    pullPolicy: ""
 prometheus:
   enabled: false
 ui:
   enabled: true
   api:
     insecureSkipTlsVerify: true
-secretsJob:
+cleanupJob:
   image:
-    image: quay.io/openshift/origin-cli
-    tag: "4.20.0"
+    image: registry.k8s.io/kubectl
+    tag: "v1.33.0"
+    pullPolicy: ""
+dbSetup:
+  image:
+    image: quay.io/flightctl/flightctl-db-setup
+    tag: ""
     pullPolicy: ""

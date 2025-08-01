@@ -15,7 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 const (
@@ -51,6 +51,9 @@ type PodmanContainerConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
+// PodmanEvent represents the structure of a podman event as produced via a CLI events command.
+// It should be noted that the CLI represents events differently from libpod. (notably the time properties)
+// https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
 type PodmanEvent struct {
 	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
 	ID                string            `json:"ID"`
@@ -58,18 +61,20 @@ type PodmanEvent struct {
 	Name              string            `json:"Name"`
 	Status            string            `json:"Status"`
 	Type              string            `json:"Type"`
+	TimeNano          int64             `json:"timeNano"`
 	Attributes        map[string]string `json:"Attributes"`
 }
 
 type Podman struct {
-	exec       executer.Executer
-	log        *log.PrefixLogger
+	exec executer.Executer
+	log  *log.PrefixLogger
+	// timeout per client call
 	timeout    time.Duration
 	readWriter fileio.ReadWriter
-	backoff    wait.Backoff
+	backoff    poll.Config
 }
 
-func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff wait.Backoff) *Podman {
+func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff poll.Config) *Podman {
 	return &Podman{
 		log:        log,
 		exec:       exec,
@@ -82,25 +87,28 @@ func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.
 // Pull pulls an image from the registry with optional retry and authentication via a pull secret.
 // Logs progress periodically while the operation is in progress.
 func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (string, error) {
-	options := clientOptions{}
+	options := &clientOptions{}
 	for _, opt := range opts {
-		opt(&options)
+		opt(options)
 	}
 
 	return logProgress(ctx, p.log, "Pulling image, please wait...", func(ctx context.Context) (string, error) {
-		if options.retry {
-			return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
-				return p.pullImage(ctx, image, options.pullSecretPath)
-			})
-		}
-		return p.pullImage(ctx, image, options.pullSecretPath)
+		return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
+			return p.pullImage(ctx, image, options)
+		})
 	})
 }
 
-func (p *Podman) pullImage(ctx context.Context, image string, pullSecretPath string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+func (p *Podman) pullImage(ctx context.Context, image string, options *clientOptions) (string, error) {
+	timeout := p.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	pullSecretPath := options.pullSecretPath
 	args := []string{"pull", image}
 	if pullSecretPath != "" {
 		exists, err := p.readWriter.PathExists(pullSecretPath)
@@ -124,25 +132,28 @@ func (p *Podman) pullImage(ctx context.Context, image string, pullSecretPath str
 // PullArtifact pulls an artifact from the registry with optional retry and authentication via a pull secret.
 // Logs progress periodically while the operation is in progress.
 func (p *Podman) PullArtifact(ctx context.Context, artifact string, opts ...ClientOption) (string, error) {
-	options := clientOptions{}
+	options := &clientOptions{}
 	for _, opt := range opts {
-		opt(&options)
+		opt(options)
 	}
 
 	return logProgress(ctx, p.log, "Pulling artifact, please wait...", func(ctx context.Context) (string, error) {
-		if options.retry {
-			return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
-				return p.pullArtifact(ctx, artifact, options.pullSecretPath)
-			})
-		}
-		return p.pullArtifact(ctx, artifact, options.pullSecretPath)
+		return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
+			return p.pullArtifact(ctx, artifact, options)
+		})
 	})
 }
 
-func (p *Podman) pullArtifact(ctx context.Context, artifact string, pullSecretPath string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *clientOptions) (string, error) {
+	timeout := p.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	pullSecretPath := options.pullSecretPath
 	args := []string{"artifact", "pull", artifact}
 	if pullSecretPath != "" {
 		exists, err := p.readWriter.PathExists(pullSecretPath)
@@ -163,6 +174,12 @@ func (p *Podman) pullArtifact(ctx context.Context, artifact string, pullSecretPa
 	return strings.TrimSpace(stdout), nil
 }
 
+// ExtractArtifact to the given destination, which should be an already existing directory if the artifact contains multiple layers, otherwise podman will extract a single layer in the artifact to the destination path directly as a file.
+//
+// See
+// https://github.com/opencontainers/image-spec/blob/main/manifest.md#guidelines-for-artifact-usage
+// for details on the expected structure of artifacts. Regular images are considered artifacts by
+// podman due to the intentional looseness of the spec.
 func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
@@ -197,6 +214,16 @@ func (p *Podman) ImageExists(ctx context.Context, image string) bool {
 	defer cancel()
 
 	args := []string{"image", "exists", image}
+	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	return exitCode == 0
+}
+
+// ArtifactExists returns true if the artifact exists in storage otherwise false.
+func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"artifact", "inspect", artifact}
 	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	return exitCode == 0
 }
@@ -596,9 +623,9 @@ func SanitizePodmanLabel(name string) string {
 	return result.String()
 }
 
-func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff wait.Backoff, operation func(context.Context) (string, error)) (string, error) {
+func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff poll.Config, operation func(context.Context) (string, error)) (string, error) {
 	var result string
-	err := wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
+	err := poll.BackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
 		var err error
 		result, err = operation(ctx)
 		if err != nil {

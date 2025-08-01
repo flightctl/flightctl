@@ -167,9 +167,9 @@ func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (s
 	}
 
 	dbStore := store.NewStore(db, log.WithField("pkg", "store"))
-	err = dbStore.InitialMigration(ctx)
+	err = dbStore.RunMigrations(ctx)
 	if err != nil {
-		return nil, "", fmt.Errorf("NewTestStore: performing initial migration: %w", err)
+		return nil, "", fmt.Errorf("NewTestStore: performing migrations: %w", err)
 	}
 
 	return dbStore, randomDBName, nil
@@ -177,6 +177,8 @@ func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (s
 
 // NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and enrollment certificate.
 func NewTestCerts(cfg *config.Config) (*crypto.CAClient, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
+	ctx := context.Background()
+
 	ca, _, err := crypto.EnsureCA(cfg.CA)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring CA: %w", err)
@@ -187,12 +189,12 @@ func NewTestCerts(cfg *config.Config) (*crypto.CAClient, *crypto.TLSCertificateC
 		cfg.Service.AltNames = []string{"localhost", "127.0.0.1", "::"}
 	}
 
-	serverCerts, _, err := ca.EnsureServerCertificate(crypto.CertStorePath("server.crt", cfg.Service.CertStore), crypto.CertStorePath("server.key", cfg.Service.CertStore), cfg.Service.AltNames, serverCertValidityDays)
+	serverCerts, _, err := ca.EnsureServerCertificate(ctx, crypto.CertStorePath("server.crt", cfg.Service.CertStore), crypto.CertStorePath("server.key", cfg.Service.CertStore), cfg.Service.AltNames, serverCertValidityDays)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring server certificate: %w", err)
 	}
 
-	enrollmentCerts, _, err := ca.EnsureClientCertificate(crypto.CertStorePath("client-enrollment.crt", cfg.Service.CertStore), crypto.CertStorePath("client-enrollment.key", cfg.Service.CertStore), clientBootstrapCertName, clientBootStrapValidityDays)
+	enrollmentCerts, _, err := ca.EnsureClientCertificate(ctx, crypto.CertStorePath("client-enrollment.crt", cfg.Service.CertStore), crypto.CertStorePath("client-enrollment.key", cfg.Service.CertStore), clientBootstrapCertName, clientBootStrapValidityDays)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring client enrollment certificate: %w", err)
 	}

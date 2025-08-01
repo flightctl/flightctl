@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -38,20 +39,56 @@ func dispatchTasks(serviceHandler service.Service, callbackManager tasks_client.
 
 		log.Infof("dispatching task %s, op %s, kind %s, orgID %s, name %s",
 			reference.TaskName, reference.Op, reference.Kind, reference.OrgID, reference.Name)
+
+		var err error
 		switch reference.TaskName {
 		case tasks_client.FleetRolloutTask:
-			return fleetRollout(ctx, &reference, serviceHandler, callbackManager, log)
+			err = fleetRollout(ctx, &reference, serviceHandler, callbackManager, log)
 		case tasks_client.FleetSelectorMatchTask:
-			return fleetSelectorMatching(ctx, &reference, serviceHandler, callbackManager, log)
+			err = fleetSelectorMatching(ctx, &reference, serviceHandler, callbackManager, log)
 		case tasks_client.FleetValidateTask:
-			return fleetValidate(ctx, &reference, serviceHandler, callbackManager, k8sClient, log)
+			err = fleetValidate(ctx, &reference, serviceHandler, callbackManager, k8sClient, log)
 		case tasks_client.DeviceRenderTask:
-			return deviceRender(ctx, &reference, serviceHandler, callbackManager, k8sClient, kvStore, log)
+			err = deviceRender(ctx, &reference, serviceHandler, callbackManager, k8sClient, kvStore, log)
 		case tasks_client.RepositoryUpdatesTask:
-			return repositoryUpdate(ctx, &reference, serviceHandler, callbackManager, log)
+			err = repositoryUpdate(ctx, &reference, serviceHandler, callbackManager, log)
 		default:
-			return fmt.Errorf("unexpected task name %s", reference.TaskName)
+			err = fmt.Errorf("unexpected task name %s", reference.TaskName)
 		}
+
+		// Emit InternalTaskFailedEvent for any unhandled task failures
+		// This serves as a safety net while preserving specific error handling within tasks
+		if err != nil {
+			log.WithError(err).Errorf("task %s failed", reference.TaskName)
+
+			// Build task parameters for the event
+			taskParameters := map[string]string{
+				"orgId":        reference.OrgID.String(),
+				"resourceName": reference.Name,
+				"resourceKind": reference.Kind,
+				"operation":    reference.Op,
+				"taskName":     reference.TaskName,
+			}
+
+			// Create the event using api package
+			event := api.GetBaseEvent(ctx, api.ResourceKind(reference.Kind), reference.Name, api.EventReasonInternalTaskFailed,
+				fmt.Sprintf("%s internal task failed: %s - %s.", api.ResourceKind(reference.Kind), reference.TaskName, err.Error()), nil)
+
+			details := api.EventDetails{}
+			if err := details.FromInternalTaskFailedDetails(api.InternalTaskFailedDetails{
+				TaskType:       reference.TaskName,
+				ErrorMessage:   err.Error(),
+				RetryCount:     nil,
+				TaskParameters: &taskParameters,
+			}); err == nil {
+				event.Details = &details
+			}
+
+			// Emit the event
+			serviceHandler.CreateEvent(ctx, event)
+		}
+
+		return err
 	}
 }
 

@@ -38,9 +38,6 @@ type CallbackManager interface {
 	FleetUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Fleet)
 	RepositoryUpdatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.Repository)
 	TemplateVersionCreatedCallback(ctx context.Context, orgId uuid.UUID, before, after *api.TemplateVersion)
-	AllRepositoriesDeletedCallback(ctx context.Context, orgId uuid.UUID)
-	AllFleetsDeletedCallback(ctx context.Context, orgId uuid.UUID)
-	AllDevicesDeletedCallback(ctx context.Context, orgId uuid.UUID)
 	FleetSourceUpdated(ctx context.Context, orgId uuid.UUID, name string)
 	DeviceSourceUpdated(ctx context.Context, orgId uuid.UUID, name string)
 	FleetRolloutSelectionUpdated(ctx context.Context, orgId uuid.UUID, name string)
@@ -110,11 +107,7 @@ func (t *callbackManager) FleetUpdatedCallback(ctx context.Context, orgId uuid.U
 		t.submitTask(ctx, FleetValidateTask, ref, FleetValidateOpUpdate)
 	}
 	if selectorUpdated {
-		op := FleetSelectorMatchOpUpdate
-		if fleet.Status != nil && fleet.Status.Conditions != nil && api.IsStatusConditionTrue(fleet.Status.Conditions, api.ConditionTypeFleetOverlappingSelectors) {
-			op = FleetSelectorMatchOpUpdateOverlap
-		}
-		t.submitTask(ctx, FleetSelectorMatchTask, ref, op)
+		t.submitTask(ctx, FleetSelectorMatchTask, ref, FleetSelectorMatchOpUpdate)
 	}
 }
 
@@ -141,18 +134,6 @@ func (t *callbackManager) RepositoryUpdatedCallback(ctx context.Context, orgId u
 	t.submitTask(ctx, RepositoryUpdatesTask, resourceRef, RepositoryUpdateOpUpdate)
 }
 
-func (t *callbackManager) AllRepositoriesDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	t.submitTask(ctx, RepositoryUpdatesTask, ResourceReference{OrgID: orgId, Kind: api.RepositoryKind}, RepositoryUpdateOpDeleteAll)
-}
-
-func (t *callbackManager) AllFleetsDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	t.submitTask(ctx, FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.FleetKind}, FleetSelectorMatchOpDeleteAll)
-}
-
-func (t *callbackManager) AllDevicesDeletedCallback(ctx context.Context, orgId uuid.UUID) {
-	t.submitTask(ctx, FleetSelectorMatchTask, ResourceReference{OrgID: orgId, Kind: api.DeviceKind}, FleetSelectorMatchOpDeleteAll)
-}
-
 func (t *callbackManager) DeviceUpdatedNoRenderCallback(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device) {
 	var labelsUpdated bool
 	var ownerUpdated bool
@@ -172,8 +153,8 @@ func (t *callbackManager) DeviceUpdatedNoRenderCallback(ctx context.Context, org
 	} else if after == nil {
 		// Deleted device
 		device = before
-		labelsUpdated = true
-		ownerUpdated = false // Nothing to roll out
+		labelsUpdated = false // No need to check for ownership changes
+		ownerUpdated = false  // Nothing to roll out
 	} else {
 		device = after
 		labelsUpdated = !reflect.DeepEqual(*before.Metadata.Labels, *after.Metadata.Labels)
@@ -188,12 +169,7 @@ func (t *callbackManager) DeviceUpdatedNoRenderCallback(ctx context.Context, org
 	}
 	if labelsUpdated {
 		// Check if the new labels cause the device to move to a different fleet
-		op := FleetSelectorMatchOpUpdate
-
-		if api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners) {
-			op = FleetSelectorMatchOpUpdateOverlap
-		}
-		t.submitTask(ctx, FleetSelectorMatchTask, ref, op)
+		t.submitTask(ctx, FleetSelectorMatchTask, ref, FleetSelectorMatchOpUpdate)
 	}
 
 }

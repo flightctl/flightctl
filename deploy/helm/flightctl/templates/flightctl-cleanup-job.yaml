@@ -1,0 +1,39 @@
+{{- $namespaces := list .Release.Namespace }}
+{{- if .Values.global.internalNamespace }}
+{{- $namespaces = append $namespaces .Values.global.internalNamespace }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flightctl-cleanup-pvcs
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        flightctl.service: pvc-cleanup
+    spec:
+      serviceAccountName: flightctl-cleanup
+      containers:
+        - name: cleanup
+          image: {{ .Values.cleanupJob.image.image }}:{{ default .Chart.AppVersion .Values.cleanupJob.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.cleanupJob.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "Starting post-delete cleanup process..."
+              echo "Deleting orphaned PVCs..."
+              {{- range $ns := $namespaces }}
+              kubectl delete pvc -l flightctl.service=flightctl-kv -n {{ $ns }} --ignore-not-found
+              kubectl get pvc -n {{ $ns }} -o name \
+                | grep "flightctl-alertmanager-data-flightctl-alertmanager-" \
+                | xargs --no-run-if-empty kubectl delete -n {{ $ns }} --ignore-not-found 2>/dev/null || true
+              {{- end }}
+              echo "Cleanup completed successfully!"
+              exit 0
+      restartPolicy: Never
+      
