@@ -1150,7 +1150,7 @@ func (h *Harness) CreateGitRepositoryOnServer(repoName string) error {
 
 	// Use SSH to create the repository on the git server
 	createCmd := fmt.Sprintf("create-repo %s", repoName)
-	err := h.runSSHCommand(config, createCmd)
+	err := h.runGitServerSSHCommand(config, createCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create git repository %s: %w", repoName, err)
 	}
@@ -1173,7 +1173,7 @@ func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
 
 	// Use SSH to delete the repository on the git server
 	deleteCmd := fmt.Sprintf("delete-repo %s", repoName)
-	err := h.runSSHCommand(config, deleteCmd)
+	err := h.runGitServerSSHCommand(config, deleteCmd)
 	if err != nil {
 		return fmt.Errorf("failed to delete git repository %s: %w", repoName, err)
 	}
@@ -1185,8 +1185,8 @@ func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
 	return nil
 }
 
-// runSSHCommand executes a command on the git server via SSH
-func (h *Harness) runSSHCommand(config GitServerConfig, command string) error {
+// runGitServerSSHCommand executes a command on the git server via SSH
+func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string) error {
 	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
 	sshCmd := exec.Command("sshpass", "-e", "ssh",
 		"-p", fmt.Sprintf("%d", config.Port),
