@@ -1327,9 +1327,8 @@ func (h *Harness) CreateGitRepository(repoName string, repositorySpec v1alpha1.R
 	_, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
 	if err != nil {
 		// Clean up the git repository if Repository resource creation fails
-		err = h.DeleteGitRepositoryOnServer(repoName)
-		if err != nil {
-			logrus.Errorf("failed to delete git repository %s: %v", repoName, err)
+		if cleanupErr := h.DeleteGitRepositoryOnServer(repoName); cleanupErr != nil {
+			logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
 		}
 		return fmt.Errorf("failed to create Repository resource: %w", err)
 	}
@@ -1552,9 +1551,8 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 	if filePath != "" && content != "" {
 		if err := h.PushContentToGitServerRepo(repoName, filePath, content, "Initial commit"); err != nil {
 			// Clean up on failure
-			err = h.DeleteGitRepositoryOnServer(repoName)
-			if err != nil {
-				logrus.Errorf("failed to delete git repository %s: %v", repoName, err)
+			if cleanupErr := h.DeleteGitRepositoryOnServer(repoName); cleanupErr != nil {
+				logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
 			}
 			return fmt.Errorf("failed to push initial content: %w", err)
 		}
