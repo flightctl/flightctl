@@ -8,6 +8,10 @@ on:
       - 'release-*'
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
   pull-requests: read
@@ -23,7 +27,7 @@ jobs:
         run: |
           commits=${{ github.event.pull_request.commits }}
           if [[ -n "$commits" ]]; then
-            # Prepare enough depth for diffs with master
+            # Prepare enough depth for diffs with main
             git fetch --depth="$(( commits + 1 ))"
           fi
 
