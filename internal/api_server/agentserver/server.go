@@ -140,6 +140,10 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.RequestID,
+		tlsmiddleware.AddOrgIDToCtx(
+			store.NewOrgResolver(s.store.Organization(), cacheExpirationTime),
+			tlsmiddleware.CertOrgIDExtractor,
+		),
 		middleware.Logger,
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),

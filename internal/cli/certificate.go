@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -25,6 +26,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/config"
+	signer "github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
@@ -296,6 +298,19 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 		Subject: pkix.Name{
 			CommonName: name,
 		},
+	}
+
+	// Add organization ID extension if provided via global option.
+	if o.Organization != "" {
+		encoded, err := asn1.Marshal(o.Organization)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling org ID extension: %w", err)
+		}
+		template.ExtraExtensions = append(template.ExtraExtensions, pkix.Extension{
+			Id:       signer.OIDOrgID,
+			Critical: false,
+			Value:    encoded,
+		})
 	}
 
 	csrInner, err := x509.CreateCertificateRequest(rand.Reader, template, priv)

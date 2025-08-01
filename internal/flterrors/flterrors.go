@@ -36,4 +36,7 @@ var (
 	ErrSignature       = errors.New("signature error")
 	ErrSignCert        = errors.New("error signing certificate")
 	ErrEncodeCert      = errors.New("error encoding certificate")
+
+	// certificate extensions
+	ErrExtensionNotFound = errors.New("certificate extension not found")
 )

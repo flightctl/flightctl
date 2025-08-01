@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 
@@ -49,4 +50,17 @@ func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 		return nil, fmt.Errorf("%w: %w", flterrors.ErrCSRParse, err)
 	}
 	return csr, nil
+}
+
+// GetExtensionValueFromCSR returns the string value stored in the given extension
+// (identified by its ASN.1 OID) inside the provided x509.CertificateRequest. The
+// function searches both Extensions and ExtraExtensions slices. If the extension
+// is not found, or if unmarshalling fails, an error is returned.
+func GetExtensionValueFromCSR(csr *x509.CertificateRequest, oid asn1.ObjectIdentifier) ([]byte, error) {
+	for _, ext := range append(csr.Extensions, csr.ExtraExtensions...) {
+		if ext.Id.Equal(oid) {
+			return ext.Value, nil
+		}
+	}
+	return nil, flterrors.ErrExtensionNotFound
 }
