@@ -1660,11 +1660,27 @@ func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
 func (h *Harness) GetGitServerConfig() GitServerConfig {
 	// Default configuration for the e2e git server
 	return GitServerConfig{
-		Host:     "localhost", // or could be determined from cluster
-		Port:     3222,        // NodePort for the git server service
-		User:     "user",
-		Password: "user",
+		Host:     getEnvOrDefault("E2E_GIT_SERVER_HOST", "localhost"),
+		Port:     getEnvOrDefaultInt("E2E_GIT_SERVER_PORT", 3222),
+		User:     getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
+		Password: getEnvOrDefault("E2E_GIT_SERVER_PASSWORD", "user"),
 	}
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvOrDefaultInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
 }
 
 // CreateGitRepositoryOnServer creates a new Git repository on the e2e git server
@@ -1714,7 +1730,8 @@ func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
 
 // runSSHCommand executes a command on the git server via SSH
 func (h *Harness) runSSHCommand(config GitServerConfig, command string) error {
-	sshCmd := exec.Command("sshpass", "-p", config.Password, "ssh",
+	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
+	sshCmd := exec.Command("sshpass", "-e", "ssh",
 		"-p", fmt.Sprintf("%d", config.Port),
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "StrictHostKeyChecking=no",
@@ -1722,6 +1739,7 @@ func (h *Harness) runSSHCommand(config GitServerConfig, command string) error {
 		"-o", "LogLevel=ERROR",
 		fmt.Sprintf("%s@%s", config.User, config.Host),
 		command)
+	sshCmd.Env = append(os.Environ(), fmt.Sprintf("SSHPASS=%s", config.Password))
 
 	output, err := sshCmd.CombinedOutput()
 	if err != nil {
@@ -1751,8 +1769,10 @@ func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error
 	}
 
 	// Use sshpass for authentication when cloning
-	cloneCmd := exec.Command("sshpass", "-p", config.Password, "git", "clone", repoURL, localPath)
+	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
+	cloneCmd := exec.Command("sshpass", "-e", "git", "clone", repoURL, localPath)
 	cloneCmd.Env = append(os.Environ(),
+		"SSHPASS="+config.Password,
 		"GIT_SSH_COMMAND=ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no")
 
 	if output, err := cloneCmd.CombinedOutput(); err != nil {
@@ -1790,14 +1810,15 @@ func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commit
 		return fmt.Errorf("failed to create directory for file: %w", err)
 	}
 
-	if err := os.WriteFile(fullFilePath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(fullFilePath, []byte(content), 0600); err != nil {
 		return fmt.Errorf("failed to write content to file: %w", err)
 	}
 
 	// Git operations with authentication
 	config := h.GetGitServerConfig()
 	gitEnv := append(os.Environ(),
-		"GIT_SSH_COMMAND=sshpass -p "+config.Password+" ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no",
+		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no",
+		"SSHPASS="+config.Password,
 		"GIT_AUTHOR_NAME=Test Harness",
 		"GIT_AUTHOR_EMAIL=test@flightctl.dev",
 		"GIT_COMMITTER_NAME=Test Harness",
@@ -1811,6 +1832,7 @@ func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commit
 	}
 
 	for _, gitCmd := range gitCmds {
+		// #nosec G204 -- This is test code with controlled git commands (add, commit, push)
 		cmd := exec.Command(gitCmd[0], gitCmd[1:]...)
 		cmd.Dir = workDir
 		cmd.Env = gitEnv
@@ -1848,7 +1870,10 @@ func (h *Harness) CreateGitRepository(repoName string, repositorySpec v1alpha1.R
 	_, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
 	if err != nil {
 		// Clean up the git repository if Repository resource creation fails
-		h.DeleteGitRepositoryOnServer(repoName)
+		err = h.DeleteGitRepositoryOnServer(repoName)
+		if err != nil {
+			logrus.Errorf("failed to delete git repository %s: %v", repoName, err)
+		}
 		return fmt.Errorf("failed to create Repository resource: %w", err)
 	}
 
@@ -2070,7 +2095,10 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 	if filePath != "" && content != "" {
 		if err := h.PushContentToGitServerRepo(repoName, filePath, content, "Initial commit"); err != nil {
 			// Clean up on failure
-			h.DeleteGitRepositoryOnServer(repoName)
+			err = h.DeleteGitRepositoryOnServer(repoName)
+			if err != nil {
+				logrus.Errorf("failed to delete git repository %s: %v", repoName, err)
+			}
 			return fmt.Errorf("failed to push initial content: %w", err)
 		}
 	}
