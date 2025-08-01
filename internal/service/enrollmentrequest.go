@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -221,7 +222,16 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	err := h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
+	exists, err := h.deviceExists(ctx, name)
+	if err != nil {
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	if exists {
+		return api.StatusConflict(fmt.Sprintf("cannot delete ER %q: device exists", name))
+	}
+
+	err = h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
 	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
@@ -308,6 +318,16 @@ func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.U
 		return flterrors.ErrDuplicateName // Duplicate name: creation blocked
 	}
 	return err
+}
+
+// deviceExists checks if a device with the given name exists in the store.
+// Error is returned if there is an error other than ErrResourceNotFound.
+func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, error) {
+	dev, err := h.store.Device().Get(ctx, store.NullOrgId, name)
+	if errors.Is(err, flterrors.ErrResourceNotFound) {
+		return false, nil
+	}
+	return dev != nil, err
 }
 
 func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {
