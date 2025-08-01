@@ -1773,7 +1773,7 @@ func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error
 	cloneCmd := exec.Command("sshpass", "-e", "git", "clone", repoURL, localPath)
 	cloneCmd.Env = append(os.Environ(),
 		"SSHPASS="+config.Password,
-		"GIT_SSH_COMMAND=ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no")
+		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no")
 
 	if output, err := cloneCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to clone repository %s to %s: %w, output: %s", repoURL, localPath, err, string(output))
