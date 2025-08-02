@@ -3,24 +3,42 @@ WORKDIR /app
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
-COPY ./api api
-COPY ./cmd cmd
-COPY ./deploy deploy
-COPY ./hack hack
-COPY ./internal internal
-COPY ./go.* ./
-COPY ./pkg pkg
-COPY ./test test
-COPY ./Makefile .
-# make sure that version extraction works
-COPY .git .git
 
+# Switch to root for build operations
 USER 0
-RUN git config --global --add safe.directory /app
-RUN make build-api
 
+# Copy dependencies first (most stable)
+COPY go.* ./
+COPY go.mod go.sum ./
 
-FROM quay.io/flightctl/flightctl-base:9.6-1752500771
+# Download dependencies (cached layer)
+RUN --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    go mod download
+
+# Copy build tools and configs
+COPY Makefile .
+
+# Copy source code directories
+COPY ./api ./api
+COPY ./cmd ./cmd
+COPY ./deploy ./deploy
+COPY ./hack ./hack
+COPY ./internal ./internal
+COPY ./pkg ./pkg
+COPY ./test ./test
+
+# Use BuildKit cache mounts for Go caching
+RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
+    --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    make build-api
+
+FROM registry.access.redhat.com/ubi9/ubi as certs
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf update --nodocs -y && dnf install ca-certificates tzdata --nodocs -y
+
+FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-api-container" \
@@ -29,7 +47,8 @@ LABEL \
   io.k8s.display-name="Flight Control API Server" \
   name="flightctl-api" \
   summary="Flight Control Edge management API server"
-
 COPY --from=build /app/bin/flightctl-api .
+COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
+COPY --from=certs /usr/share/zoneinfo /usr/share/zoneinfo
 
 CMD ./flightctl-api

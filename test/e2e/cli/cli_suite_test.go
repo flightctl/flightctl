@@ -2,10 +2,11 @@ package cli_test
 
 import (
 	"context"
-	"fmt"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/global_setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -24,15 +25,80 @@ const (
 	LONG_POLLING = 10 * time.Second
 )
 
+var (
+	workerID int
+	harness  *e2e.Harness
+)
+
 var _ = BeforeSuite(func() {
 	SetDefaultEventuallyTimeout(TIMEOUT)
 	SetDefaultEventuallyPollingInterval(POLLING)
 	suiteCtx = util.InitSuiteTracerForGinkgo("CLI E2E Suite")
+	workerID = GinkgoParallelProcess()
 
-	// A best-effort clean-up to ensure the cluster is empty before tests start.
-	h := e2e.NewTestHarness(suiteCtx)
-	fmt.Println("[BeforeSuite] Cleaning existing resources …")
-	Expect(h.CleanUpAllResources()).To(Succeed())
+	GinkgoWriter.Printf("🔄 [BeforeSuite] Worker %d: Starting VM and harness setup\n", workerID)
+
+	// Setup VM for this worker using the global pool
+	var err error
+	_, err = e2e.SetupVMForWorker(workerID, os.TempDir(), 2233)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Create harness once for the entire suite
+	harness, err = e2e.NewTestHarnessWithVMPool(suiteCtx, workerID)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Run global setup (this will only run once across all test suites)
+	global_setup.RunGlobalSetup(harness)
+
+	GinkgoWriter.Printf("✅ [BeforeSuite] Worker %d: VM and harness setup completed successfully\n", workerID)
+})
+
+var _ = AfterSuite(func() {
+	GinkgoWriter.Printf("🔄 [AfterSuite] Worker %d: Starting cleanup\n", workerID)
+
+	// Clean up harness
+	if harness != nil {
+		harness.Cleanup(true)
+	}
+
+	// Clean up this worker's VM
+	err := e2e.CleanupVMForWorker(workerID)
+	Expect(err).ToNot(HaveOccurred())
+
+	GinkgoWriter.Printf("✅ [AfterSuite] Worker %d: Cleanup completed successfully\n", workerID)
+
+	// Run global teardown (this will only run once across all test suites)
+	global_setup.RunGlobalTeardown()
+})
+
+var _ = BeforeEach(func() {
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+
+	// Create test-specific context for proper tracing
+	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
+
+	// Set the test context in the harness
+	harness.SetTestContext(ctx)
+
+	// Setup VM from pool, revert to pristine snapshot, and start agent
+	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	Expect(err).ToNot(HaveOccurred())
+
+	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
+})
+
+var _ = AfterEach(func() {
+	GinkgoWriter.Printf("🔄 [AfterEach] Worker %d: Cleaning up test resources\n", workerID)
+
+	// Clean up test resources BEFORE switching back to suite context
+	// This ensures we use the correct test ID for resource cleanup
+	err := harness.CleanUpTestResources()
+	Expect(err).ToNot(HaveOccurred())
+
+	// Now restore suite context for any remaining cleanup operations
+	harness.SetTestContext(suiteCtx)
+
+	GinkgoWriter.Printf("✅ [AfterEach] Worker %d: Test cleanup completed\n", workerID)
 })
 
 // TestCLI is the single entry-point that runs the whole spec set.

@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -35,21 +34,8 @@ var (
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
 var _ = Describe("cli operation", func() {
-	var (
-		ctx     context.Context
-		harness *e2e.Harness
-	)
-
 	BeforeEach(func() {
-		ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
 		login.LoginToAPIWithToken(harness)
-	})
-
-	AfterEach(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
-		harness.Cleanup(false) // do not print console on error
 	})
 
 	Context("apply/fleet", func() {
@@ -96,7 +82,7 @@ var _ = Describe("cli operation", func() {
 
 	Context("Plural names for resources and autocompletion in the cli work well", func() {
 		It("Should let you list resources by plural names", Label("80453"), func() {
-			deviceID := harness.StartVMAndEnroll()
+			deviceID, _ := harness.EnrollAndWaitForOnlineStatus()
 			By("Should let you list devices")
 			out, err := harness.CLI("get", "devices")
 			Expect(err).ToNot(HaveOccurred())
@@ -115,12 +101,12 @@ var _ = Describe("cli operation", func() {
 		It("should prevent reapplying enrollment request with same name after device creation", Label("83301", "sanity"), func() {
 
 			By("Applying enrollment request initially")
-			out, err := harness.ManageResource("apply", erYAMLPath)
+			out, err := harness.ApplyResource(util.GetTestExamplesYamlPath(erYAMLPath))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 
 			// Get the enrollment request to extract its name
-			er := harness.GetEnrollmentRequestByYaml(enrollmentRequestYamlPath)
+			er := harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath(erYAMLPath))
 			erName := *er.Metadata.Name
 
 			By("Approving the enrollment request")
@@ -138,7 +124,7 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(ContainSubstring("completed"))
 
 			By("Attempting to reapply the same enrollment request")
-			out, err = harness.ManageResource("apply", erYAMLPath)
+			out, err = harness.ApplyResource(util.GetTestExamplesYamlPath(erYAMLPath))
 			Expect(err).To(HaveOccurred())
 			badRequestMessage := fmt.Sprintf("%d %s", http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 			Expect(out).To(ContainSubstring(badRequestMessage))
@@ -148,12 +134,8 @@ var _ = Describe("cli operation", func() {
 
 	Context("Resources lifecycle for", func() {
 		It("Device, Fleet, ResourceSync, Repository, EnrollmentRequest, CertificateSigningRequest", Label("75506", "sanity"), func() {
-			By("Verify there are no resources created")
-			err := harness.CleanUpAllResources()
-			Expect(err).ToNot(HaveOccurred())
-
 			By("Testing Device resource lifecycle")
-			out, err := harness.CLI("apply", "-f", deviceYamlPath)
+			out, err := harness.ApplyResource(deviceYamlPath)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
 
@@ -161,6 +143,7 @@ var _ = Describe("cli operation", func() {
 			Expect(*device.Metadata.Name).ToNot(BeEmpty(), "device name should not be empty")
 
 			(*device.Metadata.Labels)[newTestKey] = newTestValue
+
 			deviceData, err := yaml.Marshal(&device)
 			Expect(err).ToNot(HaveOccurred())
 			_, err = harness.CLIWithStdin(string(deviceData), "apply", "-f", "-")
@@ -197,7 +180,9 @@ var _ = Describe("cli operation", func() {
 			Expect(fleet.Spec.Selector).ToNot(BeNil(), "fleet selector should not be nil")
 
 			By("Updating Fleet labels")
-			(*fleet.Spec.Template.Metadata.Labels)[newTestKey] = newTestValue
+			harness.SetLabelsForFleetMetadata(fleet.Spec.Template.Metadata, map[string]string{
+				newTestKey: newTestValue,
+			})
 			fleetData, err := yaml.Marshal(&fleet)
 			Expect(err).ToNot(HaveOccurred())
 			_, err = harness.CLIWithStdin(string(fleetData), "apply", "-f", "-")
@@ -301,19 +286,28 @@ var _ = Describe("cli operation", func() {
 	Context("CLI Multi-Device Delete", func() {
 		It("should delete multiple devices", Label("75506", "sanity"), func() {
 			By("Creating multiple test devices")
-			err := harness.CleanUpAllResources()
-			Expect(err).ToNot(HaveOccurred())
+			// Generate unique test ID for this test
+			testID := harness.GetTestIDFromContext()
 
-			out, err := harness.ManageResource("apply", "device.yaml")
+			// Create unique YAML files for this test
+			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+			uniqueDeviceBYAML, err := util.CreateUniqueYAMLFile("device-b.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueDeviceBYAML)
+
+			out, err := harness.ManageResource("apply", uniqueDeviceYAML)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
-			device1 := harness.GetDeviceByYaml(deviceYamlPath)
+			device1 := harness.GetDeviceByYaml(uniqueDeviceYAML)
 			device1Name := *device1.Metadata.Name
 
-			out, err = harness.ManageResource("apply", "device-b.yaml")
+			out, err = harness.ManageResource("apply", uniqueDeviceBYAML)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
-			device2 := harness.GetDeviceByYaml(deviceBYamlPath)
+			device2 := harness.GetDeviceByYaml(uniqueDeviceBYAML)
 			device2Name := *device2.Metadata.Name
 
 			devices, err := harness.RunGetDevices()
@@ -339,15 +333,36 @@ var _ = Describe("cli operation", func() {
 
 		It("Validation works when trying to delete resources without names", Label("82540", "sanity"), func() {
 			By("Creating multiple test resources")
-			err := harness.CleanUpAllResources()
+			// Generate unique test ID for this test
+			testID := harness.GetTestIDFromContext()
+
+			// Create unique YAML files for this test
+			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
 			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+			uniqueFleetYAML, err := util.CreateUniqueYAMLFile("fleet.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueFleetYAML)
+
+			uniqueRepoYAML, err := util.CreateUniqueYAMLFile("repository-flightctl.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueRepoYAML)
+
+			uniqueEnrollmentYAML, err := util.CreateUniqueYAMLFile("enrollmentrequest.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueEnrollmentYAML)
+
+			uniqueResourceSyncYAML, err := util.CreateUniqueYAMLFile("resourcesync.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueResourceSyncYAML)
 
 			applyResources := []string{
-				"device.yaml",
-				"fleet.yaml",
-				"repository-flightctl.yaml",
-				"enrollmentrequest.yaml",
-				"resourcesync.yaml",
+				uniqueDeviceYAML,
+				uniqueFleetYAML,
+				uniqueRepoYAML,
+				uniqueEnrollmentYAML,
+				uniqueResourceSyncYAML,
 			}
 
 			for _, file := range applyResources {
@@ -411,61 +426,91 @@ var _ = Describe("cli operation", func() {
 				{util.RepoResource, repoYAMLPath},
 				{util.ErResource, erYAMLPath},
 			}
+			uniqueResources := []struct {
+				resourceType string
+				yamlPath     string
+			}{}
+			for _, r := range resources {
+				uniqueYAML, err := util.CreateUniqueYAMLFile(r.yamlPath, harness.GetTestIDFromContext())
+				Expect(err).ToNot(HaveOccurred())
+				uniqueResources = append(uniqueResources, struct {
+					resourceType string
+					yamlPath     string
+				}{r.resourceType, uniqueYAML})
+			}
 
 			By("Applying resources: device, fleet, repo, enrollment request")
-			for _, r := range resources {
+			for _, r := range uniqueResources {
 				_, err := harness.ManageResource(util.ApplyAction, r.yamlPath)
 				Expect(err).ToNot(HaveOccurred())
 
 				switch r.resourceType {
 				case util.DeviceResource:
-					device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
+					device := harness.GetDeviceByYaml(r.yamlPath)
 					deviceName = *device.Metadata.Name
 				case util.FleetResource:
-					fleet := harness.GetFleetByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
+					fleet := harness.GetFleetByYaml(r.yamlPath)
 					fleetName = *fleet.Metadata.Name
 				case util.RepoResource:
-					repo := harness.GetRepositoryByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
+					repo := harness.GetRepositoryByYaml(r.yamlPath)
 					repoName = *repo.Metadata.Name
 				case util.ErResource:
-					out, err := harness.CLI(util.ApplyAction, util.ForceFlag, util.GetTestExamplesYamlPath(r.yamlPath))
+					out, err := harness.CLI(util.ApplyAction, util.ForceFlag, r.yamlPath)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
-					er = harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
+					er = harness.GetEnrollmentRequestByYaml(r.yamlPath)
 				}
 			}
 
 			By("Verifying Created events")
-			createdEvents, err := verifyEventsByReason(harness, resources, deviceName, fleetName, repoName, er, "ResourceCreated")
+			createdEvents, err := verifyEventsByReason(harness, uniqueResources, deviceName, fleetName, repoName, er, "ResourceCreated")
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(createdEvents)).To(BeZero(), fmt.Sprintf("Missing created events for: %v", createdEvents))
 
+			By("print current resource status")
+			time.Sleep(1 * time.Second)
+			for _, r := range uniqueResources {
+				switch r.resourceType {
+				case util.DeviceResource:
+					s, err := harness.CLI("get", "dev", "-o", "yaml")
+					Expect(err).ToNot(HaveOccurred())
+					logrus.Infof("current device status: %s", s)
+				case util.FleetResource:
+					s, err := harness.CLI("get", "fleet", "-o", "yaml")
+					Expect(err).ToNot(HaveOccurred())
+					logrus.Infof("current fleet status: %s", s)
+				case util.RepoResource:
+					s, err := harness.CLI("get", "repository", "-o", "yaml")
+					Expect(err).ToNot(HaveOccurred())
+					logrus.Infof("current repo status: %s", s)
+				}
+			}
 			By("Reapplying resources (updates)")
-			for _, r := range resources {
+			for _, r := range uniqueResources {
 				_, err := harness.ManageResource(util.ApplyAction, r.yamlPath)
 				Expect(err).ToNot(HaveOccurred())
 
 				switch r.resourceType {
 				case util.DeviceResource:
-					device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
+					device := harness.GetDeviceByYaml(r.yamlPath)
 					deviceName = *device.Metadata.Name
 				case util.FleetResource:
-					fleet := harness.GetFleetByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
+					fleet := harness.GetFleetByYaml(r.yamlPath)
 					fleetName = *fleet.Metadata.Name
 				case util.RepoResource:
-					repo := harness.GetRepositoryByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
+					repo := harness.GetRepositoryByYaml(r.yamlPath)
 					repoName = *repo.Metadata.Name
 				case util.ErResource:
-					out, err := harness.CLI(util.ApplyAction, util.ForceFlag, util.GetTestExamplesYamlPath(r.yamlPath))
+					out, err := harness.CLI(util.ApplyAction, util.ForceFlag, r.yamlPath)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
-					er = harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
+					er = harness.GetEnrollmentRequestByYaml(r.yamlPath)
 				}
 			}
 
 			By("Verifying updated events")
-			updatedEvents, err := verifyEventsByReason(harness, resources, deviceName, fleetName, repoName, er, "ResourceUpdated")
+			updatedEvents, err := verifyEventsByReason(harness, uniqueResources, deviceName, fleetName, repoName, er, "ResourceUpdated")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(updatedEvents)).To(BeZero(), fmt.Sprintf("Missing updated events for: %v", updatedEvents))
 
@@ -573,24 +618,18 @@ var _ = Describe("cli operation", func() {
 				}
 			})
 
+			By("deleting the resources")
+			for _, r := range uniqueResources {
+				util.CleanupTempYAMLFile(r.yamlPath)
+			}
+
 		})
 	})
 })
 
 var _ = Describe("cli login", func() {
-	var (
-		ctx     context.Context
-		harness *e2e.Harness
-	)
 
 	Context("login validation", func() {
-		BeforeEach(func() {
-			ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-			harness = e2e.NewTestHarness(ctx)
-		})
-		AfterEach(func() {
-			harness.Cleanup(false) // do not print console on error
-		})
 
 		It("Validations work when logging into flightctl CLI", Label("78748", "sanity"), func() {
 			By("Prepare invalid API endpoint")
@@ -824,7 +863,7 @@ metadata:
 spec:
     selector:
         matchLabels:
-            fleet: default
+            fleet: label-for-standalone-fleet-test
     template:
         spec:
             os:
@@ -840,7 +879,7 @@ metadata:
 spec:
     selector:
         matchLabels:
-            fleet: default
+            fleet: label-for-standalone-fleet-test
 `
 
 var (

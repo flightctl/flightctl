@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
-	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -29,21 +27,15 @@ const (
 
 var _ = Describe("CLI - device console", Serial, func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceID string
 	)
 
 	BeforeEach(func() {
-		ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
 		login.LoginToAPIWithToken(harness)
 
-		By("booting a VM and enrolling the device")
-		deviceID = harness.StartVMAndEnroll()
+		By("enrolling the device")
+		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
-
-	AfterEach(func() { harness.Cleanup(false) })
 
 	It("connects to a device and executes a simple command", Label("80483", "sanity"), func() {
 		cs := harness.NewConsoleSession(deviceID)

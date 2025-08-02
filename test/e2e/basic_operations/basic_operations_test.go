@@ -17,7 +17,7 @@ import (
 
 var (
 	suiteCtx context.Context
-	ctx      context.Context
+	harness  *e2e.Harness
 )
 
 func TestBasicOperations(t *testing.T) {
@@ -25,31 +25,26 @@ func TestBasicOperations(t *testing.T) {
 	RunSpecs(t, "Basic Operations E2E Suite")
 }
 
-var _ = BeforeSuite(func() {
-	suiteCtx = testutil.InitSuiteTracerForGinkgo("Basic Operations E2E Suite")
-})
-
 var _ = Describe("Basic Operations", Label("integration", "82220"), func() {
 	const createdResource = "201 Created"
 
-	var (
-		harness *e2e.Harness
-	)
-
-	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-	})
-
 	DescribeTable("Create a resource from example file",
 		func(resourceType string, fileName string, extractResourceNameFromExampleFile func(*e2e.Harness, string) (string, error)) {
-			name, err := extractResourceNameFromExampleFile(harness, fileName)
+			// Generate unique test ID for this test
+			testID := harness.GetTestIDFromContext()
+
+			// Create unique YAML file for this test
+			uniqueYAML, err := testutil.CreateUniqueYAMLFile(fileName, testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer testutil.CleanupTempYAMLFile(uniqueYAML)
+
+			name, err := extractResourceNameFromExampleFile(harness, uniqueYAML)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(name).ShouldNot(BeEmpty(), fmt.Sprintf("Resource name should not be empty for %s", fileName))
 
 			Expect(resources.ExpectNotExistWithName(harness, resourceType, name)).To(Succeed())
 
-			output, err := resources.ApplyFromExampleFile(harness, fileName)
+			output, err := harness.ManageResource(util.ApplyAction, uniqueYAML)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			matched, err := regexp.MatchString(createdResource, output)
@@ -68,7 +63,7 @@ var _ = Describe("Basic Operations", Label("integration", "82220"), func() {
 })
 
 func extractDeviceNameFromExampleFile(harness *e2e.Harness, deviceFileName string) (string, error) {
-	device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(deviceFileName))
+	device := harness.GetDeviceByYaml(deviceFileName)
 	if device.Metadata.Name == nil {
 		return "", fmt.Errorf("device name should not be empty")
 	}
@@ -76,7 +71,7 @@ func extractDeviceNameFromExampleFile(harness *e2e.Harness, deviceFileName strin
 }
 
 func extractFleetNameFromExampleFile(harness *e2e.Harness, fleetFileName string) (string, error) {
-	fleet := harness.GetFleetByYaml(util.GetTestExamplesYamlPath(fleetFileName))
+	fleet := harness.GetFleetByYaml(fleetFileName)
 	if fleet.Metadata.Name == nil {
 		return "", fmt.Errorf("fleet name should not be empty")
 	}
@@ -84,7 +79,7 @@ func extractFleetNameFromExampleFile(harness *e2e.Harness, fleetFileName string)
 }
 
 func extractRepositoryNameFromExampleFile(harness *e2e.Harness, repositoryFileName string) (string, error) {
-	repository := harness.GetRepositoryByYaml(util.GetTestExamplesYamlPath(repositoryFileName))
+	repository := harness.GetRepositoryByYaml(repositoryFileName)
 	if repository.Metadata.Name == nil {
 		return "", fmt.Errorf("repository name should not be empty")
 	}

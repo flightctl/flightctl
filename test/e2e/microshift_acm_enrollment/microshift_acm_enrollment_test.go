@@ -1,7 +1,6 @@
 package microshift
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,23 +30,11 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 		})
 
 		var (
-			ctx      context.Context
-			harness  *e2e.Harness
 			deviceId string
 		)
 
 		BeforeEach(func() {
-			ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-			harness = e2e.NewTestHarness(ctx)
-			deviceId = harness.StartVMAndEnroll()
-		})
-
-		AfterEach(func() {
-			if harness != nil { // when the test is skipped harness is nil
-				harness.Cleanup(false)
-				err := harness.CleanUpAllResources()
-				Expect(err).ToNot(HaveOccurred())
-			}
+			deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 		})
 
 		Context("microshift", func() {
@@ -192,9 +179,9 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-					device.Metadata.Labels = &map[string]string{
+					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
-					}
+					})
 					logrus.Infof("Updating %s with label %s=%s", deviceId,
 						fleetSelectorKey, fleetSelectorValue)
 				})

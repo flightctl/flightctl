@@ -1,13 +1,13 @@
-name: "E2E testing"
+name: "E2E testing (Parallel Build)"
 
 on:
   workflow_dispatch:
-    inputs:  
-      label_filter:  
+    inputs:
+      label_filter:
         description: 'Ginkgo label filter expression to filter e2e tests'
-        required: false  
+        required: false
         default: 'sanity' #By default, only tests labeled with 'sanity' will run.
-        type: string 
+        type: string
   push:
     branches:
       - main
@@ -18,10 +18,25 @@ permissions:
   contents: read
   pull-requests: read
 
+env:
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+  # Define the total number of parallel nodes for Ginkgo
+  GINKGO_TOTAL_NODES: 4
+
 jobs:
-  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
   e2e:
     runs-on: "ubuntu-24.04"
+    # =================================================================
+    # This matrix will create 4 independent jobs that run in parallel.
+    # Each job will execute all the steps below.
+    # =================================================================
+    strategy:
+      fail-fast: false
+      matrix:
+        ginkgo_node: [1, 2, 3, 4]
+        
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,6 +58,77 @@ jobs:
         with:
           tool-cache: false
 
+      - name: Restore APT cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        id: cache-apt-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt
+          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-e2e-
+
+      - name: Set permissions for APT after restore
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
+
+      - name: Restore Go modules cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        id: cache-go-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Restore DNF cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        id: cache-dnf-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-e2e
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
+      - name: Set permissions for DNF after restore
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
+
+      - name: Restore bootc-image-builder cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        id: cache-bootc-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-e2e-
+
+      - name: Restore container images cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        id: cache-containers-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/lib/containers/storage
+          key: ${{ runner.os }}-containers-${{ hashFiles('**/go.sum') }}-${{ hashFiles('Containerfile.*') }}
+          restore-keys: |
+            ${{ runner.os }}-containers-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-containers-
+
+      - name: Set permissions for containers after restore
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/lib/containers/storage && sudo chown -R root:root /var/lib/containers/storage
+
       - name: Setup all dependencies
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
@@ -57,29 +143,102 @@ jobs:
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: DISABLE_FIPS="true" make deploy
 
-      - name: Deploy the E2E side services, registry and git
-        run: make deploy-e2e-extras
-
-      - name: Make rpm, and agent images
+      - name: Prepare the E2E test environment
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: |
-          make e2e-agent-images
+        run: make prepare-e2e-test
+
+      - name: Set permissions for APT before save
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R runner:runner /var/cache/apt /var/lib/apt
+
+      - name: Save APT cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt
+          key: ${{ steps.cache-apt-restore.outputs.cache-primary-key }}
+
+      - name: Set permissions for APT after save
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
+
+      - name: Save Go modules cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.cache-go-restore.outputs.cache-primary-key }}
+
+      - name: Set permissions for DNF before save
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R runner:runner /var/cache/dnf /var/lib/dnf
+
+      - name: Save DNF cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ steps.cache-dnf-restore.outputs.cache-primary-key }}
+
+      - name: Set permissions for DNF after save
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
+
+      - name: Save bootc-image-builder cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ steps.cache-bootc-restore.outputs.cache-primary-key }}
+
+      - name: Set permissions for containers before save
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/lib/containers/storage && sudo chown -R runner:runner /var/lib/containers/storage
+
+      - name: Save container images cache
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /var/lib/containers/storage
+          key: ${{ steps.cache-containers-restore.outputs.cache-primary-key }}
+
+      - name: Set permissions for containers after save
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: sudo mkdir -p /var/lib/containers/storage && sudo chown -R root:root /var/lib/containers/storage
 
       - name: Make sure the images are owned by the runner user
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
-          sudo chown -R runner:runner bin/output|| true
-
-      - name: Run E2E Tests
+          sudo mkdir -p bin/output && sudo chown -R runner:runner bin/output
+      
+      # =================================================================
+      # This step now uses manual test splitting to run a
+      # specific slice of the tests on each parallel job.
+      # =================================================================
+      - name: Run E2E Test Slice
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run:  make run-e2e-test VERBOSE=true # use DEBUG_VM_CONSOLE=1 to see the VM console output
-        env:  
-          GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}   # Filter to run only specific tests
+        run: make run-e2e-test VERBOSE=true # use DEBUG_VM_CONSOLE=1 to see the VM console output
+        env:
+          GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}
+          GINKGO_TOTAL_NODES: ${{ env.GINKGO_TOTAL_NODES }}
+          GINKGO_NODE: ${{ matrix.ginkgo_node }}
 
+      # =================================================================
+      # This step now uploads logs to a unique artifact for each job
+      # to prevent them from overwriting each other.
+      # =================================================================
       - name: Collect and Upload Logs
         if: always() && steps.filter.outputs.notdocs == 'true'
         uses: ./.github/actions/collect-logs
         with:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
-          log-directory: 'e2e-logs'
+          log-directory: 'e2e-logs-node-${{ matrix.ginkgo_node }}'

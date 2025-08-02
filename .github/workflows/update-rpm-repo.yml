@@ -47,6 +47,22 @@ jobs:
           ls -la
           echo "======================="
 
+      - name: Cache APT packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt
+          key: ${{ runner.os }}-apt-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+
+      - name: Cache Python packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install COPR CLI and dependencies
         run: |
           echo "=== INSTALLING DEPENDENCIES ==="
@@ -195,6 +211,16 @@ jobs:
           fi
           echo "=============================="
 
+      - name: Cache COPR downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/copr
+            copr-rpms-temp
+          key: ${{ runner.os }}-copr-${{ env.build_id }}
+          restore-keys: |
+            ${{ runner.os }}-copr-
+
       - name: Download RPMs from COPR
         run: |
           echo "=== DOWNLOADING RPMS FROM COPR ==="
@@ -239,6 +265,16 @@ jobs:
           ls -la rpm-repo/rpms/
           echo "Total files in rpms/: $(ls -1 rpm-repo/rpms/ | wc -l)"
           echo "=============================="
+
+      - name: Cache repository metadata
+        uses: actions/cache@v4
+        with:
+          path: |
+            rpm-repo/repodata
+            ~/.cache/createrepo_c
+          key: ${{ runner.os }}-repodata-${{ hashFiles('rpm-repo/rpms/*.rpm') }}
+          restore-keys: |
+            ${{ runner.os }}-repodata-
 
       - name: Generate repository metadata
         run: |

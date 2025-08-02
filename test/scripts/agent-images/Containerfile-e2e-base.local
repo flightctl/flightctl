@@ -10,8 +10,6 @@
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-ARG RPM_COPR=
-ARG RPM_PACKAGE=flightctl-agent
 ARG REGISTRY_ADDRESS
 
 # Fail early when the build argument is missing
@@ -20,19 +18,39 @@ RUN test -n "${REGISTRY_ADDRESS}" || (echo "REGISTRY_ADDRESS build arg is requir
 COPY bin/e2e-certs/pki/CA/ca.pem /etc/pki/ca-trust/source/anchors/
 RUN update-ca-trust
 
-COPY bin/rpm/flightctl-*.rpm /tmp/
+# Copy the built flightctl-agent binary
+COPY bin/flightctl-agent /usr/bin/flightctl-agent
+RUN chmod +x /usr/bin/flightctl-agent
 
-RUN if [[ -z $RPM_COPR ]]; then \
-        dnf install -y /tmp/flightctl-agent-*.rpm /tmp/flightctl-selinux-*.rpm ; \
-    else \
-        dnf copr -y enable ${RPM_COPR} &&  \
-        dnf install -y ${RPM_PACKAGE}; \
-    fi && \
-    systemctl enable flightctl-agent.service
+# Build and install SELinux policy
+COPY packaging/selinux/ /tmp/selinux/
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y selinux-policy-devel policycoreutils && \
+    cd /tmp/selinux && \
+    make -f /usr/share/selinux/devel/Makefile flightctl_agent.pp && \
+    bzip2 -9 -f flightctl_agent.pp && \
+    semodule -i flightctl_agent.pp.bz2 && \
+    rm -rf /tmp/selinux
 
-RUN dnf install -y epel-release epel-next-release
-RUN dnf install -y python-dotenv
-RUN dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+# Copy and enable the flightctl-agent service
+COPY packaging/systemd/flightctl-agent.service /usr/lib/systemd/system/
+RUN systemctl enable flightctl-agent.service
+
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y epel-release epel-next-release
+
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y python-dotenv
+
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service

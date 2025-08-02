@@ -2,7 +2,10 @@ FROM quay.io/centos-bootc/centos-bootc:stream9
 
 # Copy  and install the locally built services rpm
 COPY /bin/rpm/flightctl-services-*.rpm /tmp/flightctl-services.rpm
-RUN dnf -y install /tmp/flightctl-services.rpm && \
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf -y install /tmp/flightctl-services.rpm && \
     dnf clean all && \
     rm -rf /tmp/* /var/cache/dnf
 
