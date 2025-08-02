@@ -1208,6 +1208,20 @@ func (mr *MockServiceMockRecorder) SetDeviceServiceConditions(ctx, name, conditi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceServiceConditions", reflect.TypeOf((*MockService)(nil).SetDeviceServiceConditions), ctx, name, conditions)
 }
 
+// SetOutOfDate mocks base method.
+func (m *MockService) SetOutOfDate(ctx context.Context, owner string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetOutOfDate", ctx, owner)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetOutOfDate indicates an expected call of SetOutOfDate.
+func (mr *MockServiceMockRecorder) SetOutOfDate(ctx, owner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOutOfDate", reflect.TypeOf((*MockService)(nil).SetOutOfDate), ctx, owner)
+}
+
 // UnmarkDevicesRolloutSelection mocks base method.
 func (m *MockService) UnmarkDevicesRolloutSelection(ctx context.Context, fleetName string) v1alpha1.Status {
 	m.ctrl.T.Helper()
@@ -1306,6 +1320,20 @@ func (m *MockService) UpdateRenderedDevice(ctx context.Context, name, renderedCo
 func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, name, renderedConfig, renderedApplications any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), ctx, name, renderedConfig, renderedApplications)
+}
+
+// UpdateServerSideDeviceStatus mocks base method.
+func (m *MockService) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateServerSideDeviceStatus", ctx, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateServerSideDeviceStatus indicates an expected call of UpdateServerSideDeviceStatus.
+func (mr *MockServiceMockRecorder) UpdateServerSideDeviceStatus(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServerSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServerSideDeviceStatus), ctx, name)
 }
 
 // UpdateServiceSideDeviceStatus mocks base method.

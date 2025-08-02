@@ -23,4 +23,5 @@ const (
 	EventActorCtxKey           ctxKey = "event-actor"
 	TLSPeerCertificateCtxKey   ctxKey = "tls-peer-certificate"
 	OrganizationIDCtxKey       ctxKey = "organization-id"
+	AgentCtxKey                ctxKey = "agent"
 )

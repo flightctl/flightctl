@@ -82,14 +82,14 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 	})
 
 	Describe("Basic Queue Operations", func() {
-		It("should publish and consume messages", func() {
+		It("should Enqueue and consume messages", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			// Create consumer and publisher
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			// Create consumer and producer
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test payload
@@ -97,7 +97,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			messageReceived := make(chan []byte, 1)
 
 			// Start consuming
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				if err := consumer.Complete(ctx, entryID, payload, nil); err != nil {
 					return err
 				}
@@ -106,8 +106,8 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// Publish message
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			// Enqueue message
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			// Wait for message to be processed
@@ -126,23 +126,23 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 
 		It("should handle multiple messages in order", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Send multiple messages
 			messages := []string{"message1", "message2", "message3"}
 			receivedMessages := make(chan string, len(messages))
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				// Acknowledge the message so it’s removed from the PEL
 				if err := consumer.Complete(ctx, entryID, payload, nil); err != nil {
 					return err
@@ -152,9 +152,9 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// Publish messages
+			// Enqueue messages
 			for _, msg := range messages {
-				err = publisher.Publish(ctx, []byte(msg), time.Now().UnixMicro())
+				err = producer.Enqueue(ctx, []byte(msg), time.Now().UnixMicro())
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -169,10 +169,10 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should track in-flight messages and handle completion", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			testPayload := []byte("test message")
@@ -182,7 +182,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				err     error
 			}, 1)
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				// Complete the message
 				completeErr := consumer.Complete(ctx, entryID, payload, nil)
 
@@ -195,7 +195,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			var result struct {
@@ -219,16 +219,16 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 
 		It("should handle message completion with errors", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			testPayload := []byte("test message")
@@ -238,7 +238,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				err     error
 			}, 1)
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				// Complete with an error
 				processingErr := fmt.Errorf("test processing error")
 				completeErr := consumer.Complete(ctx, entryID, payload, processingErr)
@@ -252,7 +252,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			var result struct {
@@ -276,7 +276,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 	})
 
@@ -285,13 +285,13 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
 			// Create multiple consumers
-			consumer1, err := provider.NewConsumer(ctx, queueName)
+			consumer1, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			consumer2, err := provider.NewConsumer(ctx, queueName)
+			consumer2, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Track which consumer processes which message
@@ -299,23 +299,23 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			consumer2Messages := make(chan string, 10)
 
 			// Start consumer 1
-			err = consumer1.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer1.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				consumer1Messages <- string(payload)
 				return consumer.Complete(ctx, entryID, payload, nil)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
 			// Start consumer 2
-			err = consumer2.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer2.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				consumer2Messages <- string(payload)
 				return consumer.Complete(ctx, entryID, payload, nil)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// Publish messages
+			// Enqueue messages
 			messages := []string{"msg1", "msg2", "msg3", "msg4", "msg5"}
 			for _, msg := range messages {
-				err = publisher.Publish(ctx, []byte(msg), time.Now().UnixMicro())
+				err = producer.Enqueue(ctx, []byte(msg), time.Now().UnixMicro())
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -327,7 +327,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			// Clean up
 			consumer1.Close()
 			consumer2.Close()
-			publisher.Close()
+			producer.Close()
 		})
 	})
 
@@ -335,25 +335,25 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should stop gracefully", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Start consuming
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				return consumer.Complete(ctx, entryID, payload, nil)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// Publish a message
-			err = publisher.Publish(ctx, []byte("test message"), time.Now().UnixMicro())
+			// Enqueue a message
+			err = producer.Enqueue(ctx, []byte("test message"), time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
-			// Close consumer and publisher first
+			// Close consumer and producer first
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 
 			// Stop the provider
 			provider.Stop()
@@ -368,21 +368,21 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should handle consumer handler errors gracefully", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			messageProcessed := make(chan bool, 1)
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				messageProcessed <- true
 				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("handler error"))
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = publisher.Publish(ctx, []byte("test message"), time.Now().UnixMicro())
+			err = producer.Enqueue(ctx, []byte("test message"), time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify the message was processed (even though handler returned error)
@@ -397,7 +397,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 
 	})
@@ -406,10 +406,10 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should add failed messages to failed set with exponential backoff", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			testPayload := []byte("test message")
@@ -419,7 +419,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				err     error
 			}, 1)
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				// Complete with an error to trigger retry
 				processingErr := fmt.Errorf("test processing error")
 				completeErr := consumer.Complete(ctx, entryID, payload, processingErr)
@@ -433,7 +433,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			var result struct {
@@ -456,29 +456,29 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 
 		It("should retry failed messages with exponential backoff", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			testPayload := []byte("test retry message")
 			messageReceived := make(chan []byte, 2) // Expect original + retry
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				messageReceived <- payload
 				// Complete with error to trigger retry
 				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("processing error"))
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			// Wait for original message
@@ -524,12 +524,12 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 
 		It("should process timed out messages", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			testPayload := []byte("test timeout message")
 			timeoutHandlerCalled := make(chan struct {
@@ -537,15 +537,15 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				body    []byte
 			}, 1)
 			// Start a consumer that reads but does NOT Complete to leave the message pending
-			consumerBlock, err := provider.NewConsumer(ctx, queueName)
+			consumerBlock, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
-			err = consumerBlock.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumerBlock.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				// Intentionally do not Complete; leave in PEL
 				return nil
 			})
 			Expect(err).ToNot(HaveOccurred())
-			// Publish and give it a moment to land in PEL
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			// Enqueue and give it a moment to land in PEL
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 			time.Sleep(10 * time.Millisecond)
 			// Process timed out messages with a very short timeout
@@ -560,7 +560,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			Expect(timeoutCount).To(BeNumerically(">=", 1))
 			consumerBlock.Close()
 			// Clean up
-			publisher.Close()
+			producer.Close()
 			// Verify our handler was actually invoked
 			var t struct {
 				entryID string
@@ -580,21 +580,21 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should retry failed messages with custom config", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			testPayload := []byte("test custom retry message")
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				// Complete with error to trigger retry
 				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("processing error"))
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			// Retry failed messages with custom config (very short delays for testing)
@@ -614,22 +614,22 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 
 		It("should handle retry count tracking correctly", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			testPayload := []byte("test retry count message")
 			retryCounts := make(chan int, 3) // Track retry counts
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				// For now, assume retry count 0 (first message)
 				retryCounts <- 0
 
@@ -638,7 +638,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			// Wait for original message (should have retry count 0)
@@ -655,27 +655,27 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 
 		It("should respect max retries configuration", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			producer, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 
 			testPayload := []byte("test max retries message")
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				// Always fail to trigger retries
 				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("persistent error"))
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = publisher.Publish(ctx, testPayload, time.Now().UnixMicro())
+			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			// Use very short delays and low max retries for quick testing
@@ -695,7 +695,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Clean up
 			consumer.Close()
-			publisher.Close()
+			producer.Close()
 		})
 	})
 
@@ -703,11 +703,11 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should advance checkpoint when all tasks complete successfully", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer consumer.Close()
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			publisher, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer publisher.Close()
 
@@ -724,14 +724,14 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			timestamps := make([]time.Time, 3)
 			for i := 0; i < 3; i++ {
 				timestamps[i] = time.Now().Add(time.Duration(i) * time.Millisecond)
-				err = publisher.Publish(ctx, []byte(fmt.Sprintf("message%d", i)), timestamps[i].UnixMicro())
+				err = publisher.Enqueue(ctx, []byte(fmt.Sprintf("message%d", i)), timestamps[i].UnixMicro())
 				Expect(err).ToNot(HaveOccurred())
 			}
 
 			messagesProcessed := make(chan struct{}, 3)
 
 			// Start consuming and complete all messages successfully
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				err := consumer.Complete(ctx, entryID, payload, nil)
 				messagesProcessed <- struct{}{}
 				return err
@@ -761,11 +761,11 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should not advance checkpoint past incomplete tasks", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer consumer.Close()
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			publisher, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer publisher.Close()
 
@@ -778,14 +778,14 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			}
 
 			for i, ts := range timestamps {
-				err = publisher.Publish(ctx, []byte(fmt.Sprintf("message%d", i)), ts.UnixMicro())
+				err = publisher.Enqueue(ctx, []byte(fmt.Sprintf("message%d", i)), ts.UnixMicro())
 				Expect(err).ToNot(HaveOccurred())
 			}
 
 			messagesProcessed := make(chan string, 3)
 
 			// Process messages, but fail the middle one
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				message := string(payload)
 				var completionErr error
 
@@ -828,23 +828,23 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should advance checkpoint past permanently failed tasks", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer consumer.Close()
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			publisher, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer publisher.Close()
 
 			// Publish a message
 			timestamp := time.Now()
-			err = publisher.Publish(ctx, []byte("test message"), timestamp.UnixMicro())
+			err = publisher.Enqueue(ctx, []byte("test message"), timestamp.UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			messageProcessed := make(chan struct{}, 1)
 
 			// Process message and fail it
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				err := consumer.Complete(ctx, entryID, payload, fmt.Errorf("simulated failure"))
 				messageProcessed <- struct{}{}
 				return err
@@ -896,11 +896,11 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should handle mixed completion states correctly", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer consumer.Close()
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			publisher, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer publisher.Close()
 
@@ -914,14 +914,14 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			}
 
 			for i, ts := range timestamps {
-				err = publisher.Publish(ctx, []byte(fmt.Sprintf("message%d", i)), ts.UnixMicro())
+				err = publisher.Enqueue(ctx, []byte(fmt.Sprintf("message%d", i)), ts.UnixMicro())
 				Expect(err).ToNot(HaveOccurred())
 			}
 
 			messagesProcessed := make(chan int, 4)
 
 			// Process messages with specific success/failure pattern
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				message := string(payload)
 				var completionErr error
 
@@ -980,23 +980,23 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		It("should not advance checkpoint backwards", func() {
 			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
 
-			consumer, err := provider.NewConsumer(ctx, queueName)
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer consumer.Close()
 
-			publisher, err := provider.NewPublisher(ctx, queueName)
+			publisher, err := provider.NewQueueProducer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
 			defer publisher.Close()
 
 			// First, establish a checkpoint by processing a message
 			futureTime := time.Now().Add(1 * time.Hour) // Far in the future
-			err = publisher.Publish(ctx, []byte("future message"), futureTime.UnixMicro())
+			err = publisher.Enqueue(ctx, []byte("future message"), futureTime.UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			var messageProcessed int32
 			var pastMessageProcessed int32
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				message := string(payload)
 				err := consumer.Complete(ctx, entryID, payload, nil)
 
@@ -1028,7 +1028,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Now publish and process a message with an earlier timestamp
 			pastTime := time.Now() // Earlier than futureTime
-			err = publisher.Publish(ctx, []byte("past message"), pastTime.UnixMicro())
+			err = publisher.Enqueue(ctx, []byte("past message"), pastTime.UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
 			Eventually(func() bool {

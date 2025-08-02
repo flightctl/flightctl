@@ -5,9 +5,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -56,7 +58,12 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
+
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	if err = rendered.Bus.Initialize(ctx, kvStore, s.queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
+		s.log.WithError(err).Error("failed to create rendered version manager")
+		return err
+	}
 	serviceHandler := service.WrapWithTracing(
 		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
