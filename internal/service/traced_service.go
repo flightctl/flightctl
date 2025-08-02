@@ -100,6 +100,14 @@ func (t *TracedService) ListDevices(ctx context.Context, params api.ListDevicesP
 	endSpan(span, st)
 	return resp, st
 }
+
+func (t *TracedService) HealthcheckDevice(ctx context.Context, name string) api.Status {
+	ctx, span := startSpan(ctx, "HealthcheckDevice")
+	st := t.inner.HealthcheckDevice(ctx, name)
+	endSpan(span, st)
+	return st
+}
+
 func (t *TracedService) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
 	ctx, span := startSpan(ctx, "ListDevicesByServiceCondition")
 	resp, st := t.inner.ListDevicesByServiceCondition(ctx, conditionType, conditionStatus, listParams)

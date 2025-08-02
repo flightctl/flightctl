@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered_version"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -65,6 +66,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer taskQueuePublisher.Close()
 
 	callbackManager := tasks_client.NewCallbackManager(taskQueuePublisher, s.log)
+	rendered_version.Bus.GetOrInit(rendered_version.New(kvStore, queuesProvider, s.log))
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "", []string{}))
 
 	// Initialize the task executors

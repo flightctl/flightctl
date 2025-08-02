@@ -42,6 +42,7 @@ func NewGRPCClientFromConfig(config *baseclient.Config) (grpc_v1.RouterServiceCl
 
 // Management is the client interface for managing devices.
 type Management interface {
+	HealthcheckDevice(ctx context.Context, name string) error
 	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
 	GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error)
 	PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error

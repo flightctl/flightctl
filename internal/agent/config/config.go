@@ -25,6 +25,8 @@ const (
 	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
+	// DefaultHealthcheckInterval is the default interval between two health checks of the device.
+	DefaultHealthcheckInterval = util.Duration(120 * time.Second)
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
 	// DefaultPullRetrySteps is the default retry attempts are allowed for pulling an OCI target.
@@ -76,6 +78,8 @@ type Config struct {
 	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
+	// HealthcheckInterval is the interval between two health checks of the device.
+	HealthcheckInterval util.Duration `json:"healthcheck-interval,omitempty"`
 
 	// TPM holds all TPM-related configuration
 	TPM TPM `json:"tpm,omitempty"`
@@ -152,6 +156,7 @@ func NewDefault() *Config {
 		DataDir:              DefaultDataDir,
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
+		HealthcheckInterval:  DefaultHealthcheckInterval,
 		readWriter:           fileio.NewReadWriter(),
 		LogLevel:             logrus.InfoLevel.String(),
 		DefaultLabels:        make(map[string]string),
@@ -310,6 +315,9 @@ func (cfg *Config) validateSyncIntervals() error {
 	}
 	if cfg.StatusUpdateInterval < MinSyncInterval {
 		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
+	}
+	if cfg.HealthcheckInterval < MinSyncInterval {
+		return fmt.Errorf("minimum healthcheck interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
 	}
 	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/healthcheck"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
@@ -37,6 +38,7 @@ type Agent struct {
 	statusManager          status.Manager
 	specManager            spec.Manager
 	devicePublisher        publisher.Publisher
+	healthcheckManager     healthcheck.Manager
 	hookManager            hook.Manager
 	appManager             applications.Manager
 	systemdManager         systemd.Manager
@@ -67,6 +69,7 @@ func NewAgent(
 	statusManager status.Manager,
 	specManager spec.Manager,
 	devicePublisher publisher.Publisher,
+	healthcheckManager healthcheck.Manager,
 	appManager applications.Manager,
 	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
@@ -91,6 +94,7 @@ func NewAgent(
 		statusManager:          statusManager,
 		specManager:            specManager,
 		devicePublisher:        devicePublisher,
+		healthcheckManager:     healthcheckManager,
 		hookManager:            hookManager,
 		osManager:              osManager,
 		policyManager:          policyManager,
@@ -115,13 +119,16 @@ func NewAgent(
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 
 	// Goroutine to handle consoles synchronization
 	go a.consoleController.Run(ctx, &wg)
 
 	// Goroutine to handle spec notifier which reads rendered devices from the server
 	go a.devicePublisher.Run(ctx, &wg)
+
+	// Goroutine to handle health checks
+	go a.healthcheckManager.Run(ctx, &wg)
 
 	// orchestrates periodic fetching of device specs and pushing status updates
 	engine := NewEngine(

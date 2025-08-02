@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/healthcheck"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/publisher"
@@ -27,15 +28,16 @@ const (
 )
 
 type Bootstrap struct {
-	deviceName        string
-	executer          executer.Executer
-	deviceReadWriter  fileio.ReadWriter
-	specManager       spec.Manager
-	devicePublisher   publisher.Publisher
-	statusManager     status.Manager
-	hookManager       hook.Manager
-	systemInfoManager systeminfo.Manager
-	podmanClient      *client.Podman
+	deviceName         string
+	executer           executer.Executer
+	deviceReadWriter   fileio.ReadWriter
+	specManager        spec.Manager
+	devicePublisher    publisher.Publisher
+	healthcheckManager healthcheck.Manager
+	statusManager      status.Manager
+	hookManager        hook.Manager
+	systemInfoManager  systeminfo.Manager
+	podmanClient       *client.Podman
 
 	lifecycle lifecycle.Initializer
 
@@ -53,6 +55,7 @@ func NewBootstrap(
 	deviceReadWriter fileio.ReadWriter,
 	specManager spec.Manager,
 	devicePublisher publisher.Publisher,
+	healthcheckManager healthcheck.Manager,
 	statusManager status.Manager,
 	hookManager hook.Manager,
 	lifecycleInitializer lifecycle.Initializer,
@@ -69,6 +72,7 @@ func NewBootstrap(
 		deviceReadWriter:          deviceReadWriter,
 		specManager:               specManager,
 		devicePublisher:           devicePublisher,
+		healthcheckManager:        healthcheckManager,
 		statusManager:             statusManager,
 		hookManager:               hookManager,
 		lifecycle:                 lifecycleInitializer,
@@ -292,5 +296,6 @@ func (b *Bootstrap) setManagementClient() error {
 	// initialize the management client for spec and status managers
 	b.statusManager.SetClient(b.managementClient)
 	b.devicePublisher.SetClient(b.managementClient)
+	b.healthcheckManager.SetClient(b.managementClient)
 	return nil
 }

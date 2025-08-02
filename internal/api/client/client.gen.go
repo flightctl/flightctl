@@ -154,6 +154,9 @@ type ClientInterface interface {
 
 	DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// HealthcheckDevice request
+	HealthcheckDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetRenderedDevice request
 	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -600,6 +603,18 @@ func (c *Client) DecommissionDeviceWithBody(ctx context.Context, name string, co
 
 func (c *Client) DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDecommissionDeviceRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) HealthcheckDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewHealthcheckDeviceRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -2127,6 +2142,40 @@ func NewDecommissionDeviceRequestWithBody(server string, name string, contentTyp
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewHealthcheckDeviceRequest generates requests for HealthcheckDevice
+func NewHealthcheckDeviceRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/healthcheck", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -4438,6 +4487,9 @@ type ClientWithResponsesInterface interface {
 
 	DecommissionDeviceWithResponse(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
 
+	// HealthcheckDeviceWithResponse request
+	HealthcheckDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*HealthcheckDeviceResponse, error)
+
 	// GetRenderedDeviceWithResponse request
 	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
 
@@ -5042,6 +5094,31 @@ func (r DecommissionDeviceResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r DecommissionDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type HealthcheckDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r HealthcheckDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r HealthcheckDeviceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6447,6 +6524,15 @@ func (c *ClientWithResponses) DecommissionDeviceWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseDecommissionDeviceResponse(rsp)
+}
+
+// HealthcheckDeviceWithResponse request returning *HealthcheckDeviceResponse
+func (c *ClientWithResponses) HealthcheckDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*HealthcheckDeviceResponse, error) {
+	rsp, err := c.HealthcheckDevice(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseHealthcheckDeviceResponse(rsp)
 }
 
 // GetRenderedDeviceWithResponse request returning *GetRenderedDeviceResponse
@@ -8021,6 +8107,53 @@ func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceRes
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseHealthcheckDeviceResponse parses an HTTP response from a HealthcheckDeviceWithResponse call
+func ParseHealthcheckDeviceResponse(rsp *http.Response) (*HealthcheckDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &HealthcheckDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status

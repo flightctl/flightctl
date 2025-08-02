@@ -31,6 +31,12 @@ func (h *TransportHandler) GetDevice(w http.ResponseWriter, r *http.Request, nam
 	SetResponse(w, body, status)
 }
 
+// (PATCH /api/v1/devices/{name}/healthcheck)
+func (h *TransportHandler) HealthcheckDevice(w http.ResponseWriter, r *http.Request, name string) {
+	status := h.serviceHandler.HealthcheckDevice(r.Context(), name)
+	SetResponse(w, nil, status)
+}
+
 // (PUT /api/v1/devices/{name})
 func (h *TransportHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request, name string) {
 	var device api.Device

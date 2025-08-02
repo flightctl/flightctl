@@ -38,6 +38,23 @@ func (m *management) SetRPCMetricsCallback(cb RPCMetricsCallback) {
 	m.rpcMetricsCallbackFunc = cb
 }
 
+func (m *management) HealthcheckDevice(ctx context.Context, name string) error {
+	start := time.Now()
+	resp, err := m.client.HealthcheckDevice(ctx, name)
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("healthcheck_device_duration", time.Since(start).Seconds(), err)
+	}
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("healthcheck device failed: %s", resp.Status)
+	}
+
+	return nil
+}
+
 // UpdateDeviceStatus updates the status of the device with the given name.
 func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
 	start := time.Now()

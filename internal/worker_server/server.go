@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered_version"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -55,6 +56,8 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
+
+	rendered_version.Bus.GetOrInit(rendered_version.New(kvStore, s.queuesProvider, s.log))
 	serviceHandler := service.WrapWithTracing(
 		service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "", []string{}))
 

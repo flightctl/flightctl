@@ -39,6 +39,9 @@ type Device struct {
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
+
+	// LastSeen The last time the device was seen by the service.
+	LastSeen time.Time `selector:"lastSeen,hidden"`
 }
 
 type DeviceLabel struct {
@@ -101,9 +104,10 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
 		},
-		Alias:  alias,
-		Spec:   MakeJSONField(spec),
-		Status: MakeJSONField(status),
+		Alias:    alias,
+		Spec:     MakeJSONField(spec),
+		Status:   MakeJSONField(status),
+		LastSeen: status.LastSeen,
 	}, nil
 }
 
@@ -154,6 +158,10 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	status := api.NewDeviceStatus()
 	if d.Status != nil {
 		status = d.Status.Data
+	}
+
+	if !d.LastSeen.IsZero() && d.LastSeen.After(status.LastSeen) {
+		status.LastSeen = d.LastSeen
 	}
 
 	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
