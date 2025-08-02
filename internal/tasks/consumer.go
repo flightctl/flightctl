@@ -258,7 +258,7 @@ func LaunchConsumers(ctx context.Context,
 	kvStore kvstore.KVStore,
 	numConsumers, threadsPerConsumer int) error {
 	for i := 0; i != numConsumers; i++ {
-		consumer, err := queuesProvider.NewConsumer(consts.TaskQueue)
+		consumer, err := queuesProvider.NewQueueConsumer(consts.TaskQueue)
 		if err != nil {
 			return err
 		}

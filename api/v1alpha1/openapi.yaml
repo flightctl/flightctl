@@ -1579,6 +1579,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+
   /api/v1/enrollmentrequests:
     get:
       tags:

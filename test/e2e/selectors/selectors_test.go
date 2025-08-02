@@ -159,7 +159,7 @@ var _ = Describe("Field Selectors in Flight Control", func() {
 				EntryCase("filters by label non-existence", []string{"-l", "!region"}, false, deviceAName),
 				EntryCase("filters by exact label match", []string{"-l", fmt.Sprintf("region=%s", DeviceARegion)}, true, deviceAName),
 				EntryCase("filters by label mismatch", []string{"-l", fmt.Sprintf("region!=%s", DeviceARegion)}, false, deviceAName),
-				EntryCase("filters by label and field selector", []string{"-l", fmt.Sprintf("region=%s", DeviceARegion), "--field-selector", "status.updated.status in (UpToDate, Unknown)"}, true, deviceAName),
+				EntryCase("filters by label and field selector", []string{"-l", fmt.Sprintf("region=%s", DeviceARegion), "--field-selector", "status.updated.status in (OutOfDate, UpToDate, Unknown)"}, true, deviceAName),
 			)
 			testutil.RunTable(tests, func(params FieldSelectorTestParams) {
 				// Get harness directly - no shared package-level variable

@@ -244,6 +244,12 @@ func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWrit
 	transport.SetResponse(w, csr, status)
 }
 
+// / (PATCH /api/v1/devices/{name}/healthcheck)
+func (s *AgentTransportHandler) HealthcheckDevice(w http.ResponseWriter, r *http.Request, name string) {
+	status := s.serviceHandler.HealthcheckDevice(r.Context(), name)
+	transport.SetResponse(w, nil, status)
+}
+
 func (s *AgentTransportHandler) autoApprove(ctx context.Context, csr *api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
 	if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) {
 		return csr, api.StatusOK()

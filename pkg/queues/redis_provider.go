@@ -2,6 +2,7 @@ package queues
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -24,12 +25,13 @@ import (
 )
 
 type redisProvider struct {
-	client  *redis.Client
-	log     logrus.FieldLogger
-	wg      *sync.WaitGroup
-	queues  []*redisQueue
-	stopped atomic.Bool
-	mu      sync.Mutex
+	client   *redis.Client
+	log      logrus.FieldLogger
+	wg       *sync.WaitGroup
+	queues   []*redisQueue
+	channels []*redisChannel
+	stopped  atomic.Bool
+	mu       sync.Mutex
 }
 
 func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password config.SecureString) (Provider, error) {
@@ -80,12 +82,36 @@ func (r *redisProvider) newQueue(queueName string) (*redisQueue, error) {
 	return queue, nil
 }
 
-func (r *redisProvider) NewConsumer(queueName string) (Consumer, error) {
+func (r *redisProvider) newChannel(channelName string) (*redisChannel, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.stopped.Load() {
+		return nil, errors.New("provider is stopped")
+	}
+	channel := &redisChannel{
+		name:   channelName,
+		client: r.client,
+		log:    r.log,
+		wg:     r.wg,
+	}
+	r.channels = append(r.channels, channel)
+	return channel, nil
+}
+
+func (r *redisProvider) NewQueueConsumer(queueName string) (QueueConsumer, error) {
 	return r.newQueue(queueName)
 }
 
-func (r *redisProvider) NewPublisher(queueName string) (Publisher, error) {
+func (r *redisProvider) NewQueueProducer(queueName string) (QueueProducer, error) {
 	return r.newQueue(queueName)
+}
+
+func (r *redisProvider) NewPubSubPublisher(channelName string) (PubSubPublisher, error) {
+	return r.newChannel(channelName)
+}
+
+func (r *redisProvider) NewPubSubSubscriber(channelName string) (PubSubSubscriber, error) {
+	return r.newChannel(channelName)
 }
 
 func (r *redisProvider) Stop() {
@@ -95,6 +121,12 @@ func (r *redisProvider) Stop() {
 		return
 	}
 	defer r.wg.Done()
+
+	// Close all channels
+	for _, channel := range r.channels {
+		channel.Close()
+	}
+
 	r.client.Close()
 }
 
@@ -110,7 +142,7 @@ type redisQueue struct {
 	closed atomic.Bool
 }
 
-func (r *redisQueue) Publish(ctx context.Context, payload []byte) error {
+func (r *redisQueue) Enqueue(ctx context.Context, payload []byte) error {
 	if r.closed.Load() {
 		return errors.New("queue is closed")
 	}
@@ -257,5 +289,180 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 func (r *redisQueue) Close() {
 	if r.closed.Swap(true) {
 		return
+	}
+}
+
+// redisChannel implements PubSubPublisher and PubSubSubscriber interfaces using Redis pub/sub
+type redisChannel struct {
+	client *redis.Client
+	name   string
+	log    logrus.FieldLogger
+	wg     *sync.WaitGroup
+	closed atomic.Bool
+}
+
+// Broadcast sends a message to all subscribers on the channel
+func (r *redisChannel) Publish(ctx context.Context, payload []byte) error {
+	if r.closed.Load() {
+		return errors.New("channel is closed")
+	}
+
+	// Inject tracing context
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+
+	// Create a message with context and payload
+	message := map[string]interface{}{
+		"body": string(payload), // Redis pub/sub works with strings
+	}
+	for k, v := range carrier {
+		message["ctx_"+k] = v
+	}
+
+	// Convert to JSON for transmission
+	messageBytes, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("failed to marshal broadcast message: %w", err)
+	}
+
+	err = r.client.Publish(ctx, r.name, messageBytes).Err()
+	if err != nil {
+		return fmt.Errorf("failed to broadcast message: %w", err)
+	}
+	return nil
+}
+
+// Subscribe creates a new subscription for broadcast messages on the channel
+func (r *redisChannel) Subscribe(ctx context.Context, handler PubSubHandler) (Subscription, error) {
+	if r.closed.Load() {
+		return nil, errors.New("channel is closed")
+	}
+
+	// Create a new pubsub connection - each subscription owns its connection
+	pubsub := r.client.Subscribe(ctx, r.name)
+
+	subscription := &redisSubscription{
+		pubsub:  pubsub,
+		name:    r.name,
+		log:     r.log,
+		wg:      r.wg,
+		handler: handler,
+	}
+
+	// Start the subscription goroutine
+	subscription.start(ctx)
+
+	return subscription, nil
+}
+
+func (r *redisChannel) Close() {
+	r.closed.Store(true)
+}
+
+// redisSubscription represents an active subscription that owns its pubsub connection
+type redisSubscription struct {
+	pubsub  *redis.PubSub
+	name    string
+	log     logrus.FieldLogger
+	wg      *sync.WaitGroup
+	handler PubSubHandler
+	closed  atomic.Bool
+	cancel  context.CancelFunc
+}
+
+func (s *redisSubscription) start(ctx context.Context) {
+	ctx, s.cancel = context.WithCancel(ctx)
+	s.wg.Add(1)
+
+	go func() {
+		defer s.wg.Done()
+		defer s.pubsub.Close()
+
+		ch := s.pubsub.Channel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				if s.closed.Load() {
+					return
+				}
+
+				if err := s.handleBroadcastMessage(ctx, msg); err != nil {
+					s.log.WithError(err).Error("error while handling broadcast message")
+				}
+			}
+		}
+	}()
+}
+
+func (s *redisSubscription) handleBroadcastMessage(ctx context.Context, msg *redis.Message) error {
+	ctx, parentSpan := tracing.StartSpan(ctx, "flightctl/queues/broadcast", s.name)
+	defer parentSpan.End()
+
+	// Parse the JSON message
+	var message map[string]interface{}
+	if err := json.Unmarshal([]byte(msg.Payload), &message); err != nil {
+		parentSpan.RecordError(err)
+		parentSpan.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("failed to unmarshal broadcast message: %w", err)
+	}
+
+	// Extract tracing context
+	carrier := propagation.MapCarrier{}
+	for k, v := range message {
+		if len(k) > 4 && k[:4] == "ctx_" {
+			if valStr, ok := v.(string); ok {
+				carrier[k[4:]] = valStr
+			}
+		}
+	}
+
+	receivedCtx := otel.GetTextMapPropagator().Extract(ctx, carrier)
+	requestID := reqid.NextRequestID()
+
+	// Start span for handler logic
+	receivedCtx, handlerSpan := tracing.StartSpan(
+		receivedCtx, "flightctl/queues/broadcast", s.name, trace.WithLinks(
+			trace.LinkFromContext(ctx, attribute.String("request.id", requestID))))
+	defer handlerSpan.End()
+
+	handlerSpan.SetAttributes(attribute.String("request.id", requestID))
+	parentSpan.SetAttributes(attribute.String("request.id", requestID))
+
+	receivedCtx = context.WithValue(receivedCtx, middleware.RequestIDKey, requestID)
+	log := log.WithReqIDFromCtx(receivedCtx, s.log)
+
+	// Extract the payload
+	var body []byte
+	if bodyStr, ok := message["body"].(string); ok {
+		body = []byte(bodyStr)
+	} else {
+		err := fmt.Errorf("unexpected body type %T in broadcast message", message["body"])
+		handlerSpan.RecordError(err)
+		handlerSpan.SetStatus(codes.Error, "unexpected body type")
+		return err
+	}
+
+	// Run handler
+	if err := s.handler(receivedCtx, body, log); err != nil {
+		handlerSpan.RecordError(err)
+		handlerSpan.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("broadcast handler error: %w", err)
+	}
+
+	return nil
+}
+
+func (s *redisSubscription) Close() {
+	if s.closed.Swap(true) {
+		return
+	}
+
+	if s.cancel != nil {
+		s.cancel()
 	}
 }

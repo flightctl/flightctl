@@ -39,34 +39,64 @@ func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
 	return m.recorder
 }
 
-// NewConsumer mocks base method.
-func (m *MockProvider) NewConsumer(queueName string) (Consumer, error) {
+// NewPubSubPublisher mocks base method.
+func (m *MockProvider) NewPubSubPublisher(channelName string) (PubSubPublisher, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewConsumer", queueName)
-	ret0, _ := ret[0].(Consumer)
+	ret := m.ctrl.Call(m, "NewPubSubPublisher", channelName)
+	ret0, _ := ret[0].(PubSubPublisher)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// NewConsumer indicates an expected call of NewConsumer.
-func (mr *MockProviderMockRecorder) NewConsumer(queueName any) *gomock.Call {
+// NewPubSubPublisher indicates an expected call of NewPubSubPublisher.
+func (mr *MockProviderMockRecorder) NewPubSubPublisher(channelName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewConsumer", reflect.TypeOf((*MockProvider)(nil).NewConsumer), queueName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewPubSubPublisher", reflect.TypeOf((*MockProvider)(nil).NewPubSubPublisher), channelName)
 }
 
-// NewPublisher mocks base method.
-func (m *MockProvider) NewPublisher(queueName string) (Publisher, error) {
+// NewPubSubSubscriber mocks base method.
+func (m *MockProvider) NewPubSubSubscriber(channelName string) (PubSubSubscriber, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewPublisher", queueName)
-	ret0, _ := ret[0].(Publisher)
+	ret := m.ctrl.Call(m, "NewPubSubSubscriber", channelName)
+	ret0, _ := ret[0].(PubSubSubscriber)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// NewPublisher indicates an expected call of NewPublisher.
-func (mr *MockProviderMockRecorder) NewPublisher(queueName any) *gomock.Call {
+// NewPubSubSubscriber indicates an expected call of NewPubSubSubscriber.
+func (mr *MockProviderMockRecorder) NewPubSubSubscriber(channelName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewPublisher", reflect.TypeOf((*MockProvider)(nil).NewPublisher), queueName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewPubSubSubscriber", reflect.TypeOf((*MockProvider)(nil).NewPubSubSubscriber), channelName)
+}
+
+// NewQueueConsumer mocks base method.
+func (m *MockProvider) NewQueueConsumer(queueName string) (QueueConsumer, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewQueueConsumer", queueName)
+	ret0, _ := ret[0].(QueueConsumer)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NewQueueConsumer indicates an expected call of NewQueueConsumer.
+func (mr *MockProviderMockRecorder) NewQueueConsumer(queueName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewQueueConsumer", reflect.TypeOf((*MockProvider)(nil).NewQueueConsumer), queueName)
+}
+
+// NewQueueProducer mocks base method.
+func (m *MockProvider) NewQueueProducer(queueName string) (QueueProducer, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewQueueProducer", queueName)
+	ret0, _ := ret[0].(QueueProducer)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NewQueueProducer indicates an expected call of NewQueueProducer.
+func (mr *MockProviderMockRecorder) NewQueueProducer(queueName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewQueueProducer", reflect.TypeOf((*MockProvider)(nil).NewQueueProducer), queueName)
 }
 
 // Stop mocks base method.
@@ -93,43 +123,43 @@ func (mr *MockProviderMockRecorder) Wait() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Wait", reflect.TypeOf((*MockProvider)(nil).Wait))
 }
 
-// MockConsumer is a mock of Consumer interface.
-type MockConsumer struct {
+// MockQueueConsumer is a mock of QueueConsumer interface.
+type MockQueueConsumer struct {
 	ctrl     *gomock.Controller
-	recorder *MockConsumerMockRecorder
+	recorder *MockQueueConsumerMockRecorder
 }
 
-// MockConsumerMockRecorder is the mock recorder for MockConsumer.
-type MockConsumerMockRecorder struct {
-	mock *MockConsumer
+// MockQueueConsumerMockRecorder is the mock recorder for MockQueueConsumer.
+type MockQueueConsumerMockRecorder struct {
+	mock *MockQueueConsumer
 }
 
-// NewMockConsumer creates a new mock instance.
-func NewMockConsumer(ctrl *gomock.Controller) *MockConsumer {
-	mock := &MockConsumer{ctrl: ctrl}
-	mock.recorder = &MockConsumerMockRecorder{mock}
+// NewMockQueueConsumer creates a new mock instance.
+func NewMockQueueConsumer(ctrl *gomock.Controller) *MockQueueConsumer {
+	mock := &MockQueueConsumer{ctrl: ctrl}
+	mock.recorder = &MockQueueConsumerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockConsumer) EXPECT() *MockConsumerMockRecorder {
+func (m *MockQueueConsumer) EXPECT() *MockQueueConsumerMockRecorder {
 	return m.recorder
 }
 
 // Close mocks base method.
-func (m *MockConsumer) Close() {
+func (m *MockQueueConsumer) Close() {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Close")
 }
 
 // Close indicates an expected call of Close.
-func (mr *MockConsumerMockRecorder) Close() *gomock.Call {
+func (mr *MockQueueConsumerMockRecorder) Close() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockConsumer)(nil).Close))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockQueueConsumer)(nil).Close))
 }
 
 // Consume mocks base method.
-func (m *MockConsumer) Consume(ctx context.Context, handler ConsumeHandler) error {
+func (m *MockQueueConsumer) Consume(ctx context.Context, handler ConsumeHandler) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Consume", ctx, handler)
 	ret0, _ := ret[0].(error)
@@ -137,48 +167,97 @@ func (m *MockConsumer) Consume(ctx context.Context, handler ConsumeHandler) erro
 }
 
 // Consume indicates an expected call of Consume.
-func (mr *MockConsumerMockRecorder) Consume(ctx, handler any) *gomock.Call {
+func (mr *MockQueueConsumerMockRecorder) Consume(ctx, handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Consume", reflect.TypeOf((*MockConsumer)(nil).Consume), ctx, handler)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Consume", reflect.TypeOf((*MockQueueConsumer)(nil).Consume), ctx, handler)
 }
 
-// MockPublisher is a mock of Publisher interface.
-type MockPublisher struct {
+// MockQueueProducer is a mock of QueueProducer interface.
+type MockQueueProducer struct {
 	ctrl     *gomock.Controller
-	recorder *MockPublisherMockRecorder
+	recorder *MockQueueProducerMockRecorder
 }
 
-// MockPublisherMockRecorder is the mock recorder for MockPublisher.
-type MockPublisherMockRecorder struct {
-	mock *MockPublisher
+// MockQueueProducerMockRecorder is the mock recorder for MockQueueProducer.
+type MockQueueProducerMockRecorder struct {
+	mock *MockQueueProducer
 }
 
-// NewMockPublisher creates a new mock instance.
-func NewMockPublisher(ctrl *gomock.Controller) *MockPublisher {
-	mock := &MockPublisher{ctrl: ctrl}
-	mock.recorder = &MockPublisherMockRecorder{mock}
+// NewMockQueueProducer creates a new mock instance.
+func NewMockQueueProducer(ctrl *gomock.Controller) *MockQueueProducer {
+	mock := &MockQueueProducer{ctrl: ctrl}
+	mock.recorder = &MockQueueProducerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockPublisher) EXPECT() *MockPublisherMockRecorder {
+func (m *MockQueueProducer) EXPECT() *MockQueueProducerMockRecorder {
 	return m.recorder
 }
 
 // Close mocks base method.
-func (m *MockPublisher) Close() {
+func (m *MockQueueProducer) Close() {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Close")
 }
 
 // Close indicates an expected call of Close.
-func (mr *MockPublisherMockRecorder) Close() *gomock.Call {
+func (mr *MockQueueProducerMockRecorder) Close() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockPublisher)(nil).Close))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockQueueProducer)(nil).Close))
+}
+
+// Enqueue mocks base method.
+func (m *MockQueueProducer) Enqueue(ctx context.Context, payload []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Enqueue", ctx, payload)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Enqueue indicates an expected call of Enqueue.
+func (mr *MockQueueProducerMockRecorder) Enqueue(ctx, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockQueueProducer)(nil).Enqueue), ctx, payload)
+}
+
+// MockPubSubPublisher is a mock of PubSubPublisher interface.
+type MockPubSubPublisher struct {
+	ctrl     *gomock.Controller
+	recorder *MockPubSubPublisherMockRecorder
+}
+
+// MockPubSubPublisherMockRecorder is the mock recorder for MockPubSubPublisher.
+type MockPubSubPublisherMockRecorder struct {
+	mock *MockPubSubPublisher
+}
+
+// NewMockPubSubPublisher creates a new mock instance.
+func NewMockPubSubPublisher(ctrl *gomock.Controller) *MockPubSubPublisher {
+	mock := &MockPubSubPublisher{ctrl: ctrl}
+	mock.recorder = &MockPubSubPublisherMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPubSubPublisher) EXPECT() *MockPubSubPublisherMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockPubSubPublisher) Close() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Close")
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockPubSubPublisherMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockPubSubPublisher)(nil).Close))
 }
 
 // Publish mocks base method.
-func (m *MockPublisher) Publish(ctx context.Context, payload []byte) error {
+func (m *MockPubSubPublisher) Publish(ctx context.Context, payload []byte) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Publish", ctx, payload)
 	ret0, _ := ret[0].(error)
@@ -186,7 +265,92 @@ func (m *MockPublisher) Publish(ctx context.Context, payload []byte) error {
 }
 
 // Publish indicates an expected call of Publish.
-func (mr *MockPublisherMockRecorder) Publish(ctx, payload any) *gomock.Call {
+func (mr *MockPubSubPublisherMockRecorder) Publish(ctx, payload any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPublisher)(nil).Publish), ctx, payload)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPubSubPublisher)(nil).Publish), ctx, payload)
+}
+
+// MockPubSubSubscriber is a mock of PubSubSubscriber interface.
+type MockPubSubSubscriber struct {
+	ctrl     *gomock.Controller
+	recorder *MockPubSubSubscriberMockRecorder
+}
+
+// MockPubSubSubscriberMockRecorder is the mock recorder for MockPubSubSubscriber.
+type MockPubSubSubscriberMockRecorder struct {
+	mock *MockPubSubSubscriber
+}
+
+// NewMockPubSubSubscriber creates a new mock instance.
+func NewMockPubSubSubscriber(ctrl *gomock.Controller) *MockPubSubSubscriber {
+	mock := &MockPubSubSubscriber{ctrl: ctrl}
+	mock.recorder = &MockPubSubSubscriberMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPubSubSubscriber) EXPECT() *MockPubSubSubscriberMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockPubSubSubscriber) Close() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Close")
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockPubSubSubscriberMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockPubSubSubscriber)(nil).Close))
+}
+
+// Subscribe mocks base method.
+func (m *MockPubSubSubscriber) Subscribe(ctx context.Context, handler PubSubHandler) (Subscription, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Subscribe", ctx, handler)
+	ret0, _ := ret[0].(Subscription)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Subscribe indicates an expected call of Subscribe.
+func (mr *MockPubSubSubscriberMockRecorder) Subscribe(ctx, handler any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Subscribe", reflect.TypeOf((*MockPubSubSubscriber)(nil).Subscribe), ctx, handler)
+}
+
+// MockSubscription is a mock of Subscription interface.
+type MockSubscription struct {
+	ctrl     *gomock.Controller
+	recorder *MockSubscriptionMockRecorder
+}
+
+// MockSubscriptionMockRecorder is the mock recorder for MockSubscription.
+type MockSubscriptionMockRecorder struct {
+	mock *MockSubscription
+}
+
+// NewMockSubscription creates a new mock instance.
+func NewMockSubscription(ctrl *gomock.Controller) *MockSubscription {
+	mock := &MockSubscription{ctrl: ctrl}
+	mock.recorder = &MockSubscriptionMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSubscription) EXPECT() *MockSubscriptionMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockSubscription) Close() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Close")
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockSubscriptionMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockSubscription)(nil).Close))
 }
