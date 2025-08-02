@@ -16,6 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+const longPollTimeout = 4 * time.Minute
+
 type Subscription = *ring_buffer.RingBuffer[*v1alpha1.Device]
 
 func NewSubscription() Subscription {
@@ -109,14 +111,17 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 
 	newDesired := &v1alpha1.Device{}
 
+	var cancel context.CancelFunc
 	startTime := time.Now()
+	ctx, cancel = context.WithTimeout(ctx, longPollTimeout)
+	defer cancel()
 	err := wait.ExponentialBackoff(n.backoff, func() (bool, error) {
 		return n.getRenderedFromManagementAPIWithRetry(ctx, n.lastKnownVersion, newDesired)
 	})
 
 	// log slow calls
 	duration := time.Since(startTime)
-	if duration > time.Minute {
+	if duration >= longPollTimeout {
 		n.log.Debugf("Dialing management API took: %v", duration)
 	}
 	if err != nil {

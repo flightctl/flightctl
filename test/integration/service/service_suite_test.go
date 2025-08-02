@@ -42,12 +42,12 @@ type ServiceTestSuite struct {
 	Handler service.Service
 
 	// Private implementation details – not needed by tests
-	cfg           *config.Config
-	dbName        string
-	ctrl          *gomock.Controller
-	mockPublisher *queues.MockPublisher
-	workerClient  worker_client.WorkerClient
-	caClient      *icrypto.CAClient
+	cfg               *config.Config
+	dbName            string
+	ctrl              *gomock.Controller
+	mockQueueProducer *queues.MockQueueProducer
+	workerClient      worker_client.WorkerClient
+	caClient          *icrypto.CAClient
 }
 
 // Setup performs common initialization for service tests
@@ -58,9 +58,9 @@ func (s *ServiceTestSuite) Setup() {
 	s.Store, s.cfg, s.dbName, _ = store.PrepareDBForUnitTests(s.Ctx, s.Log)
 
 	s.ctrl = gomock.NewController(GinkgoT())
-	s.mockPublisher = queues.NewMockPublisher(s.ctrl)
-	s.workerClient = worker_client.NewWorkerClient(s.mockPublisher, s.Log)
-	s.mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+	s.mockQueueProducer = queues.NewMockQueueProducer(s.ctrl)
+	s.workerClient = worker_client.NewWorkerClient(s.mockQueueProducer, s.Log)
+	s.mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, "localhost", 6379, "adminpass")
 	Expect(err).ToNot(HaveOccurred())

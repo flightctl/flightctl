@@ -55,15 +55,18 @@ type Device interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventCallback) (*api.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
+	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
+	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
+	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -588,27 +591,10 @@ func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
 
 	for _, deleteKey := range deleteKeys {
 		delete(existingAnnotations, deleteKey)
-	}
-	newConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
-
-	// Changing the console annotation requires bumping the renderedVersion annotation
-	if existingConsoleAnnotation != newConsoleAnnotation {
-		var deviceStatus *api.DeviceStatus
-		if existingRecord.Status != nil {
-			deviceStatus = &existingRecord.Status.Data
-		}
-
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
-		if err != nil {
-			return false, err
-		}
-
-		existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	}
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -632,11 +618,49 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
+func (s *DeviceStore) healthcheck(ctx context.Context, orgId uuid.UUID, names []string) (bool, error) {
+	result := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId, names).Update(
+		"status", gorm.Expr(fmt.Sprintf(`jsonb_set(status, '{lastSeen}', '"%s"', true)`, time.Now().Format(time.RFC3339))))
+	err := ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
+}
+
+func (s *DeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
+	return retryUpdate(func() (bool, error) {
+		return s.healthcheck(ctx, orgId, names)
+	})
+}
+
+func (s *DeviceStore) setOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) (bool, error) {
+	err := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? AND owner = ? AND (status->'updated'->>'status' = ?)",
+		orgId, owner, api.DeviceUpdatedStatusUpToDate).Updates(map[string]any{
+		"status": gorm.Expr(`jsonb_set(jsonb_set(status, '{updated,status}', to_jsonb(?::text)),'{updated,info}', to_jsonb(?::text))`,
+			api.DeviceUpdatedStatusOutOfDate, api.DeviceOutOfSyncWithFleetText),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	}).Error
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), ErrorFromGormError(err)
+	}
+	return false, nil
+}
+
+func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return retryUpdate(func() (bool, error) {
+		return s.setOutOfDate(ctx, orgId, owner)
+	})
+}
+
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
-		return false, ErrorFromGormError(result.Error)
+		return false, "", ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
@@ -647,7 +671,7 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 
 	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 
 	existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
@@ -670,18 +694,26 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 
 	err = ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return strings.Contains(err.Error(), "deadlock"), "", err
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return true, "", flterrors.ErrNoRowsUpdated
 	}
-	return false, nil
+	return false, nextRenderedVersion, nil
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {
-	return retryUpdate(func() (bool, error) {
-		return s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
-	})
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (string, error) {
+	var rv string
+
+	wrapper := func() (bool, error) {
+		var retry bool
+		var err error
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+		return retry, err
+	}
+
+	err := retryUpdate(wrapper)
+	return rv, err
 }
 
 func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error) {
@@ -694,6 +726,18 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	}
 
 	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
+}
+
+func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+	deviceModel := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.getDB(ctx).Take(&deviceModel)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
+	}
+
+	return deviceModel.ToApiResource(model.WithoutServiceConditions())
 }
 
 func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
