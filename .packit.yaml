@@ -44,13 +44,15 @@ jobs:
       failure_comment:
         message: "/packit build"
 
-
   - job: copr_build
     trigger: release
     owner: "@redhat-et"
     project: flightctl
     preserve_project: True
     enable_net: True # this is necessary for go modules to download the sources
+    actions:
+      get-current-version:
+        - bash -c 'git describe --tags --match "v*" | sed "s/^v//; s/-/~/g"'
     targets:
       - fedora-41-aarch64
       - fedora-41-x86_64
