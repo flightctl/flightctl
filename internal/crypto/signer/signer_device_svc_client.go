@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	api "github.com/flightctl/flightctl/api/v1alpha1"
-	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 )
 
 const signerDeviceSvcClientExpiryDays int32 = 7
@@ -25,7 +22,7 @@ func (s *SignerDeviceSvcClient) Name() string {
 	return s.name
 }
 
-func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request api.CertificateSigningRequest) error {
+func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request *Request) error {
 	cfg := s.ca.Config()
 
 	signer := s.ca.PeerCertificateSignerFromCtx(ctx)
@@ -49,38 +46,30 @@ func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request api.Certific
 		return fmt.Errorf("failed to extract device fingerprint from peer certificate CN: %w", err)
 	}
 
-	parsedCSR, err := fccrypto.ParseCSR(request.Spec.Request)
-	if err != nil {
-		return fmt.Errorf("failed to parse CSR: %w", err)
-	}
-
-	if !strings.HasSuffix(parsedCSR.Subject.CommonName, fmt.Sprintf("-%s", fingerprint)) {
-		return fmt.Errorf("CSR CommonName %q does not end with device fingerprint suffix -%s", parsedCSR.Subject.CommonName, fingerprint)
+	x509CSR := request.X509()
+	if !strings.HasSuffix(x509CSR.Subject.CommonName, fmt.Sprintf("-%s", fingerprint)) {
+		return fmt.Errorf("CSR CommonName %q does not end with device fingerprint suffix -%s", x509CSR.Subject.CommonName, fingerprint)
 	}
 
 	return nil
 }
 
-func (s *SignerDeviceSvcClient) Sign(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
-	cert, err := fccrypto.ParseCSR(request.Spec.Request)
-	if err != nil {
-		return nil, err
-	}
-
-	lastHyphen := strings.LastIndex(cert.Subject.CommonName, "-")
+func (s *SignerDeviceSvcClient) Sign(ctx context.Context, request *Request) ([]byte, error) {
+	x509CSR := request.X509()
+	lastHyphen := strings.LastIndex(x509CSR.Subject.CommonName, "-")
 	if lastHyphen == -1 {
-		return nil, fmt.Errorf("invalid CN format: no hyphen found in %q", cert.Subject.CommonName)
+		return nil, fmt.Errorf("invalid CN format: no hyphen found in %q", x509CSR.Subject.CommonName)
 	}
-	fingerprint := cert.Subject.CommonName[lastHyphen+1:]
+	fingerprint := x509CSR.Subject.CommonName[lastHyphen+1:]
 
 	expirySeconds := signerDeviceSvcClientExpiryDays * 24 * 60 * 60
-	if request.Spec.ExpirationSeconds != nil && *request.Spec.ExpirationSeconds < expirySeconds {
-		expirySeconds = *request.Spec.ExpirationSeconds
+	if request.API.Spec.ExpirationSeconds != nil && *request.API.Spec.ExpirationSeconds < expirySeconds {
+		expirySeconds = *request.API.Spec.ExpirationSeconds
 	}
 
 	return s.ca.IssueRequestedClientCertificate(
 		ctx,
-		cert,
+		&x509CSR,
 		int(expirySeconds),
 		WithExtension(OIDOrgID, NullOrgId.String()),
 		WithExtension(OIDDeviceFingerprint, fingerprint),

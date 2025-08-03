@@ -209,11 +209,16 @@ func (caClient *CAClient) MakeClientCertificate(ctx context.Context, certFile, k
 		return nil, fmt.Errorf("signer %q not found", caClient.Cfg.ClientBootstrapSignerName)
 	}
 
-	if err := s.Verify(ctx, req); err != nil {
+	request, err := signer.NewRequest(&req)
+	if err != nil {
 		return nil, err
 	}
 
-	signedCert, err := s.Sign(ctx, req)
+	if err := s.Verify(ctx, request); err != nil {
+		return nil, err
+	}
+
+	signedCert, err := s.Sign(ctx, request)
 	if err != nil {
 		return nil, err
 	}

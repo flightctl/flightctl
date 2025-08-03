@@ -7,16 +7,14 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/util/validation"
-	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 )
 
 type Signer interface {
 	Name() string
-	Verify(ctx context.Context, csr api.CertificateSigningRequest) error
-	Sign(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error)
+	Verify(ctx context.Context, request *Request) error
+	Sign(ctx context.Context, request *Request) ([]byte, error)
 }
 
 type RestrictedSigner interface {
@@ -107,8 +105,8 @@ type chainSignerCA struct {
 type chainSigner struct {
 	next   Signer
 	name   func() string
-	verify func(context.Context, api.CertificateSigningRequest) error
-	sign   func(context.Context, api.CertificateSigningRequest) ([]byte, error)
+	verify func(context.Context, *Request) error
+	sign   func(context.Context, *Request) ([]byte, error)
 }
 
 func (s *chainSignerCA) Config() *ca.Config {
@@ -144,7 +142,7 @@ func (s *chainSigner) Name() string {
 	return s.next.Name()
 }
 
-func (s *chainSigner) Verify(ctx context.Context, request api.CertificateSigningRequest) error {
+func (s *chainSigner) Verify(ctx context.Context, request *Request) error {
 	if s.verify != nil {
 		return s.verify(ctx, request)
 	}
@@ -152,7 +150,7 @@ func (s *chainSigner) Verify(ctx context.Context, request api.CertificateSigning
 
 }
 
-func (s *chainSigner) Sign(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
+func (s *chainSigner) Sign(ctx context.Context, request *Request) ([]byte, error) {
 	if s.sign != nil {
 		return s.sign(ctx, request)
 	}
@@ -162,15 +160,15 @@ func (s *chainSigner) Sign(ctx context.Context, request api.CertificateSigningRe
 func WithSignerNameValidation(s Signer) Signer {
 	return &chainSigner{
 		next: s,
-		verify: func(ctx context.Context, request api.CertificateSigningRequest) error {
-			if request.Spec.SignerName != s.Name() {
-				return fmt.Errorf("signer name mismatch: got %q, expected %q", request.Spec.SignerName, s.Name())
+		verify: func(ctx context.Context, request *Request) error {
+			if request.API.Spec.SignerName != s.Name() {
+				return fmt.Errorf("signer name mismatch: got %q, expected %q", request.API.Spec.SignerName, s.Name())
 			}
 			return s.Verify(ctx, request)
 		},
-		sign: func(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
-			if request.Spec.SignerName != s.Name() {
-				return nil, fmt.Errorf("signer name mismatch: got %q, expected %q", request.Spec.SignerName, s.Name())
+		sign: func(ctx context.Context, request *Request) ([]byte, error) {
+			if request.API.Spec.SignerName != s.Name() {
+				return nil, fmt.Errorf("signer name mismatch: got %q, expected %q", request.API.Spec.SignerName, s.Name())
 			}
 			return s.Sign(ctx, request)
 		},
@@ -180,9 +178,9 @@ func WithSignerNameValidation(s Signer) Signer {
 func WithCertificateReuse(s Signer) Signer {
 	return &chainSigner{
 		next: s,
-		sign: func(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
-			if request.Status != nil && request.Status.Certificate != nil {
-				return *request.Status.Certificate, nil
+		sign: func(ctx context.Context, request *Request) ([]byte, error) {
+			if request.API.Status != nil && request.API.Status.Certificate != nil {
+				return *request.API.Status.Certificate, nil
 			}
 			return s.Sign(ctx, request)
 		},
@@ -192,14 +190,14 @@ func WithCertificateReuse(s Signer) Signer {
 func WithCSRValidation(s Signer) Signer {
 	return &chainSigner{
 		next: s,
-		verify: func(ctx context.Context, request api.CertificateSigningRequest) error {
-			if errs := validation.ValidateCSR(request.Spec.Request); len(errs) > 0 {
+		verify: func(ctx context.Context, request *Request) error {
+			if errs := validation.ValidateCSR(request.API.Spec.Request); len(errs) > 0 {
 				return errors.Join(errs...)
 			}
 			return s.Verify(ctx, request)
 		},
-		sign: func(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
-			if errs := validation.ValidateCSR(request.Spec.Request); len(errs) > 0 {
+		sign: func(ctx context.Context, request *Request) ([]byte, error) {
+			if errs := validation.ValidateCSR(request.API.Spec.Request); len(errs) > 0 {
 				return nil, errors.Join(errs...)
 			}
 			return s.Sign(ctx, request)
@@ -224,7 +222,7 @@ func WithSignerNameExtension(s func(CA) Signer, ca CA) Signer {
 	})
 	return &chainSigner{
 		next: inst,
-		sign: func(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
+		sign: func(ctx context.Context, request *Request) ([]byte, error) {
 			// Inject signer name into context before Sign calls IssueRequestedClientCertificate
 			ctx = context.WithValue(ctx, CertificateSignerNameCtxKey, inst.Name())
 			return inst.Sign(ctx, request)
@@ -245,24 +243,16 @@ func WithSignerRestrictedPrefixes(restrictedPrefixes map[string]Signer, s Signer
 
 	return &chainSigner{
 		next: s,
-		verify: func(ctx context.Context, request api.CertificateSigningRequest) error {
-			cert, err := fccrypto.ParseCSR(request.Spec.Request)
-			if err != nil {
-				return fmt.Errorf("invalid CSR data: %w", err)
-			}
-
-			if err := checkPrefixes(cert); err != nil {
+		verify: func(ctx context.Context, request *Request) error {
+			x509CSR := request.X509()
+			if err := checkPrefixes(&x509CSR); err != nil {
 				return err
 			}
 			return s.Verify(ctx, request)
 		},
-		sign: func(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
-			cert, err := fccrypto.ParseCSR(request.Spec.Request)
-			if err != nil {
-				return nil, fmt.Errorf("invalid CSR data: %w", err)
-			}
-
-			if err := checkPrefixes(cert); err != nil {
+		sign: func(ctx context.Context, request *Request) ([]byte, error) {
+			x509CSR := request.X509()
+			if err := checkPrefixes(&x509CSR); err != nil {
 				return nil, err
 			}
 			return s.Sign(ctx, request)

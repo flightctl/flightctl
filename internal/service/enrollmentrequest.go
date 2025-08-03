@@ -9,6 +9,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
+	s "github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -28,7 +29,12 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
 	}
 
-	certData, err := signer.Sign(ctx, csr)
+	request, err := s.NewRequest(&csr)
+	if err != nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
+	}
+
+	certData, err := signer.Sign(ctx, request)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
@@ -106,7 +112,12 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
 	}
 
-	if err := signer.Verify(ctx, csr); err != nil {
+	request, err := s.NewRequest(&csr)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+
+	if err := signer.Verify(ctx, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -170,7 +181,12 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
 	}
 
-	if err := signer.Verify(ctx, csr); err != nil {
+	request, err := s.NewRequest(&csr)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+
+	if err := signer.Verify(ctx, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -211,7 +227,12 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
 	}
 
-	if err := signer.Verify(ctx, csr); err != nil {
+	request, err := s.NewRequest(&csr)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+
+	if err := signer.Verify(ctx, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
