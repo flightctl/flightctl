@@ -321,6 +321,57 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 		)
 	})
 
+	// DELETE /api/v1/enrollmentrequests/{name}
+	Context("Delete ER operations", func() {
+		It("should allow deletion when no device exists", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			By("creating initial EnrollmentRequest")
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("deleting the EnrollmentRequest when no device exists")
+			status = suite.Handler.DeleteEnrollmentRequest(suite.Ctx, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying the EnrollmentRequest is deleted")
+			_, status = suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
+		})
+
+		It("should prevent deletion when live device exists", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			By("creating initial EnrollmentRequest")
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("creating a device with the same name")
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: &erName,
+				},
+			}
+			_, deviceStatus := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(deviceStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			By("attempting to delete the EnrollmentRequest")
+			status = suite.Handler.DeleteEnrollmentRequest(suite.Ctx, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
+			Expect(status.Message).To(ContainSubstring("device exists"))
+
+			By("verifying the EnrollmentRequest still exists")
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(retrieved).ToNot(BeNil())
+		})
+
+	})
+
 	// POST /api/v1/enrollmentrequests/{name}/approval
 	Context("Approval operations", func() {
 		It("should handle approval operations and protect approval immutability", func() {
