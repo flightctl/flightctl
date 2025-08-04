@@ -89,7 +89,7 @@ func AddOrgIDToCtx(resolver *org.Resolver, extractor OrgIDExtractor) func(http.H
 			}
 
 			// Validate the organization ID
-			if err := resolver.Validate(ctx, orgID); err != nil {
+			if err := resolver.EnsureExists(ctx, orgID); err != nil {
 				if errors.Is(err, flterrors.ErrResourceNotFound) {
 					http.Error(w, fmt.Sprintf("Organization not found: %s", orgID), http.StatusNotFound)
 					return

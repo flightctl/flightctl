@@ -52,10 +52,9 @@ func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 	return csr, nil
 }
 
-// GetExtensionValueFromCSR returns the string value stored in the given extension
-// (identified by its ASN.1 OID) inside the provided x509.CertificateRequest. The
-// function searches both Extensions and ExtraExtensions slices. If the extension
-// is not found, or if unmarshalling fails, an error is returned.
+// GetExtensionValueFromCSR retrieves the raw value of the extension identified
+// by oid from csr, searching both Extensions and ExtraExtensions. It returns
+// an error if the extension is missing.
 func GetExtensionValueFromCSR(csr *x509.CertificateRequest, oid asn1.ObjectIdentifier) ([]byte, error) {
 	for _, ext := range append(csr.Extensions, csr.ExtraExtensions...) {
 		if ext.Id.Equal(oid) {

@@ -32,10 +32,10 @@ func NewResolver(s OrgLookup, ttl time.Duration) *Resolver {
 	return &Resolver{store: s, cache: c, ttl: ttl}
 }
 
-// Validate checks that the given organization ID exists. It caches positive
+// EnsureExists checks that the given organization ID exists. It caches positive
 // look-ups according to the configured TTL. Failed validations are not cached,
 // ensuring that newly created organizations are immediately accessible.
-func (r *Resolver) Validate(ctx context.Context, id uuid.UUID) error {
+func (r *Resolver) EnsureExists(ctx context.Context, id uuid.UUID) error {
 	if item := r.cache.Get(id); item != nil {
 		return nil
 	}
