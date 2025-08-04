@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 )
 
@@ -25,7 +26,7 @@ func (s *SignerDeviceEnrollment) Name() string {
 	return s.name
 }
 
-func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request *Request) error {
+func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request SignRequest) error {
 	cfg := s.ca.Config()
 
 	// Check if the client presented a peer certificate during the mTLS handshake.
@@ -47,10 +48,10 @@ func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request *Request) e
 	return nil
 }
 
-func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request *Request) ([]byte, error) {
+func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 	cfg := s.ca.Config()
 
-	if request.API.Metadata.Name == nil {
+	if request.ResourceName() == nil {
 		return nil, fmt.Errorf("request is missing metadata.name")
 	}
 
@@ -60,7 +61,7 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request *Request) ([]
 		return nil, fmt.Errorf("invalid CN supplied in CSR: %w", err)
 	}
 
-	desired, err := CNFromDeviceFingerprint(cfg, *request.API.Metadata.Name)
+	desired, err := CNFromDeviceFingerprint(cfg, *request.ResourceName())
 	if err != nil {
 		return nil, fmt.Errorf("error setting CN in CSR: %w", err)
 	}
@@ -72,8 +73,8 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request *Request) ([]
 	x509CSR.Subject.CommonName = desired
 
 	expirySeconds := signerDeviceEnrollmentExpiryDays * 24 * 60 * 60
-	if request.API.Spec.ExpirationSeconds != nil && *request.API.Spec.ExpirationSeconds < expirySeconds {
-		expirySeconds = *request.API.Spec.ExpirationSeconds
+	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
+		expirySeconds = *request.ExpirationSeconds()
 	}
 
 	return s.ca.IssueRequestedClientCertificate(

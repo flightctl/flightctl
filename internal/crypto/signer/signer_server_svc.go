@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"strings"
 )
@@ -22,7 +23,7 @@ func (s *SignerServerSvc) Name() string {
 	return s.name
 }
 
-func (s *SignerServerSvc) Verify(ctx context.Context, request *Request) error {
+func (s *SignerServerSvc) Verify(ctx context.Context, request SignRequest) error {
 	// For server service certificates, we require CLI authentication
 	// Users must authenticate through the CLI (same as other operations)
 
@@ -51,7 +52,7 @@ func (s *SignerServerSvc) Verify(ctx context.Context, request *Request) error {
 	return nil
 }
 
-func (s *SignerServerSvc) Sign(ctx context.Context, request *Request) ([]byte, error) {
+func (s *SignerServerSvc) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 
 	if _, err := PeerCertificateFromCtx(ctx); err == nil {
 		return nil, fmt.Errorf("server csr is not allowed with peer certificate")
@@ -70,8 +71,8 @@ func (s *SignerServerSvc) Sign(ctx context.Context, request *Request) ([]byte, e
 	}
 
 	expirySeconds := signerServerSvcExpiryDays * 24 * 60 * 60
-	if request.API.Spec.ExpirationSeconds != nil && *request.API.Spec.ExpirationSeconds < expirySeconds {
-		expirySeconds = *request.API.Spec.ExpirationSeconds
+	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
+		expirySeconds = *request.ExpirationSeconds()
 	}
 
 	return s.ca.IssueRequestedServerCertificate(

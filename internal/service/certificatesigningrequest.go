@@ -7,7 +7,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	s "github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 )
@@ -41,25 +41,19 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
-	signer := h.ca.GetSigner(csr.Spec.SignerName)
-	if signer == nil {
-		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("No signer found for signer name %q", csr.Spec.SignerName))
-		return
-	}
-
-	request, err := s.NewRequest(csr)
+	request, err := signer.NewSignRequestFromCertificateSigningRequest(csr)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
 		return
 	}
 
-	signedCert, err := signer.Sign(ctx, request)
+	certPEM, err := signer.SignAndEncodeCertificate(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
 		return
 	}
 
-	csr.Status.Certificate = &signedCert
+	csr.Status.Certificate = &certPEM
 	if _, err := h.store.CertificateSigningRequest().UpdateStatus(ctx, orgId, csr); err != nil {
 		h.log.WithError(err).Error("failed to set signed certificate")
 	}
@@ -110,17 +104,12 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	signer := h.ca.GetSigner(csr.Spec.SignerName)
-	if signer == nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
-	}
-
-	request, err := s.NewRequest(&csr)
+	request, err := signer.NewSignRequestFromCertificateSigningRequest(&csr)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.Verify(ctx, request); err != nil {
+	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -188,17 +177,12 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	signer := h.ca.GetSigner(newObj.Spec.SignerName)
-	if signer == nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", newObj.Spec.SignerName))
-	}
-
-	request, err := s.NewRequest(newObj)
+	request, err := signer.NewSignRequestFromCertificateSigningRequest(newObj)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.Verify(ctx, request); err != nil {
+	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -243,17 +227,12 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	signer := h.ca.GetSigner(csr.Spec.SignerName)
-	if signer == nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
-	}
-
-	request, err := s.NewRequest(&csr)
+	request, err := signer.NewSignRequestFromCertificateSigningRequest(&csr)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.Verify(ctx, request); err != nil {
+	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 

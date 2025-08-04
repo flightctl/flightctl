@@ -9,7 +9,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
-	s "github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -23,24 +23,20 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
 
-	csr := enrollmentRequestToCSR(ca, enrollmentRequest)
-	signer := ca.GetSigner(csr.Spec.SignerName)
-	if signer == nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
-	}
+	signerName := ca.Cfg.DeviceEnrollmentSignerName
 
-	request, err := s.NewRequest(&csr)
+	request, err := signer.NewSignRequestFromEnrollment(enrollmentRequest, signerName)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
 
-	certData, err := signer.Sign(ctx, request)
+	certPEM, err := signer.SignAndEncodeCertificate(ctx, ca, request)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
 
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
-		Certificate: lo.ToPtr(string(certData)),
+		Certificate: lo.ToPtr(string(certPEM)),
 		Conditions:  []api.Condition{},
 		Approval:    approval,
 	}
@@ -106,18 +102,14 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	csr := enrollmentRequestToCSR(h.ca, &er)
-	signer := h.ca.GetSigner(csr.Spec.SignerName)
-	if signer == nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
-	}
+	signerName := h.ca.Cfg.DeviceEnrollmentSignerName
 
-	request, err := s.NewRequest(&csr)
+	request, err := signer.NewSignRequestFromEnrollment(&er, signerName)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.Verify(ctx, request); err != nil {
+	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -175,18 +167,14 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	csr := enrollmentRequestToCSR(h.ca, &er)
-	signer := h.ca.GetSigner(csr.Spec.SignerName)
-	if signer == nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
-	}
+	signerName := h.ca.Cfg.DeviceEnrollmentSignerName
 
-	request, err := s.NewRequest(&csr)
+	request, err := signer.NewSignRequestFromEnrollment(&er, signerName)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.Verify(ctx, request); err != nil {
+	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -221,18 +209,14 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	csr := enrollmentRequestToCSR(h.ca, newObj)
-	signer := h.ca.GetSigner(csr.Spec.SignerName)
-	if signer == nil {
-		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
-	}
+	signerName := h.ca.Cfg.DeviceEnrollmentSignerName
 
-	request, err := s.NewRequest(&csr)
+	request, err := signer.NewSignRequestFromEnrollment(newObj, signerName)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.Verify(ctx, request); err != nil {
+	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -349,20 +333,6 @@ func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, e
 		return false, nil
 	}
 	return dev != nil, err
-}
-
-func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {
-	return api.CertificateSigningRequest{
-		ApiVersion: "v1alpha1",
-		Kind:       "CertificateSigningRequest",
-		Metadata: api.ObjectMeta{
-			Name: enrollmentRequest.Metadata.Name,
-		},
-		Spec: api.CertificateSigningRequestSpec{
-			Request:    []byte(enrollmentRequest.Spec.Csr),
-			SignerName: ca.Cfg.DeviceEnrollmentSignerName,
-		},
-	}
 }
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events

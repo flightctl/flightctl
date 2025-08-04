@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -23,7 +24,7 @@ func (s *SignerClientBootstrap) Name() string {
 	return s.name
 }
 
-func (s *SignerClientBootstrap) Verify(ctx context.Context, request *Request) error {
+func (s *SignerClientBootstrap) Verify(ctx context.Context, request SignRequest) error {
 	// We are about to expose CreateCertificateSigningRequest to agents.
 	// Currently, there is no code in the agent that handles this flow for issuing bootstrap certificates.
 	// For safety, we do not allow client certificates (issued by the system) to request bootstrap certificates at this time.
@@ -35,10 +36,10 @@ func (s *SignerClientBootstrap) Verify(ctx context.Context, request *Request) er
 	return nil
 }
 
-func (s *SignerClientBootstrap) Sign(ctx context.Context, request *Request) ([]byte, error) {
+func (s *SignerClientBootstrap) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 	cfg := s.ca.Config()
 
-	if request.API.Metadata.Name == nil {
+	if request.ResourceName() == nil {
 		return nil, fmt.Errorf("request is missing metadata.name")
 	}
 
@@ -50,24 +51,17 @@ func (s *SignerClientBootstrap) Sign(ctx context.Context, request *Request) ([]b
 	u := x509CSR.Subject.CommonName
 
 	// Once we move all prefixes/name formation to the client this can become a simple
-	// comparison of u and *request.Api.Metadata.Name
-
-	if BootstrapCNFromName(cfg, u) != BootstrapCNFromName(cfg, *request.API.Metadata.Name) {
-		return nil, fmt.Errorf("%w - CN %s Metadata %s mismatch", flterrors.ErrSignCert, u, *request.API.Metadata.Name)
+	if BootstrapCNFromName(cfg, u) != BootstrapCNFromName(cfg, *request.ResourceName()) {
+		return nil, fmt.Errorf("%w - CN %s Metadata %s mismatch", flterrors.ErrSignCert, u, *request.ResourceName())
 	}
 
 	// Create a copy to modify the CN
 	x509CSR.Subject.CommonName = BootstrapCNFromName(cfg, u)
 
 	expiry := DefaultEnrollmentCertExpirySeconds
-	if request.API.Spec.ExpirationSeconds != nil {
-		expiry = *request.API.Spec.ExpirationSeconds
+	if request.ExpirationSeconds() != nil {
+		expiry = *request.ExpirationSeconds()
 	}
 
-	certData, err := s.ca.IssueRequestedClientCertificate(ctx, &x509CSR, int(expiry))
-	if err != nil {
-		return nil, err
-	}
-
-	return certData, nil
+	return s.ca.IssueRequestedClientCertificate(ctx, &x509CSR, int(expiry))
 }

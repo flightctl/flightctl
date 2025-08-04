@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"strings"
 )
@@ -22,7 +23,7 @@ func (s *SignerDeviceSvcClient) Name() string {
 	return s.name
 }
 
-func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request *Request) error {
+func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request SignRequest) error {
 	cfg := s.ca.Config()
 
 	signer := s.ca.PeerCertificateSignerFromCtx(ctx)
@@ -54,7 +55,7 @@ func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request *Request) er
 	return nil
 }
 
-func (s *SignerDeviceSvcClient) Sign(ctx context.Context, request *Request) ([]byte, error) {
+func (s *SignerDeviceSvcClient) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 	x509CSR := request.X509()
 	lastHyphen := strings.LastIndex(x509CSR.Subject.CommonName, "-")
 	if lastHyphen == -1 {
@@ -63,8 +64,8 @@ func (s *SignerDeviceSvcClient) Sign(ctx context.Context, request *Request) ([]b
 	fingerprint := x509CSR.Subject.CommonName[lastHyphen+1:]
 
 	expirySeconds := signerDeviceSvcClientExpiryDays * 24 * 60 * 60
-	if request.API.Spec.ExpirationSeconds != nil && *request.API.Spec.ExpirationSeconds < expirySeconds {
-		expirySeconds = *request.API.Spec.ExpirationSeconds
+	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
+		expirySeconds = *request.ExpirationSeconds()
 	}
 
 	return s.ca.IssueRequestedClientCertificate(

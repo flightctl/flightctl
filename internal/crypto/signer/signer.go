@@ -13,8 +13,8 @@ import (
 
 type Signer interface {
 	Name() string
-	Verify(ctx context.Context, request *Request) error
-	Sign(ctx context.Context, request *Request) ([]byte, error)
+	Verify(ctx context.Context, request SignRequest) error
+	Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error)
 }
 
 type RestrictedSigner interface {
@@ -25,8 +25,8 @@ type CA interface {
 	Config() *ca.Config
 	GetSigner(name string) Signer
 	PeerCertificateSignerFromCtx(ctx context.Context) Signer
-	IssueRequestedClientCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error)
-	IssueRequestedServerCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error)
+	IssueRequestedClientCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) (*x509.Certificate, error)
+	IssueRequestedServerCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) (*x509.Certificate, error)
 }
 
 type CASigners struct {
@@ -98,15 +98,15 @@ func (s *CASigners) GetSigner(name string) Signer {
 
 type chainSignerCA struct {
 	next                            CA
-	issueRequestedClientCertificate func(context.Context, *x509.CertificateRequest, int, ...certOption) ([]byte, error)
-	issueRequestedServerCertificate func(context.Context, *x509.CertificateRequest, int, ...certOption) ([]byte, error)
+	issueRequestedClientCertificate func(context.Context, *x509.CertificateRequest, int, ...certOption) (*x509.Certificate, error)
+	issueRequestedServerCertificate func(context.Context, *x509.CertificateRequest, int, ...certOption) (*x509.Certificate, error)
 }
 
 type chainSigner struct {
 	next   Signer
 	name   func() string
-	verify func(context.Context, *Request) error
-	sign   func(context.Context, *Request) ([]byte, error)
+	verify func(context.Context, SignRequest) error
+	sign   func(context.Context, SignRequest) (*x509.Certificate, error)
 }
 
 func (s *chainSignerCA) Config() *ca.Config {
@@ -121,14 +121,14 @@ func (s *chainSignerCA) PeerCertificateSignerFromCtx(ctx context.Context) Signer
 	return s.next.PeerCertificateSignerFromCtx(ctx)
 }
 
-func (s *chainSignerCA) IssueRequestedClientCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error) {
+func (s *chainSignerCA) IssueRequestedClientCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) (*x509.Certificate, error) {
 	if s.issueRequestedClientCertificate != nil {
 		return s.issueRequestedClientCertificate(ctx, csr, expirySeconds, opts...)
 	}
 	return s.next.IssueRequestedClientCertificate(ctx, csr, expirySeconds, opts...)
 }
 
-func (s *chainSignerCA) IssueRequestedServerCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error) {
+func (s *chainSignerCA) IssueRequestedServerCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) (*x509.Certificate, error) {
 	if s.issueRequestedServerCertificate != nil {
 		return s.issueRequestedServerCertificate(ctx, csr, expirySeconds, opts...)
 	}
@@ -142,15 +142,14 @@ func (s *chainSigner) Name() string {
 	return s.next.Name()
 }
 
-func (s *chainSigner) Verify(ctx context.Context, request *Request) error {
+func (s *chainSigner) Verify(ctx context.Context, request SignRequest) error {
 	if s.verify != nil {
 		return s.verify(ctx, request)
 	}
 	return s.next.Verify(ctx, request)
-
 }
 
-func (s *chainSigner) Sign(ctx context.Context, request *Request) ([]byte, error) {
+func (s *chainSigner) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 	if s.sign != nil {
 		return s.sign(ctx, request)
 	}
@@ -160,15 +159,15 @@ func (s *chainSigner) Sign(ctx context.Context, request *Request) ([]byte, error
 func WithSignerNameValidation(s Signer) Signer {
 	return &chainSigner{
 		next: s,
-		verify: func(ctx context.Context, request *Request) error {
-			if request.API.Spec.SignerName != s.Name() {
-				return fmt.Errorf("signer name mismatch: got %q, expected %q", request.API.Spec.SignerName, s.Name())
+		verify: func(ctx context.Context, request SignRequest) error {
+			if request.SignerName() != s.Name() {
+				return fmt.Errorf("signer name mismatch: got %q, expected %q", request.SignerName(), s.Name())
 			}
 			return s.Verify(ctx, request)
 		},
-		sign: func(ctx context.Context, request *Request) ([]byte, error) {
-			if request.API.Spec.SignerName != s.Name() {
-				return nil, fmt.Errorf("signer name mismatch: got %q, expected %q", request.API.Spec.SignerName, s.Name())
+		sign: func(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
+			if request.SignerName() != s.Name() {
+				return nil, fmt.Errorf("signer name mismatch: got %q, expected %q", request.SignerName(), s.Name())
 			}
 			return s.Sign(ctx, request)
 		},
@@ -178,9 +177,9 @@ func WithSignerNameValidation(s Signer) Signer {
 func WithCertificateReuse(s Signer) Signer {
 	return &chainSigner{
 		next: s,
-		sign: func(ctx context.Context, request *Request) ([]byte, error) {
-			if request.API.Status != nil && request.API.Status.Certificate != nil {
-				return *request.API.Status.Certificate, nil
+		sign: func(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
+			if cert, ok := request.IssuedCertificate(); ok {
+				return cert, nil
 			}
 			return s.Sign(ctx, request)
 		},
@@ -190,14 +189,16 @@ func WithCertificateReuse(s Signer) Signer {
 func WithCSRValidation(s Signer) Signer {
 	return &chainSigner{
 		next: s,
-		verify: func(ctx context.Context, request *Request) error {
-			if errs := validation.ValidateCSR(request.API.Spec.Request); len(errs) > 0 {
+		verify: func(ctx context.Context, request SignRequest) error {
+			x509CSR := request.X509()
+			if errs := validation.ValidateX509CSR(&x509CSR); len(errs) > 0 {
 				return errors.Join(errs...)
 			}
 			return s.Verify(ctx, request)
 		},
-		sign: func(ctx context.Context, request *Request) ([]byte, error) {
-			if errs := validation.ValidateCSR(request.API.Spec.Request); len(errs) > 0 {
+		sign: func(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
+			x509CSR := request.X509()
+			if errs := validation.ValidateX509CSR(&x509CSR); len(errs) > 0 {
 				return nil, errors.Join(errs...)
 			}
 			return s.Sign(ctx, request)
@@ -212,7 +213,7 @@ const CertificateSignerNameCtxKey ctxKey = "certificate_signer"
 func WithSignerNameExtension(s func(CA) Signer, ca CA) Signer {
 	inst := s(&chainSignerCA{
 		next: ca,
-		issueRequestedClientCertificate: func(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) ([]byte, error) {
+		issueRequestedClientCertificate: func(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...certOption) (*x509.Certificate, error) {
 			signerName, ok := ctx.Value(CertificateSignerNameCtxKey).(string)
 			if !ok || signerName == "" {
 				return nil, fmt.Errorf("certificate signer name not found in context")
@@ -222,7 +223,7 @@ func WithSignerNameExtension(s func(CA) Signer, ca CA) Signer {
 	})
 	return &chainSigner{
 		next: inst,
-		sign: func(ctx context.Context, request *Request) ([]byte, error) {
+		sign: func(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 			// Inject signer name into context before Sign calls IssueRequestedClientCertificate
 			ctx = context.WithValue(ctx, CertificateSignerNameCtxKey, inst.Name())
 			return inst.Sign(ctx, request)
@@ -243,14 +244,14 @@ func WithSignerRestrictedPrefixes(restrictedPrefixes map[string]Signer, s Signer
 
 	return &chainSigner{
 		next: s,
-		verify: func(ctx context.Context, request *Request) error {
+		verify: func(ctx context.Context, request SignRequest) error {
 			x509CSR := request.X509()
 			if err := checkPrefixes(&x509CSR); err != nil {
 				return err
 			}
 			return s.Verify(ctx, request)
 		},
-		sign: func(ctx context.Context, request *Request) ([]byte, error) {
+		sign: func(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 			x509CSR := request.X509()
 			if err := checkPrefixes(&x509CSR); err != nil {
 				return nil, err
