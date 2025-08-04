@@ -28,6 +28,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	fclog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
 )
 
@@ -209,8 +211,50 @@ func main() {
 		logger.Warn("Auth is disabled")
 	}
 
+	// Create router with logging middleware
+	router := chi.NewRouter()
+	router.Use(chimiddleware.RequestSize(int64(cfg.Service.HttpMaxRequestSize)))
+	router.Use(middleware.RequestSizeLimiter(cfg.Service.HttpMaxUrlLength, cfg.Service.HttpMaxNumHeaders))
+	router.Use(chimiddleware.RequestID)
+	router.Use(chimiddleware.Recoverer)
+
+	// Custom logging middleware that filters out health check noise
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip logging for health checks to reduce noise
+			if r.URL.Path == "/health" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Use the default chi logger for all other requests
+			chimiddleware.Logger(next).ServeHTTP(w, r)
+		})
+	})
+
+	// Add rate limiting (only if configured)
+	// Alertmanager doesn't have built-in rate limiting, so we add it here to prevent abuse
+	if cfg.Service.RateLimit != nil {
+		trustedProxies := cfg.Service.RateLimit.TrustedProxies
+		requests := 60        // Default requests limit
+		window := time.Minute // Default window
+		if cfg.Service.RateLimit.Requests > 0 {
+			requests = cfg.Service.RateLimit.Requests
+		}
+		if cfg.Service.RateLimit.Window > 0 {
+			window = time.Duration(cfg.Service.RateLimit.Window)
+		}
+		middleware.InstallRateLimiter(router, middleware.RateLimitOptions{
+			Requests:       requests,
+			Window:         window,
+			Message:        "Alertmanager proxy rate limit exceeded, please try again later",
+			TrustedProxies: trustedProxies,
+		})
+	}
+
+	router.Mount("/", proxy)
+
 	// Create HTTPS server using FlightControl's TLS middleware
-	server := middleware.NewHTTPServer(proxy, logger, proxyPort, cfg)
+	server := middleware.NewHTTPServer(router, logger, proxyPort, cfg)
 
 	// Create TLS listener
 	listener, err := middleware.NewTLSListener(proxyPort, tlsConfig)
