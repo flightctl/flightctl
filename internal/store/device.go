@@ -538,8 +538,11 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams L
 
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Device, eventCallback EventCallback) (*api.Device, error) {
 	var oldDevice api.Device
-	device, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
-	if err == nil && device != nil {
+	name := lo.FromPtr(resource.Metadata.Name)
+	device, err := s.Get(ctx, orgId, name)
+	if err != nil {
+		s.log.Errorf("error fetching device %s/%s for update status event processing", orgId, name)
+	} else if device != nil {
 		// Capture old device with deep copy
 		var devices []api.Device
 		devices = append(devices, *device)
@@ -547,7 +550,6 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourc
 	}
 
 	device, err = s.genericStore.UpdateStatus(ctx, orgId, resource)
-	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, device, false, err)
 	return device, err
 }
