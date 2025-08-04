@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 )
 
@@ -247,5 +248,5 @@ func GetExtensionValue(cert *x509.Certificate, oid asn1.ObjectIdentifier) (strin
 		}
 	}
 
-	return "", fmt.Errorf("extension with OID %v not found", oid)
+	return "", flterrors.ErrExtensionNotFound
 }
