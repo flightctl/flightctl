@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/google/uuid"
+	"github.com/flightctl/flightctl/internal/org"
 )
 
 const (
@@ -107,8 +107,8 @@ func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCod
 }
 
 func validateOrganizationID(orgID string) error {
-	if _, err := uuid.Parse(orgID); err != nil {
-		return fmt.Errorf("invalid organization ID %q: %w", orgID, err)
+	if _, err := org.Parse(orgID); err != nil {
+		return err
 	}
 	return nil
 }

@@ -28,13 +28,14 @@ update-vm-agent: bin/flightctl-agent
 		echo "ERROR: VM $(VMNAME) not running or no IP found"; \
 		exit 1; \
 	fi; \
-	echo "Updating Agent VM $$AGENT_IP with new flightctl-agent, if asked the password is 'user'"; \
-	ssh-copy-id user@$$AGENT_IP; \
-	scp bin/flightctl-agent user@$$AGENT_IP:~; \
-	ssh user@$$AGENT_IP "sudo ostree admin unlock || true"; \
-	ssh user@$$AGENT_IP "sudo mv /home/user/flightctl-agent /usr/bin/flightctl-agent"; \
-	ssh user@$$AGENT_IP "sudo systemctl restart flightctl-agent"; \
-	ssh user@$$AGENT_IP "sudo journalctl -u flightctl-agent -f"
+	@echo "Updating Agent VM $(AGENT_IP) with new flightctl-agent, if asked the password is 'user'"
+	ssh-copy-id user@$(AGENT_IP)
+	scp bin/flightctl-agent user@$(AGENT_IP):~
+	ssh user@$(AGENT_IP) "sudo ostree admin unlock || true"
+	ssh user@$(AGENT_IP) "sudo mv /home/user/flightctl-agent /usr/bin/flightctl-agent"
+	ssh user@$(AGENT_IP) "sudo restorecon /usr/bin/flightctl-agent"
+	ssh user@$(AGENT_IP) "sudo systemctl restart flightctl-agent"
+	ssh user@$(AGENT_IP) "sudo journalctl -u flightctl-agent -f"
 
 agent-vm-console:
 	sudo virsh console $(VMNAME)

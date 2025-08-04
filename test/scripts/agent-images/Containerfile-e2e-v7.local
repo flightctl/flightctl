@@ -7,9 +7,6 @@ FROM localhost:5000/flightctl-device:base
 
 ADD test/scripts/agent-images/etc etc
 
-RUN mkdir -p /etc/systemd/system/flightctl-agent.service.d && \
-    printf "[Service]\nSELinuxContext=system_u:system_r:unconfined_t:s0\n" > /etc/systemd/system/flightctl-agent.service.d/override.conf
-
 RUN dnf install -y microshift && \
    systemctl enable microshift.service
 
@@ -28,6 +25,3 @@ RUN firewall-offline-cmd --zone=public --add-port=80/tcp && \
     firewall-offline-cmd --zone=public --add-port=443/tcp && \
     firewall-offline-cmd --zone=public --add-port=30000-32767/tcp && \
     firewall-offline-cmd --zone=public --add-port=30000-32767/udp
-
-# This step will be removed after selinux issue resolution (EDM-1579)
-RUN sudo sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
