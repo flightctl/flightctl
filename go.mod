@@ -1,6 +1,8 @@
 module github.com/flightctl/flightctl
 
-go 1.21
+go 1.23.0
+
+toolchain go1.23.9
 
 require (
 	github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2
@@ -47,7 +49,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/vincent-petithory/dataurl v1.0.0
 	go.uber.org/mock v0.4.0
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.35.0
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	golang.org/x/sync v0.11.0
 	golang.org/x/sys v0.30.0
@@ -157,7 +159,7 @@ require (
 replace (
 	dario.cat/mergo => github.com/imdario/mergo v1.0.0
 	github.com/google/gnostic => github.com/google/gnostic v0.5.7-v3refs
-	golang.org/x/crypto => github.com/openshift/golang-crypto v0.33.1-0.20250310193910-9003f682e581
+	golang.org/x/crypto => github.com/openshift/golang-crypto v0.35.0
 	golang.org/x/oauth2 => github.com/openshift/golang-oauth2 v0.26.1-0.20250310184649-06a918c6239d
 	k8s.io/api => k8s.io/api v0.26.4
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.26.4
