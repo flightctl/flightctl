@@ -11,72 +11,133 @@ import (
 // SignRequest represents the minimal interface needed for certificate signing operations.
 type SignRequest interface {
 	SignerName() string
+	ResourceName() *string
 	X509() x509.CertificateRequest
 	ExpirationSeconds() *int32
-	ResourceName() *string
 	IssuedCertificate() (*x509.Certificate, bool)
 }
 
 type basicSignRequest struct {
-	signerName   string
-	x509csr      x509.CertificateRequest
+	signerName   *string
+	x509csr      *x509.CertificateRequest
 	expiry       *int32
 	resourceName *string
 	issuedCert   *x509.Certificate
 }
 
-// Compile-time check that basicSignRequest implements SignRequest.
 var _ SignRequest = (*basicSignRequest)(nil)
 
-func NewSignRequest(signerName string, csr x509.CertificateRequest, expiry *int32, resourceName *string, issuedCert *x509.Certificate) SignRequest {
-	return &basicSignRequest{
-		signerName:   signerName,
-		x509csr:      csr,
-		expiry:       expiry,
-		resourceName: resourceName,
-		issuedCert:   issuedCert,
-	}
-}
-
-func NewSignRequestFromBytes(signerName string, csrBytes []byte, expiry *int32, resourceName *string, certBytes []byte) (SignRequest, error) {
-	x509CSR, err := fccrypto.ParseCSR(csrBytes)
-	if err != nil {
-		return nil, fmt.Errorf("invalid CSR: %w", err)
-	}
-
-	var issuedCert *x509.Certificate
-	if len(certBytes) > 0 {
-		cert, err := ParseCertificatePEM(certBytes)
-		if err != nil {
-			return nil, fmt.Errorf("invalid certificate: %w", err)
-		}
-		issuedCert = cert
-	}
-
-	return NewSignRequest(signerName, *x509CSR, expiry, resourceName, issuedCert), nil
-}
-
-// basicSignRequest interface implementations
-func (r *basicSignRequest) SignerName() string            { return r.signerName }
-func (r *basicSignRequest) X509() x509.CertificateRequest { return r.x509csr }
-func (r *basicSignRequest) ExpirationSeconds() *int32     { return r.expiry }
+func (r *basicSignRequest) SignerName() string            { return *r.signerName }
 func (r *basicSignRequest) ResourceName() *string         { return r.resourceName }
+func (r *basicSignRequest) X509() x509.CertificateRequest { return *r.x509csr }
+func (r *basicSignRequest) ExpirationSeconds() *int32     { return r.expiry }
 func (r *basicSignRequest) IssuedCertificate() (*x509.Certificate, bool) {
 	return r.issuedCert, r.issuedCert != nil
 }
 
-func NewSignRequestFromEnrollment(er *api.EnrollmentRequest, signerName string) (SignRequest, error) {
-	var certBytes []byte
-	if er.Status != nil && er.Status.Certificate != nil {
-		certBytes = []byte(*er.Status.Certificate)
+type SignRequestOption func(*basicSignRequest) error
+
+// NewSignRequest constructs a new SignRequest using the provided signer name and CSR.
+// Additional attributes can be supplied via functional options.
+func NewSignRequest(signerName string, csr x509.CertificateRequest, opts ...SignRequestOption) (SignRequest, error) {
+	req := &basicSignRequest{
+		signerName: &signerName,
+		x509csr:    &csr,
 	}
-	return NewSignRequestFromBytes(signerName, []byte(er.Spec.Csr), nil, er.Metadata.Name, certBytes)
+
+	for _, opt := range opts {
+		if err := opt(req); err != nil {
+			return nil, err
+		}
+	}
+
+	return req, nil
 }
 
-func NewSignRequestFromCertificateSigningRequest(csr *api.CertificateSigningRequest) (SignRequest, error) {
-	var certBytes []byte
-	if csr.Status != nil && csr.Status.Certificate != nil {
-		certBytes = *csr.Status.Certificate
+func NewSignRequestFromBytes(signerName string, csrBytes []byte, opts ...SignRequestOption) (SignRequest, error) {
+	csr, err := fccrypto.ParseCSR(csrBytes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CSR: %w", err)
 	}
-	return NewSignRequestFromBytes(csr.Spec.SignerName, csr.Spec.Request, csr.Spec.ExpirationSeconds, csr.Metadata.Name, certBytes)
+
+	req, err := NewSignRequest(signerName, *csr, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+func NewSignRequestFromEnrollment(er *api.EnrollmentRequest, signerName string, opts ...SignRequestOption) (SignRequest, error) {
+	var defaultOpts []SignRequestOption
+	if er.Status != nil && er.Status.Certificate != nil {
+		certBytes := []byte(*er.Status.Certificate)
+		defaultOpts = append(defaultOpts, WithIssuedCertificateBytes(certBytes))
+	}
+
+	if er.Metadata.Name != nil {
+		defaultOpts = append(defaultOpts, WithResourceName(*er.Metadata.Name))
+	}
+
+	opts = append(defaultOpts, opts...)
+
+	return NewSignRequestFromBytes(signerName, []byte(er.Spec.Csr), opts...)
+}
+
+func NewSignRequestFromCertificateSigningRequest(csr *api.CertificateSigningRequest, opts ...SignRequestOption) (SignRequest, error) {
+	var defaultOpts []SignRequestOption
+
+	if csr.Status != nil && csr.Status.Certificate != nil {
+		defaultOpts = append(defaultOpts, WithIssuedCertificateBytes(*csr.Status.Certificate))
+	}
+
+	if csr.Spec.ExpirationSeconds != nil {
+		defaultOpts = append(defaultOpts, WithExpirationSeconds(*csr.Spec.ExpirationSeconds))
+	}
+
+	if csr.Metadata.Name != nil {
+		defaultOpts = append(defaultOpts, WithResourceName(*csr.Metadata.Name))
+	}
+
+	opts = append(defaultOpts, opts...)
+
+	return NewSignRequestFromBytes(csr.Spec.SignerName, csr.Spec.Request, opts...)
+}
+
+// WithExpirationSeconds sets the certificate expiry (in seconds) for the sign request.
+func WithExpirationSeconds(expiry int32) SignRequestOption {
+	return func(r *basicSignRequest) error {
+		r.expiry = &expiry
+		return nil
+	}
+}
+
+// WithResourceName sets the original resource name for the sign request.
+func WithResourceName(name string) SignRequestOption {
+	return func(r *basicSignRequest) error {
+		r.resourceName = &name
+		return nil
+	}
+}
+
+// WithIssuedCertificate attaches an already-issued certificate to the request
+func WithIssuedCertificate(cert *x509.Certificate) SignRequestOption {
+	return func(r *basicSignRequest) error {
+		r.issuedCert = cert
+		return nil
+	}
+}
+
+func WithIssuedCertificateBytes(certBytes []byte) SignRequestOption {
+	return func(r *basicSignRequest) error {
+		if len(certBytes) == 0 {
+			return nil // No certificate bytes provided, nothing to do
+		}
+		cert, err := ParseCertificatePEM(certBytes)
+		if err != nil {
+			return fmt.Errorf("invalid certificate: %w", err)
+		}
+
+		return WithIssuedCertificate(cert)(r)
+	}
 }

@@ -194,13 +194,15 @@ func (caClient *CAClient) MakeClientCertificate(ctx context.Context, certFile, k
 		return nil, err
 	}
 
-	signReq := signer.NewSignRequest(
+	signReq, err := signer.NewSignRequest(
 		caClient.Cfg.ClientBootstrapSignerName,
 		*x509CSR,
-		&expiry,
-		&subjectName,
-		nil,
+		signer.WithExpirationSeconds(expiry),
+		signer.WithResourceName(subjectName),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	signedCert, err := signer.VerifyAndSign(ctx, caClient, signReq)
 	if err != nil {
