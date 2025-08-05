@@ -332,6 +332,10 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.D
 
 	if hasStatusChanged(oldDevice, newDevice, api.DeviceUpdatedStatusUnknown, func(d *api.Device) api.DeviceUpdatedStatusType { return d.Status.Updated.Status }) {
 		var status api.EventReason
+		oldStatus := api.DeviceUpdatedStatusUnknown
+		if oldDevice.Status != nil {
+			oldStatus = oldDevice.Status.Updated.Status
+		}
 		switch {
 		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusUnknown:
 			status = api.EventReasonDeviceDisconnected
@@ -339,7 +343,7 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.D
 			status = api.EventReasonDeviceContentUpdating
 		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusOutOfDate:
 			status = api.EventReasonDeviceContentOutOfDate
-		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusUpToDate && oldDevice.Status.Updated.Status != api.DeviceUpdatedStatusUnknown:
+		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusUpToDate && oldStatus != api.DeviceUpdatedStatusUnknown:
 			status = api.EventReasonDeviceContentUpToDate
 		}
 		if !lo.IsEmpty(status) {
