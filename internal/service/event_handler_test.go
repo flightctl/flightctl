@@ -206,6 +206,21 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	assert.Equal(t, 3, len(events.Items))
 }
 
+func TestEventHandler_HandleDeviceUpdatedEmptyOldDevice(t *testing.T) {
+	serviceHandler := serviceHandler()
+
+	ctx := context.Background()
+
+	device := prepareDevice(uuid.New(), "foo")
+	device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
+	oldDevice := &api.Device{}
+	serviceHandler.EventHandler.HandleDeviceUpdatedEvents(ctx, api.DeviceKind, uuid.New(), "foo", oldDevice, device, false, nil)
+
+	events, err := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(events.Items))
+}
+
 func TestEventDevicePatchDeviceStatus(t *testing.T) {
 	require := require.New(t)
 
