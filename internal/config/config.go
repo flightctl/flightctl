@@ -142,8 +142,6 @@ type systemCollectorConfig struct {
 
 type httpCollectorConfig struct {
 	collectorConfig
-	SloMax         float64   `json:"sloMax,omitempty"`
-	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
 }
 
 type deviceCollectorConfig struct {
@@ -259,8 +257,6 @@ func NewDefault(opts ...ConfigOption) *Config {
 				collectorConfig: collectorConfig{
 					Enabled: true,
 				},
-				SloMax:         4.0,
-				ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
 			},
 			DeviceCollector: &deviceCollectorConfig{
 				periodicCollectorConfig: periodicCollectorConfig{

@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -63,7 +62,7 @@ func (m *MetricsServer) Run(ctx context.Context) error {
 		return fmt.Errorf("metrics server is disabled by configuration")
 	}
 
-	handler := otelhttp.NewHandler(metrics.NewHandler(m.collectors...), "metrics")
+	handler := metrics.NewHandler(m.collectors...)
 
 	srv := &http.Server{
 		Addr:         m.cfg.Metrics.Address,

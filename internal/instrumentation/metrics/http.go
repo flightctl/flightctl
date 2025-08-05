@@ -1,168 +1,103 @@
 package metrics
 
 import (
-	"net/http"
-	"time"
+	"context"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
 )
 
-// HTTPCollector implements NamedCollector and gathers HTTP request metrics
-// including latencies, traffic counts, error rates, and SLO violations.
-type HTTPCollector struct {
-	// Latency metrics
-	successLatency prometheus.Histogram
-	errorLatency   prometheus.Histogram
-
-	// Traffic counters
-	apiTraffic   prometheus.Counter
-	agentTraffic prometheus.Counter
-
-	// Error counters
-	sloViolations prometheus.Counter
-	clientErrors  prometheus.Counter
-	serverErrors  prometheus.Counter
-
-	// Configuration
-	sloMax float64
+// HTTPMetricsCollector implements NamedCollector and integrates OpenTelemetry HTTP metrics
+// with the existing Prometheus metrics infrastructure.
+type HTTPMetricsCollector struct {
+	exporter      *otelprometheus.Exporter
+	registry      *prometheus.Registry
+	meterProvider *metric.MeterProvider
+	log           logrus.FieldLogger
+	ctx           context.Context
+	cancel        context.CancelFunc
+	serviceName   string
 }
 
-// NewHTTPCollector creates a new HTTP metrics collector with configurable SLO threshold.
-func NewHTTPCollector(cfg *config.Config) *HTTPCollector {
-	if cfg == nil || cfg.Metrics == nil || cfg.Metrics.HttpCollector == nil || !cfg.Metrics.HttpCollector.Enabled {
+// NewHTTPMetricsCollector creates a new HTTPMetricsCollector that integrates OpenTelemetry
+// HTTP metrics with Prometheus. It initializes the OpenTelemetry meter provider and
+// creates a Prometheus exporter for metrics collection.
+func NewHTTPMetricsCollector(ctx context.Context, cfg *config.Config, serviceName string, log logrus.FieldLogger) *HTTPMetricsCollector {
+	c, cancel := context.WithCancel(ctx)
+
+	// Create a dedicated registry for OpenTelemetry metrics
+	registry := prometheus.NewRegistry()
+
+	// Create Prometheus exporter
+	exporter, err := otelprometheus.New(
+		otelprometheus.WithRegisterer(registry),
+	)
+	if err != nil {
+		log.WithError(err).Error("Failed to create Prometheus exporter for OpenTelemetry HTTP metrics")
+		cancel()
 		return nil
 	}
 
-	collector := &HTTPCollector{
-		sloMax: cfg.Metrics.HttpCollector.SloMax,
-		successLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "flightctl_api_latencies_success_seconds",
-			Help:    "Distribution of latencies of Flightctl server responses that encountered no errors",
-			Buckets: cfg.Metrics.HttpCollector.ApiLatencyBins,
-		}),
-		errorLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "flightctl_api_latencies_error_seconds",
-			Help:    "Distribution of latencies of Flightctl server responses that encountered errors",
-			Buckets: cfg.Metrics.HttpCollector.ApiLatencyBins,
-		}),
-		apiTraffic: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "flightctl_api_requests_api_total",
-			Help: "Number of requests to Flightctl API server",
-		}),
-		agentTraffic: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "flightctl_api_requests_agent_total",
-			Help: "Number of requests to Flightctl Agent server",
-		}),
-		sloViolations: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "flightctl_api_errors_slo_total",
-			Help: "Number of Flightctl server responses that exceeded SLO",
-		}),
-		clientErrors: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "flightctl_api_errors_client_total",
-			Help: "Number of Flightctl server responses that encountered client (400) errors",
-		}),
-		serverErrors: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "flightctl_api_errors_server_total",
-			Help: "Number of Flightctl server responses that encountered server (500) errors",
-		}),
+	// Create resource with service information
+	res := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceNameKey.String(serviceName),
+	)
+
+	// Create meter provider with the Prometheus exporter
+	mp := metric.NewMeterProvider(
+		metric.WithResource(res),
+		metric.WithReader(exporter),
+	)
+
+	// Set the global meter provider
+	otel.SetMeterProvider(mp)
+
+	collector := &HTTPMetricsCollector{
+		exporter:      exporter,
+		registry:      registry,
+		meterProvider: mp,
+		log:           log,
+		ctx:           c,
+		cancel:        cancel,
+		serviceName:   serviceName,
 	}
 
+	log.Info("OpenTelemetry HTTP metrics collector initialized")
 	return collector
 }
 
-func (c *HTTPCollector) MetricsName() string {
-	return "http"
+// MetricsName returns the name of this collector for tracing purposes
+func (c *HTTPMetricsCollector) MetricsName() string {
+	return "http_otel"
 }
 
-func (c *HTTPCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- c.successLatency.Desc()
-	ch <- c.errorLatency.Desc()
-	ch <- c.apiTraffic.Desc()
-	ch <- c.agentTraffic.Desc()
-	ch <- c.sloViolations.Desc()
-	ch <- c.clientErrors.Desc()
-	ch <- c.serverErrors.Desc()
+// Describe forwards the Describe call to the OpenTelemetry Prometheus registry
+func (c *HTTPMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
+	c.registry.Describe(ch)
 }
 
-func (c *HTTPCollector) Collect(ch chan<- prometheus.Metric) {
-	ch <- c.successLatency
-	ch <- c.errorLatency
-	ch <- c.apiTraffic
-	ch <- c.agentTraffic
-	ch <- c.sloViolations
-	ch <- c.clientErrors
-	ch <- c.serverErrors
+// Collect forwards the Collect call to the OpenTelemetry Prometheus registry
+func (c *HTTPMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	c.registry.Collect(ch)
 }
 
-// loggingResponseWriter wraps http.ResponseWriter to capture the status code
-type loggingResponseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
+// Shutdown gracefully shuts down the OpenTelemetry meter provider
+func (c *HTTPMetricsCollector) Shutdown() error {
+	defer c.cancel()
 
-func newLoggingResponseWriter(w http.ResponseWriter) *loggingResponseWriter {
-	return &loggingResponseWriter{
-		ResponseWriter: w,
-		statusCode:     200, // Default HTTP status
+	if c.meterProvider != nil {
+		if err := c.meterProvider.Shutdown(c.ctx); err != nil {
+			c.log.WithError(err).Error("Failed to shutdown OpenTelemetry HTTP metrics")
+			return err
+		}
+		c.log.Info("OpenTelemetry HTTP metrics shutdown successfully")
 	}
-}
-
-func (lw *loggingResponseWriter) WriteHeader(statusCode int) {
-	lw.statusCode = statusCode
-	lw.ResponseWriter.WriteHeader(statusCode)
-}
-
-// AgentServerMiddleware returns HTTP middleware for the agent server
-func (c *HTTPCollector) AgentServerMiddleware(next http.Handler) http.Handler {
-	return c.serverMiddleware(next, true)
-}
-
-// ApiServerMiddleware returns HTTP middleware for the API server
-func (c *HTTPCollector) ApiServerMiddleware(next http.Handler) http.Handler {
-	return c.serverMiddleware(next, false)
-}
-
-// serverMiddleware is the core HTTP metrics collection middleware
-func (c *HTTPCollector) serverMiddleware(next http.Handler, agentServer bool) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		if agentServer {
-			c.agentTraffic.Inc()
-		} else {
-			c.apiTraffic.Inc()
-		}
-
-		lw := newLoggingResponseWriter(w)
-		next.ServeHTTP(lw, r)
-
-		// Ensure we have a valid status code
-		statusCode := lw.statusCode
-		if statusCode == 0 {
-			statusCode = 200
-		}
-
-		statusClass := statusCode - statusCode%100
-		thisLatency := time.Since(start).Seconds()
-
-		if statusClass == 400 {
-			c.clientErrors.Inc()
-		}
-		if statusClass == 500 {
-			c.serverErrors.Inc()
-		}
-
-		// Check SLO for all 2xx success responses
-		if statusClass == 200 && thisLatency > c.sloMax {
-			c.sloViolations.Inc()
-		}
-
-		// Consider 2xx and 3xx as successful responses
-		if statusClass == 200 || statusClass == 300 {
-			c.successLatency.Observe(thisLatency)
-		} else {
-			c.errorLatency.Observe(thisLatency)
-		}
-	})
+	return nil
 }
