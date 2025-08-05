@@ -142,19 +142,13 @@ func main() {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}
 
-	// Create HTTP metrics collector for both servers
-	var httpCollector *metrics.HTTPCollector
-	if cfg.Metrics != nil && cfg.Metrics.HttpCollector != nil {
-		httpCollector = metrics.NewHTTPCollector(cfg)
-	}
-
 	// create the agent service listener as tcp (combined HTTP+gRPC)
 	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
 	if err != nil {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig, httpCollector)
+	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig)
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
@@ -162,7 +156,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, httpCollector, agentserver.GetGRPCServer())
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentserver.GetGRPCServer())
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -195,7 +189,14 @@ func main() {
 				collectors = append(collectors, metrics.NewSystemCollector(ctx, cfg))
 			}
 			if cfg.Metrics.HttpCollector != nil && cfg.Metrics.HttpCollector.Enabled {
-				collectors = append(collectors, httpCollector)
+				if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", log); httpMetricsCollector != nil {
+					collectors = append(collectors, httpMetricsCollector)
+					defer func() {
+						if err := httpMetricsCollector.Shutdown(); err != nil {
+							log.Errorf("Failed to shutdown HTTP metrics collector: %v", err)
+						}
+					}()
+				}
 			}
 
 			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)

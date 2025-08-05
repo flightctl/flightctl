@@ -82,8 +82,6 @@ data:
             tickerInterval: 5s
         httpCollector:
             enabled: true
-            sloMax: 4.0
-            apiLatencyBins: [1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0]
         deviceCollector:
             enabled: true
             tickerInterval: 30s
