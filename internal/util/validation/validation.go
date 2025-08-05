@@ -1,7 +1,6 @@
 package validation
 
 import (
-	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"path/filepath"
@@ -316,15 +315,6 @@ func ValidateExpirationSeconds(e *int32) []error {
 	return nil
 }
 
-func ValidateX509CSR(c *x509.CertificateRequest) []error {
-	errs := field.ErrorList{}
-	if err := c.CheckSignature(); err != nil {
-		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), "<parsed CSR>", err.Error()))
-		return asErrors(errs)
-	}
-	return nil
-}
-
 // ValidateCSR validates a CSR provided as raw DER bytes
 func ValidateCSR(csr []byte) []error {
 	errs := field.ErrorList{}
@@ -334,7 +324,11 @@ func ValidateCSR(csr []byte) []error {
 		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
 		return asErrors(errs)
 	}
-	return ValidateX509CSR(c)
+	if err := fccrypto.ValidateX509CSR(c); err != nil {
+		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
+		return asErrors(errs)
+	}
+	return nil
 }
 
 func FormatInvalidError(input, path, errorMsg string) []error {

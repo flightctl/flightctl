@@ -3,12 +3,11 @@ package signer
 import (
 	"context"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config/ca"
-	"github.com/flightctl/flightctl/internal/util/validation"
+	"github.com/flightctl/flightctl/pkg/crypto"
 )
 
 type Signer interface {
@@ -191,15 +190,15 @@ func WithCSRValidation(s Signer) Signer {
 		next: s,
 		verify: func(ctx context.Context, request SignRequest) error {
 			x509CSR := request.X509()
-			if errs := validation.ValidateX509CSR(&x509CSR); len(errs) > 0 {
-				return errors.Join(errs...)
+			if err := crypto.ValidateX509CSR(&x509CSR); err != nil {
+				return err
 			}
 			return s.Verify(ctx, request)
 		},
 		sign: func(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 			x509CSR := request.X509()
-			if errs := validation.ValidateX509CSR(&x509CSR); len(errs) > 0 {
-				return nil, errors.Join(errs...)
+			if err := crypto.ValidateX509CSR(&x509CSR); err != nil {
+				return nil, err
 			}
 			return s.Sign(ctx, request)
 		},

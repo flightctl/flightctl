@@ -41,13 +41,13 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
-	request, err := signer.NewSignRequestFromCertificateSigningRequest(csr)
+	request, err := newSignRequestFromCertificateSigningRequest(csr)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
 		return
 	}
 
-	certPEM, err := signer.SignAndEncodeCertificate(ctx, h.ca, request)
+	certPEM, err := signer.SignAsPEM(ctx, h.ca, request)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
 		return
@@ -104,12 +104,12 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	request, err := signer.NewSignRequestFromCertificateSigningRequest(&csr)
+	request, err := newSignRequestFromCertificateSigningRequest(&csr)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
+	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -177,12 +177,12 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	request, err := signer.NewSignRequestFromCertificateSigningRequest(newObj)
+	request, err := newSignRequestFromCertificateSigningRequest(newObj)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
+	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -227,12 +227,12 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	request, err := signer.NewSignRequestFromCertificateSigningRequest(&csr)
+	request, err := newSignRequestFromCertificateSigningRequest(&csr)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
+	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -308,6 +308,24 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	}
 
 	return result, api.StatusOK()
+}
+
+func newSignRequestFromCertificateSigningRequest(csr *api.CertificateSigningRequest) (signer.SignRequest, error) {
+	var opts []signer.SignRequestOption
+
+	if csr.Status != nil && csr.Status.Certificate != nil {
+		opts = append(opts, signer.WithIssuedCertificateBytes(*csr.Status.Certificate))
+	}
+
+	if csr.Spec.ExpirationSeconds != nil {
+		opts = append(opts, signer.WithExpirationSeconds(*csr.Spec.ExpirationSeconds))
+	}
+
+	if csr.Metadata.Name != nil {
+		opts = append(opts, signer.WithResourceName(*csr.Metadata.Name))
+	}
+
+	return signer.NewSignRequestFromBytes(csr.Spec.SignerName, csr.Spec.Request, opts...)
 }
 
 // borrowed from https://github.com/kubernetes/kubernetes/blob/master/pkg/registry/certificates/certificates/strategy.go

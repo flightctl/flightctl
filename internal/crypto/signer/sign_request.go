@@ -4,7 +4,6 @@ import (
 	"crypto/x509"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 )
 
@@ -18,8 +17,8 @@ type SignRequest interface {
 }
 
 type basicSignRequest struct {
-	signerName   *string
-	x509csr      *x509.CertificateRequest
+	signerName   string
+	x509csr      x509.CertificateRequest
 	expiry       *int32
 	resourceName *string
 	issuedCert   *x509.Certificate
@@ -27,9 +26,9 @@ type basicSignRequest struct {
 
 var _ SignRequest = (*basicSignRequest)(nil)
 
-func (r *basicSignRequest) SignerName() string            { return *r.signerName }
+func (r *basicSignRequest) SignerName() string            { return r.signerName }
 func (r *basicSignRequest) ResourceName() *string         { return r.resourceName }
-func (r *basicSignRequest) X509() x509.CertificateRequest { return *r.x509csr }
+func (r *basicSignRequest) X509() x509.CertificateRequest { return r.x509csr }
 func (r *basicSignRequest) ExpirationSeconds() *int32     { return r.expiry }
 func (r *basicSignRequest) IssuedCertificate() (*x509.Certificate, bool) {
 	return r.issuedCert, r.issuedCert != nil
@@ -41,8 +40,8 @@ type SignRequestOption func(*basicSignRequest) error
 // Additional attributes can be supplied via functional options.
 func NewSignRequest(signerName string, csr x509.CertificateRequest, opts ...SignRequestOption) (SignRequest, error) {
 	req := &basicSignRequest{
-		signerName: &signerName,
-		x509csr:    &csr,
+		signerName: signerName,
+		x509csr:    csr,
 	}
 
 	for _, opt := range opts {
@@ -66,42 +65,6 @@ func NewSignRequestFromBytes(signerName string, csrBytes []byte, opts ...SignReq
 	}
 
 	return req, nil
-}
-
-func NewSignRequestFromEnrollment(er *api.EnrollmentRequest, signerName string, opts ...SignRequestOption) (SignRequest, error) {
-	var defaultOpts []SignRequestOption
-	if er.Status != nil && er.Status.Certificate != nil {
-		certBytes := []byte(*er.Status.Certificate)
-		defaultOpts = append(defaultOpts, WithIssuedCertificateBytes(certBytes))
-	}
-
-	if er.Metadata.Name != nil {
-		defaultOpts = append(defaultOpts, WithResourceName(*er.Metadata.Name))
-	}
-
-	opts = append(defaultOpts, opts...)
-
-	return NewSignRequestFromBytes(signerName, []byte(er.Spec.Csr), opts...)
-}
-
-func NewSignRequestFromCertificateSigningRequest(csr *api.CertificateSigningRequest, opts ...SignRequestOption) (SignRequest, error) {
-	var defaultOpts []SignRequestOption
-
-	if csr.Status != nil && csr.Status.Certificate != nil {
-		defaultOpts = append(defaultOpts, WithIssuedCertificateBytes(*csr.Status.Certificate))
-	}
-
-	if csr.Spec.ExpirationSeconds != nil {
-		defaultOpts = append(defaultOpts, WithExpirationSeconds(*csr.Spec.ExpirationSeconds))
-	}
-
-	if csr.Metadata.Name != nil {
-		defaultOpts = append(defaultOpts, WithResourceName(*csr.Metadata.Name))
-	}
-
-	opts = append(defaultOpts, opts...)
-
-	return NewSignRequestFromBytes(csr.Spec.SignerName, csr.Spec.Request, opts...)
 }
 
 // WithExpirationSeconds sets the certificate expiry (in seconds) for the sign request.
@@ -133,7 +96,7 @@ func WithIssuedCertificateBytes(certBytes []byte) SignRequestOption {
 		if len(certBytes) == 0 {
 			return nil // No certificate bytes provided, nothing to do
 		}
-		cert, err := ParseCertificatePEM(certBytes)
+		cert, err := fccrypto.ParseCertificatePEM(certBytes)
 		if err != nil {
 			return fmt.Errorf("invalid certificate: %w", err)
 		}

@@ -8,6 +8,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -23,14 +24,12 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
 
-	signerName := ca.Cfg.DeviceEnrollmentSignerName
-
-	request, err := signer.NewSignRequestFromEnrollment(enrollmentRequest, signerName)
+	request, err := newSignRequestFromEnrollment(ca.Cfg, enrollmentRequest)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
 
-	certPEM, err := signer.SignAndEncodeCertificate(ctx, ca, request)
+	certPEM, err := signer.SignAsPEM(ctx, ca, request)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
@@ -102,14 +101,12 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	signerName := h.ca.Cfg.DeviceEnrollmentSignerName
-
-	request, err := signer.NewSignRequestFromEnrollment(&er, signerName)
+	request, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
+	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -167,14 +164,12 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	signerName := h.ca.Cfg.DeviceEnrollmentSignerName
-
-	request, err := signer.NewSignRequestFromEnrollment(&er, signerName)
+	request, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
+	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -209,14 +204,12 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	signerName := h.ca.Cfg.DeviceEnrollmentSignerName
-
-	request, err := signer.NewSignRequestFromEnrollment(newObj, signerName)
+	request, err := newSignRequestFromEnrollment(h.ca.Cfg, newObj)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	if err := signer.VerifyRequest(ctx, h.ca, request); err != nil {
+	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
@@ -312,6 +305,20 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+}
+
+func newSignRequestFromEnrollment(cfg *ca.Config, er *api.EnrollmentRequest) (signer.SignRequest, error) {
+	var opts []signer.SignRequestOption
+	if er.Status != nil && er.Status.Certificate != nil {
+		certBytes := []byte(*er.Status.Certificate)
+		opts = append(opts, signer.WithIssuedCertificateBytes(certBytes))
+	}
+
+	if er.Metadata.Name != nil {
+		opts = append(opts, signer.WithResourceName(*er.Metadata.Name))
+	}
+
+	return signer.NewSignRequestFromBytes(cfg.DeviceEnrollmentSignerName, []byte(er.Spec.Csr), opts...)
 }
 
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {

@@ -1,4 +1,4 @@
-package signer
+package crypto
 
 import (
 	"bytes"
@@ -9,6 +9,8 @@ import (
 	"math/big"
 	"testing"
 	"time"
+
+	"github.com/flightctl/flightctl/internal/flterrors"
 )
 
 // generateSelfSignedCertificate creates a minimal self-signed x509 certificate for testing purposes.
@@ -54,5 +56,33 @@ func TestEncodeParseCertificatePEM(t *testing.T) {
 
 	if !bytes.Equal(cert.Raw, parsedCert.Raw) {
 		t.Fatalf("original and parsed certificates differ")
+	}
+}
+
+func TestEncodeCertificatePEM_NilInput(t *testing.T) {
+	_, err := EncodeCertificatePEM(nil)
+	if err != flterrors.ErrResourceIsNil {
+		t.Errorf("expected ErrResourceIsNil, got %v", err)
+	}
+}
+
+func TestParseCertificatePEM_InvalidInput(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input []byte
+	}{
+		{"empty", []byte{}},
+		{"invalid PEM", []byte("not a pem block")},
+		{"wrong type", []byte("-----BEGIN PRIVATE KEY-----\ndata\n-----END PRIVATE KEY-----")},
+		{"multiple blocks", []byte("-----BEGIN CERTIFICATE-----\ndata\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\ndata2\n-----END CERTIFICATE-----")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseCertificatePEM(tc.input)
+			if err == nil {
+				t.Errorf("expected error for %s", tc.name)
+			}
+		})
 	}
 }

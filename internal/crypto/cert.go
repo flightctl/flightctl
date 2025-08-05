@@ -204,7 +204,7 @@ func (caClient *CAClient) MakeClientCertificate(ctx context.Context, certFile, k
 		return nil, err
 	}
 
-	signedCert, err := signer.VerifyAndSign(ctx, caClient, signReq)
+	signedCert, err := signer.SignVerified(ctx, caClient, signReq)
 	if err != nil {
 		return nil, err
 	}
