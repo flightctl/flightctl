@@ -119,7 +119,7 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, nil), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil), listener, nil
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
@@ -136,7 +136,7 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig, nil), listener, nil
+	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig), listener, nil
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
