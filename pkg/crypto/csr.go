@@ -3,7 +3,10 @@ package crypto
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -14,14 +17,19 @@ import (
 )
 
 func MakeCSR(privateKey crypto.Signer, subjectName string) ([]byte, error) {
+	algo, err := selectSignatureAlgorithm(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("selecting signature algorithm: %w", err)
+	}
+
 	template := &x509.CertificateRequest{
 		Subject:            pkix.Name{CommonName: subjectName},
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
+		SignatureAlgorithm: algo,
 	}
 
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, privateKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("generating standard CSR: %w", err)
 	}
 
 	csrPemBlock := &pem.Block{
@@ -30,6 +38,38 @@ func MakeCSR(privateKey crypto.Signer, subjectName string) ([]byte, error) {
 	}
 
 	return pem.EncodeToMemory(csrPemBlock), nil
+}
+
+func selectSignatureAlgorithm(signer crypto.Signer) (x509.SignatureAlgorithm, error) {
+	switch pub := signer.Public().(type) {
+	case *ecdsa.PublicKey:
+		switch pub.Curve {
+		case elliptic.P256():
+			return x509.ECDSAWithSHA256, nil
+		case elliptic.P384():
+			return x509.ECDSAWithSHA384, nil
+		case elliptic.P521():
+			return x509.ECDSAWithSHA512, nil
+		default:
+			return x509.UnknownSignatureAlgorithm, fmt.Errorf("unknown ecdsa signature algorithm")
+		}
+	case *rsa.PublicKey:
+		bitLen := pub.N.BitLen()
+		// Reject RSA keys smaller than 2048 bits as insecure
+		if bitLen < 2048 {
+			return x509.UnknownSignatureAlgorithm, fmt.Errorf("rsa keys smaller than 2048 bits are not allowed")
+		}
+		switch {
+		case bitLen >= 4096:
+			return x509.SHA512WithRSA, nil
+		case bitLen >= 3072:
+			return x509.SHA384WithRSA, nil
+		default:
+			return x509.SHA256WithRSA, nil
+		}
+	default:
+		return x509.UnknownSignatureAlgorithm, fmt.Errorf("unknown rsa signature algorithm")
+	}
 }
 
 func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {

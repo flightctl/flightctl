@@ -76,6 +76,7 @@ type svcConfig struct {
 	EventRetentionPeriod   util.Duration    `json:"eventRetentionPeriod,omitempty"`
 	AlertPollingInterval   util.Duration    `json:"alertPollingInterval,omitempty"`
 	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
+	TPMCAPaths             []string         `json:"tpmCAPaths,omitempty"`
 }
 
 type kvConfig struct {

@@ -343,7 +343,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		callbackManager := tasks_client.NewCallbackManager(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
+		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
 	})
 	AfterEach(func() {
 		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
