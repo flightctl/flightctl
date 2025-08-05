@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"google.golang.org/grpc"
@@ -472,6 +473,7 @@ func (c *Config) Validate() error {
 	validationErrors := make([]error, 0)
 	validationErrors = append(validationErrors, validateService(c.Service, c.baseDir, c.testRootDir)...)
 	validationErrors = append(validationErrors, validateAuthInfo(c.AuthInfo, c.baseDir, c.testRootDir)...)
+	validationErrors = append(validationErrors, validateOrganization(c.Organization, c.baseDir, c.testRootDir)...)
 	if len(validationErrors) > 0 {
 		return fmt.Errorf("invalid configuration: %v", utilerrors.NewAggregate(validationErrors).Error())
 	}
@@ -540,6 +542,17 @@ func validateAuthInfo(authInfo AuthInfo, baseDir string, testRootDir string) []e
 				defer clientKeyFile.Close()
 			}
 		}
+	}
+	return validationErrors
+}
+
+func validateOrganization(organization string, baseDir string, testRootDir string) []error {
+	validationErrors := make([]error, 0)
+	if organization == "" {
+		return validationErrors
+	}
+	if _, err := org.Parse(organization); err != nil {
+		validationErrors = append(validationErrors, err)
 	}
 	return validationErrors
 }
