@@ -317,15 +317,10 @@ ui:
   api:
     # -- Skip TLS verification for UI API calls
     insecureSkipTlsVerify: true
-
-# -- Cluster CLI Configuration
-clusterCli:
+secretsJob:
   image:
-    # -- Cluster CLI container image
     image: quay.io/openshift/origin-cli
-    # -- Cluster CLI image tag
     tag: "4.20.0"
-    # -- Image pull policy for cluster CLI container
     pullPolicy: ""
 # -- Database Setup Configuration
 dbSetup:
