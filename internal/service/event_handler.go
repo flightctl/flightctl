@@ -158,7 +158,7 @@ func (h *EventHandler) computeDeviceResourceUpdatedDetails(oldDevice, newDevice 
 //////////////////////////////////////////////////////
 
 func (h *EventHandler) EmitFleetRolloutStartedEvent(ctx context.Context, templateVersionName string, fleetName string, immediateRollout bool) {
-	event := common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, immediateRollout)
+	event := common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, immediateRollout, false)
 	if event != nil {
 		h.CreateEvent(ctx, event)
 	}
@@ -185,26 +185,50 @@ func (h *EventHandler) HandleFleetUpdatedEvents(ctx context.Context, resourceKin
 		}
 		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.FleetKind, name, updateDetails, nil)
 	}
-	// eventRolloutNew and eventRolloutCompleted will generate a nil event in case there are no such events
-	// CreateEvent knows to ignore nil event
-	h.CreateEvent(ctx, h.eventRolloutNew(ctx, name, oldFleet, newFleet))
-	h.CreateEvent(ctx, h.eventRolloutCompleted(ctx, name, oldFleet, newFleet))
-	// Emit a created/updated event
+
+	// Emit a created/updated event (if nil, no event is emitted)
 	h.CreateEvent(ctx, event)
+
+	deployingTemplateVersion, exists := newFleet.GetAnnotation(api.FleetAnnotationDeployingTemplateVersion)
+	if !exists {
+		return
+	}
+
+	// Emit fleet rollout events if applicable
+	h.emitFleetRolloutNewEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
+	h.emitFleetRolloutCompletionEvents(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
+	h.emitFleetRolloutFailedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
 }
 
-func (h *EventHandler) eventRolloutNew(ctx context.Context, name string, oldFleet, newFleet *api.Fleet) *api.Event {
+func (h *EventHandler) emitFleetRolloutNewEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
 	if !newFleet.IsRolloutNew(oldFleet) {
-		return nil
+		return
 	}
-	return common.GetFleetRolloutNewEvent(ctx, name)
+	h.CreateEvent(ctx, common.GetFleetRolloutNewEvent(ctx, name))
 }
 
-func (h *EventHandler) eventRolloutCompleted(ctx context.Context, name string, oldFleet, newFleet *api.Fleet) *api.Event {
-	if !newFleet.IsRolloutCompleted(oldFleet) {
-		return nil
+func (h *EventHandler) emitFleetRolloutCompletionEvents(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+	batchCompleted, report := newFleet.IsRolloutBatchCompleted(oldFleet)
+	if !batchCompleted {
+		return
 	}
-	return common.GetFleetRolloutCompletedEvent(ctx, name)
+	h.CreateEvent(ctx, common.GetFleetRolloutBatchCompletedEvent(ctx, name, deployingTemplateVersion, report))
+	if report.BatchName == api.FinalImplicitBatchName {
+		h.CreateEvent(ctx, common.GetFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion))
+	}
+}
+
+func (h *EventHandler) emitFleetRolloutFailedEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+	newCondition := api.FindStatusCondition(newFleet.Status.Conditions, api.ConditionTypeFleetRolloutInProgress)
+	if newCondition == nil || newCondition.Reason != api.RolloutSuspendedReason {
+		return
+	}
+	oldCondition := api.FindStatusCondition(oldFleet.Status.Conditions, api.ConditionTypeFleetRolloutInProgress)
+	if oldCondition != nil && oldCondition.Reason == api.RolloutSuspendedReason {
+		return
+	}
+
+	h.CreateEvent(ctx, common.GetFleetRolloutFailedEvent(ctx, name, deployingTemplateVersion, newCondition.Message))
 }
 
 // computeFleetResourceUpdatedDetails determines which fields were updated by comparing old and new fleet resources

@@ -408,7 +408,8 @@ func (r EnrollmentRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-	allErrs = append(allErrs, validation.ValidateCSR([]byte(r.Spec.Csr))...)
+	allErrs = append(allErrs, validation.ValidateCSRWithTCGSupport([]byte(r.Spec.Csr))...)
+
 	return allErrs
 }
 

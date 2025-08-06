@@ -310,6 +310,9 @@ func KeepDBDeviceStatus(device, dbDevice *api.Device) {
 	if device.Status.ApplicationsSummary.Status == api.ApplicationsSummaryStatusUnknown {
 		device.Status.ApplicationsSummary.Status = dbDevice.Status.ApplicationsSummary.Status
 	}
+	if device.Status.Integrity.Status == api.DeviceIntegrityStatusUnknown {
+		device.Status.Integrity = dbDevice.Status.Integrity
+	}
 }
 
 func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.Device, orgId uuid.UUID, st store.Store) ResourceUpdates {
@@ -342,7 +345,16 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.D
 		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusUpdating:
 			status = api.EventReasonDeviceContentUpdating
 		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusOutOfDate:
-			status = api.EventReasonDeviceContentOutOfDate
+			// Check if there's an update error condition
+			if updateCondition := api.FindStatusCondition(newDevice.Status.Conditions, api.ConditionTypeDeviceUpdating); updateCondition != nil {
+				if updateCondition.Reason == string(api.UpdateStateError) && updateCondition.Message != "" {
+					status = api.EventReasonDeviceUpdateFailed
+				} else {
+					status = api.EventReasonDeviceContentOutOfDate
+				}
+			} else {
+				status = api.EventReasonDeviceContentOutOfDate
+			}
 		case newDevice.Status.Updated.Status == api.DeviceUpdatedStatusUpToDate && oldStatus != api.DeviceUpdatedStatusUnknown:
 			status = api.EventReasonDeviceContentUpToDate
 		}
