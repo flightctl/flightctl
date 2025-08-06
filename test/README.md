@@ -273,6 +273,10 @@ make in-cluster-e2e-test
 ```bash
 KUBECONFIG_PATH=/path/to/your/kubeconfig make deploy-e2e-ocp-test-vm
 ```
+The default image for the VM is 10G which,by default is increased by 30G to 40G.
+You can set the `VM_DISK_SIZE_INC` environment variable to change it so the VM
+will have a bigger disk.
+
 * Ssh into the vm.
 ```bash
 ssh kni@${VM_IP}
