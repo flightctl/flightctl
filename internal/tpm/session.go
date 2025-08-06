@@ -19,6 +19,7 @@ const (
 	transientHandleMax  = tpm2.TPMHandle(0x80FFFFFF)
 	persistentHandleMin = tpm2.TPMHandle(0x81000000)
 	persistentHandleMax = tpm2.TPMHandle(0x81FFFFFF)
+	nvReadChunkSize     = uint16(1024) // Maximum chunk size for NVRead operations
 )
 
 // tpmSession implements the Session interface
@@ -179,7 +180,8 @@ func (s *tpmSession) CertifyKey(keyType KeyType, qualifyingData []byte) (certify
 
 	// determine the signing key based on what we're certifying
 	var signingHandle *tpm2.NamedHandle
-	var auth tpm2.Session
+	// We don't create our keys with any auth. If that changes we need to update this
+	auth := tpm2.PasswordAuth(nil)
 
 	// use LAK as the signing key for all certifications
 	lakHandle, err := s.LoadKey(LAK)
@@ -187,17 +189,6 @@ func (s *tpmSession) CertifyKey(keyType KeyType, qualifyingData []byte) (certify
 		return nil, nil, fmt.Errorf("loading LAK for certification: %w", err)
 	}
 	signingHandle = lakHandle
-
-	password, err := s.getPassword()
-	if err != nil {
-		password = nil // Use empty auth if no password
-	}
-
-	if s.authEnabled && password != nil {
-		auth = tpm2.PasswordAuth(password)
-	} else {
-		auth = tpm2.PasswordAuth(nil)
-	}
 
 	// create signature scheme
 	sigScheme := tpm2.TPMTSigScheme{
@@ -359,15 +350,12 @@ func (s *tpmSession) Clear() error {
 	s.handles = make(map[KeyType]*tpm2.NamedHandle)
 	s.srk = nil
 
-	// clear persistent storage
-	if s.storage != nil {
-		if err := s.storage.ClearPassword(); err != nil {
-			errs = append(errs, fmt.Errorf("clearing stored password: %w", err))
-		}
-		// Clear stored keys by storing empty values
-		if err := s.clearStoredKeys(); err != nil {
-			errs = append(errs, fmt.Errorf("clearing stored keys: %w", err))
-		}
+	if err := s.storage.ClearPassword(); err != nil {
+		errs = append(errs, fmt.Errorf("clearing stored password: %w", err))
+	}
+	// Clear stored keys by storing empty values
+	if err := s.clearStoredKeys(); err != nil {
+		errs = append(errs, fmt.Errorf("clearing stored keys: %w", err))
 	}
 
 	if len(errs) != 0 {
@@ -377,25 +365,23 @@ func (s *tpmSession) Clear() error {
 }
 
 func (s *tpmSession) resetStorageHierarchyPassword() error {
-	// Generate a new random password to make keys unrecoverable
-	newPassword, err := s.generateStoragePassword()
-	if err != nil {
-		return fmt.Errorf("generating new password: %w", err)
-	}
-
-	// Get current password from storage
 	currentPassword, err := s.storage.GetPassword()
 	if err != nil {
-		// If no password stored, assume empty password
-		currentPassword = []byte{}
+		// If no password is set we assume ownership isn't enabled
+		// and thus no reason to reset the password
+		return nil
 	}
 
-	// Update the hierarchy password
-	if err := s.updateStorageHierarchyPassword(currentPassword, newPassword); err != nil {
+	// TODO: we only call this method in the case that we are unable to successfully call tpm2_clear
+	// We delete our keys and password so that they are unrecoverable to our application, but
+	// they are technically still usable by the TPM. We could update the hierarchy password to something
+	// random and make the keys unusable by everyone, but that would effectively brick the device until someone
+	// comes and clears it manually (perhaps desirable). For now, leave it in a state where we could restart the enrollment
+	// process if necessary.
+	if err := s.updateStorageHierarchyPassword(currentPassword, nil); err != nil {
 		return fmt.Errorf("updating storage hierarchy password: %w", err)
 	}
 
-	// Don't store the new password - this makes keys unrecoverable
 	return nil
 }
 
@@ -427,12 +413,7 @@ func (s *tpmSession) clearStoredKeys() error {
 	keyTypes := []KeyType{LDevID, LAK}
 
 	for _, kt := range keyTypes {
-		// Store empty values to clear the keys
-		emptyPublic := tpm2.TPM2BPublic{}
-		emptyPrivate := tpm2.TPM2BPrivate{}
-
-		// Ignore errors here as the key might not exist
-		_ = s.storage.StoreKey(kt, emptyPublic, emptyPrivate)
+		_ = s.storage.ClearKey(kt)
 	}
 
 	return nil
@@ -465,60 +446,105 @@ func (s *tpmSession) Close() error {
 	return nil
 }
 
-func (s *tpmSession) endorsementKeyCert() (*client.Key, error) {
+// endorsementKeyCert reads endorsement key certificate from TPM NVRAM using direct commands
+func (s *tpmSession) endorsementKeyCert() ([]byte, error) {
 	if s.conn == nil {
 		return nil, fmt.Errorf("cannot read endorsement key certificate: no connection available")
 	}
 
+	// Try reading certificates from standard NVRAM indexes
+	// First try RSA, then ECC
 	var errs []error
-	if key, err := s.getEndorsementKeyECC(); err == nil {
-		return key, nil
-	} else {
-		errs = append(errs, err)
+
+	// Try RSA EK certificate
+	certData, err := s.readEKCertFromNVRAM(client.EKCertNVIndexRSA)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("reading RSA EK certificate from NVRAM: %w", err))
+	} else if len(certData) > 0 {
+		s.log.Debugf("Successfully read RSA EK certificate: %d bytes", len(certData))
+		return certData, nil
 	}
 
-	if key, err := s.getEndorsementKeyRSA(); err == nil {
-		return key, nil
-	} else {
-		errs = append(errs, err)
+	// Try ECC EK certificate
+	certData, err = s.readEKCertFromNVRAM(client.EKCertNVIndexECC)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("reading ECC EK certificate from NVRAM: %w", err))
+	} else if len(certData) > 0 {
+		s.log.Debugf("Successfully read ECC EK certificate: %d bytes", len(certData))
+		return certData, nil
 	}
 
-	return nil, errors.Join(errs...)
+	return nil, fmt.Errorf("no endorsement key certificate found: %w", errors.Join(errs...))
 }
 
-func (s *tpmSession) getEndorsementKeyRSA() (*client.Key, error) {
-	key, err := client.EndorsementKeyRSA(s.conn)
-	if err != nil {
-		return nil, fmt.Errorf("reading RSA endorsement: %w", err)
+// readEKCertFromNVRAM reads a certificate from the specified NVRAM index using Owner hierarchy
+func (s *tpmSession) readEKCertFromNVRAM(nvIndex uint32) ([]byte, error) {
+	// First check if the NVRAM index exists and get its size
+	readPublicCmd := tpm2.NVReadPublic{
+		NVIndex: tpm2.TPMHandle(nvIndex),
 	}
-	if cert := key.CertDERBytes(); len(cert) == 0 {
-		key.Close()
-		return nil, fmt.Errorf("RSA endorsement key has no certificate data")
-	}
-	return key, nil
-}
 
-func (s *tpmSession) getEndorsementKeyECC() (*client.Key, error) {
-	key, err := client.EndorsementKeyECC(s.conn)
+	publicResp, err := readPublicCmd.Execute(transport.FromReadWriter(s.conn))
 	if err != nil {
-		return nil, fmt.Errorf("reading ECC endorsement: %w", err)
+		return nil, fmt.Errorf("NVRAM index 0x%x does not exist or is not accessible: %w", nvIndex, err)
 	}
-	if cert := key.CertDERBytes(); len(cert) == 0 {
-		key.Close()
-		return nil, fmt.Errorf("ECC endorsement key has no certificate data")
+
+	nvPublic, err := publicResp.NVPublic.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get NVRAM public contents: %w", err)
 	}
-	return key, nil
+
+	if nvPublic.DataSize == 0 {
+		return nil, fmt.Errorf("NVRAM index 0x%x is empty", nvIndex)
+	}
+
+	var password []byte
+	if s.authEnabled {
+		password, err = s.storage.GetPassword()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read auth password: %w", err)
+		}
+	}
+
+	// Read the certificate data using Owner hierarchy with chunking
+	var certData []byte
+	dataSize := nvPublic.DataSize
+
+	for offset := uint16(0); offset < dataSize; offset += nvReadChunkSize {
+		chunkSize := nvReadChunkSize
+		if offset+chunkSize > dataSize {
+			chunkSize = dataSize - offset
+		}
+
+		readCmd := tpm2.NVRead{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: tpm2.TPMRHOwner,
+				Auth:   tpm2.PasswordAuth(password),
+			},
+			NVIndex: tpm2.NamedHandle{
+				Handle: tpm2.TPMHandle(nvIndex),
+				Name:   publicResp.NVName,
+			},
+			Size:   chunkSize,
+			Offset: offset,
+		}
+
+		resp, err := readCmd.Execute(transport.FromReadWriter(s.conn))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read chunk at offset %d from NVRAM index 0x%x: %w", offset, nvIndex, err)
+		}
+
+		certData = append(certData, resp.Data.Buffer...)
+	}
+
+	return certData, nil
 }
 
 func (s *tpmSession) GetEndorsementKeyCert() ([]byte, error) {
-	key, err := s.endorsementKeyCert()
+	certData, err := s.endorsementKeyCert()
 	if err != nil {
 		return nil, fmt.Errorf("reading cert: %w", err)
 	}
-
-	// always close the key to prevent resource leaks
-	certData := key.CertDERBytes()
-	key.Close()
 
 	if len(certData) == 0 {
 		s.log.Warnf("TPM Endorsement Key certificate is empty - this TPM may not have an embedded EK certificate")
@@ -526,31 +552,6 @@ func (s *tpmSession) GetEndorsementKeyCert() ([]byte, error) {
 	}
 
 	return certData, nil
-}
-
-func (s *tpmSession) GetEndorsementKeyPublic() ([]byte, error) {
-	// Aggressively flush handles before EK operations to prevent kernel resource exhaustion
-	if err := s.FlushAllTransientHandles(); err != nil {
-		s.log.Debugf("Warning: could not flush transient handles before EK public key retrieval: %v", err)
-	}
-
-	key, err := s.endorsementKeyCert()
-	if err != nil {
-		return nil, fmt.Errorf("reading cert: %w", err)
-	}
-
-	res, err := key.PublicArea().Encode()
-	if err != nil {
-		key.Close()
-		return nil, fmt.Errorf("encoding public key: %w", err)
-	}
-
-	key.Close()
-
-	// Flush again after operation to keep TPM clean
-	_ = s.FlushAllTransientHandles()
-
-	return res, nil
 }
 
 func (s *tpmSession) ensureStorageAuth() error {
