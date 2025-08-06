@@ -3,7 +3,6 @@ package periodic
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -81,63 +80,4 @@ func TestChannelManager_PublishTask_ContextCancelled(t *testing.T) {
 	err = cm.PublishTask(ctx, taskRef)
 	require.Error(t, err)
 	require.Equal(t, context.Canceled, err)
-}
-
-func TestChannelManager_ConsumeTask_Success(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.FatalLevel)
-
-	cm := NewChannelManager(ChannelManagerConfig{
-		Log:               logger,
-		ChannelBufferSize: 10,
-	})
-	defer cm.Close()
-
-	ctx := context.Background()
-	expectedTaskRef := PeriodicTaskReference{
-		Type:  PeriodicTaskTypeResourceSync,
-		OrgID: uuid.New(),
-	}
-
-	err := cm.PublishTask(ctx, expectedTaskRef)
-	require.NoError(t, err)
-
-	taskRef, ok := cm.ConsumeTask(ctx)
-	require.True(t, ok)
-	require.Equal(t, expectedTaskRef, taskRef)
-}
-
-func TestChannelManager_ConsumeTask_ClosedChannel(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.FatalLevel)
-
-	cm := NewChannelManager(ChannelManagerConfig{
-		Log:               logger,
-		ChannelBufferSize: 10,
-	})
-
-	cm.Close()
-
-	ctx := context.Background()
-	taskRef, ok := cm.ConsumeTask(ctx)
-	require.False(t, ok)
-	require.Equal(t, PeriodicTaskReference{}, taskRef)
-}
-
-func TestChannelManager_ConsumeTask_ContextCancelled(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.FatalLevel)
-
-	cm := NewChannelManager(ChannelManagerConfig{
-		Log:               logger,
-		ChannelBufferSize: 10,
-	})
-	defer cm.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	taskRef, ok := cm.ConsumeTask(ctx)
-	require.False(t, ok)
-	require.Equal(t, PeriodicTaskReference{}, taskRef)
 }

@@ -100,7 +100,8 @@ func TestConsumer_processTask_Success(t *testing.T) {
 			executors := createTestExecutors()
 			mockExecutor := executors[tt.taskType].(*mockPeriodicTaskExecutor)
 			log := logrus.New()
-			ctx := context.Background()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			taskRef := createTaskReference(tt.taskType)
 
@@ -114,11 +115,9 @@ func TestConsumer_processTask_Success(t *testing.T) {
 				Executors:      executors,
 			})
 
-			err := consumer.Start(ctx)
-			require.NoError(t, err)
-			defer consumer.Stop()
+			go consumer.Start(ctx)
 
-			err = channelManager.PublishTask(ctx, taskRef)
+			err := channelManager.PublishTask(ctx, taskRef)
 			require.NoError(t, err)
 
 			require.Eventually(t, func() bool {
@@ -137,7 +136,8 @@ func TestConsumer_processTask_Success(t *testing.T) {
 func TestConsumer_processTask_MultipleTaskTypes(t *testing.T) {
 	executors := createTestExecutors()
 	log := logrus.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	testCases := []PeriodicTaskType{
 		PeriodicTaskTypeRepositoryTester,
@@ -155,14 +155,12 @@ func TestConsumer_processTask_MultipleTaskTypes(t *testing.T) {
 		Executors:      executors,
 	})
 
-	err := consumer.Start(ctx)
-	require.NoError(t, err)
-	defer consumer.Stop()
+	go consumer.Start(ctx)
 
 	// Execute each task type
 	for _, taskType := range testCases {
 		taskRef := createTaskReference(taskType)
-		err = channelManager.PublishTask(ctx, taskRef)
+		err := channelManager.PublishTask(ctx, taskRef)
 		require.NoError(t, err)
 	}
 
@@ -220,15 +218,13 @@ func TestConsumer_processTask_MultipleTasks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err := consumer.Start(ctx)
-	require.NoError(t, err)
-	defer consumer.Stop()
+	go consumer.Start(ctx)
 
 	// Publish multiple tasks
 	numTasks := 10
 	for i := 0; i < numTasks; i++ {
 		taskRef := createTaskReference(PeriodicTaskTypeRepositoryTester)
-		err = channelManager.PublishTask(ctx, taskRef)
+		err := channelManager.PublishTask(ctx, taskRef)
 		require.NoError(t, err)
 	}
 
@@ -242,7 +238,7 @@ func TestConsumer_processTask_MultipleTasks(t *testing.T) {
 	require.Len(t, executeCallArgs, numTasks)
 }
 
-func TestPeriodicTaskConsumer_Stop(t *testing.T) {
+func TestPeriodicTaskConsumer_ContextCanceled(t *testing.T) {
 	executors := createTestExecutors()
 	log := logrus.New()
 
@@ -259,11 +255,12 @@ func TestPeriodicTaskConsumer_Stop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err := consumer.Start(ctx)
-	require.NoError(t, err)
+	consumerCtx, consumerCancel := context.WithCancel(context.Background())
+	defer consumerCancel()
+	go consumer.Start(consumerCtx)
 
 	taskRef := createTaskReference(PeriodicTaskTypeRepositoryTester)
-	err = channelManager.PublishTask(ctx, taskRef)
+	err := channelManager.PublishTask(ctx, taskRef)
 	require.NoError(t, err)
 
 	mockExecutor := executors[PeriodicTaskTypeRepositoryTester].(*mockPeriodicTaskExecutor)
@@ -271,9 +268,7 @@ func TestPeriodicTaskConsumer_Stop(t *testing.T) {
 		return mockExecutor.GetExecuteCallCount() == 1
 	}, 1*time.Second, 10*time.Millisecond)
 
-	initialCount := mockExecutor.GetExecuteCallCount()
-
-	consumer.Stop()
+	consumerCancel()
 
 	taskRef2 := createTaskReference(PeriodicTaskTypeRepositoryTester)
 	err = channelManager.PublishTask(ctx, taskRef2)
@@ -282,7 +277,7 @@ func TestPeriodicTaskConsumer_Stop(t *testing.T) {
 	// Wait a bit and verify no additional tasks were processed
 	time.Sleep(100 * time.Millisecond)
 	finalCount := mockExecutor.GetExecuteCallCount()
-	require.Equal(t, initialCount, finalCount, "no additional tasks should be processed after stopping consumer")
+	require.Equal(t, 1, finalCount, "no additional tasks should be processed after stopping consumer")
 }
 
 func TestConsumer_processTask_PanicRecovery(t *testing.T) {
@@ -295,7 +290,8 @@ func TestConsumer_processTask_PanicRecovery(t *testing.T) {
 	}
 
 	log := logrus.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	channelManagerConfig := ChannelManagerConfig{Log: log}
 	channelManager := NewChannelManager(channelManagerConfig)
@@ -307,9 +303,7 @@ func TestConsumer_processTask_PanicRecovery(t *testing.T) {
 		Executors:      executors,
 	})
 
-	err := consumer.Start(ctx)
-	require.NoError(t, err)
-	defer consumer.Stop()
+	go consumer.Start(ctx)
 
 	// Execute a task that panics
 	panicTaskRef := PeriodicTaskReference{
@@ -317,7 +311,7 @@ func TestConsumer_processTask_PanicRecovery(t *testing.T) {
 		OrgID: uuid.New(),
 	}
 
-	err = channelManager.PublishTask(ctx, panicTaskRef)
+	err := channelManager.PublishTask(ctx, panicTaskRef)
 	require.NoError(t, err)
 
 	// Wait for panicking task to be processed - consumer should not crash
