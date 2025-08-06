@@ -3,7 +3,6 @@ package periodic
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -33,7 +32,6 @@ type PeriodicTaskPublisher struct {
 	tasksMetadata  map[PeriodicTaskType]PeriodicTaskMetadata
 	orgService     OrganizationService
 	channelManager TaskChannelManager
-	wg             sync.WaitGroup
 
 	orgTasksMetadata map[uuid.UUID]*OrgTaskMetadata
 
@@ -123,28 +121,25 @@ func (p *PeriodicTaskPublisher) publishTask(ctx context.Context, taskType Period
 }
 
 func (p *PeriodicTaskPublisher) Start(ctx context.Context) {
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		p.syncOrganizations(ctx)
+	p.syncOrganizations(ctx)
 
-		taskTicker := time.NewTicker(p.taskTickerInterval)
-		defer taskTicker.Stop()
-		orgTicker := time.NewTicker(p.orgTickerInterval)
-		defer orgTicker.Stop()
+	taskTicker := time.NewTicker(p.taskTickerInterval)
+	defer taskTicker.Stop()
+	orgTicker := time.NewTicker(p.orgTickerInterval)
+	defer orgTicker.Stop()
 
-		for {
-			select {
-			case <-taskTicker.C:
-				p.publishTasks(ctx)
-			case <-orgTicker.C:
-				p.syncOrganizations(ctx)
-			case <-ctx.Done():
-				p.clearOrganizations()
-				return
-			}
+	for {
+		select {
+		case <-taskTicker.C:
+			p.publishTasks(ctx)
+		case <-orgTicker.C:
+			p.syncOrganizations(ctx)
+		case <-ctx.Done():
+			p.clearOrganizations()
+			p.log.Info("Publisher stopped")
+			return
 		}
-	}()
+	}
 }
 
 func (p *PeriodicTaskPublisher) syncOrganizations(ctx context.Context) {
@@ -195,10 +190,6 @@ func (p *PeriodicTaskPublisher) syncOrganizations(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func (p *PeriodicTaskPublisher) Stop() {
-	p.wg.Wait()
 }
 
 func (p *PeriodicTaskPublisher) clearOrganizations() {

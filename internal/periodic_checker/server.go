@@ -2,9 +2,11 @@ package periodic
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -14,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 type Server struct {
@@ -84,10 +87,12 @@ func (s *Server) Run(ctx context.Context) error {
 		consumerConfig.ConsumerCount = s.cfg.Periodic.Consumers
 	}
 	periodicTaskConsumer := NewPeriodicTaskConsumer(consumerConfig)
-	if err := periodicTaskConsumer.Start(ctx); err != nil {
-		return err
-	}
-	defer periodicTaskConsumer.Stop()
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		periodicTaskConsumer.Start(ctx)
+		return nil
+	})
 
 	// Periodic task publisher
 	publisherConfig := PeriodicTaskPublisherConfig{
@@ -100,13 +105,31 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	periodicTaskPublisher.Start(ctx)
-	defer periodicTaskPublisher.Stop()
+	eg.Go(func() error {
+		periodicTaskPublisher.Start(ctx)
+		return nil
+	})
 
 	sigShutdown := make(chan os.Signal, 1)
-
 	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	<-sigShutdown
 	s.log.Println("Shutdown signal received")
-	return nil
+	cancel()
+
+	// Create a timeout for graceful shutdown of the publisher and consumer
+	shutdownComplete := make(chan struct{})
+	go func() {
+		err = eg.Wait()
+		close(shutdownComplete)
+	}()
+
+	select {
+	case <-shutdownComplete:
+		s.log.Info("Graceful shutdown of publisher and consumer complete")
+	case <-time.After(10 * time.Second):
+		s.log.Error("Graceful shutdown timeout exceeded, forcing exit")
+		return fmt.Errorf("shutdown timeout exceeded")
+	}
+
+	return err
 }

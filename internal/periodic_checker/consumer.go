@@ -48,8 +48,6 @@ type PeriodicTaskConsumer struct {
 	executors      map[PeriodicTaskType]PeriodicTaskExecutor
 	consumerCount  int
 	wg             sync.WaitGroup
-	ctx            context.Context
-	cancel         context.CancelFunc
 }
 
 type PeriodicTaskConsumerConfig struct {
@@ -73,51 +71,35 @@ func NewPeriodicTaskConsumer(config PeriodicTaskConsumerConfig) *PeriodicTaskCon
 }
 
 // runConsumer runs a single consumer goroutine
-func (c *PeriodicTaskConsumer) runConsumer(consumerID int) {
+func (c *PeriodicTaskConsumer) runConsumer(ctx context.Context, consumerID int) {
 	defer c.wg.Done()
 
 	c.log.Infof("Starting periodic task consumer %d", consumerID)
 
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			c.log.Infof("Consumer %d stopped", consumerID)
 			return
-		default:
-			taskRef, ok := c.channelManager.ConsumeTask(c.ctx)
-			if !ok {
-				// Channel closed or context cancelled
-				c.log.Infof("Consumer %d stopped - channel closed", consumerID)
-				return
-			}
-			c.processTask(c.ctx, taskRef)
+		case taskRef := <-c.channelManager.Tasks():
+			c.processTask(ctx, taskRef)
 		}
 	}
 }
 
-func (c *PeriodicTaskConsumer) Start(ctx context.Context) error {
-	c.ctx, c.cancel = context.WithCancel(ctx)
-
+func (c *PeriodicTaskConsumer) Start(ctx context.Context) {
 	// Start all consumer goroutines
 	for i := 0; i < c.consumerCount; i++ {
 		c.wg.Add(1)
-		go c.runConsumer(i)
+		go c.runConsumer(ctx, i)
 	}
 
 	c.log.Infof("Started %d periodic task consumers", c.consumerCount)
-	return nil
-}
 
-// Stop gracefully stops all consumers
-func (c *PeriodicTaskConsumer) Stop() {
-	c.log.Info("Stopping periodic task consumers...")
-
-	// Cancel the context to signal all consumers to stop
-	if c.cancel != nil {
-		c.cancel()
-	}
-
-	// Wait for all goroutines to finish
+	<-ctx.Done()
+	c.log.Info("Context cancelled, stopping periodic task consumers...")
 	c.wg.Wait()
 	c.log.Info("All periodic task consumers stopped")
+
+	return
 }

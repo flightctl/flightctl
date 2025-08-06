@@ -57,17 +57,8 @@ func (cm *ChannelManager) PublishTask(ctx context.Context, taskRef PeriodicTaskR
 	}
 }
 
-func (cm *ChannelManager) ConsumeTask(ctx context.Context) (PeriodicTaskReference, bool) {
-	select {
-	case taskRef, ok := <-cm.taskChannel:
-		if !ok {
-			return PeriodicTaskReference{}, false
-		}
-		cm.log.Debugf("Consumed task %s for organization %s", taskRef.Type, taskRef.OrgID)
-		return taskRef, true
-	case <-ctx.Done():
-		return PeriodicTaskReference{}, false
-	}
+func (cm *ChannelManager) Tasks() <-chan PeriodicTaskReference {
+	return cm.taskChannel
 }
 
 func (cm *ChannelManager) Close() {
