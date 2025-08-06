@@ -10,6 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -162,6 +163,7 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 		for _, d := range devices.Items {
 			r.log.Infof("%v/%s: sending device to rendering", orgId, lo.FromPtr(d.Metadata.Name))
 			r.callbackManager.DeviceSourceUpdated(ctx, orgId, lo.FromPtr(d.Metadata.Name))
+			r.serviceHandler.CreateEvent(ctx, common.GetFleetRolloutDeviceSelectedEvent(ctx, lo.FromPtr(d.Metadata.Name), lo.FromPtr(fleet.Metadata.Name), templateVersionName))
 		}
 		remaining = remaining - len(devices.Items)
 		if devices.Metadata.Continue == nil || remaining == 0 {
