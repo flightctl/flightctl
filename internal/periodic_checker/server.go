@@ -83,7 +83,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", ""))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "", []string{}))
 
 	// repository tester
 	repoTester := tasks.NewRepoTester(s.log, serviceHandler)

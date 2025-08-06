@@ -56,7 +56,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", ""))
+		service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "", []string{}))
 
 	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, callbackManager, s.k8sClient, kvStore, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
