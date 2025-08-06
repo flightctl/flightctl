@@ -78,7 +78,7 @@ var _ = Describe("FleetRollout", func() {
 		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
+		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
 	})
 
 	AfterEach(func() {

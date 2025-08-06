@@ -315,6 +315,15 @@ func ValidateExpirationSeconds(e *int32) []error {
 	return nil
 }
 
+func ValidateCSRWithTCGSupport(csr []byte) []error {
+	if isTCGCSRFormat(csr) {
+		// skip validation which is handeled at the service layer
+		return nil
+	}
+
+	return ValidateCSR(csr)
+}
+
 func ValidateCSR(csr []byte) []error {
 	errs := field.ErrorList{}
 
@@ -328,6 +337,25 @@ func ValidateCSR(csr []byte) []error {
 		return asErrors(errs)
 	}
 	return nil
+}
+
+func isTCGCSRFormat(csr []byte) bool {
+	// try raw binary these ordering is guaranteed
+	if len(csr) >= 4 &&
+		csr[0] == 0x01 && csr[1] == 0x00 &&
+		csr[2] == 0x01 && csr[3] == 0x00 {
+		return true
+	}
+
+	// attempt base64 decode
+	decoded, err := base64.StdEncoding.DecodeString(string(csr))
+	if err == nil && len(decoded) >= 4 &&
+		decoded[0] == 0x01 && decoded[1] == 0x00 &&
+		decoded[2] == 0x01 && decoded[3] == 0x00 {
+		return true
+	}
+
+	return false
 }
 
 func FormatInvalidError(input, path, errorMsg string) []error {
