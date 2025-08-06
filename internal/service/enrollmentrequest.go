@@ -158,9 +158,15 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		}
 	}
 
+	// preserve existing conditions when approving
+	existingConditions := []api.Condition{}
+	if enrollmentRequest.Status != nil && enrollmentRequest.Status.Conditions != nil {
+		existingConditions = enrollmentRequest.Status.Conditions
+	}
+
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
 		Certificate: lo.ToPtr(string(certData)),
-		Conditions:  []api.Condition{},
+		Conditions:  existingConditions,
 		Approval:    approval,
 	}
 
