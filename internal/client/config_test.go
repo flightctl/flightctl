@@ -37,6 +37,7 @@ func TestValidConfig(t *testing.T) {
 		{name: "server with CA cert data", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthorityData: []byte(certData)}, testRootDir: testRootDir}},
 		{name: "server with absolute path to CA file", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(configDir, certsDir, certFile)}, testRootDir: testRootDir}},
 		{name: "server with relative path to CA file", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(certsDir, certFile)}, baseDir: configDir, testRootDir: testRootDir}},
+		{name: "server with valid organization ID", config: Config{Service: Service{Server: "https://localhost:3443"}, Organization: "123e4567-e89b-12d3-a456-426614174000"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,6 +61,8 @@ func TestInvalidConfig(t *testing.T) {
 		{name: "unreadable ca", config: Config{Service: Service{Server: "https://localhost", CertificateAuthority: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
 		{name: "unreadable cert", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
 		{name: "unreadable key", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "cert", ClientKey: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
+		{name: "invalid organization ID", config: Config{Service: Service{Server: "https://localhost"}, Organization: "not-a-uuid"}, expectedErrorSubstring: "invalid organization ID"},
+		{name: "malformed organization UUID", config: Config{Service: Service{Server: "https://localhost"}, Organization: "12345678-1234-1234-1234-12345678901"}, expectedErrorSubstring: "invalid organization ID"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

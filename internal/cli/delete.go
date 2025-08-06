@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -181,9 +180,18 @@ func processDeletionReponse(response interface{}, err error, kind string, name s
 		return fmt.Errorf("%s: %w", errorPrefix, err)
 	}
 
-	v := reflect.ValueOf(response).Elem()
-	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf(errorPrefix+": %s (%d)", v.FieldByName("HTTPResponse").Elem().FieldByName("Status").String(), v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return fmt.Errorf("%s: %w", errorPrefix, err)
+	}
+
+	responseBody, err := responseField[[]byte](response, "Body")
+	if err != nil {
+		return fmt.Errorf("%s: %w", errorPrefix, err)
+	}
+
+	if err := validateHttpResponse(responseBody, httpResponse.StatusCode, http.StatusOK); err != nil {
+		return fmt.Errorf("%s: %w", errorPrefix, err)
 	}
 
 	return nil

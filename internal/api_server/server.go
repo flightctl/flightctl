@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -55,26 +56,29 @@ type Server struct {
 	listener           net.Listener
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
+	orgResolver        *org.Resolver
 }
 
 // New returns a new instance of a flightctl server.
 func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
-	store store.Store,
+	st store.Store,
 	ca *crypto.CAClient,
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	consoleEndpointReg console.InternalSessionRegistration,
 ) *Server {
+	resolver := org.NewResolver(st.Organization(), 5*time.Minute)
 	return &Server{
 		log:                log,
 		cfg:                cfg,
-		store:              store,
+		store:              st,
 		ca:                 ca,
 		listener:           listener,
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
+		orgResolver:        resolver,
 	}
 }
 
@@ -180,7 +184,10 @@ func (s *Server) Run(ctx context.Context) error {
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
-		fcmiddleware.AddOrgIDToCtx(s.store.Organization()),
+		fcmiddleware.AddOrgIDToCtx(
+			s.orgResolver,
+			fcmiddleware.QueryOrgIDExtractor,
+		),
 		middleware.Logger,
 		middleware.Recoverer,
 	)
@@ -300,6 +307,7 @@ func (s *Server) Run(ctx context.Context) error {
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
 		kvStore.Close()
+		s.orgResolver.Close()
 		s.queuesProvider.Stop()
 		s.queuesProvider.Wait()
 	}()

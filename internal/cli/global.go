@@ -92,7 +92,20 @@ func (o *GlobalOptions) ValidateCmd(args []string) error {
 // BuildClient constructs a FlightCTL API client using configuration derived
 // from the global options (config file path, organization override, etc.).
 func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
-	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(o.Organization))
+	organization := o.GetEffectiveOrganization()
+	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization))
+}
+
+// GetEffectiveOrganization returns the organization ID to use for API requests.
+func (o *GlobalOptions) GetEffectiveOrganization() string {
+	if o.Organization != "" {
+		return o.Organization
+	}
+	config, err := client.ParseConfigFile(o.ConfigFilePath)
+	if err != nil {
+		return ""
+	}
+	return config.Organization
 }
 
 func (o *GlobalOptions) WithTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

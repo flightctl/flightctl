@@ -1,7 +1,5 @@
 /bin/
 /rpmbuild/
-/.vscode/
-/.idea/
 /reports/
 test/e2e/cli/*.crt
 test/e2e/cli/*.key
@@ -10,5 +8,13 @@ test/e2e/cli/*.key
 /packaging/rpm/flightctl-*-vendor.tar.bz2
 flightctl-*.rpm
 *.tar
-.claude/
-.cursor/
+
+# All temporary files should be created here
+/.output/
+
+# AI and IDE configurations
+/.claude/
+/.vscode/
+/.idea/
+/.cursor/
+/.serena/

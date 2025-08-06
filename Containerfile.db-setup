@@ -28,6 +28,7 @@ LABEL \
   description="Flight Control Database Setup Tools" \
   io.k8s.description="Flight Control Database Setup Tools" \
   io.k8s.display-name="Flight Control Database Setup" \
+  io.openshift.tags="flightctl,db-setup" \
   name="flightctl-db-setup" \
   summary="Flight Control Database Setup Tools"
 

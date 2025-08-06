@@ -11,12 +11,12 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/org"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
-	"github.com/google/uuid"
 )
 
 var (
-	NullOrgId            = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	NullOrgId            = org.DefaultID
 	OIDSignerName        = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
 	OIDOrgID             = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 2}
 	OIDDeviceFingerprint = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 3}

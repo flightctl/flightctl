@@ -94,7 +94,7 @@ func TestRunSetOrganization(t *testing.T) {
 		{
 			name:           "unset",
 			arg:            "",
-			initialOrg:     "some-old-org",
+			initialOrg:     uuid,
 			expectedOutput: "Current organization unset\n",
 			expectedFinal:  "",
 		},

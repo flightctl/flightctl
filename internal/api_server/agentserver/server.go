@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
@@ -42,27 +43,30 @@ type AgentServer struct {
 	queuesProvider queues.Provider
 	tlsConfig      *tls.Config
 	grpcServer     *AgentGrpcServer
+	orgResolver    *org.Resolver
 }
 
 // New returns a new instance of a flightctl server.
 func New(
 	log logrus.FieldLogger,
 	cfg *config.Config,
-	store store.Store,
+	st store.Store,
 	ca *crypto.CAClient,
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
 ) *AgentServer {
+	resolver := org.NewResolver(st.Organization(), cacheExpirationTime)
 	return &AgentServer{
 		log:            log,
 		cfg:            cfg,
-		store:          store,
+		store:          st,
 		ca:             ca,
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
 		grpcServer:     NewAgentGrpcServer(log, cfg),
+		orgResolver:    resolver,
 	}
 }
 
@@ -107,6 +111,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+		s.orgResolver.Close()
 	}()
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())
@@ -134,7 +139,11 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
-		middleware.RequestID,
+		tlsmiddleware.RequestID,
+		tlsmiddleware.AddOrgIDToCtx(
+			s.orgResolver,
+			tlsmiddleware.CertOrgIDExtractor,
+		),
 		middleware.Logger,
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
