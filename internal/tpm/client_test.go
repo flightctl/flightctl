@@ -888,7 +888,7 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 
 			// Perform initial client operations and store the public key for comparison
 			originalPublic := performClientOperations(t, c, ctx, "initial")
-			err = c.Close(ctx)
+			err = safeCloseSession(c.session)
 			require.NoError(err)
 
 			// Reset the TPM simulator to simulate a reboot
@@ -915,9 +915,6 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			err = c2.Clear()
 			require.NoError(err)
 
-			err = c2.Close(ctx)
-			require.NoError(err)
-
 			// Create a third client to verify Clear worked - TPM hierarchy reset and storage cleared
 			c3, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
@@ -935,7 +932,7 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			// Verify that the public key is different after Clear (fresh keys generated)
 			require.NotEqual(originalPublic, public3, "Public key should be different after TPM Clear operation")
 
-			err = c3.Close(ctx)
+			err = safeCloseSession(c3.session)
 			require.NoError(err)
 		})
 	}
@@ -1205,4 +1202,18 @@ func performClientOperations(t *testing.T, c *Client, ctx context.Context, testS
 	require.NotEqual(signature1, signature2)
 
 	return public
+}
+
+// closes the session in a way that doesn't close the underlying connection so that it can be reused
+// for a testing purposes
+func safeCloseSession(session Session) error {
+	s, ok := session.(*tpmSession)
+	if !ok {
+		return fmt.Errorf("session is not a TPM session")
+	}
+	errs := s.flushKeys()
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
