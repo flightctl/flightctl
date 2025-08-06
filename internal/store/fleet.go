@@ -37,6 +37,9 @@ type Fleet interface {
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+
+	// Used by domain metrics
+	CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, _ *string) ([]CountByRolloutStatusResult, error)
 }
 
 type FleetStore struct {
@@ -511,4 +514,42 @@ func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, nam
 		return nil, err
 	}
 	return &repositories, nil
+}
+
+// CountByRolloutStatusResult holds the result of the group by query
+// for fleet rollout status.
+type CountByRolloutStatusResult struct {
+	OrgID  string
+	Status string
+	Count  int64
+}
+
+// CountByRolloutStatus returns the count of fleets grouped by org_id and rollout status.
+func (s *FleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, _ *string) ([]CountByRolloutStatusResult, error) {
+	var query *gorm.DB
+	var err error
+
+	if orgId != nil {
+		query, err = ListQuery(&model.Fleet{}).BuildNoOrder(ctx, s.getDB(ctx), *orgId, ListParams{})
+	} else {
+		// When orgId is nil, we don't filter by org_id
+		query = s.getDB(ctx).Model(&model.Fleet{})
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	query = query.Select(
+		"org_id as org_id",
+		"COALESCE(status->'rollout'->>'currentBatch', 'none') as status",
+		"COUNT(*) as count",
+	).Group("org_id, status")
+
+	var results []CountByRolloutStatusResult
+	err = query.Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
 }

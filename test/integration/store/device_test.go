@@ -1043,6 +1043,60 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(api.FleetSpecsAreEqual(originalFleetSpec, differentFleetSpec)).To(BeFalse(),
 				"FleetSpecs with different rollout policies should not be equal")
 		})
+
+		It("CountByOrgAndStatus", func() {
+			// Create a few devices with fleet assignments
+			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-device-1", lo.ToPtr("Fleet/test-fleet"), nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-device-2", lo.ToPtr("Fleet/test-fleet"), nil, nil)
+
+			// Test CountByOrgAndStatus with groupByFleet=true
+			results, err := devStore.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeSummary, true)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			// Verify we get results grouped by fleet
+			fleetCounts := make(map[string]int64)
+			for _, result := range results {
+				Expect(result.OrgID).To(Equal(orgId.String()))
+				fleetCounts[result.Fleet] += result.Count
+			}
+
+			// Should have devices in both "" fleet (original 3 devices with nil owner) and "Fleet/test-fleet" (2 new devices)
+			Expect(fleetCounts[""]).To(Equal(int64(3)))                 // mydevice-1,2,3 (no fleet assignment = empty string)
+			Expect(fleetCounts["Fleet/test-fleet"]).To(Equal(int64(2))) // fleet-device-1,2
+
+			// Test CountByOrgAndStatus with groupByFleet=false
+			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeSummary, false)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			// All devices should be aggregated without fleet grouping (Fleet field will be empty)
+			totalCount := int64(0)
+			for _, result := range results {
+				Expect(result.Fleet).To(Equal("")) // No fleet field selected when groupByFleet=false
+				totalCount += result.Count
+			}
+			Expect(totalCount).To(Equal(int64(5))) // All 5 devices
+
+			// Test different status types
+			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeApplication, true)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			results, err = devStore.CountByOrgAndStatus(ctx, &orgId, store.DeviceStatusTypeUpdate, true)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			// Test with nil orgId
+			results, err = devStore.CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary, true)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			// Verify organization ID is included in results
+			for _, result := range results {
+				Expect(result.OrgID).To(Equal(orgId.String()))
+			}
+		})
 	})
 })
 

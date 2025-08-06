@@ -315,3 +315,6 @@ nginx
 rateLimit
 real_ip
 untrusted
+- docs/user/metrics.md
+sloMax
+SLO

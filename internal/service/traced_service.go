@@ -8,7 +8,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"go.opentelemetry.io/otel/attribute"
@@ -28,7 +28,7 @@ func WrapWithTracing(svc Service) Service {
 }
 
 func startSpan(ctx context.Context, method string) (context.Context, trace.Span) {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/service", method)
+	ctx, span := tracing.StartSpan(ctx, "flightctl/service", method)
 	return ctx, span
 }
 

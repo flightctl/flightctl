@@ -595,5 +595,101 @@ var _ = Describe("FleetStore create", func() {
 			Expect(called).To(BeTrue())
 		})
 
+		It("CountByRolloutStatus - with specific orgId", func() {
+			// Create fleets with different rollout statuses
+			fleet1 := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("fleet-rollout-1"),
+				},
+				Status: &api.FleetStatus{
+					Rollout: &api.FleetRolloutStatus{
+						CurrentBatch: lo.ToPtr(1),
+					},
+				},
+			}
+			fleet2 := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("fleet-rollout-2"),
+				},
+				Status: &api.FleetStatus{
+					Rollout: &api.FleetRolloutStatus{
+						CurrentBatch: lo.ToPtr(2),
+					},
+				},
+			}
+			fleet3 := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("fleet-rollout-3"),
+				},
+				Status: &api.FleetStatus{
+					Rollout: &api.FleetRolloutStatus{
+						CurrentBatch: lo.ToPtr(1),
+					},
+				},
+			}
+
+			_, err := storeInst.Fleet().Create(ctx, orgId, &fleet1, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet3, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Test with specific orgId
+			results, err := storeInst.Fleet().CountByRolloutStatus(ctx, &orgId, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			// Count expected results: 3 original fleets + 3 new ones = 6 total
+			// Original fleets have no rollout status (will be "none")
+			// New fleets have batch1 (2 fleets) and batch2 (1 fleet)
+			totalCount := int64(0)
+			statusCounts := make(map[string]int64)
+			for _, result := range results {
+				Expect(result.OrgID).To(Equal(orgId.String()))
+				totalCount += result.Count
+				statusCounts[result.Status] += result.Count
+			}
+			Expect(totalCount).To(Equal(int64(6))) // 3 original + 3 new fleets
+
+			// Check specific status counts
+			Expect(statusCounts["none"]).To(Equal(int64(3))) // Original fleets
+			Expect(statusCounts["1"]).To(Equal(int64(2)))    // fleet-rollout-1 and fleet-rollout-3 (batch 1)
+			Expect(statusCounts["2"]).To(Equal(int64(1)))    // fleet-rollout-2 (batch 2)
+		})
+
+		It("CountByRolloutStatus - with nil orgId (all orgs)", func() {
+			// Create another org with a fleet
+			otherOrgId := uuid.New()
+			err := testutil.CreateTestOrganization(ctx, storeInst, otherOrgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("other-org-fleet"),
+				},
+				Status: &api.FleetStatus{
+					Rollout: &api.FleetRolloutStatus{
+						CurrentBatch: lo.ToPtr(5),
+					},
+				},
+			}
+			_, err = storeInst.Fleet().Create(ctx, otherOrgId, &fleet, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Test with nil orgId (should get all orgs)
+			results, err := storeInst.Fleet().CountByRolloutStatus(ctx, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			// Should have results for both organizations
+			orgIds := make(map[string]bool)
+			for _, result := range results {
+				orgIds[result.OrgID] = true
+			}
+			Expect(orgIds).To(HaveKey(orgId.String()))
+			Expect(orgIds).To(HaveKey(otherOrgId.String()))
+		})
+
 	})
 })

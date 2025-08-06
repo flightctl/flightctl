@@ -24,6 +24,10 @@ type Repository interface {
 
 	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error)
 	GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceList, error)
+
+	// Used by domain metrics
+	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
+	CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]CountByOrgResult, error)
 }
 
 type RepositoryStore struct {
@@ -174,4 +178,52 @@ func (s *RepositoryStore) GetDeviceRefs(ctx context.Context, orgId uuid.UUID, na
 	}
 	deviceList, _ := model.DevicesToApiResource(devices, nil, nil)
 	return &deviceList, nil
+}
+
+func (s *RepositoryStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {
+	query, err := ListQuery(&model.Repository{}).Build(ctx, s.getDB(ctx), orgId, listParams)
+	if err != nil {
+		return 0, err
+	}
+	var repositoriesCount int64
+	if err := query.Count(&repositoriesCount).Error; err != nil {
+		return 0, ErrorFromGormError(err)
+	}
+	return repositoriesCount, nil
+}
+
+// CountByOrgResult holds the result of the group by query
+// for organization.
+type CountByOrgResult struct {
+	OrgID string
+	Count int64
+}
+
+// CountByOrg returns the count of repositories grouped by org_id.
+func (s *RepositoryStore) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]CountByOrgResult, error) {
+	var query *gorm.DB
+	var err error
+
+	if orgId != nil {
+		query, err = ListQuery(&model.Repository{}).BuildNoOrder(ctx, s.getDB(ctx), *orgId, ListParams{})
+	} else {
+		// When orgId is nil, we don't filter by org_id
+		query = s.getDB(ctx).Model(&model.Repository{})
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	query = query.Select(
+		"org_id as org_id",
+		"COUNT(*) as count",
+	).Group("org_id")
+
+	var results []CountByOrgResult
+	err = query.Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
 }
