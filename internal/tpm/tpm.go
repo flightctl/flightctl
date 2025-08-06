@@ -47,6 +47,8 @@ type Storage interface {
 	GetKey(keyType KeyType) (*tpm2.TPM2BPublic, *tpm2.TPM2BPrivate, error)
 	// StoreKey stores key data for the specified key type
 	StoreKey(keyType KeyType, public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate) error
+	// ClearKey clears key data for the specified key type
+	ClearKey(keyType KeyType) error
 	// GetPassword retrieves the stored storage hierarchy password
 	GetPassword() ([]byte, error)
 	// StorePassword stores the storage hierarchy password
@@ -73,8 +75,6 @@ type Session interface {
 	GetPublicKey(keyType KeyType) (*tpm2.TPM2BPublic, error)
 	// GetEndorsementKeyCert returns the endorsement key certificate
 	GetEndorsementKeyCert() ([]byte, error)
-	// GetEndorsementKeyPublic returns the endorsement key public data
-	GetEndorsementKeyPublic() ([]byte, error)
 	// FlushAllTransientHandles aggressively flushes all transient handles
 	FlushAllTransientHandles() error
 	// Clear performs a best-effort clear of the TPM, resetting keys and auth

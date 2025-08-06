@@ -99,6 +99,18 @@ func (s *storageData) Handle(keyType KeyType) *keyData {
 	}
 }
 
+func (s *storageData) ClearHandle(keyType KeyType) error {
+	switch keyType {
+	case LDevID:
+		s.LDevID = nil
+	case LAK:
+		s.LAK = nil
+	default:
+		return fmt.Errorf("invalid key type: %s", keyType)
+	}
+	return nil
+}
+
 func (s *storageData) Password() (*passwordData, error) {
 	if s.SealedPassword == nil {
 		return nil, fmt.Errorf("password %w", ErrNotFound)
@@ -181,6 +193,19 @@ func (s *fileStorage) StoreKey(keyType KeyType, public tpm2.TPM2BPublic, private
 
 	s.log.Debugf("Successfully stored and validated key %s", keyType)
 	return nil
+}
+
+func (s *fileStorage) ClearKey(keyType KeyType) error {
+	data, err := s.readData()
+	if err != nil {
+		return err
+	}
+
+	if err = data.ClearHandle(keyType); err != nil {
+		return fmt.Errorf("clearing key %s: %w", keyType, err)
+	}
+
+	return s.writeData(data)
 }
 
 func (s *fileStorage) GetPassword() ([]byte, error) {

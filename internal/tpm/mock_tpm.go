@@ -39,6 +39,20 @@ func (m *MockStorage) EXPECT() *MockStorageMockRecorder {
 	return m.recorder
 }
 
+// ClearKey mocks base method.
+func (m *MockStorage) ClearKey(keyType KeyType) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearKey", keyType)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearKey indicates an expected call of ClearKey.
+func (mr *MockStorageMockRecorder) ClearKey(keyType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearKey", reflect.TypeOf((*MockStorage)(nil).ClearKey), keyType)
+}
+
 // ClearPassword mocks base method.
 func (m *MockStorage) ClearPassword() error {
 	m.ctrl.T.Helper()
@@ -235,21 +249,6 @@ func (m *MockSession) GetEndorsementKeyCert() ([]byte, error) {
 func (mr *MockSessionMockRecorder) GetEndorsementKeyCert() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndorsementKeyCert", reflect.TypeOf((*MockSession)(nil).GetEndorsementKeyCert))
-}
-
-// GetEndorsementKeyPublic mocks base method.
-func (m *MockSession) GetEndorsementKeyPublic() ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEndorsementKeyPublic")
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetEndorsementKeyPublic indicates an expected call of GetEndorsementKeyPublic.
-func (mr *MockSessionMockRecorder) GetEndorsementKeyPublic() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndorsementKeyPublic", reflect.TypeOf((*MockSession)(nil).GetEndorsementKeyPublic))
 }
 
 // GetHandle mocks base method.
