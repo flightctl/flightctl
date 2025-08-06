@@ -7,8 +7,8 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/config"
-  "github.com/flightctl/flightctl/internal/instrumentation/tracing"
-  "github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
