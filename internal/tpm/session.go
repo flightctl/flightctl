@@ -395,14 +395,8 @@ func (s *tpmSession) flushKeys() []error {
 		}
 		delete(s.handles, keyType)
 	}
-
-	// Also flush SRK if it exists
-	if s.srk != nil {
-		if err := s.flushHandle(s.srk); err != nil {
-			errs = append(errs, fmt.Errorf("flushing SRK: %w", err))
-		}
-		s.srk = nil
-	}
+	// we flush the SRK above
+	s.srk = nil
 
 	return errs
 }
@@ -662,8 +656,9 @@ func (s *tpmSession) ensureSRKIsLoaded() error {
 	s.handles[SRK] = srkHandle
 
 	// clear any cached child key handles since they're now invalid too
-	for keyType := range s.handles {
+	for keyType, handle := range s.handles {
 		if keyType != SRK {
+			_ = s.flushHandle(handle)
 			delete(s.handles, keyType)
 		}
 	}
