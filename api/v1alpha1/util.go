@@ -440,6 +440,7 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonDeviceDiskCritical:              {},
 	EventReasonDeviceDiskWarning:               {},
 	EventReasonDeviceDisconnected:              {},
+	EventReasonDeviceContentOutOfDate:          {},
 	EventReasonDeviceSpecInvalid:               {},
 	EventReasonDeviceMultipleOwnersDetected:    {},
 	EventReasonInternalTaskFailed:              {},
