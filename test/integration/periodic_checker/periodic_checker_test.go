@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks_client"
-	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -39,20 +38,16 @@ type mockPeriodicTaskExecutor struct {
 }
 
 type executeCallArgs struct {
-	ctx context.Context
-	log logrus.FieldLogger
+	ctx   context.Context
+	log   logrus.FieldLogger
+	orgID uuid.UUID
 }
 
-func (m *mockPeriodicTaskExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
+func (m *mockPeriodicTaskExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.executeCallCount++
-	m.executeCallArgs = append(m.executeCallArgs, executeCallArgs{ctx: ctx, log: log})
-
-	// Extract and store org ID from context
-	if orgID, ok := util.GetOrgIdFromContext(ctx); ok {
-		m.orgIDs = append(m.orgIDs, orgID)
-	}
+	m.orgIDs = append(m.orgIDs, orgID)
 
 	// Panic last so we record the call count and args first
 	if m.panic {
