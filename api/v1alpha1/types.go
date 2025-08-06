@@ -19,3 +19,12 @@ type DeviceConsoleSessionMetadata struct {
 	TTY               bool           `json:"tty,omitempty"`
 	Protocols         []string       `json:"protocols,omitempty"`
 }
+
+type RolloutBatchCompletionReport struct {
+	BatchName         string `json:"batchName"`
+	SuccessPercentage int64  `json:"successPercentage"`
+	Total             int64  `json:"total"`
+	Successful        int64  `json:"successful"`
+	Failed            int64  `json:"failed"`
+	TimedOut          int64  `json:"timedOut"`
+}
