@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -19,15 +18,16 @@ type mockPeriodicTaskExecutor struct {
 }
 
 type executeCallArgs struct {
-	ctx context.Context
-	log logrus.FieldLogger
+	ctx   context.Context
+	log   logrus.FieldLogger
+	orgID uuid.UUID
 }
 
-func (m *mockPeriodicTaskExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
+func (m *mockPeriodicTaskExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.executeCallCount++
-	m.executeCallArgs = append(m.executeCallArgs, executeCallArgs{ctx: ctx, log: log})
+	m.executeCallArgs = append(m.executeCallArgs, executeCallArgs{ctx: ctx, log: log, orgID: orgID})
 }
 
 func (m *mockPeriodicTaskExecutor) GetExecuteCallCount() int {
@@ -50,7 +50,7 @@ type panicPeriodicTaskExecutor struct {
 	executeCallCount int
 }
 
-func (p *panicPeriodicTaskExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
+func (p *panicPeriodicTaskExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.executeCallCount++
@@ -128,11 +128,8 @@ func TestConsumer_processTask_Success(t *testing.T) {
 			executeCallArgs := mockExecutor.GetExecuteCallArgs()
 			require.Len(t, executeCallArgs, 1)
 
-			// Verify context contains organization ID
-			executedCtx := executeCallArgs[0].ctx
-			orgID, ok := util.GetOrgIdFromContext(executedCtx)
-			require.True(t, ok, "organization ID should be present in context")
-			require.Equal(t, taskRef.OrgID, orgID, "organization ID should be added to context")
+			executedOrgID := executeCallArgs[0].orgID
+			require.Equal(t, taskRef.OrgID, executedOrgID, "organization ID should be passed to executor")
 		})
 	}
 }
@@ -178,12 +175,6 @@ func TestConsumer_processTask_MultipleTaskTypes(t *testing.T) {
 
 		executeCallArgs := mockExecutor.GetExecuteCallArgs()
 		require.Len(t, executeCallArgs, 1)
-
-		// Verify context contains organization ID
-		executedCtx := executeCallArgs[0].ctx
-		orgID, ok := util.GetOrgIdFromContext(executedCtx)
-		require.True(t, ok, "organization ID should be present in context")
-		require.NotEmpty(t, orgID, "organization ID should not be empty")
 	}
 
 	// Verify other executors were not called
@@ -247,16 +238,8 @@ func TestConsumer_processTask_MultipleTasks(t *testing.T) {
 		return mockExecutor.GetExecuteCallCount() == numTasks
 	}, 2*time.Second, 10*time.Millisecond)
 
-	// Verify all tasks have organization ID in context
 	executeCallArgs := mockExecutor.GetExecuteCallArgs()
 	require.Len(t, executeCallArgs, numTasks)
-
-	for i, callArgs := range executeCallArgs {
-		// Verify context contains organization ID
-		orgID, ok := util.GetOrgIdFromContext(callArgs.ctx)
-		require.True(t, ok, "organization ID should be present in context for task %d", i)
-		require.NotEmpty(t, orgID, "organization ID should not be empty for task %d", i)
-	}
 }
 
 func TestPeriodicTaskConsumer_Stop(t *testing.T) {

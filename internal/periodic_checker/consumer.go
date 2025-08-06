@@ -5,7 +5,7 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -13,18 +13,18 @@ const (
 	DefaultConsumerCount = 5
 )
 
-func executeWithRecover(executor PeriodicTaskExecutor, ctx context.Context, log logrus.FieldLogger, taskType PeriodicTaskType, orgID string) {
+func executeWithRecover(executor PeriodicTaskExecutor, ctx context.Context, log logrus.FieldLogger, taskType PeriodicTaskType, orgID uuid.UUID) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithFields(logrus.Fields{
 				"panic":     r,
 				"task_type": taskType,
-				"org_id":    orgID,
+				"org_id":    orgID.String(),
 				"stack":     string(debug.Stack()),
 			}).Error("task execution panic")
 		}
 	}()
-	executor.Execute(ctx, log)
+	executor.Execute(ctx, log, orgID)
 }
 
 func (c *PeriodicTaskConsumer) processTask(ctx context.Context, reference PeriodicTaskReference) {
@@ -39,10 +39,7 @@ func (c *PeriodicTaskConsumer) processTask(ctx context.Context, reference Period
 		return
 	}
 
-	// Add the orgID to the context
-	ctx = util.WithOrganizationID(ctx, reference.OrgID)
-
-	executeWithRecover(executor, ctx, c.log, reference.Type, reference.OrgID.String())
+	executeWithRecover(executor, ctx, c.log, reference.Type, reference.OrgID)
 }
 
 type PeriodicTaskConsumer struct {

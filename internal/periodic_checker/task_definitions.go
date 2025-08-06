@@ -48,7 +48,7 @@ type PeriodicTaskReference struct {
 }
 
 type PeriodicTaskExecutor interface {
-	Execute(ctx context.Context, log logrus.FieldLogger)
+	Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID)
 }
 
 type RepositoryTesterExecutor struct {
@@ -56,18 +56,20 @@ type RepositoryTesterExecutor struct {
 	serviceHandler service.Service
 }
 
-// createTaskContext creates a task context with request ID and event actor
-func createTaskContext(ctx context.Context, taskType PeriodicTaskType) context.Context {
+// createTaskContext creates a task context with request ID, orgID, and event actor
+func createTaskContext(ctx context.Context, taskType PeriodicTaskType, orgID uuid.UUID) context.Context {
 	taskName := string(taskType)
 	reqid.OverridePrefix(taskName)
 	requestID := reqid.NextRequestID()
 	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
 
+	ctx = util.WithOrganizationID(ctx, orgID)
+
 	return context.WithValue(ctx, consts.EventActorCtxKey, taskName)
 }
 
-func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester)
+func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester, orgID)
 	repoTester := tasks.NewRepoTester(e.log, e.serviceHandler)
 	repoTester.TestRepositories(taskCtx)
 }
@@ -79,8 +81,8 @@ type ResourceSyncExecutor struct {
 	ignoreResourceUpdates []string
 }
 
-func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync)
+func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync, orgID)
 	resourceSync := tasks.NewResourceSync(e.callbackManager, e.serviceHandler, e.log, e.ignoreResourceUpdates)
 	resourceSync.Poll(taskCtx)
 }
@@ -90,8 +92,8 @@ type DeviceDisconnectedExecutor struct {
 	serviceHandler service.Service
 }
 
-func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected)
+func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected, orgID)
 	deviceDisconnected := tasks.NewDeviceDisconnected(e.log, e.serviceHandler)
 	deviceDisconnected.Poll(taskCtx)
 }
@@ -102,8 +104,8 @@ type RolloutDeviceSelectionExecutor struct {
 	log             logrus.FieldLogger
 }
 
-func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection)
+func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection, orgID)
 	rolloutDeviceSelection := device_selection.NewReconciler(e.serviceHandler, e.callbackManager, e.log)
 	rolloutDeviceSelection.Reconcile(taskCtx)
 }
@@ -114,8 +116,8 @@ type DisruptionBudgetExecutor struct {
 	log             logrus.FieldLogger
 }
 
-func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget)
+func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget, orgID)
 	disruptionBudget := disruption_budget.NewReconciler(e.serviceHandler, e.callbackManager, e.log)
 	disruptionBudget.Reconcile(taskCtx)
 }
@@ -126,8 +128,8 @@ type EventCleanupExecutor struct {
 	eventRetentionPeriod util.Duration
 }
 
-func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeEventCleanup)
+func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeEventCleanup, orgID)
 	eventCleanup := tasks.NewEventCleanup(e.log, e.serviceHandler, e.eventRetentionPeriod)
 	eventCleanup.Poll(taskCtx)
 }
