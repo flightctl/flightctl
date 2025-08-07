@@ -2,22 +2,22 @@
 apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
-  name: default
+  name: default-{{.TestHash}}
 spec:
   selector:
     matchLabels:
-      fleet: default
+      fleet: default-{{.TestHash}}
   template:
     metadata:
       labels:
-        fleet: default
+        fleet: default-{{.TestHash}}
     spec:
       os:
         image: quay.io/redhat/rhde:9.2
       config:
         - name: base
           gitRef:
-            repository: flightctl-demos
+            repository: flightctl-demos-{{.TestHash}}
             targetRevision: main
             path: /demos/basic-nginx-demo/configuration
         - name: motd-update

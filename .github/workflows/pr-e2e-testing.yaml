@@ -75,6 +75,7 @@ jobs:
         run:  make run-e2e-test VERBOSE=true # use DEBUG_VM_CONSOLE=1 to see the VM console output
         env:  
           GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}   # Filter to run only specific tests
+          GINKGO_PROCS: 4
 
       - name: Collect and Upload Logs
         if: always() && steps.filter.outputs.notdocs == 'true'
