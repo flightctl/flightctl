@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestAgent(t *testing.T) {
+func TestCLIDecommission(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Decommission E2E Suite")
 }

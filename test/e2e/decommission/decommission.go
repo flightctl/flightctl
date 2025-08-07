@@ -22,7 +22,11 @@ var _ = Describe("CLI decommission test", func() {
 	var (
 		harness  *e2e.Harness
 		deviceId string
+<<<<<<< HEAD
 		ctx      context.Context
+=======
+		ctx      = context.Background()
+>>>>>>> 033ce283 (EDM-799:Decommission test CLI)
 	)
 
 	BeforeEach(func() {
@@ -45,7 +49,7 @@ var _ = Describe("CLI decommission test", func() {
 			Expect(out).To(ContainSubstring("Device scheduled for decommissioning: 200 OK:"))
 			harness.WaitForDeviceContents(deviceId, "The device has completed decommissioning and will wipe its management certificate",
 				func(device *v1alpha1.Device) bool {
-					return harness.ConditionExists(device, "DeviceDecommissioning", "True", string(v1alpha1.DecommissionStateComplete))
+					return e2e.ConditionExists(device, "DeviceDecommissioning", "True", string(v1alpha1.DecommissionStateComplete))
 				}, TIMEOUT)
 		})
 	})
