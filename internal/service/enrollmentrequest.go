@@ -57,7 +57,7 @@ func (h *ServiceHandler) verifyTPMEnrollmentRequest(er *api.EnrollmentRequest, n
 			Type:    "TPMVerified",
 			Status:  api.ConditionStatusTrue,
 			Reason:  "TPMVerificationSucceeded",
-			Message: "TPM attestation chain of trust verified successfully",
+			Message: "TPM chain of trust verified successfully",
 		}
 		api.SetStatusCondition(&er.Status.Conditions, condition)
 		h.log.Debugf("TPM verification passed for enrollment request %s", name)
@@ -153,7 +153,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			},
 			Tpm: &api.DeviceIntegrityCheckStatus{
 				Status: api.DeviceIntegrityCheckStatusVerified,
-				Info:   lo.ToPtr("TPM attestation chain of trust verified"),
+				Info:   lo.ToPtr("TPM chain of trust verified"),
 			},
 		}
 	} else {
@@ -283,6 +283,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 
 	// don't set fields that are managed by the service
 	er.Status = nil
+	addStatusIfNeeded(&er)
 	NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
@@ -304,18 +305,14 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 	if signer == nil {
 		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
 	}
-
 	if err := signer.Verify(ctx, csr); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
-
 	if isTPM {
 		if err := h.verifyTPMEnrollmentRequest(&er, name); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
-
-	addStatusIfNeeded(&er)
 
 	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
@@ -354,11 +351,9 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 	if signer == nil {
 		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
 	}
-
 	if err := signer.Verify(ctx, csr); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
-
 	if isTPM {
 		if err := h.verifyTPMEnrollmentRequest(newObj, name); err != nil {
 			return nil, api.StatusBadRequest(err.Error())

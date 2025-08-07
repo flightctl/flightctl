@@ -705,7 +705,6 @@ func ParseTCGCSRBytes(raw string) ([]byte, bool) {
 
 // NormalizeEnrollmentCSR extracts the embedded standard X.509 CSR from a TCG CSR if present.
 func NormalizeEnrollmentCSR(csrString string) ([]byte, bool, error) {
-	// Check if this is a TCG CSR
 	csrBytes, isTPM := ParseTCGCSRBytes(csrString)
 	if !isTPM {
 		// standard CSR - return as-is

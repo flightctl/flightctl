@@ -339,7 +339,7 @@ func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
 
 func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
 	if !a.config.TPM.Enabled {
-		a.log.Info("TPM auth is disabled. Skipping TPM setup.")
+		a.log.Info("TPM device identity is disabled. Skipping TPM setup.")
 		return nil, nil
 	}
 
