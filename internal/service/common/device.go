@@ -310,6 +310,9 @@ func KeepDBDeviceStatus(device, dbDevice *api.Device) {
 	if device.Status.ApplicationsSummary.Status == api.ApplicationsSummaryStatusUnknown {
 		device.Status.ApplicationsSummary.Status = dbDevice.Status.ApplicationsSummary.Status
 	}
+	if device.Status.Integrity.Status == api.DeviceIntegrityStatusUnknown {
+		device.Status.Integrity = dbDevice.Status.Integrity
+	}
 }
 
 func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.Device, orgId uuid.UUID, st store.Store) ResourceUpdates {

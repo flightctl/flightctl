@@ -17,9 +17,10 @@ type ServiceHandler struct {
 	kvStore         kvstore.KVStore
 	agentEndpoint   string
 	uiUrl           string
+	tpmCAPaths      []string
 }
 
-func NewServiceHandler(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CAClient, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CAClient, log logrus.FieldLogger, agentEndpoint string, uiUrl string, tpmCAPaths []string) *ServiceHandler {
 	return &ServiceHandler{
 		EventHandler:    NewEventHandler(store, log),
 		store:           store,
@@ -29,5 +30,6 @@ func NewServiceHandler(store store.Store, callbackManager tasks_client.CallbackM
 		kvStore:         kvStore,
 		agentEndpoint:   agentEndpoint,
 		uiUrl:           uiUrl,
+		tpmCAPaths:      tpmCAPaths,
 	}
 }

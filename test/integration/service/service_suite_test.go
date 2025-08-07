@@ -71,7 +71,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.caClient, _, err = icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	s.Handler = service.NewServiceHandler(s.Store, s.cbMgr, kvStore, s.caClient, s.Log, "", "")
+	s.Handler = service.NewServiceHandler(s.Store, s.cbMgr, kvStore, s.caClient, s.Log, "", "", []string{})
 }
 
 // Teardown performs common cleanup for service tests

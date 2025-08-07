@@ -193,13 +193,13 @@ func WithCSRValidation(s Signer) Signer {
 	return &chainSigner{
 		next: s,
 		verify: func(ctx context.Context, request api.CertificateSigningRequest) error {
-			if errs := validation.ValidateCSR(request.Spec.Request); len(errs) > 0 {
+			if errs := validation.ValidateCSRWithTCGSupport(request.Spec.Request); len(errs) > 0 {
 				return errors.Join(errs...)
 			}
 			return s.Verify(ctx, request)
 		},
 		sign: func(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
-			if errs := validation.ValidateCSR(request.Spec.Request); len(errs) > 0 {
+			if errs := validation.ValidateCSRWithTCGSupport(request.Spec.Request); len(errs) > 0 {
 				return nil, errors.Join(errs...)
 			}
 			return s.Sign(ctx, request)

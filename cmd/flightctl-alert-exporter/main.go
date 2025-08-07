@@ -69,7 +69,7 @@ func main() {
 		log.Fatalf("initializing task queue publisher: %v", err)
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, log)
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, callbackManager, kvStore, nil, log, "", ""))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, callbackManager, kvStore, nil, log, "", "", []string{}))
 
 	server := alert_exporter.New(cfg, log)
 	if err := server.Run(ctx, serviceHandler); err != nil {

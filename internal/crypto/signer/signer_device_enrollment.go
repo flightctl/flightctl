@@ -57,6 +57,7 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request api.Certifica
 		return nil, fmt.Errorf("request is missing metadata.name")
 	}
 
+	// Parse the CSR (for TCG CSRs, the service layer provides the embedded standard CSR)
 	csr, err := fccrypto.ParseCSR(request.Spec.Request)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing CSR: %w", err)
