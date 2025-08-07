@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -39,6 +40,40 @@ const (
 	SystemFileName = "system.json"
 	// HardwareMapFileName is the name of the file where the hardware map is stored.
 	HardwareMapFileName = "hardware-map.yaml"
+
+	// Info key constants for system information collection
+	infoKeyHostname     = "hostname"
+	infoKeyArchitecture = "architecture"
+	infoKeyKernel       = "kernel"
+
+	// CPU info keys
+	infoKeyCPUCores      = "cpuCores"
+	infoKeyCPUProcessors = "cpuProcessors"
+	infoKeyCPUModel      = "cpuModel"
+
+	// GPU info keys
+	infoKeyGPU = "gpu"
+
+	// Memory info keys
+	infoKeyMemoryTotalKb = "memoryTotalKb"
+
+	// Network info keys
+	infoKeyNetInterfaceDefault = "netInterfaceDefault"
+	infoKeyNetIPDefault        = "netIpDefault"
+	infoKeyNetMACDefault       = "netMacDefault"
+
+	// BIOS info keys
+	infoKeyBIOSVendor  = "biosVendor"
+	infoKeyBIOSVersion = "biosVersion"
+
+	// System info keys
+	infoKeyProductName   = "productName"
+	infoKeyProductSerial = "productSerial"
+	infoKeyProductUUID   = "productUuid"
+
+	// Distribution info keys
+	infoKeyDistroName    = "distroName"
+	infoKeyDistroVersion = "distroVersion"
 )
 
 type Manager interface {
@@ -225,7 +260,31 @@ type SystemInfo struct {
 	SKU          string `json:"sku,omitempty"`
 }
 
-type InfoMap map[string]string
+type infoMap map[string]string
+
+type collectContext struct {
+	ctx                 context.Context
+	log                 *log.PrefixLogger
+	exec                executer.Executer
+	reader              fileio.Reader
+	hardwareMapFilePath string
+}
+
+type collectorFunc func(collectCtx *collectContext, info *Info) error
+
+type collectorType int
+
+const (
+	collectorCPU collectorType = iota
+	collectorGPU
+	collectorMemory
+	collectorNetwork
+	collectorBIOS
+	collectorSystem
+	collectorKernel
+	collectorDistribution
+	collectorBoot
+)
 
 type Boot struct {
 	// Time is the time the system was booted.
@@ -238,17 +297,215 @@ func (b *Boot) IsEmpty() bool {
 	return b.Time == "" && b.ID == ""
 }
 
-type CollectCfg struct {
+type collectCfg struct {
 	collectAllCustom bool
+	collectorFuncs   []collectorFunc
+	enabledTypes     map[collectorType]bool
 }
 
-type CollectOpt func(*CollectCfg)
+// addCollector adds a collector function if not already present
+func (cfg *collectCfg) addCollector(cType collectorType, fn collectorFunc) {
+	if cfg.enabledTypes == nil {
+		cfg.enabledTypes = make(map[collectorType]bool)
+	}
+	if !cfg.enabledTypes[cType] {
+		cfg.enabledTypes[cType] = true
+		cfg.collectorFuncs = append(cfg.collectorFuncs, fn)
+	}
+}
+
+// hasCollector checks if a specific collector type is enabled
+func (cfg *collectCfg) hasCollector(cType collectorType) bool {
+	return cfg.enabledTypes[cType]
+}
+
+// Equal compares two collectCfg instances to determine if they have the same enabled collector types
+func (cfg *collectCfg) Equal(other *collectCfg) bool {
+	if cfg == nil && other == nil {
+		return true
+	}
+	if cfg == nil || other == nil {
+		return false
+	}
+	return reflect.DeepEqual(cfg.enabledTypes, other.enabledTypes)
+}
+
+func collectCPUFunc(collectCtx *collectContext, info *Info) error {
+	cpuInfo, err := collectCPUInfo(collectCtx.reader)
+	if err != nil {
+		return fmt.Errorf("CPU collector failed: %w", err)
+	}
+	info.Hardware.CPU = cpuInfo
+	return nil
+}
+
+func collectGPUFunc(collectCtx *collectContext, info *Info) error {
+	gpuInfo, err := collectGPUInfo(collectCtx.log, collectCtx.reader, collectCtx.hardwareMapFilePath)
+	if err != nil {
+		return fmt.Errorf("GPU collector failed: %w", err)
+	}
+	info.Hardware.GPU = gpuInfo
+	return nil
+}
+
+func collectMemoryFunc(collectCtx *collectContext, info *Info) error {
+	memInfo, err := collectMemoryInfo(collectCtx.log, collectCtx.reader)
+	if err != nil {
+		return fmt.Errorf("memory collector failed: %w", err)
+	}
+	info.Hardware.Memory = memInfo
+	return nil
+}
+
+func collectNetworkFunc(collectCtx *collectContext, info *Info) error {
+	netInfo, err := collectNetworkInfo(collectCtx.ctx, collectCtx.log, collectCtx.exec, collectCtx.reader)
+	if err != nil {
+		return fmt.Errorf("network collector failed: %w", err)
+	}
+	info.Hardware.Network = netInfo
+	return nil
+}
+
+func collectBIOSFunc(collectCtx *collectContext, info *Info) error {
+	biosInfo, err := collectBIOSInfo(collectCtx.reader)
+	if err != nil {
+		return fmt.Errorf("BIOS collector failed: %w", err)
+	}
+	info.Hardware.BIOS = biosInfo
+	return nil
+}
+
+func collectSystemFunc(collectCtx *collectContext, info *Info) error {
+	sysInfo, err := collectSystemInfo(collectCtx.reader)
+	if err != nil {
+		return fmt.Errorf("system collector failed: %w", err)
+	}
+	info.Hardware.System = sysInfo
+	return nil
+}
+
+func collectKernelFunc(collectCtx *collectContext, info *Info) error {
+	out, err := collectCtx.exec.CommandContext(collectCtx.ctx, "uname", "-r").Output()
+	if err != nil {
+		return fmt.Errorf("kernel collector failed: %w", err)
+	}
+	info.Kernel = strings.TrimSpace(string(out))
+	return nil
+}
+
+func collectDistributionFunc(collectCtx *collectContext, info *Info) error {
+	distroInfo, err := collectDistributionInfo(collectCtx.ctx, collectCtx.reader)
+	if err != nil {
+		return fmt.Errorf("distribution collector failed: %w", err)
+	}
+	info.Distribution = distroInfo
+	return nil
+}
+
+func collectBootFunc(collectCtx *collectContext, info *Info) error {
+	bootID, err := getBootID(collectCtx.reader)
+	if err != nil {
+		return fmt.Errorf("boot collector failed to get boot ID: %w", err)
+	}
+	info.Boot.ID = bootID
+
+	bootTime, err := getBootTime(collectCtx.ctx, collectCtx.exec)
+	if err != nil {
+		return fmt.Errorf("boot collector failed to get boot time: %w", err)
+	}
+	info.Boot.Time = bootTime
+	return nil
+}
+
+type CollectOpt func(*collectCfg)
 
 // WithAllCustom sets the allCustom option to true enabling all custom scripts to be collected.
 func WithAllCustom() CollectOpt {
-	return func(cfg *CollectCfg) {
+	return func(cfg *collectCfg) {
 		cfg.collectAllCustom = true
 	}
+}
+
+// WithAllDefault enables collection of all default hardware information.
+func WithAllDefault() CollectOpt {
+	return func(cfg *collectCfg) {
+		cfg.addCollector(collectorCPU, collectCPUFunc)
+		cfg.addCollector(collectorGPU, collectGPUFunc)
+		cfg.addCollector(collectorMemory, collectMemoryFunc)
+		cfg.addCollector(collectorNetwork, collectNetworkFunc)
+		cfg.addCollector(collectorBIOS, collectBIOSFunc)
+		cfg.addCollector(collectorSystem, collectSystemFunc)
+		cfg.addCollector(collectorKernel, collectKernelFunc)
+		cfg.addCollector(collectorDistribution, collectDistributionFunc)
+	}
+}
+
+// WithCPUCollection enables CPU information collection.
+func WithCPUCollection() CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(collectorCPU, collectCPUFunc) }
+}
+
+// WithGPUCollection enables GPU information collection.
+func WithGPUCollection() CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(collectorGPU, collectGPUFunc) }
+}
+
+// WithMemoryCollection enables memory information collection.
+func WithMemoryCollection() CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(collectorMemory, collectMemoryFunc) }
+}
+
+// WithNetworkCollection enables network information collection.
+func WithNetworkCollection() CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(collectorNetwork, collectNetworkFunc) }
+}
+
+// WithBIOSCollection enables BIOS information collection.
+func WithBIOSCollection() CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(collectorBIOS, collectBIOSFunc) }
+}
+
+// WithSystemCollection enables system information collection.
+func WithSystemCollection() CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(collectorSystem, collectSystemFunc) }
+}
+
+// WithKernelCollection enables kernel information collection.
+func WithKernelCollection() CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(collectorKernel, collectKernelFunc) }
+}
+
+// WithDistributionCollection enables distribution information collection.
+func WithDistributionCollection() CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(collectorDistribution, collectDistributionFunc) }
+}
+
+// collectionOptsFromInfoKeys returns CollectOpt functions based on the provided infoKeys.
+func collectionOptsFromInfoKeys(infoKeys []string) []CollectOpt {
+	var opts []CollectOpt
+
+	for _, key := range infoKeys {
+		switch key {
+		case infoKeyCPUCores, infoKeyCPUProcessors, infoKeyCPUModel:
+			opts = append(opts, WithCPUCollection())
+		case infoKeyGPU:
+			opts = append(opts, WithGPUCollection())
+		case infoKeyMemoryTotalKb:
+			opts = append(opts, WithMemoryCollection())
+		case infoKeyNetInterfaceDefault, infoKeyNetIPDefault, infoKeyNetMACDefault:
+			opts = append(opts, WithNetworkCollection())
+		case infoKeyBIOSVendor, infoKeyBIOSVersion:
+			opts = append(opts, WithBIOSCollection())
+		case infoKeyProductName, infoKeyProductSerial, infoKeyProductUUID:
+			opts = append(opts, WithSystemCollection())
+		case infoKeyKernel:
+			opts = append(opts, WithKernelCollection())
+		case infoKeyDistroName, infoKeyDistroVersion:
+			opts = append(opts, WithDistributionCollection())
+		}
+	}
+
+	return opts
 }
 
 // Collect collects system information and returns it as a map of key-value pairs.
@@ -258,6 +515,11 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	defer func() {
 		log.Debugf("System information collection took %s", time.Since(now))
 	}()
+
+	cfg := &collectCfg{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
 	info := &Info{
 		CollectedAt: time.Now().Format(time.RFC3339),
@@ -269,9 +531,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 		return nil, err
 	}
 
-	// TODO: only collect requested info from fact keys
-
-	// system info
+	// Always collect basic system info (hostname, OS, arch)
 	var err error
 	info.Hostname, err = os.Hostname()
 	if err != nil {
@@ -280,86 +540,16 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	info.OperatingSystem = runtime.GOOS
 	info.Architecture = runtime.GOARCH
 
-	out, err := exec.CommandContext(ctx, "uname", "-r").Output()
-	if err != nil {
-		if errors.IsContext(err) {
-			log.Warningf("Context canceled during kernel info collection: %v", err)
-			return info, err
-		}
-		log.Warningf("Failed to get kernel info: %v", err)
-	} else {
-		info.Kernel = strings.TrimSpace(string(out))
+	collectCtx := &collectContext{
+		ctx:                 ctx,
+		log:                 log,
+		exec:                exec,
+		reader:              reader,
+		hardwareMapFilePath: hardwareMapFilePath,
 	}
 
-	// distribution info
-	distroInfo, err := collectDistributionInfo(ctx, exec, reader)
-	if err != nil {
-		if errors.IsContext(err) {
-			log.Warningf("Context canceled during distribution info collection: %v", err)
-			return info, err
-		}
-		log.Warningf("Failed to get distribution info: %v", err)
-	} else {
-		info.Distribution = distroInfo
-	}
-
-	// cpu info
-	cpuInfo, err := collectCPUInfo(reader)
-	if err != nil {
-		log.Warningf("Failed to get CPU info: %v", err)
-	} else {
-		info.Hardware.CPU = cpuInfo
-	}
-
-	// gpu info
-	gpuInfo, err := collectGPUInfo(log, reader, hardwareMapFilePath)
-	if err != nil {
-		log.Warningf("Failed to get GPU info: %v", err)
-	} else {
-		info.Hardware.GPU = gpuInfo
-	}
-
-	// memory info
-	memInfo, err := collectMemoryInfo(log, reader)
-	if err != nil {
-		log.Warningf("Failed to get memory info: %v", err)
-	} else {
-		info.Hardware.Memory = memInfo
-	}
-
-	// bios info
-	biosInfo, err := collectBIOSInfo(reader)
-	if err != nil {
-		log.Warningf("Failed to get BIOS info: %v", err)
-	} else {
-		info.Hardware.BIOS = biosInfo
-	}
-
-	// system info
-	sysInfo, err := collectSystemInfo(reader)
-	if err != nil {
-		log.Warningf("Failed to get system info: %v", err)
-	} else {
-		info.Hardware.System = sysInfo
-	}
-
-	// boot info
-	bootID, err := getBootID(reader)
-	if err != nil {
-		log.Warningf("Failed to get boot ID: %v", err)
-	} else {
-		info.Boot.ID = bootID
-	}
-	bootTime, err := getBootTime(ctx, exec)
-	if err != nil {
-		if errors.IsContext(err) {
-			log.Warningf("Context canceled during boot time collection: %v", err)
-			return info, err
-		}
-		log.Warningf("Failed to get boot time: %v", err)
-	} else {
-		info.Boot.Time = bootTime
-	}
+	// always collect boot info (needed for reboot detection)
+	cfg.addCollector(collectorBoot, collectBootFunc)
 
 	// collector version
 	info.Metadata = map[string]interface{}{
@@ -367,16 +557,21 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 		"collector_type":    "flightctl-agent",
 	}
 
-	// network info
-	netInfo, err := collectNetworkInfo(ctx, log, exec, reader)
-	if err != nil {
-		if errors.IsContext(err) {
-			log.Warningf("Context canceled during network info collection: %v", err)
-			return info, err
+	for _, collectorFn := range cfg.collectorFuncs {
+		if ctx.Err() != nil {
+			log.Warningf("Context canceled during collection: %v", ctx.Err())
+			return info, ctx.Err()
 		}
-		log.Warningf("Failed to get network info: %v", err)
-	} else {
-		info.Hardware.Network = netInfo
+
+		if err = collectorFn(collectCtx, info); err != nil {
+			log.Warningf("Collector failed: %v", err)
+
+			// If it's a context error, allow early exit
+			if errors.IsContext(err) {
+				return info, err
+			}
+			// Otherwise continue with other collectors (best effort)
+		}
 	}
 
 	// custom info
@@ -400,10 +595,10 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 
 // SupportedInfoKeys is a map of supported info keys to their corresponding functions.
 var SupportedInfoKeys = map[string]func(info *Info) string{
-	"hostname":     func(i *Info) string { return i.Hostname },
-	"architecture": func(i *Info) string { return i.Architecture },
-	"kernel":       func(i *Info) string { return i.Kernel },
-	"distroName": func(i *Info) string {
+	infoKeyHostname:     func(i *Info) string { return i.Hostname },
+	infoKeyArchitecture: func(i *Info) string { return i.Architecture },
+	infoKeyKernel:       func(i *Info) string { return i.Kernel },
+	infoKeyDistroName: func(i *Info) string {
 		if i.Distribution == nil {
 			return ""
 		}
@@ -415,7 +610,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	"distroVersion": func(i *Info) string {
+	infoKeyDistroVersion: func(i *Info) string {
 		if i.Distribution == nil {
 			return ""
 		}
@@ -427,43 +622,43 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	"productName": func(i *Info) string {
+	infoKeyProductName: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.ProductName
 		}
 		return ""
 	},
-	"productSerial": func(i *Info) string {
+	infoKeyProductSerial: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.SerialNumber
 		}
 		return ""
 	},
-	"productUuid": func(i *Info) string {
+	infoKeyProductUUID: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.UUID
 		}
 		return ""
 	},
-	"biosVendor": func(i *Info) string {
+	infoKeyBIOSVendor: func(i *Info) string {
 		if i.Hardware.BIOS != nil {
 			return i.Hardware.BIOS.Vendor
 		}
 		return ""
 	},
-	"biosVersion": func(i *Info) string {
+	infoKeyBIOSVersion: func(i *Info) string {
 		if i.Hardware.BIOS != nil {
 			return i.Hardware.BIOS.Version
 		}
 		return ""
 	},
-	"netInterfaceDefault": func(i *Info) string {
+	infoKeyNetInterfaceDefault: func(i *Info) string {
 		if i.Hardware.Network != nil && i.Hardware.Network.DefaultRoute != nil {
 			return i.Hardware.Network.DefaultRoute.Interface
 		}
 		return ""
 	},
-	"netIpDefault": func(i *Info) string {
+	infoKeyNetIPDefault: func(i *Info) string {
 		if i.Hardware.Network == nil || i.Hardware.Network.DefaultRoute == nil {
 			return ""
 		}
@@ -487,7 +682,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	"netMacDefault": func(i *Info) string {
+	infoKeyNetMACDefault: func(i *Info) string {
 		if i.Hardware.Network == nil || i.Hardware.Network.DefaultRoute == nil {
 			return ""
 		}
@@ -499,7 +694,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	"gpu": func(i *Info) string {
+	infoKeyGPU: func(i *Info) string {
 		if len(i.Hardware.GPU) == 0 {
 			return ""
 		}
@@ -510,25 +705,25 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return strings.Join(parts, ".")
 	},
-	"memoryTotalKb": func(i *Info) string {
+	infoKeyMemoryTotalKb: func(i *Info) string {
 		if i.Hardware.Memory == nil || i.Hardware.Memory.TotalKB <= 0 {
 			return ""
 		}
 		return fmt.Sprintf("%d", i.Hardware.Memory.TotalKB)
 	},
-	"cpuCores": func(i *Info) string {
+	infoKeyCPUCores: func(i *Info) string {
 		if i.Hardware.CPU != nil {
 			return fmt.Sprintf("%d", i.Hardware.CPU.TotalCores)
 		}
 		return ""
 	},
-	"cpuProcessors": func(i *Info) string {
+	infoKeyCPUProcessors: func(i *Info) string {
 		if i.Hardware.CPU != nil {
 			return fmt.Sprintf("%d", len(i.Hardware.CPU.Processors))
 		}
 		return ""
 	},
-	"cpuModel": func(i *Info) string {
+	infoKeyCPUModel: func(i *Info) string {
 		if i.Hardware.CPU != nil && len(i.Hardware.CPU.Processors) > 0 {
 			return i.Hardware.CPU.Processors[0].Model
 		}
@@ -539,8 +734,8 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 // getSystemInfoMap collects system information from the system It executes
 // system commands and reads files to gather information about the system.
 // It returns a map of key-value pairs representing the system information.
-func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, infoKeys []string, collectors map[string]CollectorFn) InfoMap {
-	infoMap := make(InfoMap, len(infoKeys)+len(collectors))
+func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, infoKeys []string, collectors map[string]CollectorFn) infoMap {
+	infoMap := make(infoMap, len(infoKeys)+len(collectors))
 
 	for _, key := range infoKeys {
 		if ctx.Err() != nil {
@@ -579,7 +774,7 @@ func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, in
 // custom scripts located in the CustomInfoScriptDir directory and returns the
 // output as a map of key-value pairs.
 func getCustomInfoMap(ctx context.Context, log *log.PrefixLogger, keys []string, reader fileio.Reader, exec executer.Executer, opts ...CollectOpt) (map[string]string, error) {
-	cfg := &CollectCfg{}
+	cfg := &collectCfg{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
@@ -733,7 +928,7 @@ func collectSystemInfo(reader fileio.Reader) (*SystemInfo, error) {
 }
 
 // collectDistributionInfo gathers OS distribution information
-func collectDistributionInfo(ctx context.Context, exec executer.Executer, reader fileio.Reader) (map[string]interface{}, error) {
+func collectDistributionInfo(ctx context.Context, reader fileio.Reader) (map[string]interface{}, error) {
 	distro := make(map[string]interface{})
 
 	if _, err := os.Stat(reader.PathFor(osReleasePath)); err == nil {
@@ -775,13 +970,6 @@ func collectDistributionInfo(ctx context.Context, exec executer.Executer, reader
 				}
 			}
 		}
-	}
-
-	// kernel version
-	args := []string{"-r"}
-	out, err := exec.CommandContext(ctx, "uname", args...).Output()
-	if err == nil {
-		distro["kernel"] = strings.TrimSpace(string(out))
 	}
 
 	return distro, nil

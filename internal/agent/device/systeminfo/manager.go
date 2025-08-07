@@ -17,7 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	status "github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -117,7 +117,22 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 
 	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
+
+		oldConfig := collectCfg{}
+		for _, opt := range collectionOptsFromInfoKeys(m.infoKeys) {
+			opt(&oldConfig)
+		}
+
+		newConfig := collectCfg{}
+		for _, opt := range collectionOptsFromInfoKeys(cfg.SystemInfo) {
+			opt(&newConfig)
+		}
+
 		m.infoKeys = cfg.SystemInfo
+
+		if !oldConfig.Equal(&newConfig) {
+			m.collected = false
+		}
 	}
 
 	if !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom) {
@@ -232,7 +247,10 @@ func collectDeviceSystemInfo(
 	hardwareMapPath string,
 ) (v1alpha1.DeviceSystemInfo, error) {
 	agentVersion := version.Get()
-	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath)
+
+	collectionOpts := collectionOptsFromInfoKeys(infoKeys)
+
+	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath, collectionOpts...)
 	if err != nil {
 		log.Errorf("Failed to collect system info: %v", err)
 		return v1alpha1.DeviceSystemInfo{}, err
