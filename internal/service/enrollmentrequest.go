@@ -99,7 +99,6 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 	}
 
 	var certData []byte
-	var err error
 
 	csrBytes := []byte(enrollmentRequest.Spec.Csr)
 	if !tpm.IsTCGCSRFormat(csrBytes) {
@@ -129,41 +128,38 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 
 		// temporarily replace the enrollment request CSR with the embedded standard CSR
 		originalCSR := enrollmentRequest.Spec.Csr
-    enrollmentRequest.Spec.Csr = string(tpmData.StandardCSR) 
-    
-    request, err := newSignRequestFromEnrollment(ca.Cfg, enrollmentRequest)
-	  if err != nil {
-		  return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
-	  }
+		enrollmentRequest.Spec.Csr = string(tpmData.StandardCSR)
 
-	  certData, err = signer.SignAsPEM(ctx, ca, request)
-	  if err != nil {
-		  return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
-	  }
-    
-		// restore original CSR
-		enrollmentRequest.Spec.Csr = originalCSR
-
+		request, err := newSignRequestFromEnrollment(ca.Cfg, enrollmentRequest)
 		if err != nil {
 			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 		}
+
+		certData, err = signer.SignAsPEM(ctx, ca, request)
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
+		}
+
+		// restore original CSR
+		enrollmentRequest.Spec.Csr = originalCSR
+
 	} else {
 		// standard CSR signing flow
-	  request, err := newSignRequestFromEnrollment(ca.Cfg, enrollmentRequest)
-	  if err != nil {
-		  return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
-	  }
+		request, err := newSignRequestFromEnrollment(ca.Cfg, enrollmentRequest)
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
+		}
 
-	  certData, err := signer.SignAsPEM(ctx, ca, request)
-	  if err != nil {
-		  return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
-	  }
+		certData, err = signer.SignAsPEM(ctx, ca, request)
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
+		}
 	}
 
 	// preserve existing conditions when approving
 	existingConditions := []api.Condition{}
 	if enrollmentRequest.Status != nil && enrollmentRequest.Status.Conditions != nil {
-	  existingConditions = enrollmentRequest.Status.Conditions
+		existingConditions = enrollmentRequest.Status.Conditions
 	}
 
 	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
@@ -304,14 +300,14 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 	}
 
 	if !h.handleTPMEnrollmentRequest(&er, *er.Metadata.Name) {
-    request, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
-	  if err != nil {
-	    return nil, api.StatusBadRequest(err.Error())
-	  }
+		request, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
+		if err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 
-	  if err := signer.Verify(ctx, h.ca, request); err != nil {
-      return nil, api.StatusBadRequest(err.Error())
-    }
+		if err := signer.Verify(ctx, h.ca, request); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 	}
 
 	addStatusIfNeeded(&er)
@@ -371,13 +367,13 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 	// Check and handle TPM-based enrollment requests
 	if !h.handleTPMEnrollmentRequest(&er, name) {
 		// standard CSR verification flow
-	  request, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
-	  if err != nil {
-	  	return nil, api.StatusBadRequest(err.Error())
-	  }
+		request, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
+		if err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 
-	  if err := signer.Verify(ctx, h.ca, request); err != nil {
-	  	return nil, api.StatusBadRequest(err.Error())
+		if err := signer.Verify(ctx, h.ca, request); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
 
@@ -415,13 +411,13 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 	// Check and handle TPM-based enrollment requests
 	if !h.handleTPMEnrollmentRequest(newObj, name) {
 		// Standard CSR verification flow
-	  request, err := newSignRequestFromEnrollment(h.ca.Cfg, newObj)
-	  if err != nil {
-		  return nil, api.StatusBadRequest(err.Error())
-	  }
+		request, err := newSignRequestFromEnrollment(h.ca.Cfg, newObj)
+		if err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 
-	  if err := signer.Verify(ctx, h.ca, request); err != nil {
-		  return nil, api.StatusBadRequest(err.Error())
+		if err := signer.Verify(ctx, h.ca, request); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
 

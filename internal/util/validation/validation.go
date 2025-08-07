@@ -315,7 +315,6 @@ func ValidateExpirationSeconds(e *int32) []error {
 	return nil
 }
 
-
 func ValidateCSRWithTCGSupport(csr []byte) []error {
 	if isTCGCSRFormat(csr) {
 		// skip validation which is handeled at the service layer
