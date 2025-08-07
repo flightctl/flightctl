@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -100,6 +101,11 @@ func (s *Server) Run(ctx context.Context) error {
 		OrgService:     serviceHandler,
 		TasksMetadata:  periodicTasks,
 		ChannelManager: channelManager,
+		PollConfig: poll.Config{
+			BaseDelay: 100 * time.Millisecond,
+			Factor:    3,
+			MaxDelay:  10 * time.Second,
+		},
 	}
 	periodicTaskPublisher, err := NewPeriodicTaskPublisher(publisherConfig)
 	if err != nil {
@@ -116,7 +122,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Shutdown signal received")
 	cancel()
 
-	// Create a timeout for graceful shutdown of the publisher and consumer
+	// Create a timeout for attempted graceful shutdown of the publisher and consumer
 	shutdownComplete := make(chan struct{})
 	go func() {
 		err = eg.Wait()
@@ -125,9 +131,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-shutdownComplete:
-		s.log.Info("Graceful shutdown of publisher and consumer complete")
+		s.log.Info("Shutdown of publisher and consumer complete")
 	case <-time.After(10 * time.Second):
-		s.log.Error("Graceful shutdown timeout exceeded, forcing exit")
+		s.log.Error("Shutdown timeout exceeded, forcing exit")
 		return fmt.Errorf("shutdown timeout exceeded")
 	}
 
