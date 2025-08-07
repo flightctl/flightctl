@@ -5545,6 +5545,8 @@ components:
             - RepositoryAccessible
             - RepositoryInaccessible
             - ReferencedRepositoryUpdated
+            - FleetValid
+            - FleetInvalid
             - FleetRolloutCreated
             - FleetRolloutStarted
             - FleetRolloutFailed

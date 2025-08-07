@@ -34,8 +34,13 @@ func convertUpdateDetails(updates *api.ResourceUpdatedDetails) *api.EventDetails
 // Helper functions for standardized event message formatting
 
 // formatResourceActionMessage creates a standardized message for resource actions
-func formatResourceActionMessage(resourceKind api.ResourceKind, action string) string {
-	return fmt.Sprintf("%s was %s successfully.", resourceKind, action)
+func formatResourceActionMessage(resourceKind api.ResourceKind, action string, details *string) string {
+	s := fmt.Sprintf("%s was %s successfully", resourceKind, action)
+	if details != nil {
+		s += fmt.Sprintf(" (%s)", *details)
+	}
+	s += "."
+	return s
 }
 
 // formatResourceActionFailedTemplate creates a template for failed resource actions
@@ -73,7 +78,7 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent) *api.Event {
 
 // GetResourceCreatedOrUpdatedSuccessEvent creates an event for successful resource creation or update
 func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, updates *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
-	if !created && updates != nil && len(updates.UpdatedFields) == 0 {
+	if !created && (updates == nil || len(updates.UpdatedFields) == 0) {
 		return nil
 	}
 
@@ -89,15 +94,18 @@ func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, 
 			resourceKind: resourceKind,
 			resourceName: resourceName,
 			reason:       api.EventReasonResourceCreated,
-			message:      formatResourceActionMessage(resourceKind, "created"),
+			message:      formatResourceActionMessage(resourceKind, "created", nil),
 			details:      details,
 		})
 	} else {
+		updatedFieldsStr := strings.Join(lo.Map(updates.UpdatedFields, func(item api.ResourceUpdatedDetailsUpdatedFields, _ int) string {
+			return string(item)
+		}), ", ")
 		event = getBaseEvent(ctx, resourceEvent{
 			resourceKind: resourceKind,
 			resourceName: resourceName,
 			reason:       api.EventReasonResourceUpdated,
-			message:      formatResourceActionMessage(resourceKind, "updated"),
+			message:      formatResourceActionMessage(resourceKind, "updated", &updatedFieldsStr),
 			details:      details,
 		})
 	}
@@ -118,6 +126,11 @@ func GetDeviceEventFromUpdateDetails(ctx context.Context, resourceName string, u
 
 // GetResourceCreatedOrUpdatedFailureEvent creates an event for failed resource creation or update
 func GetResourceCreatedOrUpdatedFailureEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, status api.Status, updatedDetails *api.ResourceUpdatedDetails) *api.Event {
+	// Ignore 4XX status codes
+	if status.Code >= 400 && status.Code < 500 {
+		return nil
+	}
+
 	if created {
 		return getBaseEvent(ctx, resourceEvent{
 			resourceKind: resourceKind,
@@ -154,7 +167,7 @@ func GetResourceDeletedSuccessEvent(ctx context.Context, resourceKind api.Resour
 		resourceKind: resourceKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceDeleted,
-		message:      formatResourceActionMessage(resourceKind, "deleted"),
+		message:      formatResourceActionMessage(resourceKind, "deleted", nil),
 		details:      nil,
 	})
 }
@@ -165,7 +178,7 @@ func GetEnrollmentRequestApprovedEvent(ctx context.Context, resourceName string,
 		resourceKind: api.EnrollmentRequestKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonEnrollmentRequestApproved,
-		message:      formatResourceActionMessage(api.EnrollmentRequestKind, "approved"),
+		message:      formatResourceActionMessage(api.EnrollmentRequestKind, "approved", nil),
 		details:      nil,
 	})
 }
@@ -187,7 +200,7 @@ func GetDeviceDecommissionedSuccessEvent(ctx context.Context, _ bool, _ api.Reso
 		resourceKind: api.DeviceKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonDeviceDecommissioned,
-		message:      formatResourceActionMessage(api.DeviceKind, "decommissioned"),
+		message:      formatResourceActionMessage(api.DeviceKind, "decommissioned", nil),
 		details:      convertUpdateDetails(update),
 	})
 }
@@ -275,6 +288,30 @@ func GetDeviceSpecInvalidEvent(ctx context.Context, deviceName string, message s
 	})
 }
 
+// GetFleetSpecValidEvent creates an event for fleet spec becoming valid
+func GetFleetSpecValidEvent(ctx context.Context, fleetName string) *api.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.FleetKind,
+		resourceName: fleetName,
+		reason:       api.EventReasonFleetValid,
+		message:      "Fleet specification is valid.",
+		details:      nil,
+	})
+}
+
+// GetFleetSpecInvalidEvent creates an event for fleet spec becoming invalid
+func GetFleetSpecInvalidEvent(ctx context.Context, fleetName string, message string) *api.Event {
+	msg := fmt.Sprintf("Fleet specification is invalid: %s.", message)
+
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.FleetKind,
+		resourceName: fleetName,
+		reason:       api.EventReasonFleetInvalid,
+		message:      msg,
+		details:      nil,
+	})
+}
+
 // GetInternalTaskFailedEvent creates an event for internal task failures
 func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, taskType string, errorMessage string, retryCount *int, taskParameters map[string]string, log logrus.FieldLogger) *api.Event {
 	message := formatInternalTaskFailedMessage(resourceKind, taskType, errorMessage)
@@ -307,7 +344,7 @@ func GetResourceSyncCommitDetectedEvent(ctx context.Context, resourceName string
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncCommitDetected,
-		message:      fmt.Sprintf("New commit detected: %s", commitHash),
+		message:      fmt.Sprintf("New commit detected: %s.", commitHash),
 		details:      nil,
 	})
 }
@@ -317,7 +354,7 @@ func GetResourceSyncAccessibleEvent(ctx context.Context, resourceName string) *a
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncAccessible,
-		message:      "Repository is accessible",
+		message:      "Repository is accessible.",
 		details:      nil,
 	})
 }
@@ -327,7 +364,7 @@ func GetResourceSyncInaccessibleEvent(ctx context.Context, resourceName string, 
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncInaccessible,
-		message:      fmt.Sprintf("Repository is inaccessible: %s", errorMessage),
+		message:      fmt.Sprintf("Repository is inaccessible: %s.", errorMessage),
 		details:      nil,
 	})
 }
@@ -337,7 +374,7 @@ func GetResourceSyncParsedEvent(ctx context.Context, resourceName string) *api.E
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncParsed,
-		message:      "Resources parsed successfully",
+		message:      "Resources parsed successfully.",
 		details:      nil,
 	})
 }
@@ -357,7 +394,7 @@ func GetResourceSyncSyncedEvent(ctx context.Context, resourceName string) *api.E
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncSynced,
-		message:      "Resources synced successfully",
+		message:      "Resources synced successfully.",
 		details:      nil,
 	})
 }
@@ -367,7 +404,7 @@ func GetResourceSyncSyncFailedEvent(ctx context.Context, resourceName string, er
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncSyncFailed,
-		message:      fmt.Sprintf("Resource sync failed: %s", errorMessage),
+		message:      fmt.Sprintf("Resource sync failed: %s.", errorMessage),
 		details:      nil,
 	})
 }
@@ -378,7 +415,7 @@ func GetFleetRolloutNewEvent(ctx context.Context, name string) *api.Event {
 		resourceKind: api.FleetKind,
 		resourceName: name,
 		reason:       api.EventReasonFleetRolloutCreated,
-		message:      "Fleet rollout created",
+		message:      "Fleet rollout created.",
 		details:      nil,
 	})
 }
@@ -404,7 +441,7 @@ func GetFleetRolloutBatchCompletedEvent(ctx context.Context, name string, deploy
 		resourceKind: api.FleetKind,
 		resourceName: name,
 		reason:       api.EventReasonFleetRolloutBatchCompleted,
-		message:      fmt.Sprintf("Fleet rollout batch %s completed with %d%% success rate", report.BatchName, report.SuccessPercentage),
+		message:      fmt.Sprintf("Fleet rollout batch %s completed with %d%% success rate.", report.BatchName, report.SuccessPercentage),
 		details:      &eventDetails,
 	})
 }
@@ -426,9 +463,9 @@ func GetFleetRolloutStartedEvent(ctx context.Context, templateVersionName string
 		return nil
 	}
 
-	message := "Fleet rollout started"
+	message := "Fleet rollout started."
 	if policyRemoved {
-		message = "Fleet rollout started due to policy removal"
+		message = "Fleet rollout started due to policy removal."
 	}
 
 	return getBaseEvent(ctx, resourceEvent{
@@ -456,7 +493,7 @@ func GetFleetRolloutDeviceSelectedEvent(ctx context.Context, deviceName string, 
 		resourceKind: api.DeviceKind,
 		resourceName: deviceName,
 		reason:       api.EventReasonFleetRolloutDeviceSelected,
-		message:      fmt.Sprintf("Device was selected for update while rolling out fleet %s with template version %s", fleetName, templateVersion),
+		message:      fmt.Sprintf("Device was selected for update while rolling out fleet %s with template version %s.", fleetName, templateVersion),
 		details:      &eventDetails,
 	})
 }
@@ -477,7 +514,7 @@ func GetFleetRolloutBatchDispatchedEvent(ctx context.Context, fleetName string, 
 		resourceKind: api.FleetKind,
 		resourceName: fleetName,
 		reason:       api.EventReasonFleetRolloutBatchDispatched,
-		message:      "Fleet rollout batch dispatched",
+		message:      "Fleet rollout batch dispatched.",
 		details:      &eventDetails,
 	})
 }
@@ -497,7 +534,7 @@ func GetFleetRolloutCompletedEvent(ctx context.Context, name string, templateVer
 		resourceKind: api.FleetKind,
 		resourceName: name,
 		reason:       api.EventReasonFleetRolloutCompleted,
-		message:      "Fleet rollout completed",
+		message:      "Fleet rollout completed.",
 		details:      &eventDetails,
 	})
 }
@@ -528,7 +565,7 @@ func GetRepositoryAccessibleEvent(ctx context.Context, name string) *api.Event {
 		resourceKind: api.RepositoryKind,
 		resourceName: name,
 		reason:       api.EventReasonRepositoryAccessible,
-		message:      "Repository is accessible",
+		message:      "Repository is accessible.",
 		details:      nil,
 	})
 }
@@ -539,7 +576,7 @@ func GetRepositoryInaccessibleEvent(ctx context.Context, name string, errorMessa
 		resourceKind: api.RepositoryKind,
 		resourceName: name,
 		reason:       api.EventReasonRepositoryInaccessible,
-		message:      fmt.Sprintf("Repository is inaccessible: %s", errorMessage),
+		message:      fmt.Sprintf("Repository is inaccessible: %s.", errorMessage),
 		details:      nil,
 	})
 }
@@ -559,7 +596,7 @@ func GetReferencedRepositoryUpdatedEvent(ctx context.Context, kind api.ResourceK
 		resourceKind: kind,
 		resourceName: name,
 		reason:       api.EventReasonReferencedRepositoryUpdated,
-		message:      fmt.Sprintf("Referenced repository %s updated", repositoryName),
+		message:      fmt.Sprintf("Referenced repository %s updated.", repositoryName),
 		details:      &eventDetails,
 	})
 }

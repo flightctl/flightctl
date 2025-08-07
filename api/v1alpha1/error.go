@@ -52,7 +52,7 @@ func StatusForbidden(message string) Status {
 }
 
 func StatusResourceNotFound(kind, name string) Status {
-	return NewFailureStatus(http.StatusNotFound, http.StatusText(http.StatusNotFound), fmt.Sprintf("%s of name %q not found.", kind, name))
+	return NewFailureStatus(http.StatusNotFound, http.StatusText(http.StatusNotFound), fmt.Sprintf("%s of name %q not found", kind, name))
 }
 
 func StatusConflict(message string) Status {
