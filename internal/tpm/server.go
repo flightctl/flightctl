@@ -444,11 +444,9 @@ func VerifyTCGCSRChainOfTrustWithRoots(csrData []byte, trustedRoots *x509.CertPo
 		return fmt.Errorf("failed to parse EK certificate: %w", err)
 	}
 
-	// verify EK certificate chain against trusted roots (if provided)
-	if trustedRoots != nil {
-		if err := verifyEKCertificateChain(ekCert, trustedRoots); err != nil {
-			return fmt.Errorf("EK certificate chain validation failed: %w", err)
-		}
+	// verify EK certificate chain against trusted roots
+	if err := verifyEKCertificateChain(ekCert, trustedRoots); err != nil {
+		return fmt.Errorf("EK certificate chain validation failed: %w", err)
 	}
 
 	// verify LDevID was certified by AK
