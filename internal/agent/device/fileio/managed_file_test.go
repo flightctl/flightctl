@@ -1,11 +1,12 @@
 package fileio
 
 import (
+	"strconv"
 	"testing"
 
-	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
-	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,34 +14,28 @@ func TestExists(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name          string
-		f             ign3types.File
+		f             v1alpha1.FileSpec
 		pathExists    bool
 		expectedError error
 	}{
 		{
 			name: "file exists",
-			f: ign3types.File{
-				Node: ign3types.Node{
-					Path: "exists",
-				},
+			f: v1alpha1.FileSpec{
+				Path: "exists",
 			},
 			pathExists: true,
 		},
 		{
 			name: "file doesn't exist",
-			f: ign3types.File{
-				Node: ign3types.Node{
-					Path: "doesn't_exist",
-				},
+			f: v1alpha1.FileSpec{
+				Path: "doesn't_exists",
 			},
 			pathExists: false,
 		},
 		{
 			name: "path is dir",
-			f: ign3types.File{
-				Node: ign3types.Node{
-					Path: "/",
-				},
+			f: v1alpha1.FileSpec{
+				Path: "/",
 			},
 			pathExists:    false,
 			expectedError: errors.ErrPathIsDir,
@@ -53,7 +48,7 @@ func TestExists(t *testing.T) {
 			writer := NewWriter()
 			writer.SetRootdir(tmpDir)
 			if tt.pathExists {
-				err := writer.WriteFile(tt.f.Node.Path, []byte("contents"), 0644)
+				err := writer.WriteFile(tt.f.Path, []byte("contents"), 0644)
 				require.NoError(err)
 			}
 
@@ -79,9 +74,9 @@ func TestIsUpToDate(t *testing.T) {
 	tests := []struct {
 		name string
 		// current is the current managed file instance
-		current *ign3types.File
+		current *v1alpha1.FileSpec
 		// desired is the desired managed file
-		desired      *ign3types.File
+		desired      *v1alpha1.FileSpec
 		wantUpToDate bool
 	}{
 		{
@@ -141,23 +136,12 @@ func TestIsUpToDate(t *testing.T) {
 	}
 }
 
-func createTestFile(path, data string, mode, user, group int) *ign3types.File {
-	return &ign3types.File{
-		Node: ign3types.Node{
-			Path: path,
-			User: ign3types.NodeUser{
-				ID: &user,
-			},
-			Group: ign3types.NodeGroup{
-				ID: &group,
-			},
-		},
-
-		FileEmbedded1: ign3types.FileEmbedded1{
-			Contents: ign3types.Resource{
-				Source: util.StrToPtr(data),
-			},
-			Mode: util.IntToPtr(mode),
-		},
+func createTestFile(path, data string, mode, user, group int) *v1alpha1.FileSpec {
+	return &v1alpha1.FileSpec{
+		Path:    path,
+		User:    lo.ToPtr(strconv.Itoa(user)),
+		Group:   lo.ToPtr(strconv.Itoa(group)),
+		Content: data,
+		Mode:    lo.ToPtr(mode),
 	}
 }

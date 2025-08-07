@@ -7,6 +7,8 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/store"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -16,6 +18,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	log := log.InitLogs()
 	log.Println("Starting worker service")
 	defer log.Println("Worker service stopped")
@@ -32,6 +36,13 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
+	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-worker")
+	defer func() {
+		if err := tracerShutdown(ctx); err != nil {
+			log.Fatalf("failed to shut down tracer: %v", err)
+		}
+	}()
+
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
@@ -41,7 +52,10 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
+	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 
 	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {

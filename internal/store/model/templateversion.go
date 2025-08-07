@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 type TemplateVersion struct {
 	OrgID           uuid.UUID               `gorm:"type:uuid;primary_key;"`
+	Organization    Organization            `gorm:"foreignKey:OrgID"`
 	Name            string                  `gorm:"primary_key;" selector:"metadata.name"`
 	FleetName       string                  `gorm:"primary_key;" selector:"metadata.owner"`
 	Fleet           Fleet                   `gorm:"foreignkey:OrgID,FleetName;constraint:OnDelete:CASCADE;"`
@@ -71,6 +73,10 @@ func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) (*Template
 	}, nil
 }
 
+func TemplateVersionAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.TemplateVersionAPIVersion)
+}
+
 func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*api.TemplateVersion, error) {
 	// Shouldn't happen, but just to be safe
 	if tv == nil {
@@ -88,11 +94,11 @@ func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*api.Templa
 	}
 
 	return &api.TemplateVersion{
-		ApiVersion: api.TemplateVersionAPIVersion,
+		ApiVersion: TemplateVersionAPIVersion(),
 		Kind:       api.TemplateVersionKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(tv.Name),
-			CreationTimestamp: util.TimeToPtr(tv.CreatedAt.UTC()),
+			Name:              lo.ToPtr(tv.Name),
+			CreationTimestamp: lo.ToPtr(tv.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(tv.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(tv.Annotations)),
 			Generation:        tv.Generation,
@@ -111,7 +117,7 @@ func TemplateVersionsToApiResource(tvs []TemplateVersion, cont *string, numRemai
 		deviceList[i] = *apiResource
 	}
 	ret := api.TemplateVersionList{
-		ApiVersion: api.TemplateVersionAPIVersion,
+		ApiVersion: TemplateVersionAPIVersion(),
 		Kind:       api.TemplateVersionListKind,
 		Items:      deviceList,
 	}
@@ -219,4 +225,8 @@ func (tv *TemplateVersion) GetStatusAsJson() ([]byte, error) {
 		return []byte("{}"), nil
 	}
 	return tv.Status.MarshalJSON()
+}
+
+func (tv *TemplateVersion) GetTimestamp() time.Time {
+	return tv.CreatedAt
 }

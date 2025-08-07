@@ -22,6 +22,12 @@ func TestAnnotationSelectorOperations(t *testing.T) {
 		"(k1, k2)=(v1, v2)",
 	}
 
+	resolver, err := SelectorFieldResolver(&goodTestModel{})
+	if err != nil {
+		t.Errorf("error %v (%#v)\n", err, err)
+		return
+	}
+
 	for _, test := range testGoodStrings {
 		ls, err := NewAnnotationSelector(test)
 		if err != nil {
@@ -29,7 +35,7 @@ func TestAnnotationSelectorOperations(t *testing.T) {
 			continue
 		}
 
-		_, _, err = ls.Parse(context.Background(), &goodTestModel{}, NewSelectorName("model.field16"))
+		_, _, err = ls.Parse(context.Background(), NewSelectorName("model.field16"), resolver)
 		if err != nil {
 			t.Errorf("%v: error %v (%#v)\n", test, err, err)
 		}

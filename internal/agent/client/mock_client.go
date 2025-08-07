@@ -42,25 +42,56 @@ func (m *MockManagement) EXPECT() *MockManagementMockRecorder {
 	return m.recorder
 }
 
-// GetRenderedDeviceSpec mocks base method.
-func (m *MockManagement) GetRenderedDeviceSpec(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceSpecParams, rcb ...client.RequestEditorFn) (*v1alpha1.RenderedDeviceSpec, int, error) {
+// GetRenderedDevice mocks base method.
+func (m *MockManagement) GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, name, params}
 	for _, a := range rcb {
 		varargs = append(varargs, a)
 	}
-	ret := m.ctrl.Call(m, "GetRenderedDeviceSpec", varargs...)
-	ret0, _ := ret[0].(*v1alpha1.RenderedDeviceSpec)
+	ret := m.ctrl.Call(m, "GetRenderedDevice", varargs...)
+	ret0, _ := ret[0].(*v1alpha1.Device)
 	ret1, _ := ret[1].(int)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
 
-// GetRenderedDeviceSpec indicates an expected call of GetRenderedDeviceSpec.
-func (mr *MockManagementMockRecorder) GetRenderedDeviceSpec(ctx, name, params any, rcb ...any) *gomock.Call {
+// GetRenderedDevice indicates an expected call of GetRenderedDevice.
+func (mr *MockManagementMockRecorder) GetRenderedDevice(ctx, name, params any, rcb ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, name, params}, rcb...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDeviceSpec", reflect.TypeOf((*MockManagement)(nil).GetRenderedDeviceSpec), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDevice", reflect.TypeOf((*MockManagement)(nil).GetRenderedDevice), varargs...)
+}
+
+// PatchDeviceStatus mocks base method.
+func (m *MockManagement) PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, name, patch}
+	for _, a := range rcb {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PatchDeviceStatus", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PatchDeviceStatus indicates an expected call of PatchDeviceStatus.
+func (mr *MockManagementMockRecorder) PatchDeviceStatus(ctx, name, patch any, rcb ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, name, patch}, rcb...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDeviceStatus", reflect.TypeOf((*MockManagement)(nil).PatchDeviceStatus), varargs...)
+}
+
+// SetRPCMetricsCallback mocks base method.
+func (m *MockManagement) SetRPCMetricsCallback(cb RPCMetricsCallback) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetRPCMetricsCallback", cb)
+}
+
+// SetRPCMetricsCallback indicates an expected call of SetRPCMetricsCallback.
+func (mr *MockManagementMockRecorder) SetRPCMetricsCallback(cb any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRPCMetricsCallback", reflect.TypeOf((*MockManagement)(nil).SetRPCMetricsCallback), cb)
 }
 
 // UpdateDeviceStatus mocks base method.
@@ -146,7 +177,7 @@ func (mr *MockEnrollmentMockRecorder) GetEnrollmentRequest(ctx, id any, cb ...an
 }
 
 // SetRPCMetricsCallback mocks base method.
-func (m *MockEnrollment) SetRPCMetricsCallback(cb func(string, float64, error)) {
+func (m *MockEnrollment) SetRPCMetricsCallback(cb RPCMetricsCallback) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetRPCMetricsCallback", cb)
 }
@@ -235,83 +266,4 @@ func (m *MockBootc) UsrOverlay(ctx context.Context) error {
 func (mr *MockBootcMockRecorder) UsrOverlay(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UsrOverlay", reflect.TypeOf((*MockBootc)(nil).UsrOverlay), ctx)
-}
-
-// MockSystem is a mock of System interface.
-type MockSystem struct {
-	ctrl     *gomock.Controller
-	recorder *MockSystemMockRecorder
-}
-
-// MockSystemMockRecorder is the mock recorder for MockSystem.
-type MockSystemMockRecorder struct {
-	mock *MockSystem
-}
-
-// NewMockSystem creates a new mock instance.
-func NewMockSystem(ctrl *gomock.Controller) *MockSystem {
-	mock := &MockSystem{ctrl: ctrl}
-	mock.recorder = &MockSystemMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockSystem) EXPECT() *MockSystemMockRecorder {
-	return m.recorder
-}
-
-// BootID mocks base method.
-func (m *MockSystem) BootID() string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BootID")
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// BootID indicates an expected call of BootID.
-func (mr *MockSystemMockRecorder) BootID() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BootID", reflect.TypeOf((*MockSystem)(nil).BootID))
-}
-
-// BootTime mocks base method.
-func (m *MockSystem) BootTime() string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BootTime")
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// BootTime indicates an expected call of BootTime.
-func (mr *MockSystemMockRecorder) BootTime() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BootTime", reflect.TypeOf((*MockSystem)(nil).BootTime))
-}
-
-// Initialize mocks base method.
-func (m *MockSystem) Initialize() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Initialize")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Initialize indicates an expected call of Initialize.
-func (mr *MockSystemMockRecorder) Initialize() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockSystem)(nil).Initialize))
-}
-
-// IsRebooted mocks base method.
-func (m *MockSystem) IsRebooted() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsRebooted")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// IsRebooted indicates an expected call of IsRebooted.
-func (mr *MockSystemMockRecorder) IsRebooted() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsRebooted", reflect.TypeOf((*MockSystem)(nil).IsRebooted))
 }

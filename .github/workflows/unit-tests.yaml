@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - 'release-*'
   pull_request:
 
 permissions:
@@ -29,7 +30,11 @@ jobs:
       - name: Setup all dependencies
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         uses: ./.github/actions/setup-dependencies
+        with:
+          unit_tests: 'true'
 
       - name: Running Unit tests
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make unit-test
+        env:
+          DISABLE_FIPS: "true"

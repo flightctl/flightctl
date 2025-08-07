@@ -6,82 +6,189 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 const (
-	podmanCmd = "podman"
+	podmanCmd              = "podman"
+	defaultPullLogInterval = 30 * time.Second
 )
 
-type Podman struct {
-	exec    executer.Executer
-	log     *log.PrefixLogger
-	timeout time.Duration
-	backoff wait.Backoff
+// PodmanInspect represents the overall structure of podman inspect output
+type PodmanInspect struct {
+	Restarts int                   `json:"RestartCount"`
+	State    PodmanContainerState  `json:"State"`
+	Config   PodmanContainerConfig `json:"Config"`
 }
 
-type ImageConfig struct {
+// ContainerState represents the container state part of the podman inspect output
+type PodmanContainerState struct {
+	OciVersion  string `json:"OciVersion"`
+	Status      string `json:"Status"`
+	Running     bool   `json:"Running"`
+	Paused      bool   `json:"Paused"`
+	Restarting  bool   `json:"Restarting"`
+	OOMKilled   bool   `json:"OOMKilled"`
+	Dead        bool   `json:"Dead"`
+	Pid         int    `json:"Pid"`
+	ExitCode    int    `json:"ExitCode"`
+	Error       string `json:"Error"`
+	StartedAt   string `json:"StartedAt"`
+	FinishedAt  string `json:"FinishedAt"`
+	Healthcheck string `json:"Healthcheck"`
+}
+
+type PodmanContainerConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
-func NewPodman(log *log.PrefixLogger, exec executer.Executer, backoff wait.Backoff) *Podman {
+// PodmanEvent represents the structure of a podman event as produced via a CLI events command.
+// It should be noted that the CLI represents events differently from libpod. (notably the time properties)
+// https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
+type PodmanEvent struct {
+	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
+	ID                string            `json:"ID"`
+	Image             string            `json:"Image"`
+	Name              string            `json:"Name"`
+	Status            string            `json:"Status"`
+	Type              string            `json:"Type"`
+	TimeNano          int64             `json:"timeNano"`
+	Attributes        map[string]string `json:"Attributes"`
+}
+
+type Podman struct {
+	exec executer.Executer
+	log  *log.PrefixLogger
+	// timeout per client call
+	timeout    time.Duration
+	readWriter fileio.ReadWriter
+	backoff    poll.Config
+}
+
+func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff poll.Config) *Podman {
 	return &Podman{
-		log:     log,
-		exec:    exec,
-		timeout: defaultPodmanTimeout,
-		backoff: backoff,
+		log:        log,
+		exec:       exec,
+		timeout:    defaultPodmanTimeout,
+		readWriter: readWriter,
+		backoff:    backoff,
 	}
 }
 
-// Pull pulls the image from the registry and the response. Users can pass in options to configure the client.
-func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (resp string, err error) {
-	options := clientOptions{}
+// Pull pulls an image from the registry with optional retry and authentication via a pull secret.
+// Logs progress periodically while the operation is in progress.
+func (p *Podman) Pull(ctx context.Context, image string, opts ...ClientOption) (string, error) {
+	options := &clientOptions{}
 	for _, opt := range opts {
-		opt(&options)
+		opt(options)
 	}
 
-	if options.retry {
-		err := wait.ExponentialBackoffWithContext(ctx, p.backoff, func() (bool, error) {
-			resp, err = p.pullImage(ctx, image)
-			if err != nil {
-				// fail fast if the error is not retryable
-				if !errors.IsRetryable(err) {
-					p.log.Error(err)
-					return false, err
-				}
-				p.log.Debugf("Retrying: %s", err)
-				return false, nil
-			}
-			return true, nil
+	return logProgress(ctx, p.log, "Pulling image, please wait...", func(ctx context.Context) (string, error) {
+		return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
+			return p.pullImage(ctx, image, options)
 		})
-		if err != nil {
-			return "", err
-		}
-		return resp, nil
-	}
-
-	// no retry
-	resp, err = p.pullImage(ctx, image)
-	if err != nil {
-		return "", err
-	}
-	return resp, nil
+	})
 }
 
-func (p *Podman) pullImage(ctx context.Context, image string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+func (p *Podman) pullImage(ctx context.Context, image string, options *clientOptions) (string, error) {
+	timeout := p.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	pullSecretPath := options.pullSecretPath
 	args := []string{"pull", image}
+	if pullSecretPath != "" {
+		exists, err := p.readWriter.PathExists(pullSecretPath)
+		if err != nil {
+			return "", fmt.Errorf("check pull secret path: %w", err)
+		}
+		if !exists {
+			p.log.Errorf("Pull secret path %s does not exist", pullSecretPath)
+		} else {
+			args = append(args, "--authfile", pullSecretPath)
+		}
+	}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
 		return "", fmt.Errorf("pull image: %w", errors.FromStderr(stderr, exitCode))
+	}
+	out := strings.TrimSpace(stdout)
+	return out, nil
+}
+
+// PullArtifact pulls an artifact from the registry with optional retry and authentication via a pull secret.
+// Logs progress periodically while the operation is in progress.
+func (p *Podman) PullArtifact(ctx context.Context, artifact string, opts ...ClientOption) (string, error) {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	return logProgress(ctx, p.log, "Pulling artifact, please wait...", func(ctx context.Context) (string, error) {
+		return retryWithBackoff(ctx, p.log, p.backoff, func(ctx context.Context) (string, error) {
+			return p.pullArtifact(ctx, artifact, options)
+		})
+	})
+}
+
+func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *clientOptions) (string, error) {
+	timeout := p.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	pullSecretPath := options.pullSecretPath
+	args := []string{"artifact", "pull", artifact}
+	if pullSecretPath != "" {
+		exists, err := p.readWriter.PathExists(pullSecretPath)
+		if err != nil {
+			return "", fmt.Errorf("check pull secret path: %w", err)
+		}
+		if !exists {
+			p.log.Errorf("Pull secret path %s does not exist", pullSecretPath)
+		} else {
+			args = append(args, "--authfile", pullSecretPath)
+		}
+	}
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("pull artifact: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
+// ExtractArtifact to the given destination, which should be an already existing directory if the artifact contains multiple layers, otherwise podman will extract a single layer in the artifact to the destination path directly as a file.
+//
+// See
+// https://github.com/opencontainers/image-spec/blob/main/manifest.md#guidelines-for-artifact-usage
+// for details on the expected structure of artifacts. Regular images are considered artifacts by
+// podman due to the intentional looseness of the spec.
+func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	// TODO: only available in podman >= 4.5.0
+	args := []string{"artifact", "extract", artifact, destination}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("artifact extract: %w", errors.FromStderr(stderr, exitCode))
 	}
 	out := strings.TrimSpace(stdout)
 	return out, nil
@@ -107,6 +214,16 @@ func (p *Podman) ImageExists(ctx context.Context, image string) bool {
 	defer cancel()
 
 	args := []string{"image", "exists", image}
+	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	return exitCode == 0
+}
+
+// ArtifactExists returns true if the artifact exists in storage otherwise false.
+func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"artifact", "inspect", artifact}
 	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	return exitCode == 0
 }
@@ -177,13 +294,9 @@ func (p *Podman) InspectLabels(ctx context.Context, image string) (map[string]st
 		return nil, err
 	}
 
-	type inspect struct {
-		Config ImageConfig `json:"Config"`
-	}
-
-	var inspectData []inspect
+	var inspectData []PodmanInspect
 	if err := json.Unmarshal([]byte(resp), &inspectData); err != nil {
-		return nil, fmt.Errorf("failed to parse image config: %w", err)
+		return nil, fmt.Errorf("parse image inspect response: %w", err)
 	}
 
 	if len(inspectData) == 0 {
@@ -223,14 +336,63 @@ func (p *Podman) RemoveContainer(ctx context.Context, labels []string) error {
 	return nil
 }
 
-func (p *Podman) RemoveVolumes(ctx context.Context, labels []string) error {
+func (p *Podman) CreateVolume(ctx context.Context, name string, labels []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{"volume", "rm"}
-	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	args := []string{"volume", "create", name}
+	for _, label := range labels {
+		args = append(args, "--label", label)
+	}
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("remove volumes: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("create volume: %s: %w", strings.TrimSpace(stdout), errors.FromStderr(stderr, exitCode))
+	}
+
+	inspectArgs := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
+	mountpointOut, inspectStderr, inspectExit := p.exec.ExecuteWithContext(ctx, podmanCmd, inspectArgs...)
+	if inspectExit != 0 {
+		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(inspectStderr, inspectExit))
+	}
+
+	mountpoint := strings.TrimSpace(mountpointOut)
+
+	return mountpoint, nil
+}
+
+func (p *Podman) VolumeExists(ctx context.Context, name string) bool {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"volume", "exists", name}
+	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	return exitCode == 0
+}
+
+func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	return strings.TrimSpace(stdout), nil
+}
+
+func (p *Podman) RemoveVolumes(ctx context.Context, volumes ...string) error {
+	for _, volume := range volumes {
+		nctx, cancel := context.WithTimeout(ctx, p.timeout)
+		args := []string{"volume", "rm", volume}
+		_, stderr, exitCode := p.exec.ExecuteWithContext(nctx, podmanCmd, args...)
+		cancel()
+		if exitCode != 0 {
+			return fmt.Errorf("remove volumes: %w", errors.FromStderr(stderr, exitCode))
+		}
+		p.log.Infof("Removed volume %s", volume)
 	}
 	return nil
 }
@@ -301,14 +463,137 @@ func (p *Podman) Unshare(ctx context.Context, args ...string) (string, error) {
 	return out, nil
 }
 
+func (p *Podman) CopyContainerData(ctx context.Context, image, destPath string) error {
+	return copyContainerData(ctx, p.log, p.readWriter, p, image, destPath)
+}
+
 func (p *Podman) Compose() *Compose {
 	return &Compose{
 		Podman: p,
 	}
 }
 
+type PodmanVersion struct {
+	Major int
+	Minor int
+}
+
+func (v PodmanVersion) GreaterOrEqual(major, minor int) bool {
+	if v.Major > major {
+		return true
+	}
+	if v.Major == major && v.Minor >= minor {
+		return true
+	}
+	return false
+}
+
+// Version returns the major and monor versions of podman.
+func (p *Podman) Version(ctx context.Context) (*PodmanVersion, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"--version"} // podman version --format "{{.Version}}" has some unexpectecd failure cases in testing
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("podman --version: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	// Example: "podman version 5.4.2"
+	fields := strings.Fields(stdout)
+	if len(fields) < 3 {
+		return nil, fmt.Errorf("unexpected podman version output: %q", stdout)
+	}
+
+	versionStr := fields[len(fields)-1]
+	parts := strings.SplitN(versionStr, ".", 3)
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("parse major version: %w", err)
+	}
+
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("parse minor version: %w", err)
+	}
+
+	return &PodmanVersion{Major: major, Minor: minor}, nil
+}
+
 func IsPodmanRootless() bool {
 	return os.Geteuid() != 0
+}
+
+func copyContainerData(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *Podman, image, destPath string) (err error) {
+	var mountPoint string
+
+	rootless := IsPodmanRootless()
+	if rootless {
+		log.Warnf("Running in rootless mode this is for testing only")
+		mountPoint, err = podman.Unshare(ctx, "podman", "image", "mount", image)
+		if err != nil {
+			return fmt.Errorf("failed to execute podman share: %w", err)
+		}
+	} else {
+		mountPoint, err = podman.Mount(ctx, image)
+		if err != nil {
+			return fmt.Errorf("failed to mount image: %w", err)
+		}
+	}
+
+	if err := writer.MkdirAll(destPath, fileio.DefaultDirectoryPermissions); err != nil {
+		return fmt.Errorf("failed to dest create directory: %w", err)
+	}
+
+	defer func() {
+		if err := podman.Unmount(ctx, image); err != nil {
+			log.Errorf("failed to unmount image: %s %v", image, err)
+		}
+	}()
+
+	// recursively copy image files to agent destination
+	if err := copyData(ctx, log, writer, mountPoint, destPath); err != nil {
+		return fmt.Errorf("error during copy: %w", err)
+	}
+
+	return nil
+}
+
+func copyData(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, srcRoot, destRoot string) error {
+	walkRoot := writer.PathFor(srcRoot)
+	return filepath.Walk(walkRoot, func(walkedSrc string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		relPath, err := filepath.Rel(walkRoot, walkedSrc)
+		if err != nil {
+			return fmt.Errorf("computing relative path: %w", err)
+		}
+
+		realSrc := filepath.Join(srcRoot, relPath)
+		relDest := filepath.Join(destRoot, relPath)
+
+		if info.IsDir() {
+			if info.Name() == "merged" {
+				log.Tracef("Skipping merged directory: %s", walkedSrc)
+				return nil
+			}
+
+			// create the directory in the destination
+			log.Tracef("Creating directory: %s", relDest)
+
+			// ensure any directories in the image are also created
+			return writer.MkdirAll(relDest, fileio.DefaultDirectoryPermissions)
+		}
+
+		log.Tracef("Copying file from %s to %s", realSrc, relDest)
+		return writer.CopyFile(realSrc, relDest)
+	})
 }
 
 // SanitizePodmanLabel sanitizes a string to be used as a label in Podman.
@@ -336,4 +621,50 @@ func SanitizePodmanLabel(name string) string {
 	}
 
 	return result.String()
+}
+
+func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff poll.Config, operation func(context.Context) (string, error)) (string, error) {
+	var result string
+	err := poll.BackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
+		var err error
+		result, err = operation(ctx)
+		if err != nil {
+			if !errors.IsRetryable(err) {
+				log.Error(err)
+				return false, err
+			}
+			log.Warnf("A retriable error occurred: %s", err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
+func logProgress(ctx context.Context, log *log.PrefixLogger, msg string, fn func(ctx context.Context) (string, error)) (string, error) {
+	doneCh := make(chan struct{})
+	defer close(doneCh)
+
+	startTime := time.Now()
+	go func() {
+		ticker := time.NewTicker(defaultPullLogInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-doneCh:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				elapsed := time.Since(startTime)
+				log.Infof("%s (elapsed: %v)", msg, elapsed)
+			}
+		}
+	}()
+
+	return fn(ctx)
 }

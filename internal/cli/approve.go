@@ -9,7 +9,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -41,7 +40,9 @@ func NewCmdApprove() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -89,7 +90,7 @@ func (o *ApproveOptions) Validate(args []string) error {
 }
 
 func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -100,7 +101,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	var response *http.Response
-	var getResponse *apiclient.ReadCertificateSigningRequestResponse
+	var getResponse *apiclient.GetCertificateSigningRequestResponse
 
 	switch {
 	case kind == EnrollmentRequestKind:
@@ -111,7 +112,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		}
 		response, err = c.ApproveEnrollmentRequest(ctx, name, approval)
 	case kind == CertificateSigningRequestKind:
-		getResponse, err = c.ReadCertificateSigningRequestWithResponse(ctx, name)
+		getResponse, err = c.GetCertificateSigningRequestWithResponse(ctx, name)
 		if err != nil {
 			return fmt.Errorf("getting certificate signing request: %w", err)
 		}
@@ -127,13 +128,13 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		csr := getResponse.JSON200
 
 		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
-			Type:    api.CertificateSigningRequestApproved,
+			Type:    api.ConditionTypeCertificateSigningRequestApproved,
 			Status:  api.ConditionStatusTrue,
 			Reason:  "Approved",
 			Message: "Approved",
 		})
-		api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestDenied)
-		api.RemoveStatusCondition(&csr.Status.Conditions, api.CertificateSigningRequestFailed)
+		api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)
+		api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed)
 		response, err = c.UpdateCertificateSigningRequestApproval(ctx, name, *csr)
 	default:
 		return fmt.Errorf("unsupported resource kind: %s", kind)
@@ -149,7 +150,7 @@ func processApprovalReponse(response *http.Response, err error, kind string, nam
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		var responseError api.Error
+		var responseError api.Status
 		// not handling errors as we are only interested in the message
 		// and in case there will be a problem in reading the body or unmarshalling it
 		// we will print the status like

@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/identity"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -29,6 +32,7 @@ var (
 	_ Initializer = (*LifecycleManager)(nil)
 )
 
+// LifecycleManager struct needs to hold a reference to the management config
 type LifecycleManager struct {
 	deviceName           string
 	enrollmentUIEndpoint string
@@ -41,6 +45,7 @@ type LifecycleManager struct {
 	enrollmentCSR    []byte
 	statusManager    status.Manager
 	systemdClient    *client.Systemd
+	identityProvider identity.Provider
 
 	backoff wait.Backoff
 	log     *log.PrefixLogger
@@ -58,6 +63,7 @@ func NewManager(
 	defaultLabels map[string]string,
 	statusManager status.Manager,
 	systemdClient *client.Systemd,
+	identityProvider identity.Provider,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *LifecycleManager {
@@ -74,6 +80,7 @@ func NewManager(
 		backoff:              backoff,
 		statusManager:        statusManager,
 		systemdClient:        systemdClient,
+		identityProvider:     identityProvider,
 	}
 }
 
@@ -89,7 +96,7 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 		}
 
 		m.log.Info("Waiting for enrollment to be approved")
-		err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func() (bool, error) {
+		err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
 			return m.verifyEnrollment(ctx)
 		})
 		if err != nil {
@@ -101,14 +108,14 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 	return m.writeManagementBanner()
 }
 
-func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	// this controller currently does not implement a sync operation
 	return nil
 }
 
-func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	var errs []error
-	if current.Decommission == nil && desired.Decommission != nil {
+	if current.Decommissioning == nil && desired.Decommissioning != nil {
 		m.log.Warn("Detected decommissioning request from flightctl service")
 		m.log.Warn("Updating Condition to decommissioning started")
 		if err := m.updateWithStartedCondition(ctx); err != nil {
@@ -147,7 +154,7 @@ func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1
 
 func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error {
 	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceDecommissioning,
+		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateStarted),
 		Message: "The device has started decommissioning",
@@ -161,7 +168,7 @@ func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error
 
 func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) error {
 	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceDecommissioning,
+		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateComplete),
 		Message: "The device has completed decommissioning and will wipe its management certificate",
@@ -175,7 +182,7 @@ func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) err
 
 func (m *LifecycleManager) updateWithErrorCondition(ctx context.Context, errs []error) error {
 	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.DeviceDecommissioning,
+		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateError),
 		Message: fmt.Sprintf("The device has encountered one or more errors during decommissioning: %v", errors.Join(errs...)),
@@ -190,16 +197,11 @@ func (m *LifecycleManager) updateWithErrorCondition(ctx context.Context, errs []
 // point of no return - wipes management cert and keys
 func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	var errs []error
-	err := m.deviceReadWriter.OverwriteAndWipe(m.managementCertPath)
-	if err != nil {
-		m.log.Errorf("Failed to remove management certificate at %s: %v", m.managementCertPath, err)
-		errs = append(errs, fmt.Errorf("failed to remove management certificate: %w", err))
-	}
 
-	err = m.deviceReadWriter.OverwriteAndWipe(m.managementKeyPath)
-	if err != nil {
-		m.log.Errorf("Failed to remove management key at %s: %v", m.managementKeyPath, err)
-		errs = append(errs, fmt.Errorf("failed to remove management key: %w", err))
+	// Use identity provider to wipe credentials securely
+	if err := m.identityProvider.WipeCredentials(); err != nil {
+		m.log.Errorf("Failed to wipe credentials via identity provider: %v", err)
+		errs = append(errs, fmt.Errorf("failed to wipe credentials via identity provider: %w", err))
 	}
 
 	// Clear sensitive data ahead of time in case reboot fails
@@ -209,7 +211,7 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	m.enrollmentCSR = nil
 
 	// TODO: incorporate before-reboot hooks
-	if err = m.systemdClient.Reboot(ctx); err != nil {
+	if err := m.systemdClient.Reboot(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("failed to initiate system reboot: %w", err))
 	}
 	if len(errs) > 0 {
@@ -219,13 +221,8 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 }
 
 func (m *LifecycleManager) IsInitialized() bool {
-	// check if the management certificate exists
-	exists, err := m.deviceReadWriter.PathExists(m.managementCertPath)
-	if err != nil {
-		m.log.Warnf("Error checking if device is enrolled: %v", err)
-		return false
-	}
-	return exists
+	// check if the identity provider has a certificate
+	return m.identityProvider.HasCertificate()
 }
 
 func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
@@ -270,9 +267,8 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("parsing signed certificate: %v", err)
 	}
 
-	m.log.Infof("Writing signed certificate to %s", m.managementCertPath)
-	if err := m.deviceReadWriter.WriteFile(m.managementCertPath, []byte(*enrollmentRequest.Status.Certificate), os.FileMode(0600)); err != nil {
-		return false, fmt.Errorf("writing signed certificate: %v", err)
+	if err := m.identityProvider.StoreCertificate([]byte(*enrollmentRequest.Status.Certificate)); err != nil {
+		return false, fmt.Errorf("failed to store certificate: %w", err)
 	}
 
 	return true, nil
@@ -334,6 +330,15 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 }
 
 func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1alpha1.DeviceStatus) error {
+	var csrString string
+	if tpm.IsTCGCSRFormat(b.enrollmentCSR) {
+		// TCG CSR is binary data, must be base64 encoded
+		b.log.Debugf("Detected TCG CSR format, base64 encoding before transmission")
+		csrString = base64.StdEncoding.EncodeToString(b.enrollmentCSR)
+	} else {
+		csrString = string(b.enrollmentCSR)
+	}
+
 	req := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "EnrollmentRequest",
@@ -341,13 +346,13 @@ func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			Name: &b.deviceName,
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
-			Csr:          string(b.enrollmentCSR),
+			Csr:          csrString,
 			DeviceStatus: deviceStatus,
 			Labels:       &b.defaultLabels,
 		},
 	}
 
-	err := wait.ExponentialBackoffWithContext(ctx, b.backoff, func() (bool, error) {
+	err := wait.ExponentialBackoffWithContext(ctx, b.backoff, func(ctx context.Context) (bool, error) {
 		_, err := b.enrollmentClient.CreateEnrollmentRequest(ctx, req)
 		if err != nil {
 			b.log.Warnf("failed to create enrollment request: %v", err)

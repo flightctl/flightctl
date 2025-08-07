@@ -2,233 +2,189 @@ package console
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"io"
+	"sync"
+	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"golang.org/x/sync/errgroup"
+	"github.com/samber/lo"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/metadata"
 )
 
-type ConsoleController struct {
-	grpcClient grpc_v1.RouterServiceClient
-	log        *log.PrefixLogger
-	deviceName string
+const (
+	cleanupDuration = 5 * time.Minute
+)
 
-	active           bool
-	streamClient     grpc_v1.RouterService_StreamClient
-	currentStreamID  string
-	lastClosedStream string
+type ConsoleController struct {
+	grpcClient   grpc_v1.RouterServiceClient
+	log          *log.PrefixLogger
+	deviceName   string
+	subscription publisher.Subscription
+
+	activeSessions   []*session
+	inactiveSessions []*session
 	executor         executer.Executer
+	mu               sync.Mutex
+}
+
+type TerminalSize struct {
+	Width  uint16
+	Height uint16
 }
 
 func NewController(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
 	executor executer.Executer,
+	subscription publisher.Subscription,
 	log *log.PrefixLogger,
 ) *ConsoleController {
 	return &ConsoleController{
-		grpcClient: grpcClient,
-		deviceName: deviceName,
-		executor:   executor,
-		log:        log,
+		grpcClient:   grpcClient,
+		deviceName:   deviceName,
+		executor:     executor,
+		subscription: subscription,
+		log:          log,
 	}
 }
 
-func (c *ConsoleController) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (c *ConsoleController) cleanup() {
+	var result []*session
+	for _, s := range c.inactiveSessions {
+		if s.inactiveTimestamp.Add(cleanupDuration).After(time.Now()) {
+			result = append(result, s)
+		}
+	}
+	c.inactiveSessions = result
+}
+
+func (c *ConsoleController) add(newSession *session) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cleanup()
+	if _, exists := lo.Find(append(c.activeSessions, c.inactiveSessions...), func(s *session) bool { return newSession.id == s.id }); exists {
+		return false
+	}
+	c.activeSessions = append(c.activeSessions, newSession)
+	return true
+}
+
+func (c *ConsoleController) inactivate(s *session) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cleanup()
+	_, index, exists := lo.FindIndexOf(c.activeSessions, func(as *session) bool { return s.id == as.id })
+	if !exists {
+		return
+	}
+	c.activeSessions = append(c.activeSessions[:index], c.activeSessions[index+1:]...)
+	c.inactiveSessions = append(c.inactiveSessions, s)
+}
+
+func (c *ConsoleController) close(s *session) {
+	c.log.Debugf("closing session %s", s.id)
+	_ = s.close()
+	c.inactivate(s)
+}
+
+func (c *ConsoleController) parseMetadata(metadata string) (*v1alpha1.DeviceConsoleSessionMetadata, error) {
+	var ret v1alpha1.DeviceConsoleSessionMetadata
+	err := json.Unmarshal([]byte(metadata), &ret)
+	if err != nil {
+		return nil, err
+	}
+	return &ret, nil
+}
+
+func (c *ConsoleController) selectProtocol(requestedProtocols []string) (string, error) {
+	supportedProtocols := []string{
+		StreamProtocolV5Name,
+	}
+	for _, protocol := range supportedProtocols {
+		if lo.Contains(requestedProtocols, protocol) {
+			return protocol, nil
+		}
+	}
+	return "", fmt.Errorf("none of the protocols %v are supported", requestedProtocols)
+}
+
+func (c *ConsoleController) start(ctx context.Context, dc v1alpha1.DeviceConsole) {
+	s := &session{
+		id:       dc.SessionID,
+		executor: c.executor,
+		log:      c.log,
+	}
+	if !c.add(s) {
+		return
+	}
+	defer c.close(s)
+
+	c.log.Debugf("starting session %s, metadata %s", dc.SessionID, dc.SessionMetadata)
+
+	sessionMetadata, err := c.parseMetadata(dc.SessionMetadata)
+	if err != nil {
+		c.log.Errorf("failed to parse session metadata %s: %v", dc.SessionMetadata, err)
+		return
+	}
+
+	// add key-value pairs of metadata to context
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, s.id)
+	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcClientNameKey, c.deviceName)
+	selectedProtocol, err := c.selectProtocol(sessionMetadata.Protocols)
+	if err != nil {
+		c.log.Errorf("failed to select protocol: %v", err)
+	} else {
+		// We expect that since this is missing an error will be sent to the client
+		ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSelectedProtocolKey, selectedProtocol)
+	}
+	streamClient, err := c.grpcClient.Stream(ctx)
+	if err != nil {
+		c.log.Errorf("error creating console stream client: %v", err)
+		return
+	}
+	s.streamClient = streamClient
+	s.run(ctx, sessionMetadata)
+}
+
+func (c *ConsoleController) sync(ctx context.Context, desired *v1alpha1.DeviceSpec) {
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
-	// do we have an open console stream, and we are supposed to close it?
-	if desired.Console == nil {
-		c.log.Debug("No desired console")
-		if c.active {
-			if c.streamClient != nil {
-				err := c.streamClient.CloseSend()
-				if err != nil {
-					return fmt.Errorf("failed to close console stream: %w", err)
-				}
-			}
-			c.active = false
-		}
-		return nil
-	}
+	desiredConsoles := desired.GetConsoles()
 
-	// TO-DO: manage the situation where a new console is requested while the current one is still open
-	// if we have an active console, and the session ID is the same, we should keep it open
-	if c.active && c.streamClient != nil {
-		c.log.Infof("active console on session %s", desired.Console.SessionID)
-		return nil
+	for _, d := range desiredConsoles {
+		go c.start(ctx, d)
 	}
+}
 
-	if c.lastClosedStream == desired.Console.SessionID {
-		c.log.Debugf("console session %s was closed, not opening again", desired.Console.SessionID)
-		return nil
-	}
+func (c *ConsoleController) Run(ctx context.Context, wg *sync.WaitGroup) {
+	c.log.Debug("Starting console controller")
+	defer c.log.Debug("Stopping console controller")
+	defer wg.Done()
 
-	if c.grpcClient == nil {
-		c.log.Errorf("no gRPC client available, cannot start console session to %s", desired.Console.SessionID)
-		return nil
-	}
-	c.log.Infof("starting console for session %s", desired.Console.SessionID)
-	// add key-value pairs of metadata to context, for now we are ignoring the Console.GRPCEndpoint
-	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcSessionIDKey, desired.Console.SessionID)
-	ctx = metadata.AppendToOutgoingContext(ctx, consts.GrpcClientNameKey, c.deviceName)
-
-	stdin, stdout, err := c.bashProcess(ctx)
-	if err != nil {
-		return fmt.Errorf("error creating shell process: %w", err)
-	}
-
-	c.log.Info("console opening stream")
-	// open a new console stream
-	streamClient, err := c.grpcClient.Stream(ctx)
-	if err != nil {
-		return fmt.Errorf("error creating console stream client: %w", err)
-	}
-	c.streamClient = streamClient
-	c.active = true
-	c.currentStreamID = desired.Console.SessionID
-
-	go func() {
-		c.log.Info("starting console forwarding")
-		err := c.startForwarding(ctx, stdin, stdout)
-		// make sure that we wait for the command to finish, otherwise we will have a zombie process
+	for {
+		// The Pop() call will block until a new desired device spec is available
+		// It is the responsibility of the publisher to stop the subscription
+		// in case the controller needs to exit the loop.  When the publisher
+		// stops, the subscription will be closed and the Pop() call will return
+		// an error.
+		desired, err := c.subscription.Pop()
 		if err != nil {
-			c.log.Errorf("error forwarding console ended for session %s: %v", desired.Console.SessionID, err)
+			c.log.Warnf("failed to pop console subscription: %v", err)
+			return
 		}
-		c.log.Infof("console session %s ended", desired.Console.SessionID)
-		// if the stream has been closed we won't try to re-open it until we find a
-		// new session ID
-		c.lastClosedStream = desired.Console.SessionID
-		c.active = false
-		c.streamClient = nil
-	}()
-
-	return nil
+		c.sync(ctx, desired.Spec)
+	}
 }
 
-func (c *ConsoleController) startForwarding(ctx context.Context, stdin io.WriteCloser, stdout io.ReadCloser) error {
-	stream := c.streamClient
-
-	defer func() {
-		stdin.Close()
-		stdout.Close()
-		// finally this should end the other forward function
-		_ = stream.CloseSend()
-		c.log.Info("startForwarding: closing stream for console")
-
-	}()
-	g, _ := errgroup.WithContext(ctx)
-
-	g.Go(func() error {
-		defer stdout.Close() // close the other side to make the other forward function leave
-		defer c.log.Debug("stream > bash: leaving forward loop")
-		c.log.Debug("stream > bash: entering forward loop")
-		for {
-			msg, err := stream.Recv()
-			if err == io.EOF || msg != nil && msg.Closed {
-				c.log.Info("stream > bash: connection closed")
-				return nil
-			}
-			if err != nil {
-				c.log.Errorf("stream > bash:error receiving message for stdin: %s", err)
-				return fmt.Errorf("stream > bash:error receiving message for stdin: %w", err)
-			}
-			payload := msg.GetPayload()
-			c.log.Debugf("stream > bash: received: %s", (string)(payload))
-			_, err = stdin.Write(payload)
-			if errors.Is(err, io.ErrClosedPipe) {
-				c.log.Error("stream > bash: stdin closed")
-				return nil
-			}
-			if err != nil {
-				c.log.Errorf("stream > bash: error writing to stdin: %s", err)
-				return fmt.Errorf("stream > bash: error writing to stdin: %w", err)
-			}
-		}
-	})
-
-	g.Go(func() error {
-		defer func() {
-			// probably CloseSend is enough for the client, just in case...
-			err := stream.Send(&grpc_v1.StreamRequest{
-				Closed: true,
-			})
-			if err != nil {
-				c.log.Errorf("bash > stream:: error sending close message to server: %s", err)
-			}
-			// finally this should end the other forward function
-			_ = stream.CloseSend()
-		}()
-		defer c.log.Debug("bash > stream: leaving forward loop")
-		c.log.Debug("bash > stream: entering forward loop")
-		for {
-			buffer := make([]byte, 4096)
-			n, readErr := stdout.Read(buffer)
-			// according to the docs, Read can return EOF and data at the same time, so
-			// we should process the data first
-			if n > 0 {
-				err := stream.Send(&grpc_v1.StreamRequest{
-					Payload: buffer[:n],
-				})
-
-				if err != nil {
-					c.log.Errorf("bash > stream: error sending: %q, %s", (string)(buffer[:n]), err)
-					return fmt.Errorf("bash > stream: error sending message for stdout: %w", err)
-				}
-			}
-
-			if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrClosedPipe) {
-				c.log.Debug("bash > stream: stdout from bash ended")
-				return nil
-			}
-			if readErr != nil {
-				c.log.Errorf("bash > stream: error reading from bash stdout: %s", readErr)
-				return fmt.Errorf("bash > stream: error reading from stdout: %w", readErr)
-			}
-
-			c.log.Debugf("bash > stream: sent: %q", (string)(buffer[:n]))
-
-		}
-	})
-
-	return g.Wait()
-
-}
-
-func (c *ConsoleController) bashProcess(ctx context.Context) (io.WriteCloser, io.ReadCloser, error) {
-	// TODO pty: this is how oci does a PTY:
-	// https://github.com/cri-o/cri-o/blob/main/internal/oci/oci_unix.go
-	//
-	// set PS1 environment variable to make bash print the default prompt
-	cmd := c.executor.CommandContext(ctx, "bash", "-i", "-l")
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting stdout pipe: %w", err)
-	}
-
-	cmd.Stderr = cmd.Stdout
-
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("error starting bash process: %w", err)
-	}
-	go func() {
-		if err := cmd.Wait(); err != nil {
-			c.log.Errorf("error waiting for bash process: %v", err)
-		} else {
-			c.log.Info("bash process exited successfully")
-		}
-	}()
-	return stdin, stdout, nil
+func setSize(fd uintptr, size v1alpha1.TerminalSize) error {
+	winsize := &unix.Winsize{Row: size.Height, Col: size.Width}
+	return unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, winsize)
 }

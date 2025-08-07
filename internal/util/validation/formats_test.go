@@ -17,7 +17,6 @@ func TestValidateGenericName(t *testing.T) {
 		strings.Repeat("a", 63),
 	}
 	for _, val := range goodValues {
-		val := val
 		assert.Empty(ValidateGenericName(&val, "good.name"))
 	}
 
@@ -30,7 +29,6 @@ func TestValidateGenericName(t *testing.T) {
 		strings.Repeat("long", 16),
 	}
 	for _, val := range badValues {
-		val := val
 		assert.NotEmpty(ValidateGenericName(&val, "bad.name"), fmt.Sprintf("value: %q", val))
 	}
 }
@@ -52,7 +50,6 @@ func TestValidateOciImageReference(t *testing.T) {
 		"image:" + strings.Repeat("a", 128),
 	}
 	for _, val := range goodValues {
-		val := val
 		assert.Empty(ValidateOciImageReference(&val, "good.image.ref"))
 	}
 
@@ -63,7 +60,6 @@ func TestValidateOciImageReference(t *testing.T) {
 		"image:" + strings.Repeat("a", 129),
 	}
 	for _, val := range badValues {
-		val := val
 		assert.NotEmpty(ValidateOciImageReference(&val, "bad.image.ref"), fmt.Sprintf("value: %q", val))
 	}
 }
@@ -80,7 +76,6 @@ func TestValidateGitRevision(t *testing.T) {
 		strings.Repeat("a", 244),
 	}
 	for _, val := range goodValues {
-		val := val
 		assert.Empty(ValidateGitRevision(&val, "good.image.ref"))
 	}
 
@@ -90,7 +85,33 @@ func TestValidateGitRevision(t *testing.T) {
 		strings.Repeat("a", 245),
 	}
 	for _, val := range badValues {
-		val := val
 		assert.NotEmpty(ValidateGitRevision(&val, "bad.image.ref"), fmt.Sprintf("value: %q", val))
+	}
+}
+
+func TestValidateSystemdUnitPattern(t *testing.T) {
+	assert := assert.New(t)
+
+	goodValues := []string{
+		"foo.service",
+		"service",
+		"foo[0-9].service",
+		"foo?.service",
+		"foo\\.service",
+	}
+	for _, val := range goodValues {
+		assert.Empty(ValidateSystemdName(&val, "good.unit"))
+	}
+
+	badValues := []string{
+		"foo@@bar.service",
+		"",
+		"@bar.service",
+		"foo;bar.service",
+		string(make([]rune, 257)),
+	}
+
+	for _, val := range badValues {
+		assert.NotEmpty(ValidateSystemdName(&val, "bad.unit"), fmt.Sprintf("value: %q", val))
 	}
 }

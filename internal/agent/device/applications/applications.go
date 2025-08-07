@@ -3,18 +3,12 @@ package applications
 import (
 	"context"
 	"fmt"
-	"os"
-	"path"
-	"path/filepath"
 	"strconv"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
-	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const (
@@ -22,41 +16,46 @@ const (
 	DefaultImageManifestDir = "/"
 )
 
-type ContainerStatusType string
+type StatusType string
 
 const (
-	ContainerStatusCreated ContainerStatusType = "created"
-	ContainerStatusInit    ContainerStatusType = "init"
-	ContainerStatusRunning ContainerStatusType = "start"
-	ContainerStatusStop    ContainerStatusType = "stop"
-	ContainerStatusDie     ContainerStatusType = "die" // docker only
-	ContainerStatusDied    ContainerStatusType = "died"
-	ContainerStatusRemove  ContainerStatusType = "remove"
-	ContainerStatusExited  ContainerStatusType = "exited"
+	StatusCreated StatusType = "created"
+	StatusInit    StatusType = "init"
+	StatusRunning StatusType = "start"
+	StatusStop    StatusType = "stop"
+	StatusDie     StatusType = "die" // docker only
+	StatusDied    StatusType = "died"
+	StatusRemove  StatusType = "remove"
+	StatusExited  StatusType = "exited"
 )
 
-func (c ContainerStatusType) String() string {
+func (c StatusType) String() string {
 	return string(c)
 }
-
-type AppType string
-
-const (
-	AppCompose AppType = "compose"
-)
 
 type Monitor interface {
 	Run(ctx context.Context)
 	Status() []v1alpha1.DeviceApplicationStatus
 }
 
+// Manager coordinates the lifecycle of an application by interacting with its Provider
+// and ensuring it is properly handed off to the appropriate runtime Monitor.
 type Manager interface {
-	Ensure(app Application) error
-	Remove(app Application) error
-	Update(app Application) error
-	BeforeUpdate(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error
+	// Ensure installs and starts the application on the device using the given provider.
+	Ensure(ctx context.Context, provider provider.Provider) error
+	// Remove uninstalls the application from the device using the given provider.
+	Remove(ctx context.Context, provider provider.Provider) error
+	// Update replaces the current application with a new version provided by the given provider.
+	Update(ctx context.Context, provider provider.Provider) error
+	// BeforeUpdate is called prior to installing an application to ensure the
+	// application is valid and dependencies are met.
+	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	// AfterUpdate is called after the application has been validated and is ready to be executed.
 	AfterUpdate(ctx context.Context) error
+	// Stop halts the application running on the device.
 	Stop(ctx context.Context) error
+
+	dependency.OCICollector
 	status.Exporter
 }
 
@@ -70,152 +69,126 @@ type Application interface {
 	// application type.
 	Name() string
 	// Type returns the application type.
-	Type() AppType
-	// EnvVars returns the environment variables for the application.
-	EnvVars() map[string]string
-	// SetEnvVars sets the environment variables for the application.
-	SetEnvVars(envVars map[string]string) bool
+	AppType() v1alpha1.AppType
 	// Path returns the path to the application on the device.
-	Path() (string, error)
-	// Container returns a container by name.
-	Container(name string) (*Container, bool)
-	// AddContainer adds a container to the application.
-	AddContainer(container Container)
-	// RemoveContainer removes a container from the application.
-	RemoveContainer(name string) bool
+	Path() string
+	// Workload returns a workload by name.
+	Workload(name string) (*Workload, bool)
+	// AddWorkload adds a workload to the application.
+	AddWorkload(Workload *Workload)
+	// RemoveWorkload removes a workload from the application.
+	RemoveWorkload(name string) bool
 	// IsEmbedded returns true if the application is embedded.
 	IsEmbedded() bool
+	// Volume is a volume manager.
+	Volume() provider.VolumeManager
 	// Status reports the status of an application using the name as defined by
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
 	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
 }
 
-// EmbeddedProvider is a provider for embedded applications.
-type EmbeddedProvider struct{}
-
-type Container struct {
+// Workload represents an application workload tracked by a Monitor.
+type Workload struct {
 	ID       string
 	Image    string
 	Name     string
-	Status   ContainerStatusType
+	Status   StatusType
 	Restarts int
 }
 
-type application[T any] struct {
-	id         string
-	envVars    map[string]string
-	containers []Container
-	appType    AppType
-	provider   T
-	status     *v1alpha1.DeviceApplicationStatus
-	embedded   bool
+type application struct {
+	id        string
+	appType   v1alpha1.AppType
+	path      string
+	workloads []Workload
+	volume    provider.VolumeManager
+	status    *v1alpha1.DeviceApplicationStatus
+	embedded  bool
 }
 
-func NewApplication[T any](id, name string, provider T, appType AppType) *application[T] {
-	a := &application[T]{
-		id: id,
+// NewApplication creates a new application from an application provider.
+func NewApplication(provider provider.Provider) *application {
+	spec := provider.Spec()
+	return &application{
+		id:       spec.ID,
+		appType:  spec.AppType,
+		path:     spec.Path,
+		embedded: spec.Embedded,
 		status: &v1alpha1.DeviceApplicationStatus{
-			Name:   name,
-			Status: v1alpha1.ApplicationStatusPreparing,
+			Name:   spec.Name,
+			Status: v1alpha1.ApplicationStatusUnknown,
 		},
-		provider: provider,
-		appType:  appType,
-		envVars:  make(map[string]string),
+		volume: spec.Volume,
 	}
-	if _, ok := any(provider).(EmbeddedProvider); ok {
-		a.embedded = true
-	}
-	return a
 }
 
-func (a *application[T]) ID() string {
+func (a *application) ID() string {
 	return a.id
 }
 
-func (a *application[T]) Name() string {
+func (a *application) Name() string {
 	return a.status.Name
 }
 
-func (a *application[T]) Type() AppType {
+func (a *application) AppType() v1alpha1.AppType {
 	return a.appType
 }
 
-func (a *application[T]) EnvVars() map[string]string {
-	return a.envVars
-}
-
-func (a *application[T]) SetEnvVars(envVars map[string]string) bool {
-	if len(envVars) == 0 {
-		return false
-	}
-	// TODO evaluate if we should merge or replace
-	a.envVars = envVars
-	return true
-}
-
-func (a *application[T]) Container(name string) (*Container, bool) {
-	for i := range a.containers {
-		if a.containers[i].Name == name {
-			return &a.containers[i], true
+func (a *application) Workload(name string) (*Workload, bool) {
+	for i := range a.workloads {
+		if a.workloads[i].Name == name {
+			return &a.workloads[i], true
 		}
 	}
 	return nil, false
 }
 
-func (a *application[T]) AddContainer(container Container) {
-	a.containers = append(a.containers, container)
+func (a *application) AddWorkload(workload *Workload) {
+	a.workloads = append(a.workloads, *workload)
 }
 
-func (a *application[T]) Path() (string, error) {
-	var typePath string
-	switch a.Type() {
-	case AppCompose:
-		if a.embedded {
-			typePath = lifecycle.EmbeddedComposeAppPath
-			break
-		}
-		typePath = lifecycle.ComposeAppPath
-	default:
-		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, a.Type())
-	}
-
-	return filepath.Join(typePath, a.Name()), nil
-}
-
-func (a *application[T]) RemoveContainer(name string) bool {
-	for i := range a.containers {
-		if a.containers[i].Name == name {
-			a.containers = append(a.containers[:i], a.containers[i+1:]...)
+func (a *application) RemoveWorkload(name string) bool {
+	for i, workload := range a.workloads {
+		if workload.Name == name {
+			a.workloads = append(a.workloads[:i], a.workloads[i+1:]...)
 			return true
 		}
 	}
 	return false
 }
 
-func (a *application[T]) IsEmbedded() bool {
+func (a *application) Path() string {
+	return a.path
+}
+
+func (a *application) IsEmbedded() bool {
 	return a.embedded
 }
 
-func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
+func (a *application) Volume() provider.VolumeManager {
+	return a.volume
+}
+
+func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
 	restarts := 0
 	exited := 0
-	for _, container := range a.containers {
-		restarts += container.Restarts
-		switch container.Status {
-		case ContainerStatusInit, ContainerStatusCreated:
+	for _, workload := range a.workloads {
+		restarts += workload.Restarts
+		switch workload.Status {
+		case StatusInit, StatusCreated:
 			initializing++
-		case ContainerStatusRunning:
+		case StatusRunning:
 			healthy++
-		case ContainerStatusExited:
+		case StatusExited:
 			exited++
 		}
 	}
 
-	total := len(a.containers)
+	total := len(a.workloads)
 	var summary v1alpha1.DeviceApplicationsSummaryStatus
 	readyStatus := strconv.Itoa(healthy) + "/" + strconv.Itoa(total)
 
@@ -259,6 +232,9 @@ func (a *application[T]) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.D
 		a.status.Restarts = restarts
 	}
 
+	// update volume status
+	a.volume.Status(a.status)
+
 	return a.status, summary, nil
 }
 
@@ -288,153 +264,4 @@ func isRunningHealthy(total, healthy, initializing, exited int) bool {
 
 func isErrored(total, healthy, initializing int) bool {
 	return total > 0 && healthy == 0 && initializing == 0
-}
-
-func ParseAppType(s string) (AppType, error) {
-	appType := AppType(s)
-	if !appType.isValid() {
-		return "", fmt.Errorf("invalid app type: %s", s)
-	}
-	return appType, nil
-}
-
-func (a AppType) isValid() bool {
-	switch a {
-	case AppCompose:
-		return true
-	default:
-		return false
-	}
-}
-
-func (a AppType) ActionHandler() (lifecycle.ActionHandlerType, error) {
-	switch a {
-	case AppCompose:
-		return lifecycle.ActionHandlerCompose, nil
-	default:
-		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, a)
-	}
-}
-
-type applications struct {
-	images []*application[*v1alpha1.ImageApplicationProvider]
-	// add other types of application providers here
-}
-
-func (a *applications) ImageBased() []*application[*v1alpha1.ImageApplicationProvider] {
-	return a.images
-}
-
-// ImageProvidersFromSpec returns a list of image application providers from a rendered device spec.
-func ImageProvidersFromSpec(spec *v1alpha1.RenderedDeviceSpec) ([]v1alpha1.ImageApplicationProvider, error) {
-	var providers []v1alpha1.ImageApplicationProvider
-	for _, appSpec := range *spec.Applications {
-		appProvider, err := appSpec.Type()
-		if err != nil {
-			return nil, err
-		}
-		if appProvider == v1alpha1.ImageApplicationProviderType {
-			provider, err := appSpec.AsImageApplicationProvider()
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert application to image provider: %w", err)
-			}
-			providers = append(providers, provider)
-		}
-	}
-	return providers, nil
-}
-
-// typeFromImage returns the app type from the image label take from the image in local container storage.
-func typeFromImage(ctx context.Context, podman *client.Podman, image string) (AppType, error) {
-	labels, err := podman.InspectLabels(ctx, image)
-	if err != nil {
-		return "", err
-	}
-	appTypeLabel, ok := labels[AppTypeLabel]
-	if !ok {
-		return "", fmt.Errorf("required label not found: %s, %s", AppTypeLabel, image)
-	}
-	return ParseAppType(appTypeLabel)
-}
-
-// ensureDependenciesFromType ensures that the dependencies required for the given app type are available.
-func ensureDependenciesFromType(appType AppType) error {
-	var deps []string
-	switch appType {
-	case AppCompose:
-		deps = []string{"docker-compose", "podman-compose"}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-	}
-
-	for _, dep := range deps {
-		if client.IsCommandAvailable(dep) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%w: %v", errors.ErrAppDependency, deps)
-}
-
-func copyImageManifests(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, podman *client.Podman, image, destPath string) (err error) {
-	var mountPoint string
-
-	rootless := client.IsPodmanRootless()
-	if rootless {
-		log.Warnf("Running in rootless mode this is for testing only")
-		mountPoint, err = podman.Unshare(ctx, "podman", "image", "mount", image)
-		if err != nil {
-			return fmt.Errorf("failed to execute podman share: %w", err)
-		}
-	} else {
-		mountPoint, err = podman.Mount(ctx, image)
-		if err != nil {
-			return fmt.Errorf("failed to mount image: %w", err)
-		}
-	}
-
-	if err := writer.MkdirAll(destPath, fileio.DefaultDirectoryPermissions); err != nil {
-		return fmt.Errorf("failed to dest create directory: %w", err)
-	}
-
-	defer func() {
-		if err := podman.Unmount(ctx, image); err != nil {
-			log.Errorf("failed to unmount image: %s %v", image, err)
-		}
-	}()
-
-	// recursively copy image files to agent destination
-	err = filepath.Walk(writer.PathFor(mountPoint), func(filePath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			if info.Name() == "merged" {
-				log.Debugf("Skipping merged directory: %s", filePath)
-				return nil
-			}
-			log.Debugf("Creating directory: %s", info.Name())
-
-			// ensure any directories in the image are also created
-			return writer.MkdirAll(path.Join(destPath, info.Name()), fileio.DefaultDirectoryPermissions)
-		}
-
-		return copyImageFile(filePath, writer.PathFor(destPath))
-	})
-	if err != nil {
-		return fmt.Errorf("error during copy: %w", err)
-	}
-
-	return nil
-}
-
-func copyImageFile(from, to string) error {
-	// local writer ensures that the container from directory is correct.
-	writer := fileio.NewWriter()
-	if err := writer.CopyFile(from, to); err != nil {
-		return fmt.Errorf("failed to copy file: %w", err)
-	}
-
-	return nil
 }

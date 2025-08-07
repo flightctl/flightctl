@@ -1,11 +1,15 @@
 package util
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"golang.org/x/exp/constraints"
 	"k8s.io/klog/v2"
@@ -34,6 +38,13 @@ func DefaultString(s string, defaultS string) string {
 	return s
 }
 
+func StringsAreEqual(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b // returns true if both are nil, false if only one is nil
+	}
+	return *a == *b // dereference and compare the actual string values
+}
+
 func DefaultIfError(fn StringerWithError, defaultS string) string {
 	s, err := fn()
 	if err != nil {
@@ -56,22 +67,6 @@ func IsEmptyString(s *string) bool {
 	return len(*s) == 0
 }
 
-func StrToPtr(s string) *string {
-	return &s
-}
-
-func Int64ToPtr(i int64) *int64 {
-	return &i
-}
-
-func IntToPtr(i int) *int {
-	return &i
-}
-
-func BoolToPtr(b bool) *bool {
-	return &b
-}
-
 func DefaultBoolIfNil(b *bool, defaultB bool) bool {
 	if b == nil {
 		return defaultB
@@ -79,24 +74,11 @@ func DefaultBoolIfNil(b *bool, defaultB bool) bool {
 	return *b
 }
 
-func TimeToPtr(t time.Time) *time.Time {
-	return &t
-}
-
-func Int32ToPtrWithNilDefault(i int32) *int32 {
-	var defaultInt32 int32
-	if i == defaultInt32 {
+func ToPtrWithNilDefault[T comparable](i T) *T {
+	if lo.IsEmpty(i) {
 		return nil
 	}
 	return &i
-}
-
-func StrToPtrWithNilDefault(s string) *string {
-	var defaultString string
-	if s == defaultString {
-		return nil
-	}
-	return &s
 }
 
 func SliceToPtrWithNilDefault(s []string) *[]string {
@@ -111,11 +93,11 @@ func SliceToPtrWithNilDefault(s []string) *[]string {
 }
 
 func TimeStampString() string {
-	return time.Now().Format(time.RFC3339Nano)
+	return time.Now().Format("20060102-150405-999999999")
 }
 
 func TimeStampStringPtr() *string {
-	return StrToPtr(TimeStampString())
+	return lo.ToPtr(TimeStampString())
 }
 
 func BoolToStr(b bool, ifTrue string, ifFalse string) string {
@@ -123,19 +105,6 @@ func BoolToStr(b bool, ifTrue string, ifFalse string) string {
 		return ifTrue
 	}
 	return ifFalse
-}
-
-func FromPtr[T any](x *T) T {
-	if x == nil {
-		return Empty[T]()
-	}
-
-	return *x
-}
-
-func Empty[T any]() T {
-	var zero T
-	return zero
 }
 
 func SingleQuote(input []string) []string {
@@ -188,6 +157,21 @@ func LabelArrayToMap(labels []string) map[string]string {
 		output[key] = val
 	}
 	return output
+}
+
+func StructToMap(obj interface{}) (map[string]interface{}, error) {
+	data, err := json.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	err = json.Unmarshal(data, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 type Duration time.Duration
@@ -301,6 +285,10 @@ func Max[N Number](n1, n2 N) N {
 	return lo.Ternary(n1 > n2, n1, n2)
 }
 
+func Abs[N Number](n N) N {
+	return lo.Ternary(n > 0, n, -n)
+}
+
 func GetFromMap[K comparable, V any](in map[K]V, key K) (V, bool) {
 	if in == nil {
 		return lo.Empty[V](), false
@@ -310,4 +298,35 @@ func GetFromMap[K comparable, V any](in map[K]V, key K) (V, bool) {
 		return lo.Empty[V](), false
 	}
 	return v, true
+}
+
+type Singleton[T any] struct {
+	value atomic.Pointer[T]
+}
+
+func (s *Singleton[T]) Instance() *T {
+	var empty T
+	return s.GetOrInit(&empty)
+}
+
+func (s *Singleton[T]) GetOrInit(t *T) *T {
+	_ = s.value.CompareAndSwap(nil, t)
+	return s.value.Load()
+}
+
+func Clone[T any](t *T) *T {
+	if t == nil {
+		return nil
+	}
+	ret := *t
+	return &ret
+}
+
+func WithOrganizationID(ctx context.Context, orgID uuid.UUID) context.Context {
+	return context.WithValue(ctx, consts.OrganizationIDCtxKey, orgID)
+}
+
+func GetOrgIdFromContext(ctx context.Context) (uuid.UUID, bool) {
+	orgID, ok := ctx.Value(consts.OrganizationIDCtxKey).(uuid.UUID)
+	return orgID, ok
 }

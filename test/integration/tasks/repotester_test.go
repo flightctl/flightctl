@@ -2,6 +2,7 @@
 package tasks_test
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -15,11 +16,11 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/gliderlabs/ssh"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -42,19 +43,22 @@ func startHttpsMTLSRepo(tlsConfig *tls.Config, require *require.Assertions) {
 }
 
 func TestHttpsMTLSRepo(t *testing.T) {
+	ctx := context.Background()
+
 	require := require.New(t)
 
 	testDirPath := t.TempDir()
-	ca, _, err := crypto.EnsureCA(filepath.Join(testDirPath, "ca.crt"), filepath.Join(testDirPath, "ca.key"), "", "ca", 1)
+	cfg := ca.NewDefault(testDirPath)
+	ca, _, err := crypto.EnsureCA(cfg)
 	require.NoError(err)
 
-	serverCerts, _, err := ca.EnsureServerCertificate(filepath.Join(testDirPath, "server.crt"), filepath.Join(testDirPath, "server.key"), []string{"localhost"}, 1)
+	serverCerts, _, err := ca.EnsureServerCertificate(ctx, filepath.Join(testDirPath, "server.crt"), filepath.Join(testDirPath, "server.key"), []string{"localhost"}, 1)
 	require.NoError(err)
 
-	adminCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), crypto.AdminCommonName, 1)
+	adminCert, _, err := ca.EnsureClientCertificate(ctx, filepath.Join(testDirPath, "client.crt"), filepath.Join(testDirPath, "client.key"), cfg.AdminCommonName, 1)
 	require.NoError(err)
 
-	_, tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	require.NoError(err)
 
 	go startHttpsMTLSRepo(tlsConfig, require)
@@ -62,7 +66,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 
 	clientCertPEM, clientKeyPEM, err := adminCert.GetPEMBytes()
 	require.NoError(err)
-	caCertPEM, _, err := ca.Config.GetPEMBytes()
+	caCertPEM, err := ca.GetCABundle()
 	require.NoError(err)
 
 	clientCrtB64 := b64.StdEncoding.EncodeToString(clientCertPEM)
@@ -79,11 +83,7 @@ func TestHttpsMTLSRepo(t *testing.T) {
 		}})
 	require.NoError(err)
 
-	err = repotester.TestAccess(&model.Repository{
-		Spec: &model.JSONField[api.RepositorySpec]{
-			Data: spec,
-		},
-	})
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("name")}, Spec: spec})
 
 	require.NoError(err)
 }
@@ -128,15 +128,11 @@ func TestSSHRepo(t *testing.T) {
 		Url: "ssh://root@127.0.0.1:2222",
 		SshConfig: api.SshConfig{
 			SshPrivateKey:          &privKey,
-			SkipServerVerification: util.BoolToPtr(true),
+			SkipServerVerification: lo.ToPtr(true),
 		}})
 	require.NoError(err)
 
-	err = repotester.TestAccess(&model.Repository{
-		Spec: &model.JSONField[api.RepositorySpec]{
-			Data: spec,
-		},
-	})
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("name")}, Spec: spec})
 
 	require.NoError(err)
 }

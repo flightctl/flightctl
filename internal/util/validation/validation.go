@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/util"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
+	"github.com/samber/lo"
 	k8sapivalidation "k8s.io/apimachinery/pkg/api/validation"
 	k8smetav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	k8sutilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -33,6 +35,22 @@ func ValidateResourceNameReference(name *string, path string) []error {
 	return asErrors(errs)
 }
 
+// ValidateResourceOwner validates that metadata.owner is not empty and is a valid reference.
+func ValidateResourceOwner(owner *string, kind *string) []error {
+	path := "metadata.owner"
+	if owner == nil {
+		return asErrors(field.ErrorList{field.Required(fieldPathFor(path), "")})
+	}
+	passedKind, passedOwnerResource, err := util.GetResourceOwner(owner)
+	if err != nil {
+		return asErrors(field.ErrorList{field.Invalid(fieldPathFor(path), lo.FromPtr(owner), "must set valid owner")})
+	}
+	if kind != nil && passedKind != *kind {
+		return asErrors(field.ErrorList{field.Invalid(fieldPathFor(path), lo.FromPtr(owner), fmt.Sprintf("owner kind must be %s", *kind))})
+	}
+	return ValidateResourceNameReference(&passedOwnerResource, "metadata.owner")
+}
+
 // ValidateLabels validates that a set of labels are valid K8s labels.
 func ValidateLabels(labels *map[string]string) []error {
 	return ValidateLabelsWithPath(labels, "metadata.labels")
@@ -48,7 +66,7 @@ func ValidateLabelsWithPath(labels *map[string]string, path string) []error {
 }
 
 // ValidateStringMap validates that the k,v elements in a map are correctly defined as a string.
-func ValidateStringMap(m *map[string]string, path string, minLen int, maxLen int, patternRegexp *regexp.Regexp, patternFmt string, patternExample ...string) []error {
+func ValidateStringMap(m *map[string]string, path string, minLen int, maxLen int, keyPatternRegexp, valuePatternRegexp *regexp.Regexp, patternFmt string, patternExample ...string) []error {
 	allErrs := []error{}
 	if m == nil {
 		return allErrs
@@ -56,8 +74,8 @@ func ValidateStringMap(m *map[string]string, path string, minLen int, maxLen int
 	for k, v := range *m {
 		key := k
 		value := v
-		allErrs = append(allErrs, ValidateString(&key, path, minLen, maxLen, patternRegexp, patternFmt, patternExample...)...)
-		allErrs = append(allErrs, ValidateString(&value, path, minLen, maxLen, patternRegexp, patternFmt, patternExample...)...)
+		allErrs = append(allErrs, ValidateString(&key, path, minLen, maxLen, keyPatternRegexp, patternFmt, patternExample...)...)
+		allErrs = append(allErrs, ValidateString(&value, path, minLen, maxLen, valuePatternRegexp, patternFmt, patternExample...)...)
 	}
 	return allErrs
 }
@@ -108,6 +126,33 @@ func ValidateFilePath(s *string, path string) []error {
 	}
 	if filepath.Clean(*s) != *s {
 		errs = append(errs, field.Invalid(fieldPathFor(path), *s, "must be clean (without consecutive separators, . or .. elements)"))
+	}
+
+	return asErrors(errs)
+}
+
+func ValidateRelativePath(s *string, path string, maxLength int) []error {
+	if s == nil {
+		return []error{}
+	}
+
+	value := *s
+	errs := field.ErrorList{}
+	if len(value) > maxLength {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be less than max characters: "+strconv.Itoa(maxLength)))
+	}
+	if filepath.IsAbs(value) {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be a relative path"))
+	}
+
+	if strings.HasPrefix(value, "..") || strings.Contains(value, "/../") {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must not contain '..' (parent directory references)"))
+	}
+
+	cleaned := filepath.Clean(value)
+
+	if cleaned != value && !strings.HasPrefix(value, "./") {
+		errs = append(errs, field.Invalid(fieldPathFor(path), value, "must be a clean path without redundant separators or internal '..'"))
 	}
 
 	return asErrors(errs)
@@ -245,9 +290,16 @@ func ValidateCSRUsages(u *[]string) []error {
 func ValidateSignerName(s string) []error {
 	errs := field.ErrorList{}
 
+	if s == "ca" {
+		errs = append(errs, field.Invalid(fieldPathFor("spec.signerName"), s, "the signer name 'ca' is deprecated and no longer supported; please specify a valid signer name"))
+		return asErrors(errs)
+	}
+
 	validSigners := map[string]struct{}{
-		"ca":         {}, // general signer
-		"enrollment": {}, // special logic for enrollment certs, but afterwards fwds to same 'ca' signer internally
+		"flightctl.io/enrollment":        {},
+		"flightctl.io/device-enrollment": {},
+		"flightctl.io/device-svc-client": {},
+		"flightctl.io/server-svc":        {},
 	}
 
 	if _, exists := validSigners[s]; exists {
@@ -263,15 +315,47 @@ func ValidateExpirationSeconds(e *int32) []error {
 	return nil
 }
 
+func ValidateCSRWithTCGSupport(csr []byte) []error {
+	if isTCGCSRFormat(csr) {
+		// skip validation which is handeled at the service layer
+		return nil
+	}
+
+	return ValidateCSR(csr)
+}
+
 func ValidateCSR(csr []byte) []error {
 	errs := field.ErrorList{}
 
-	_, err := crypto.ParseCSR(csr)
+	c, err := fccrypto.ParseCSR(csr)
 	if err != nil {
 		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
 		return asErrors(errs)
 	}
+	if err := c.CheckSignature(); err != nil {
+		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
+		return asErrors(errs)
+	}
 	return nil
+}
+
+func isTCGCSRFormat(csr []byte) bool {
+	// try raw binary these ordering is guaranteed
+	if len(csr) >= 4 &&
+		csr[0] == 0x01 && csr[1] == 0x00 &&
+		csr[2] == 0x01 && csr[3] == 0x00 {
+		return true
+	}
+
+	// attempt base64 decode
+	decoded, err := base64.StdEncoding.DecodeString(string(csr))
+	if err == nil && len(decoded) >= 4 &&
+		decoded[0] == 0x01 && decoded[1] == 0x00 &&
+		decoded[2] == 0x01 && decoded[3] == 0x00 {
+		return true
+	}
+
+	return false
 }
 
 func FormatInvalidError(input, path, errorMsg string) []error {

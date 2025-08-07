@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"crypto/x509"
 	"net/http"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,12 +20,6 @@ const (
 	certsDir  = "certs"
 	certFile  = "some.crt"
 	certData  = "certdata"
-
-	caCertValidityDays          = 365 * 10
-	serverCertValidityDays      = 365 * 1
-	clientBootStrapValidityDays = 365 * 1
-	signerCertName              = "ca"
-	clientBootstrapCertName     = "client-enrollment"
 )
 
 func TestValidConfig(t *testing.T) {
@@ -41,6 +37,7 @@ func TestValidConfig(t *testing.T) {
 		{name: "server with CA cert data", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthorityData: []byte(certData)}, testRootDir: testRootDir}},
 		{name: "server with absolute path to CA file", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(configDir, certsDir, certFile)}, testRootDir: testRootDir}},
 		{name: "server with relative path to CA file", config: Config{Service: Service{Server: "https://localhost:3443", CertificateAuthority: filepath.Join(certsDir, certFile)}, baseDir: configDir, testRootDir: testRootDir}},
+		{name: "server with valid organization ID", config: Config{Service: Service{Server: "https://localhost:3443"}, Organization: "123e4567-e89b-12d3-a456-426614174000"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -64,6 +61,8 @@ func TestInvalidConfig(t *testing.T) {
 		{name: "unreadable ca", config: Config{Service: Service{Server: "https://localhost", CertificateAuthority: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
 		{name: "unreadable cert", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
 		{name: "unreadable key", config: Config{Service: Service{Server: "https://localhost"}, AuthInfo: AuthInfo{ClientCertificate: "cert", ClientKey: "does_not_exist"}}, expectedErrorSubstring: "unable to read"},
+		{name: "invalid organization ID", config: Config{Service: Service{Server: "https://localhost"}, Organization: "not-a-uuid"}, expectedErrorSubstring: "invalid organization ID"},
+		{name: "malformed organization UUID", config: Config{Service: Service{Server: "https://localhost"}, Organization: "12345678-1234-1234-1234-12345678901"}, expectedErrorSubstring: "invalid organization ID"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,17 +115,22 @@ func TestClientConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
 			testDirPath := t.TempDir()
 			configFile := filepath.Join(testDirPath, "client.yaml")
 
 			// generate the CA and client certs
-			ca, _, err := crypto.EnsureCA(filepath.Join(testDirPath, "ca.crt"), filepath.Join(testDirPath, "ca.key"), "", signerCertName, caCertValidityDays)
+			cfg := ca.NewDefault(testDirPath)
+			ca, _, err := crypto.EnsureCA(cfg)
 			require.NoError(err)
-			clientCert, _, err := ca.EnsureClientCertificate(filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), clientBootstrapCertName, clientBootStrapValidityDays)
+			clientCert, _, err := ca.EnsureClientCertificate(ctx, filepath.Join(testDirPath, "client-enrollment.crt"), filepath.Join(testDirPath, "client-enrollment.key"), cfg.ClientBootstrapCertName, cfg.ClientBootstrapValidityDays)
 			require.NoError(err)
 
 			// write client config to disk
-			err = WriteConfig(configFile, tt.server, tt.serverName, ca.Config, clientCert)
+			bundle, err := ca.GetCABundle()
+			require.NoError(err)
+			err = WriteConfig(configFile, tt.server, tt.serverName, bundle, clientCert)
 			require.NoError(err)
 
 			// read client config from disk and create API client from it
@@ -149,7 +153,7 @@ func TestClientConfig(t *testing.T) {
 			require.ElementsMatch(clientCert.Certs[0].Raw, httpTransport.TLSClientConfig.Certificates[0].Certificate[0])
 			require.NotNil(httpTransport.TLSClientConfig.RootCAs)
 			caPool := x509.NewCertPool()
-			for _, caCert := range ca.Config.Certs {
+			for _, caCert := range ca.GetCABundleX509() {
 				caPool.AddCert(caCert)
 			}
 			require.True(caPool.Equal(httpTransport.TLSClientConfig.RootCAs))

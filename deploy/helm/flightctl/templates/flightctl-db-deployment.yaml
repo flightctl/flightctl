@@ -21,39 +21,38 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
+      {{- if .Values.db.fsGroup }}
+      securityContext:
+        fsGroup: {{ .Values.db.fsGroup }}
+      {{- end }}
       containers:
         - env:
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: flightctl-db-secret
-                  key: password
             - name: POSTGRESQL_DATABASE
-              value: flightctl
+              value: {{ (default "flightctl" $.Values.db.name) }}
             - name: POSTGRESQL_MASTER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
+                  name: flightctl-db-admin-secret
                   key: masterPassword
             - name: POSTGRESQL_MASTER_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
+                  name: flightctl-db-admin-secret
                   key: masterUser
             - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
+                  name: flightctl-db-app-secret
                   key: userPassword
             - name: POSTGRESQL_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
+                  name: flightctl-db-app-secret
                   key: user
             - name: POSTGRESQL_MAX_CONNECTIONS
               value: {{ .Values.db.maxConnections | quote }}
           image: {{ .Values.db.image.image }}:{{ .Values.db.image.tag }}
-          imagePullPolicy: {{ .Values.db.image.pullPolicy }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.db.image.pullPolicy }}
           name: flightctl-db
           ports:
             - containerPort: 5432
@@ -76,4 +75,3 @@ spec:
         - name: init-scripts
           configMap:
             name: flightctl-db
-

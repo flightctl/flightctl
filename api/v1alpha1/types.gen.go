@@ -12,6 +12,11 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AppType.
+const (
+	AppTypeCompose AppType = "compose"
+)
+
 // Defines values for ApplicationStatusType.
 const (
 	ApplicationStatusCompleted ApplicationStatusType = "Completed"
@@ -39,20 +44,20 @@ const (
 
 // Defines values for ConditionType.
 const (
-	CertificateSigningRequestApproved ConditionType = "Approved"
-	CertificateSigningRequestDenied   ConditionType = "Denied"
-	CertificateSigningRequestFailed   ConditionType = "Failed"
-	DeviceDecommissioning             ConditionType = "DeviceDecommissioning"
-	DeviceMultipleOwners              ConditionType = "MultipleOwners"
-	DeviceSpecValid                   ConditionType = "SpecValid"
-	DeviceUpdating                    ConditionType = "Updating"
-	EnrollmentRequestApproved         ConditionType = "Approved"
-	FleetOverlappingSelectors         ConditionType = "OverlappingSelectors"
-	FleetValid                        ConditionType = "Valid"
-	RepositoryAccessible              ConditionType = "Accessible"
-	ResourceSyncAccessible            ConditionType = "Accessible"
-	ResourceSyncResourceParsed        ConditionType = "ResourceParsed"
-	ResourceSyncSynced                ConditionType = "Synced"
+	ConditionTypeCertificateSigningRequestApproved ConditionType = "Approved"
+	ConditionTypeCertificateSigningRequestDenied   ConditionType = "Denied"
+	ConditionTypeCertificateSigningRequestFailed   ConditionType = "Failed"
+	ConditionTypeDeviceDecommissioning             ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceMultipleOwners              ConditionType = "MultipleOwners"
+	ConditionTypeDeviceSpecValid                   ConditionType = "SpecValid"
+	ConditionTypeDeviceUpdating                    ConditionType = "Updating"
+	ConditionTypeEnrollmentRequestApproved         ConditionType = "Approved"
+	ConditionTypeFleetRolloutInProgress            ConditionType = "RolloutInProgress"
+	ConditionTypeFleetValid                        ConditionType = "Valid"
+	ConditionTypeRepositoryAccessible              ConditionType = "Accessible"
+	ConditionTypeResourceSyncAccessible            ConditionType = "Accessible"
+	ConditionTypeResourceSyncResourceParsed        ConditionType = "ResourceParsed"
+	ConditionTypeResourceSyncSynced                ConditionType = "Synced"
 )
 
 // Defines values for DeviceDecommissionTargetType.
@@ -61,12 +66,20 @@ const (
 	DeviceDecommissionTargetTypeUnenroll     DeviceDecommissionTargetType = "Unenroll"
 )
 
+// Defines values for DeviceIntegrityCheckStatusType.
+const (
+	DeviceIntegrityCheckStatusFailed      DeviceIntegrityCheckStatusType = "Failed"
+	DeviceIntegrityCheckStatusUnknown     DeviceIntegrityCheckStatusType = "Unknown"
+	DeviceIntegrityCheckStatusUnsupported DeviceIntegrityCheckStatusType = "Unsupported"
+	DeviceIntegrityCheckStatusVerified    DeviceIntegrityCheckStatusType = "Verified"
+)
+
 // Defines values for DeviceIntegrityStatusSummaryType.
 const (
 	DeviceIntegrityStatusFailed      DeviceIntegrityStatusSummaryType = "Failed"
-	DeviceIntegrityStatusPassed      DeviceIntegrityStatusSummaryType = "Passed"
 	DeviceIntegrityStatusUnknown     DeviceIntegrityStatusSummaryType = "Unknown"
 	DeviceIntegrityStatusUnsupported DeviceIntegrityStatusSummaryType = "Unsupported"
+	DeviceIntegrityStatusVerified    DeviceIntegrityStatusSummaryType = "Verified"
 )
 
 // Defines values for DeviceLifecycleHookType.
@@ -83,6 +96,28 @@ const (
 	DeviceLifecycleStatusDecommissioning DeviceLifecycleStatusType = "Decommissioning"
 	DeviceLifecycleStatusEnrolled        DeviceLifecycleStatusType = "Enrolled"
 	DeviceLifecycleStatusUnknown         DeviceLifecycleStatusType = "Unknown"
+)
+
+// Defines values for DeviceMultipleOwnersDetectedDetailsDetailType.
+const (
+	DeviceMultipleOwnersDetected DeviceMultipleOwnersDetectedDetailsDetailType = "DeviceMultipleOwnersDetected"
+)
+
+// Defines values for DeviceMultipleOwnersResolvedDetailsDetailType.
+const (
+	DeviceMultipleOwnersResolved DeviceMultipleOwnersResolvedDetailsDetailType = "DeviceMultipleOwnersResolved"
+)
+
+// Defines values for DeviceMultipleOwnersResolvedDetailsResolutionType.
+const (
+	FleetDeleted DeviceMultipleOwnersResolvedDetailsResolutionType = "FleetDeleted"
+	NoMatch      DeviceMultipleOwnersResolvedDetailsResolutionType = "NoMatch"
+	SingleMatch  DeviceMultipleOwnersResolvedDetailsResolutionType = "SingleMatch"
+)
+
+// Defines values for DeviceOwnershipChangedDetailsDetailType.
+const (
+	DeviceOwnershipChanged DeviceOwnershipChangedDetailsDetailType = "DeviceOwnershipChanged"
 )
 
 // Defines values for DeviceResourceStatusType.
@@ -112,6 +147,73 @@ const (
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
 )
 
+// Defines values for EncodingType.
+const (
+	EncodingBase64 EncodingType = "base64"
+	EncodingPlain  EncodingType = "plain"
+)
+
+// Defines values for EventReason.
+const (
+	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
+	EventReasonDeviceApplicationError          EventReason = "DeviceApplicationError"
+	EventReasonDeviceApplicationHealthy        EventReason = "DeviceApplicationHealthy"
+	EventReasonDeviceCPUCritical               EventReason = "DeviceCPUCritical"
+	EventReasonDeviceCPUNormal                 EventReason = "DeviceCPUNormal"
+	EventReasonDeviceCPUWarning                EventReason = "DeviceCPUWarning"
+	EventReasonDeviceConnected                 EventReason = "DeviceConnected"
+	EventReasonDeviceContentOutOfDate          EventReason = "DeviceContentOutOfDate"
+	EventReasonDeviceContentUpToDate           EventReason = "DeviceContentUpToDate"
+	EventReasonDeviceContentUpdating           EventReason = "DeviceContentUpdating"
+	EventReasonDeviceDecommissionFailed        EventReason = "DeviceDecommissionFailed"
+	EventReasonDeviceDecommissioned            EventReason = "DeviceDecommissioned"
+	EventReasonDeviceDisconnected              EventReason = "DeviceDisconnected"
+	EventReasonDeviceDiskCritical              EventReason = "DeviceDiskCritical"
+	EventReasonDeviceDiskNormal                EventReason = "DeviceDiskNormal"
+	EventReasonDeviceDiskWarning               EventReason = "DeviceDiskWarning"
+	EventReasonDeviceIsRebooting               EventReason = "DeviceIsRebooting"
+	EventReasonDeviceMemoryCritical            EventReason = "DeviceMemoryCritical"
+	EventReasonDeviceMemoryNormal              EventReason = "DeviceMemoryNormal"
+	EventReasonDeviceMemoryWarning             EventReason = "DeviceMemoryWarning"
+	EventReasonDeviceMultipleOwnersDetected    EventReason = "DeviceMultipleOwnersDetected"
+	EventReasonDeviceMultipleOwnersResolved    EventReason = "DeviceMultipleOwnersResolved"
+	EventReasonDeviceSpecInvalid               EventReason = "DeviceSpecInvalid"
+	EventReasonDeviceSpecValid                 EventReason = "DeviceSpecValid"
+	EventReasonDeviceUpdateFailed              EventReason = "DeviceUpdateFailed"
+	EventReasonEnrollmentRequestApprovalFailed EventReason = "EnrollmentRequestApprovalFailed"
+	EventReasonEnrollmentRequestApproved       EventReason = "EnrollmentRequestApproved"
+	EventReasonFleetRolloutBatchCompleted      EventReason = "FleetRolloutBatchCompleted"
+	EventReasonFleetRolloutBatchDispatched     EventReason = "FleetRolloutBatchDispatched"
+	EventReasonFleetRolloutCompleted           EventReason = "FleetRolloutCompleted"
+	EventReasonFleetRolloutCreated             EventReason = "FleetRolloutCreated"
+	EventReasonFleetRolloutDeviceSelected      EventReason = "FleetRolloutDeviceSelected"
+	EventReasonFleetRolloutFailed              EventReason = "FleetRolloutFailed"
+	EventReasonFleetRolloutStarted             EventReason = "FleetRolloutStarted"
+	EventReasonInternalTaskFailed              EventReason = "InternalTaskFailed"
+	EventReasonReferencedRepositoryUpdated     EventReason = "ReferencedRepositoryUpdated"
+	EventReasonRepositoryAccessible            EventReason = "RepositoryAccessible"
+	EventReasonRepositoryInaccessible          EventReason = "RepositoryInaccessible"
+	EventReasonResourceCreated                 EventReason = "ResourceCreated"
+	EventReasonResourceCreationFailed          EventReason = "ResourceCreationFailed"
+	EventReasonResourceDeleted                 EventReason = "ResourceDeleted"
+	EventReasonResourceDeletionFailed          EventReason = "ResourceDeletionFailed"
+	EventReasonResourceSyncAccessible          EventReason = "ResourceSyncAccessible"
+	EventReasonResourceSyncCommitDetected      EventReason = "ResourceSyncCommitDetected"
+	EventReasonResourceSyncInaccessible        EventReason = "ResourceSyncInaccessible"
+	EventReasonResourceSyncParsed              EventReason = "ResourceSyncParsed"
+	EventReasonResourceSyncParsingFailed       EventReason = "ResourceSyncParsingFailed"
+	EventReasonResourceSyncSyncFailed          EventReason = "ResourceSyncSyncFailed"
+	EventReasonResourceSyncSynced              EventReason = "ResourceSyncSynced"
+	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
+	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
+)
+
+// Defines values for EventType.
+const (
+	Normal  EventType = "Normal"
+	Warning EventType = "Warning"
+)
+
 // Defines values for FileOperation.
 const (
 	FileOperationCreated FileOperation = "created"
@@ -119,10 +221,52 @@ const (
 	FileOperationUpdated FileOperation = "updated"
 )
 
-// Defines values for FileSpecContentEncoding.
+// Defines values for FleetRolloutBatchCompletedDetailsDetailType.
 const (
-	Base64 FileSpecContentEncoding = "base64"
-	Plain  FileSpecContentEncoding = "plain"
+	FleetRolloutBatchCompleted FleetRolloutBatchCompletedDetailsDetailType = "FleetRolloutBatchCompleted"
+)
+
+// Defines values for FleetRolloutBatchDispatchedDetailsDetailType.
+const (
+	FleetRolloutBatchDispatched FleetRolloutBatchDispatchedDetailsDetailType = "FleetRolloutBatchDispatched"
+)
+
+// Defines values for FleetRolloutCompletedDetailsDetailType.
+const (
+	FleetRolloutCompleted FleetRolloutCompletedDetailsDetailType = "FleetRolloutCompleted"
+)
+
+// Defines values for FleetRolloutDeviceSelectedDetailsDetailType.
+const (
+	FleetRolloutDeviceSelected FleetRolloutDeviceSelectedDetailsDetailType = "FleetRolloutDeviceSelected"
+)
+
+// Defines values for FleetRolloutFailedDetailsDetailType.
+const (
+	FleetRolloutFailed FleetRolloutFailedDetailsDetailType = "FleetRolloutFailed"
+)
+
+// Defines values for FleetRolloutStartedDetailsDetailType.
+const (
+	FleetRolloutStarted FleetRolloutStartedDetailsDetailType = "FleetRolloutStarted"
+)
+
+// Defines values for FleetRolloutStartedDetailsRolloutStrategy.
+const (
+	Batched FleetRolloutStartedDetailsRolloutStrategy = "Batched"
+	None    FleetRolloutStartedDetailsRolloutStrategy = "None"
+)
+
+// Defines values for ImagePullPolicy.
+const (
+	PullAlways       ImagePullPolicy = "Always"
+	PullIfNotPresent ImagePullPolicy = "IfNotPresent"
+	PullNever        ImagePullPolicy = "Never"
+)
+
+// Defines values for InternalTaskFailedDetailsDetailType.
+const (
+	InternalTaskFailed InternalTaskFailedDetailsDetailType = "InternalTaskFailed"
 )
 
 // Defines values for MatchExpressionOperator.
@@ -140,6 +284,11 @@ const (
 	Replace PatchRequestOp = "replace"
 )
 
+// Defines values for ReferencedRepositoryUpdatedDetailsDetailType.
+const (
+	ReferencedRepositoryUpdated ReferencedRepositoryUpdatedDetailsDetailType = "ReferencedRepositoryUpdated"
+)
+
 // Defines values for RepoSpecType.
 const (
 	Git  RepoSpecType = "git"
@@ -153,10 +302,72 @@ const (
 	ResourceAlertSeverityTypeWarning  ResourceAlertSeverityType = "Warning"
 )
 
+// Defines values for ResourceKind.
+const (
+	ResourceKindCertificateSigningRequest ResourceKind = "CertificateSigningRequest"
+	ResourceKindDevice                    ResourceKind = "Device"
+	ResourceKindEnrollmentRequest         ResourceKind = "EnrollmentRequest"
+	ResourceKindFleet                     ResourceKind = "Fleet"
+	ResourceKindRepository                ResourceKind = "Repository"
+	ResourceKindResourceSync              ResourceKind = "ResourceSync"
+	ResourceKindTemplateVersion           ResourceKind = "TemplateVersion"
+)
+
+// Defines values for ResourceSyncCompletedDetailsDetailType.
+const (
+	ResourceSyncCompleted ResourceSyncCompletedDetailsDetailType = "ResourceSyncCompleted"
+)
+
+// Defines values for ResourceUpdatedDetailsDetailType.
+const (
+	ResourceUpdated ResourceUpdatedDetailsDetailType = "ResourceUpdated"
+)
+
+// Defines values for ResourceUpdatedDetailsUpdatedFields.
+const (
+	Labels       ResourceUpdatedDetailsUpdatedFields = "labels"
+	Owner        ResourceUpdatedDetailsUpdatedFields = "owner"
+	Spec         ResourceUpdatedDetailsUpdatedFields = "spec"
+	SpecSelector ResourceUpdatedDetailsUpdatedFields = "spec.selector"
+	SpecTemplate ResourceUpdatedDetailsUpdatedFields = "spec.template"
+)
+
 // Defines values for RolloutStrategy.
 const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
+
+// Defines values for ListEventsParamsOrder.
+const (
+	Asc  ListEventsParamsOrder = "asc"
+	Desc ListEventsParamsOrder = "desc"
+)
+
+// Defines values for ListLabelsParamsKind.
+const (
+	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
+)
+
+// AbsolutePath Represents an absolute file path.
+type AbsolutePath struct {
+	// Path The absolute path to a file on the system. Note that any existing file will be overwritten.
+	Path *string `json:"path,omitempty"`
+}
+
+// AppType The type of the application.
+type AppType string
+
+// ApplicationContent defines model for ApplicationContent.
+type ApplicationContent struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content *string `json:"content,omitempty"`
+
+	// ContentEncoding Specifies the encoding type used for data representation.
+	ContentEncoding *EncodingType `json:"contentEncoding,omitempty"`
+
+	// Path A relative file path on the system. Note that any existing file will be overwritten.
+	Path string `json:"path"`
+}
 
 // ApplicationEnvVars defines model for ApplicationEnvVars.
 type ApplicationEnvVars struct {
@@ -164,18 +375,43 @@ type ApplicationEnvVars struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
-// ApplicationSpec defines model for ApplicationSpec.
-type ApplicationSpec struct {
+// ApplicationProviderSpec defines model for ApplicationProviderSpec.
+type ApplicationProviderSpec struct {
+	// AppType The type of the application.
+	AppType *AppType `json:"appType,omitempty"`
+
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
-	// Name The name of the application must be between 1 and 253 characters and start with a letter or number.
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name  *string `json:"name,omitempty"`
 	union json.RawMessage
 }
 
 // ApplicationStatusType Status of a single application on the device.
 type ApplicationStatusType string
+
+// ApplicationVolume defines model for ApplicationVolume.
+type ApplicationVolume struct {
+	// Name Unique name of the volume used within the application.
+	Name  string `json:"name"`
+	union json.RawMessage
+}
+
+// ApplicationVolumeProviderSpec defines model for ApplicationVolumeProviderSpec.
+type ApplicationVolumeProviderSpec struct {
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+}
+
+// ApplicationVolumeStatus Status of a volume used by an application.
+type ApplicationVolumeStatus struct {
+	// Name Name of the volume.
+	Name string `json:"name"`
+
+	// Reference Reference to the deployed OCI-compliant image or artifact backing the volume.
+	Reference string `json:"reference"`
+}
 
 // ApplicationsSummaryStatusType Status of all applications on the device.
 type ApplicationsSummaryStatusType string
@@ -232,7 +468,7 @@ type CertificateSigningRequest struct {
 	// Spec Wrapper around a user-created CSR, modeled on kubernetes io.k8s.api.certificates.v1.CertificateSigningRequestSpec.
 	Spec CertificateSigningRequestSpec `json:"spec"`
 
-	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+	// Status Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 	Status *CertificateSigningRequestStatus `json:"status,omitempty"`
 }
 
@@ -275,7 +511,7 @@ type CertificateSigningRequestSpec struct {
 	Username *string `json:"username,omitempty"`
 }
 
-// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certifiate if any exists.
+// CertificateSigningRequestStatus Indicates approval/denial/failure status of the CSR, and contains the issued certificate if any exists.
 type CertificateSigningRequestStatus struct {
 	// Certificate The issued signed certificate, immutable once populated.
 	Certificate *[]byte `json:"certificate,omitempty"`
@@ -316,17 +552,8 @@ type ConfigProviderSpec struct {
 	union json.RawMessage
 }
 
-// CpuResourceMonitorSpec Specification for monitoring a resource.
-type CpuResourceMonitorSpec = ResourceMonitorSpec
-
-// CronExpression Cron expression format for scheduling times.
-// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
-// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
-// Example: `* 0-8,16-23 * * *`.
-type CronExpression = string
-
-// CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
-type CustomResourceMonitorSpec struct {
+// CpuResourceMonitorSpec defines model for CpuResourceMonitorSpec.
+type CpuResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
 	AlertRules []ResourceAlertRule `json:"alertRules"`
 
@@ -336,6 +563,15 @@ type CustomResourceMonitorSpec struct {
 	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
+
+// CronExpression Cron expression format for scheduling times.
+// The format is `* * * * *`: - Minutes: `*` matches 0-59. - Hours: `*` matches 0-23. - Day of Month: `*` matches 1-31. - Month: `*` matches 1-12. - Day of Week: `*` matches 0-6.
+// Supported operators: - `*`: Matches any value (e.g., `*` in hours matches every hour). - `-`: Range (e.g., `0-8` for 12 AM to 8 AM). - `,`: List (e.g., `1,12` for 1st and 12th minute). - `/`: Step (e.g., `*/12` for every 12th minute). - Single value (e.g., `8` matches the 8th minute).
+// Example: `* 0-8,16-23 * * *`.
+type CronExpression = string
+
+// CustomDeviceInfo User-defined information about the device.
+type CustomDeviceInfo map[string]string
 
 // Device Device represents a physical device.
 type Device struct {
@@ -368,6 +604,9 @@ type DeviceApplicationStatus struct {
 
 	// Status Status of a single application on the device.
 	Status ApplicationStatusType `json:"status"`
+
+	// Volumes Status of volumes used by this application.
+	Volumes *[]ApplicationVolumeStatus `json:"volumes,omitempty"`
 }
 
 // DeviceApplicationsSummaryStatus A summary of the health of applications on the device.
@@ -381,17 +620,17 @@ type DeviceApplicationsSummaryStatus struct {
 
 // DeviceConfigStatus Current status of the device config.
 type DeviceConfigStatus struct {
-	// RenderedVersion Version of the device rendered config.
+	// RenderedVersion Rendered version of the device config.
 	RenderedVersion string `json:"renderedVersion"`
 }
 
 // DeviceConsole DeviceConsole represents the console connection information.
 type DeviceConsole struct {
-	// GRPCEndpoint The gRPC endpoint for the console connection.
-	GRPCEndpoint string `json:"gRPCEndpoint"`
-
 	// SessionID The session ID for the console connection.
 	SessionID string `json:"sessionID"`
+
+	// SessionMetadata Additional session metadata in the form of key=value pairs, can be used to initialize the type of terminal, console to be used, etc.
+	SessionMetadata string `json:"sessionMetadata"`
 }
 
 // DeviceDecommission Metadata about a device decommissioning request.
@@ -403,13 +642,34 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
+// DeviceIntegrityCheckStatus DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+type DeviceIntegrityCheckStatus struct {
+	// Info Human-readable information about the integrity check status.
+	Info *string `json:"info,omitempty"`
+
+	// Status Status of the integrity check performed on the device.
+	Status DeviceIntegrityCheckStatusType `json:"status"`
+}
+
+// DeviceIntegrityCheckStatusType Status of the integrity check performed on the device.
+type DeviceIntegrityCheckStatusType string
+
 // DeviceIntegrityStatus Summary status of the integrity of the device.
 type DeviceIntegrityStatus struct {
+	// DeviceIdentity DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+	DeviceIdentity *DeviceIntegrityCheckStatus `json:"deviceIdentity,omitempty"`
+
 	// Info Human readable information about the last integrity transition.
 	Info *string `json:"info,omitempty"`
 
+	// LastVerified Timestamp of the last integrity verification.
+	LastVerified *time.Time `json:"lastVerified,omitempty"`
+
 	// Status Status of the integrity of the device.
 	Status DeviceIntegrityStatusSummaryType `json:"status"`
+
+	// Tpm DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
+	Tpm *DeviceIntegrityCheckStatus `json:"tpm,omitempty"`
 }
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
@@ -448,6 +708,39 @@ type DeviceList struct {
 	Summary *DevicesSummary `json:"summary,omitempty"`
 }
 
+// DeviceMultipleOwnersDetectedDetails defines model for DeviceMultipleOwnersDetectedDetails.
+type DeviceMultipleOwnersDetectedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeviceMultipleOwnersDetectedDetailsDetailType `json:"detailType"`
+
+	// MatchingFleets List of fleet names that match the device.
+	MatchingFleets []string `json:"matchingFleets"`
+}
+
+// DeviceMultipleOwnersDetectedDetailsDetailType The type of detail for discriminator purposes.
+type DeviceMultipleOwnersDetectedDetailsDetailType string
+
+// DeviceMultipleOwnersResolvedDetails defines model for DeviceMultipleOwnersResolvedDetails.
+type DeviceMultipleOwnersResolvedDetails struct {
+	// AssignedOwner The fleet assigned as owner (null if no owner).
+	AssignedOwner *string `json:"assignedOwner"`
+
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeviceMultipleOwnersResolvedDetailsDetailType `json:"detailType"`
+
+	// PreviousMatchingFleets List of fleets that previously matched the device.
+	PreviousMatchingFleets *[]string `json:"previousMatchingFleets,omitempty"`
+
+	// ResolutionType How the conflict was resolved.
+	ResolutionType DeviceMultipleOwnersResolvedDetailsResolutionType `json:"resolutionType"`
+}
+
+// DeviceMultipleOwnersResolvedDetailsDetailType The type of detail for discriminator purposes.
+type DeviceMultipleOwnersResolvedDetailsDetailType string
+
+// DeviceMultipleOwnersResolvedDetailsResolutionType How the conflict was resolved.
+type DeviceMultipleOwnersResolvedDetailsResolutionType string
+
 // DeviceOsSpec DeviceOsSpec describes the target OS for the device.
 type DeviceOsSpec struct {
 	// Image The target OS image name or URL.
@@ -462,6 +755,21 @@ type DeviceOsStatus struct {
 	// ImageDigest The digest of the OS image (e.g. sha256:a0...).
 	ImageDigest string `json:"imageDigest"`
 }
+
+// DeviceOwnershipChangedDetails defines model for DeviceOwnershipChangedDetails.
+type DeviceOwnershipChangedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeviceOwnershipChangedDetailsDetailType `json:"detailType"`
+
+	// NewOwner The new owner fleet (null if removed).
+	NewOwner *string `json:"newOwner"`
+
+	// PreviousOwner The previous owner fleet (null if none).
+	PreviousOwner *string `json:"previousOwner"`
+}
+
+// DeviceOwnershipChangedDetailsDetailType The type of detail for discriminator purposes.
+type DeviceOwnershipChangedDetailsDetailType string
 
 // DeviceResourceStatus Current status of the resources of the device.
 type DeviceResourceStatus struct {
@@ -480,11 +788,14 @@ type DeviceResourceStatusType string
 
 // DeviceSpec DeviceSpec describes a device.
 type DeviceSpec struct {
-	// Applications List of applications.
-	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+	// Applications List of application providers.
+	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
@@ -537,7 +848,7 @@ type DeviceStatus struct {
 	// Summary A summary of the health of the device hardware and operating system resources.
 	Summary DeviceSummaryStatus `json:"summary"`
 
-	// SystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+	// SystemInfo System information collected from the device.
 	SystemInfo DeviceSystemInfo `json:"systemInfo"`
 
 	// Updated Current status of the device update.
@@ -556,16 +867,23 @@ type DeviceSummaryStatus struct {
 // DeviceSummaryStatusType Status of the device.
 type DeviceSummaryStatusType string
 
-// DeviceSystemInfo DeviceSystemInfo is a set of ids/uuids to uniquely identify the device.
+// DeviceSystemInfo System information collected from the device.
 type DeviceSystemInfo struct {
+	// AgentVersion The Agent version.
+	AgentVersion string `json:"agentVersion"`
+
 	// Architecture The Architecture reported by the device.
 	Architecture string `json:"architecture"`
 
 	// BootID Boot ID reported by the device.
 	BootID string `json:"bootID"`
 
+	// CustomInfo User-defined information about the device.
+	CustomInfo *CustomDeviceInfo `json:"customInfo,omitempty"`
+
 	// OperatingSystem The Operating System reported by the device.
-	OperatingSystem string `json:"operatingSystem"`
+	OperatingSystem      string            `json:"operatingSystem"`
+	AdditionalProperties map[string]string `json:"-"`
 }
 
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
@@ -633,6 +951,9 @@ type DisruptionBudget struct {
 
 // Duration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 type Duration = string
+
+// EncodingType Specifies the encoding type used for data representation.
+type EncodingType string
 
 // EnrollmentConfig defines model for EnrollmentConfig.
 type EnrollmentConfig struct {
@@ -751,10 +1072,90 @@ type EnrollmentServiceService struct {
 	Server string `json:"server"`
 }
 
-// Error defines model for Error.
-type Error struct {
-	// Message Error message.
+// Event defines model for Event.
+type Event struct {
+	// Actor The name of the user or service that triggered the event. The value will be prefixed by either user: (for human users) or service: (for automated services).
+	Actor string `json:"actor"`
+
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Details Event-specific details, structured based on event type.
+	Details *EventDetails `json:"details,omitempty"`
+
+	// InvolvedObject A reference to a resource.
+	InvolvedObject ObjectReference `json:"involvedObject"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Message A human-readable description of the status of this operation.
 	Message string `json:"message"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Reason A short, machine-readable string that describes the reason for the event.
+	Reason EventReason `json:"reason"`
+
+	// Source The component that is responsible for the event.
+	Source EventSource `json:"source"`
+
+	// Type The type of the event. One of Normal, Warning.
+	Type EventType `json:"type"`
+}
+
+// EventReason A short, machine-readable string that describes the reason for the event.
+type EventReason string
+
+// EventType The type of the event. One of Normal, Warning.
+type EventType string
+
+// EventDetails Event-specific details, structured based on event type.
+type EventDetails struct {
+	union json.RawMessage
+}
+
+// EventList EventList is a list of Events.
+type EventList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of Events.
+	Items []Event `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// EventSource The component that is responsible for the event.
+type EventSource struct {
+	// Component The name of the component that is responsible for the event.
+	Component string `json:"component"`
+}
+
+// FileContent The content of a file.
+type FileContent struct {
+	// Content The plain text (UTF-8) or base64-encoded content of the file.
+	Content *string `json:"content,omitempty"`
+
+	// ContentEncoding Specifies the encoding type used for data representation.
+	ContentEncoding *EncodingType `json:"contentEncoding,omitempty"`
+}
+
+// FileMetadata File metadata.
+type FileMetadata struct {
+	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+	Group *string `json:"group,omitempty"`
+
+	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
+	Mode *int `json:"mode,omitempty"`
+
+	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+	User *string `json:"user,omitempty"`
 }
 
 // FileOperation defines model for FileOperation.
@@ -765,8 +1166,8 @@ type FileSpec struct {
 	// Content The plain text (UTF-8) or base64-encoded content of the file.
 	Content string `json:"content"`
 
-	// ContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
-	ContentEncoding *FileSpecContentEncoding `json:"contentEncoding,omitempty"`
+	// ContentEncoding Specifies the encoding type used for data representation.
+	ContentEncoding *EncodingType `json:"contentEncoding,omitempty"`
 
 	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
 	Group *string `json:"group,omitempty"`
@@ -774,15 +1175,12 @@ type FileSpec struct {
 	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
 	Mode *int `json:"mode,omitempty"`
 
-	// Path The absolute path to the file on the device. Note that any existing file will be overwritten.
+	// Path The absolute path to a file on the system. Note that any existing file will be overwritten.
 	Path string `json:"path"`
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
 	User *string `json:"user,omitempty"`
 }
-
-// FileSpecContentEncoding How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain".
-type FileSpecContentEncoding string
 
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
@@ -816,6 +1214,108 @@ type FleetList struct {
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata ListMeta `json:"metadata"`
 }
+
+// FleetRolloutBatchCompletedDetails defines model for FleetRolloutBatchCompletedDetails.
+type FleetRolloutBatchCompletedDetails struct {
+	// Batch The batch within the fleet rollout.
+	Batch string `json:"batch"`
+
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetRolloutBatchCompletedDetailsDetailType `json:"detailType"`
+
+	// Failed The number of failed devices in the batch.
+	Failed int64 `json:"failed"`
+
+	// SuccessPercentage The success percentage of the batch.
+	SuccessPercentage int64 `json:"successPercentage"`
+
+	// Successful The number of successful devices in the batch.
+	Successful int64 `json:"successful"`
+
+	// TemplateVersion The name of the TemplateVersion that this batch is rolling out to.
+	TemplateVersion string `json:"templateVersion"`
+
+	// TimedOut The number of timed out devices in the batch.
+	TimedOut int64 `json:"timedOut"`
+
+	// Total The total number of devices in the batch.
+	Total int64 `json:"total"`
+}
+
+// FleetRolloutBatchCompletedDetailsDetailType The type of detail for discriminator purposes.
+type FleetRolloutBatchCompletedDetailsDetailType string
+
+// FleetRolloutBatchDispatchedDetails defines model for FleetRolloutBatchDispatchedDetails.
+type FleetRolloutBatchDispatchedDetails struct {
+	// Batch The batch within the fleet rollout.
+	Batch string `json:"batch"`
+
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetRolloutBatchDispatchedDetailsDetailType `json:"detailType"`
+
+	// TemplateVersion The name of the TemplateVersion that this batch is rolling out to.
+	TemplateVersion string `json:"templateVersion"`
+}
+
+// FleetRolloutBatchDispatchedDetailsDetailType The type of detail for discriminator purposes.
+type FleetRolloutBatchDispatchedDetailsDetailType string
+
+// FleetRolloutCompletedDetails defines model for FleetRolloutCompletedDetails.
+type FleetRolloutCompletedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetRolloutCompletedDetailsDetailType `json:"detailType"`
+
+	// TemplateVersion The name of the TemplateVersion that this fleet rollout is completed for.
+	TemplateVersion string `json:"templateVersion"`
+}
+
+// FleetRolloutCompletedDetailsDetailType The type of detail for discriminator purposes.
+type FleetRolloutCompletedDetailsDetailType string
+
+// FleetRolloutDeviceSelectedDetails defines model for FleetRolloutDeviceSelectedDetails.
+type FleetRolloutDeviceSelectedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetRolloutDeviceSelectedDetailsDetailType `json:"detailType"`
+
+	// FleetName The name of the fleet that the device is being selected for.
+	FleetName string `json:"fleetName"`
+
+	// TemplateVersion The name of the TemplateVersion that the device is being selected to render.
+	TemplateVersion string `json:"templateVersion"`
+}
+
+// FleetRolloutDeviceSelectedDetailsDetailType The type of detail for discriminator purposes.
+type FleetRolloutDeviceSelectedDetailsDetailType string
+
+// FleetRolloutFailedDetails defines model for FleetRolloutFailedDetails.
+type FleetRolloutFailedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetRolloutFailedDetailsDetailType `json:"detailType"`
+
+	// TemplateVersion The name of the TemplateVersion that this fleet rollout failed for.
+	TemplateVersion string `json:"templateVersion"`
+}
+
+// FleetRolloutFailedDetailsDetailType The type of detail for discriminator purposes.
+type FleetRolloutFailedDetailsDetailType string
+
+// FleetRolloutStartedDetails defines model for FleetRolloutStartedDetails.
+type FleetRolloutStartedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType FleetRolloutStartedDetailsDetailType `json:"detailType"`
+
+	// RolloutStrategy Rollout strategy type.
+	RolloutStrategy FleetRolloutStartedDetailsRolloutStrategy `json:"rolloutStrategy"`
+
+	// TemplateVersion The name of the TemplateVersion that is rolling out.
+	TemplateVersion string `json:"templateVersion"`
+}
+
+// FleetRolloutStartedDetailsDetailType The type of detail for discriminator purposes.
+type FleetRolloutStartedDetailsDetailType string
+
+// FleetRolloutStartedDetailsRolloutStrategy Rollout strategy type.
+type FleetRolloutStartedDetailsRolloutStrategy string
 
 // FleetRolloutStatus FleetRolloutStatus represents information about the status of a fleet rollout.
 type FleetRolloutStatus struct {
@@ -866,9 +1366,6 @@ type GenericRepoSpec struct {
 type GitConfigProviderSpec struct {
 	// GitRef The reference to a Git configuration server.
 	GitRef struct {
-		// MountPath Path in the device's file system at which the repository's path should be mounted.
-		MountPath *string `json:"mountPath,omitempty"`
-
 		// Path The path to the config in the Repository.
 		Path string `json:"path"`
 
@@ -979,10 +1476,40 @@ type HttpRepoSpec struct {
 	ValidationSuffix *string `json:"validationSuffix,omitempty"`
 }
 
-// ImageApplicationProvider defines model for ImageApplicationProvider.
-type ImageApplicationProvider struct {
+// ImageApplicationProviderSpec defines model for ImageApplicationProviderSpec.
+type ImageApplicationProviderSpec struct {
 	// Image Reference to the container image for the application package.
 	Image string `json:"image"`
+
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+}
+
+// ImagePullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
+type ImagePullPolicy string
+
+// ImageVolumeProviderSpec defines model for ImageVolumeProviderSpec.
+type ImageVolumeProviderSpec struct {
+	// Image Describes the source of an OCI-compliant image or artifact.
+	Image ImageVolumeSource `json:"image"`
+}
+
+// ImageVolumeSource Describes the source of an OCI-compliant image or artifact.
+type ImageVolumeSource struct {
+	// PullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
+	PullPolicy *ImagePullPolicy `json:"pullPolicy,omitempty"`
+
+	// Reference Reference to an OCI-compliant image or artifact in a registry. This may be a container image or another type of OCI artifact, as long as it conforms to the OCI image specification.
+	Reference string `json:"reference"`
+}
+
+// InlineApplicationProviderSpec defines model for InlineApplicationProviderSpec.
+type InlineApplicationProviderSpec struct {
+	// Inline A list of application content.
+	Inline []ApplicationContent `json:"inline"`
+
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
@@ -993,6 +1520,27 @@ type InlineConfigProviderSpec struct {
 	// Name The name of the config provider.
 	Name string `json:"name"`
 }
+
+// InternalTaskFailedDetails defines model for InternalTaskFailedDetails.
+type InternalTaskFailedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType InternalTaskFailedDetailsDetailType `json:"detailType"`
+
+	// ErrorMessage The error message describing the failure.
+	ErrorMessage string `json:"errorMessage"`
+
+	// RetryCount Number of times the task has been retried.
+	RetryCount *int `json:"retryCount,omitempty"`
+
+	// TaskParameters Parameters needed to retry the task.
+	TaskParameters *map[string]string `json:"taskParameters,omitempty"`
+
+	// TaskType The type of internal task that failed.
+	TaskType string `json:"taskType"`
+}
+
+// InternalTaskFailedDetailsDetailType The type of detail for discriminator purposes.
+type InternalTaskFailedDetailsDetailType string
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
@@ -1011,6 +1559,9 @@ type KubernetesSecretProviderSpec struct {
 		Namespace string `json:"namespace"`
 	} `json:"secretRef"`
 }
+
+// LabelList A list of distinct labels, where each item is formatted as "key=value".
+type LabelList = []string
 
 // LabelSelector A label selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. Empty/null label selectors match nothing.
 type LabelSelector struct {
@@ -1048,8 +1599,17 @@ type MatchExpressionOperator string
 // MatchExpressions A list of match expressions.
 type MatchExpressions = []MatchExpression
 
-// MemoryResourceMonitorSpec Specification for monitoring a resource.
-type MemoryResourceMonitorSpec = ResourceMonitorSpec
+// MemoryResourceMonitorSpec defines model for MemoryResourceMonitorSpec.
+type MemoryResourceMonitorSpec struct {
+	// AlertRules Array of alert rules. Only one alert per severity is allowed.
+	AlertRules []ResourceAlertRule `json:"alertRules"`
+
+	// MonitorType The type of resource to monitor.
+	MonitorType string `json:"monitorType"`
+
+	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
+	SamplingInterval string `json:"samplingInterval"`
+}
 
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 type ObjectMeta struct {
@@ -1078,6 +1638,54 @@ type ObjectMeta struct {
 	ResourceVersion *string `json:"resourceVersion,omitempty"`
 }
 
+// ObjectReference A reference to a resource.
+type ObjectReference struct {
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Name The name of the referenced object.
+	Name string `json:"name"`
+}
+
+// Organization defines model for Organization.
+type Organization struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec OrganizationSpec describes an organization.
+	Spec *OrganizationSpec `json:"spec,omitempty"`
+}
+
+// OrganizationList OrganizationList is a list of Organizations.
+type OrganizationList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of Organizations.
+	Items []Organization `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// OrganizationSpec OrganizationSpec describes an organization.
+type OrganizationSpec struct {
+	// DisplayName Human readable name shown to users.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// ExternalId External ID of the organization.
+	ExternalId *string `json:"externalId,omitempty"`
+}
+
 // PatchRequest defines model for PatchRequest.
 type PatchRequest = []struct {
 	// Op The operation to perform.
@@ -1096,47 +1704,22 @@ type PatchRequestOp string
 // Percentage Percentage is the string format representing percentage string.
 type Percentage = string
 
-// RenderedApplicationSpec defines model for RenderedApplicationSpec.
-type RenderedApplicationSpec struct {
-	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
-	EnvVars *map[string]string `json:"envVars,omitempty"`
+// ReferencedRepositoryUpdatedDetails defines model for ReferencedRepositoryUpdatedDetails.
+type ReferencedRepositoryUpdatedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType ReferencedRepositoryUpdatedDetailsDetailType `json:"detailType"`
 
-	// Name An application name.
-	Name  *string `json:"name,omitempty"`
-	union json.RawMessage
+	// Repository The name of the repository that was updated.
+	Repository string `json:"repository"`
 }
 
-// RenderedDeviceSpec RenderedDeviceSpec describes the rendered and self-contained specification of a Device.
-type RenderedDeviceSpec struct {
-	// Applications The list of applications to deploy.
-	Applications *[]RenderedApplicationSpec `json:"applications,omitempty"`
+// ReferencedRepositoryUpdatedDetailsDetailType The type of detail for discriminator purposes.
+type ReferencedRepositoryUpdatedDetailsDetailType string
 
-	// Config The configuration to apply, in Ignition format.
-	Config *string `json:"config,omitempty"`
-
-	// Console DeviceConsole represents the console connection information.
-	Console *DeviceConsole `json:"console,omitempty"`
-
-	// Decommission Metadata about a device decommissioning request.
-	Decommission *DeviceDecommission `json:"decommission,omitempty"`
-
-	// Os DeviceOsSpec describes the target OS for the device.
-	Os *DeviceOsSpec `json:"os,omitempty"`
-
-	// RenderedVersion Version of the rendered device spec.
-	RenderedVersion string `json:"renderedVersion"`
-
-	// Resources Array of resource monitor configurations.
-	Resources *[]ResourceMonitor `json:"resources,omitempty"`
-
-	// Systemd The systemd services to monitor.
-	Systemd *struct {
-		// MatchPatterns A list of match patterns.
-		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
-	} `json:"systemd,omitempty"`
-
-	// UpdatePolicy Specifies the policy for managing device updates, including when updates should be downloaded and applied.
-	UpdatePolicy *DeviceUpdatePolicySpec `json:"updatePolicy,omitempty"`
+// RelativePath Represents a relative file path.
+type RelativePath struct {
+	// Path A relative file path on the system. Note that any existing file will be overwritten.
+	Path *string `json:"path,omitempty"`
 }
 
 // RepoSpecType RepoSpecType is the type of the repository.
@@ -1204,6 +1787,9 @@ type ResourceAlertRule struct {
 // ResourceAlertSeverityType Severity of the alert.
 type ResourceAlertSeverityType string
 
+// ResourceKind Resource types exposed via the API.
+type ResourceKind string
+
 // ResourceMonitor defines model for ResourceMonitor.
 type ResourceMonitor struct {
 	union json.RawMessage
@@ -1213,9 +1799,6 @@ type ResourceMonitor struct {
 type ResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
 	AlertRules []ResourceAlertRule `json:"alertRules"`
-
-	// MonitorType The type of resource to monitor.
-	MonitorType string `json:"monitorType"`
 
 	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
@@ -1238,6 +1821,24 @@ type ResourceSync struct {
 	// Status ResourceSyncStatus represents information about the status of a ResourceSync.
 	Status *ResourceSyncStatus `json:"status,omitempty"`
 }
+
+// ResourceSyncCompletedDetails defines model for ResourceSyncCompletedDetails.
+type ResourceSyncCompletedDetails struct {
+	// ChangeCount Number of changes introduced by this ResourceSync update.
+	ChangeCount int `json:"changeCount"`
+
+	// CommitHash Hash of the last commit.
+	CommitHash string `json:"commitHash"`
+
+	// DetailType The type of detail for discriminator purposes.
+	DetailType ResourceSyncCompletedDetailsDetailType `json:"detailType"`
+
+	// ErrorCount Number of errors encountered by this ResourceSync update.
+	ErrorCount int `json:"errorCount"`
+}
+
+// ResourceSyncCompletedDetailsDetailType The type of detail for discriminator purposes.
+type ResourceSyncCompletedDetailsDetailType string
 
 // ResourceSyncList defines model for ResourceSyncList.
 type ResourceSyncList struct {
@@ -1277,6 +1878,27 @@ type ResourceSyncStatus struct {
 	// ObservedGeneration The last generation that was synced.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
+
+// ResourceUpdatedDetails defines model for ResourceUpdatedDetails.
+type ResourceUpdatedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType ResourceUpdatedDetailsDetailType `json:"detailType"`
+
+	// NewOwner The new owner (if applicable).
+	NewOwner *string `json:"newOwner"`
+
+	// PreviousOwner The previous owner (if applicable).
+	PreviousOwner *string `json:"previousOwner"`
+
+	// UpdatedFields List of fields that were updated in the resource.
+	UpdatedFields []ResourceUpdatedDetailsUpdatedFields `json:"updatedFields"`
+}
+
+// ResourceUpdatedDetailsDetailType The type of detail for discriminator purposes.
+type ResourceUpdatedDetailsDetailType string
+
+// ResourceUpdatedDetailsUpdatedFields defines model for ResourceUpdatedDetails.UpdatedFields.
+type ResourceUpdatedDetailsUpdatedFields string
 
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
@@ -1327,14 +1949,23 @@ type SshRepoSpec struct {
 
 // Status Status is a return value for calls that don't return other objects.
 type Status struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Code Suggested HTTP return code for this status, 0 if not set.
+	Code int32 `json:"code"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
 	// Message A human-readable description of the status of this operation.
-	Message *string `json:"message,omitempty"`
+	Message string `json:"message"`
 
 	// Reason A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
-	Reason *string `json:"reason,omitempty"`
+	Reason string `json:"reason"`
 
 	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
-	Status *string `json:"status,omitempty"`
+	Status string `json:"status"`
 }
 
 // TemplateVersion TemplateVersion represents a version of a template.
@@ -1378,14 +2009,17 @@ type TemplateVersionSpec struct {
 
 // TemplateVersionStatus defines model for TemplateVersionStatus.
 type TemplateVersionStatus struct {
-	// Applications List of applications.
-	Applications *[]ApplicationSpec `json:"applications,omitempty"`
+	// Applications List of application providers.
+	Applications *[]ApplicationProviderSpec `json:"applications,omitempty"`
 
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
 
 	// Config List of config providers.
 	Config *[]ConfigProviderSpec `json:"config,omitempty"`
+
+	// Consoles The list of active console sessions.
+	Consoles *[]DeviceConsole `json:"consoles,omitempty"`
 
 	// Decommissioning Metadata about a device decommissioning request.
 	Decommissioning *DeviceDecommission `json:"decommissioning,omitempty"`
@@ -1427,10 +2061,16 @@ type UpdateSchedule struct {
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
+// Version defines model for Version.
+type Version struct {
+	// Version Git version of the service.
+	Version string `json:"version"`
+}
+
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
-	// Authentication The authentication token to validate.
-	Authentication *string `json:"Authentication,omitempty"`
+	// Authorization The authentication token to validate.
+	Authorization *string `json:"Authorization,omitempty"`
 }
 
 // ListCertificateSigningRequestsParams defines parameters for ListCertificateSigningRequests.
@@ -1466,8 +2106,8 @@ type ListDevicesParams struct {
 	SummaryOnly *bool `form:"summaryOnly,omitempty" json:"summaryOnly,omitempty"`
 }
 
-// GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
-type GetRenderedDeviceSpecParams struct {
+// GetRenderedDeviceParams defines parameters for GetRenderedDevice.
+type GetRenderedDeviceParams struct {
 	// KnownRenderedVersion The last known renderedVersion.
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
@@ -1493,6 +2133,24 @@ type ListEnrollmentRequestsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListEventsParams defines parameters for ListEvents.
+type ListEventsParams struct {
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Order Sort order for the results by timestamp. Defaults to 'desc' (newest first).
+	Order *ListEventsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// Limit The maximum number of events to return in the response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+}
+
+// ListEventsParamsOrder defines parameters for ListEvents.
+type ListEventsParamsOrder string
+
 // ListFleetsParams defines parameters for ListFleets.
 type ListFleetsParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -1507,8 +2165,8 @@ type ListFleetsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// AddDevicesCount Include the number of devices in each fleet.
-	AddDevicesCount *bool `form:"addDevicesCount,omitempty" json:"addDevicesCount,omitempty"`
+	// AddDevicesSummary Include a summary of the devices in the fleet.
+	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
 
 // ListTemplateVersionsParams defines parameters for ListTemplateVersions.
@@ -1526,11 +2184,29 @@ type ListTemplateVersionsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// ReadFleetParams defines parameters for ReadFleet.
-type ReadFleetParams struct {
+// GetFleetParams defines parameters for GetFleet.
+type GetFleetParams struct {
 	// AddDevicesSummary Include a summary of the devices in the fleet.
 	AddDevicesSummary *bool `form:"addDevicesSummary,omitempty" json:"addDevicesSummary,omitempty"`
 }
+
+// ListLabelsParams defines parameters for ListLabels.
+type ListLabelsParams struct {
+	// Kind The type of resource to retrieve labels from.
+	Kind ListLabelsParamsKind `form:"kind" json:"kind"`
+
+	// LabelSelector A filter to retrieve labels only from resources that match the given label selector.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A filter to retrieve labels only from resources that match the given field selector.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of distinct labels to return in the response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListLabelsParamsKind defines parameters for ListLabels.
+type ListLabelsParamsKind string
 
 // ListRepositoriesParams defines parameters for ListRepositories.
 type ListRepositoriesParams struct {
@@ -1547,8 +2223,8 @@ type ListRepositoriesParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// ListResourceSyncParams defines parameters for ListResourceSync.
-type ListResourceSyncParams struct {
+// ListResourceSyncsParams defines parameters for ListResourceSyncs.
+type ListResourceSyncsParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 
@@ -1643,22 +2319,142 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
 
-// AsImageApplicationProvider returns the union data inside the ApplicationSpec as a ImageApplicationProvider
-func (t ApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
-	var body ImageApplicationProvider
+// Getter for additional properties for DeviceSystemInfo. Returns the specified
+// element and whether it was found
+func (a DeviceSystemInfo) Get(fieldName string) (value string, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DeviceSystemInfo
+func (a *DeviceSystemInfo) Set(fieldName string, value string) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]string)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DeviceSystemInfo to handle AdditionalProperties
+func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["agentVersion"]; found {
+		err = json.Unmarshal(raw, &a.AgentVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'agentVersion': %w", err)
+		}
+		delete(object, "agentVersion")
+	}
+
+	if raw, found := object["architecture"]; found {
+		err = json.Unmarshal(raw, &a.Architecture)
+		if err != nil {
+			return fmt.Errorf("error reading 'architecture': %w", err)
+		}
+		delete(object, "architecture")
+	}
+
+	if raw, found := object["bootID"]; found {
+		err = json.Unmarshal(raw, &a.BootID)
+		if err != nil {
+			return fmt.Errorf("error reading 'bootID': %w", err)
+		}
+		delete(object, "bootID")
+	}
+
+	if raw, found := object["customInfo"]; found {
+		err = json.Unmarshal(raw, &a.CustomInfo)
+		if err != nil {
+			return fmt.Errorf("error reading 'customInfo': %w", err)
+		}
+		delete(object, "customInfo")
+	}
+
+	if raw, found := object["operatingSystem"]; found {
+		err = json.Unmarshal(raw, &a.OperatingSystem)
+		if err != nil {
+			return fmt.Errorf("error reading 'operatingSystem': %w", err)
+		}
+		delete(object, "operatingSystem")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]string)
+		for fieldName, fieldBuf := range object {
+			var fieldVal string
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DeviceSystemInfo to handle AdditionalProperties
+func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["agentVersion"], err = json.Marshal(a.AgentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'agentVersion': %w", err)
+	}
+
+	object["architecture"], err = json.Marshal(a.Architecture)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'architecture': %w", err)
+	}
+
+	object["bootID"], err = json.Marshal(a.BootID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'bootID': %w", err)
+	}
+
+	if a.CustomInfo != nil {
+		object["customInfo"], err = json.Marshal(a.CustomInfo)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'customInfo': %w", err)
+		}
+	}
+
+	object["operatingSystem"], err = json.Marshal(a.OperatingSystem)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'operatingSystem': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// AsImageApplicationProviderSpec returns the union data inside the ApplicationProviderSpec as a ImageApplicationProviderSpec
+func (t ApplicationProviderSpec) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {
+	var body ImageApplicationProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromImageApplicationProvider overwrites any union data inside the ApplicationSpec as the provided ImageApplicationProvider
-func (t *ApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
+// FromImageApplicationProviderSpec overwrites any union data inside the ApplicationProviderSpec as the provided ImageApplicationProviderSpec
+func (t *ApplicationProviderSpec) FromImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeImageApplicationProvider performs a merge with any union data inside the ApplicationSpec, using the provided ImageApplicationProvider
-func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
+// MergeImageApplicationProviderSpec performs a merge with any union data inside the ApplicationProviderSpec, using the provided ImageApplicationProviderSpec
+func (t *ApplicationProviderSpec) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1669,7 +2465,33 @@ func (t *ApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvid
 	return err
 }
 
-func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
+// AsInlineApplicationProviderSpec returns the union data inside the ApplicationProviderSpec as a InlineApplicationProviderSpec
+func (t ApplicationProviderSpec) AsInlineApplicationProviderSpec() (InlineApplicationProviderSpec, error) {
+	var body InlineApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInlineApplicationProviderSpec overwrites any union data inside the ApplicationProviderSpec as the provided InlineApplicationProviderSpec
+func (t *ApplicationProviderSpec) FromInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInlineApplicationProviderSpec performs a merge with any union data inside the ApplicationProviderSpec, using the provided InlineApplicationProviderSpec
+func (t *ApplicationProviderSpec) MergeInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	if err != nil {
 		return nil, err
@@ -1679,6 +2501,13 @@ func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
 		err = json.Unmarshal(b, &object)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	if t.AppType != nil {
+		object["appType"], err = json.Marshal(t.AppType)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'appType': %w", err)
 		}
 	}
 
@@ -1699,7 +2528,7 @@ func (t ApplicationSpec) MarshalJSON() ([]byte, error) {
 	return b, err
 }
 
-func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
+func (t *ApplicationProviderSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	if err != nil {
 		return err
@@ -1710,11 +2539,87 @@ func (t *ApplicationSpec) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
+	if raw, found := object["appType"]; found {
+		err = json.Unmarshal(raw, &t.AppType)
+		if err != nil {
+			return fmt.Errorf("error reading 'appType': %w", err)
+		}
+	}
+
 	if raw, found := object["envVars"]; found {
 		err = json.Unmarshal(raw, &t.EnvVars)
 		if err != nil {
 			return fmt.Errorf("error reading 'envVars': %w", err)
 		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	return err
+}
+
+// AsImageVolumeProviderSpec returns the union data inside the ApplicationVolume as a ImageVolumeProviderSpec
+func (t ApplicationVolume) AsImageVolumeProviderSpec() (ImageVolumeProviderSpec, error) {
+	var body ImageVolumeProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageVolumeProviderSpec overwrites any union data inside the ApplicationVolume as the provided ImageVolumeProviderSpec
+func (t *ApplicationVolume) FromImageVolumeProviderSpec(v ImageVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageVolumeProviderSpec performs a merge with any union data inside the ApplicationVolume, using the provided ImageVolumeProviderSpec
+func (t *ApplicationVolume) MergeImageVolumeProviderSpec(v ImageVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationVolume) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["name"], err = json.Marshal(t.Name)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'name': %w", err)
+	}
+
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ApplicationVolume) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
 	}
 
 	if raw, found := object["name"]; found {
@@ -1903,6 +2808,425 @@ func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsResourceUpdatedDetails returns the union data inside the EventDetails as a ResourceUpdatedDetails
+func (t EventDetails) AsResourceUpdatedDetails() (ResourceUpdatedDetails, error) {
+	var body ResourceUpdatedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromResourceUpdatedDetails overwrites any union data inside the EventDetails as the provided ResourceUpdatedDetails
+func (t *EventDetails) FromResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	v.DetailType = "ResourceUpdated"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeResourceUpdatedDetails performs a merge with any union data inside the EventDetails, using the provided ResourceUpdatedDetails
+func (t *EventDetails) MergeResourceUpdatedDetails(v ResourceUpdatedDetails) error {
+	v.DetailType = "ResourceUpdated"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceOwnershipChangedDetails returns the union data inside the EventDetails as a DeviceOwnershipChangedDetails
+func (t EventDetails) AsDeviceOwnershipChangedDetails() (DeviceOwnershipChangedDetails, error) {
+	var body DeviceOwnershipChangedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceOwnershipChangedDetails overwrites any union data inside the EventDetails as the provided DeviceOwnershipChangedDetails
+func (t *EventDetails) FromDeviceOwnershipChangedDetails(v DeviceOwnershipChangedDetails) error {
+	v.DetailType = "DeviceOwnershipChanged"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceOwnershipChangedDetails performs a merge with any union data inside the EventDetails, using the provided DeviceOwnershipChangedDetails
+func (t *EventDetails) MergeDeviceOwnershipChangedDetails(v DeviceOwnershipChangedDetails) error {
+	v.DetailType = "DeviceOwnershipChanged"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceMultipleOwnersDetectedDetails returns the union data inside the EventDetails as a DeviceMultipleOwnersDetectedDetails
+func (t EventDetails) AsDeviceMultipleOwnersDetectedDetails() (DeviceMultipleOwnersDetectedDetails, error) {
+	var body DeviceMultipleOwnersDetectedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceMultipleOwnersDetectedDetails overwrites any union data inside the EventDetails as the provided DeviceMultipleOwnersDetectedDetails
+func (t *EventDetails) FromDeviceMultipleOwnersDetectedDetails(v DeviceMultipleOwnersDetectedDetails) error {
+	v.DetailType = "DeviceMultipleOwnersDetected"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceMultipleOwnersDetectedDetails performs a merge with any union data inside the EventDetails, using the provided DeviceMultipleOwnersDetectedDetails
+func (t *EventDetails) MergeDeviceMultipleOwnersDetectedDetails(v DeviceMultipleOwnersDetectedDetails) error {
+	v.DetailType = "DeviceMultipleOwnersDetected"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceMultipleOwnersResolvedDetails returns the union data inside the EventDetails as a DeviceMultipleOwnersResolvedDetails
+func (t EventDetails) AsDeviceMultipleOwnersResolvedDetails() (DeviceMultipleOwnersResolvedDetails, error) {
+	var body DeviceMultipleOwnersResolvedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceMultipleOwnersResolvedDetails overwrites any union data inside the EventDetails as the provided DeviceMultipleOwnersResolvedDetails
+func (t *EventDetails) FromDeviceMultipleOwnersResolvedDetails(v DeviceMultipleOwnersResolvedDetails) error {
+	v.DetailType = "DeviceMultipleOwnersResolved"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceMultipleOwnersResolvedDetails performs a merge with any union data inside the EventDetails, using the provided DeviceMultipleOwnersResolvedDetails
+func (t *EventDetails) MergeDeviceMultipleOwnersResolvedDetails(v DeviceMultipleOwnersResolvedDetails) error {
+	v.DetailType = "DeviceMultipleOwnersResolved"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInternalTaskFailedDetails returns the union data inside the EventDetails as a InternalTaskFailedDetails
+func (t EventDetails) AsInternalTaskFailedDetails() (InternalTaskFailedDetails, error) {
+	var body InternalTaskFailedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInternalTaskFailedDetails overwrites any union data inside the EventDetails as the provided InternalTaskFailedDetails
+func (t *EventDetails) FromInternalTaskFailedDetails(v InternalTaskFailedDetails) error {
+	v.DetailType = "InternalTaskFailed"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInternalTaskFailedDetails performs a merge with any union data inside the EventDetails, using the provided InternalTaskFailedDetails
+func (t *EventDetails) MergeInternalTaskFailedDetails(v InternalTaskFailedDetails) error {
+	v.DetailType = "InternalTaskFailed"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsResourceSyncCompletedDetails returns the union data inside the EventDetails as a ResourceSyncCompletedDetails
+func (t EventDetails) AsResourceSyncCompletedDetails() (ResourceSyncCompletedDetails, error) {
+	var body ResourceSyncCompletedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromResourceSyncCompletedDetails overwrites any union data inside the EventDetails as the provided ResourceSyncCompletedDetails
+func (t *EventDetails) FromResourceSyncCompletedDetails(v ResourceSyncCompletedDetails) error {
+	v.DetailType = "ResourceSyncCompleted"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeResourceSyncCompletedDetails performs a merge with any union data inside the EventDetails, using the provided ResourceSyncCompletedDetails
+func (t *EventDetails) MergeResourceSyncCompletedDetails(v ResourceSyncCompletedDetails) error {
+	v.DetailType = "ResourceSyncCompleted"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsReferencedRepositoryUpdatedDetails returns the union data inside the EventDetails as a ReferencedRepositoryUpdatedDetails
+func (t EventDetails) AsReferencedRepositoryUpdatedDetails() (ReferencedRepositoryUpdatedDetails, error) {
+	var body ReferencedRepositoryUpdatedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromReferencedRepositoryUpdatedDetails overwrites any union data inside the EventDetails as the provided ReferencedRepositoryUpdatedDetails
+func (t *EventDetails) FromReferencedRepositoryUpdatedDetails(v ReferencedRepositoryUpdatedDetails) error {
+	v.DetailType = "ReferencedRepositoryUpdated"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeReferencedRepositoryUpdatedDetails performs a merge with any union data inside the EventDetails, using the provided ReferencedRepositoryUpdatedDetails
+func (t *EventDetails) MergeReferencedRepositoryUpdatedDetails(v ReferencedRepositoryUpdatedDetails) error {
+	v.DetailType = "ReferencedRepositoryUpdated"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFleetRolloutStartedDetails returns the union data inside the EventDetails as a FleetRolloutStartedDetails
+func (t EventDetails) AsFleetRolloutStartedDetails() (FleetRolloutStartedDetails, error) {
+	var body FleetRolloutStartedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFleetRolloutStartedDetails overwrites any union data inside the EventDetails as the provided FleetRolloutStartedDetails
+func (t *EventDetails) FromFleetRolloutStartedDetails(v FleetRolloutStartedDetails) error {
+	v.DetailType = "FleetRolloutStarted"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFleetRolloutStartedDetails performs a merge with any union data inside the EventDetails, using the provided FleetRolloutStartedDetails
+func (t *EventDetails) MergeFleetRolloutStartedDetails(v FleetRolloutStartedDetails) error {
+	v.DetailType = "FleetRolloutStarted"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFleetRolloutFailedDetails returns the union data inside the EventDetails as a FleetRolloutFailedDetails
+func (t EventDetails) AsFleetRolloutFailedDetails() (FleetRolloutFailedDetails, error) {
+	var body FleetRolloutFailedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFleetRolloutFailedDetails overwrites any union data inside the EventDetails as the provided FleetRolloutFailedDetails
+func (t *EventDetails) FromFleetRolloutFailedDetails(v FleetRolloutFailedDetails) error {
+	v.DetailType = "FleetRolloutFailed"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFleetRolloutFailedDetails performs a merge with any union data inside the EventDetails, using the provided FleetRolloutFailedDetails
+func (t *EventDetails) MergeFleetRolloutFailedDetails(v FleetRolloutFailedDetails) error {
+	v.DetailType = "FleetRolloutFailed"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFleetRolloutCompletedDetails returns the union data inside the EventDetails as a FleetRolloutCompletedDetails
+func (t EventDetails) AsFleetRolloutCompletedDetails() (FleetRolloutCompletedDetails, error) {
+	var body FleetRolloutCompletedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFleetRolloutCompletedDetails overwrites any union data inside the EventDetails as the provided FleetRolloutCompletedDetails
+func (t *EventDetails) FromFleetRolloutCompletedDetails(v FleetRolloutCompletedDetails) error {
+	v.DetailType = "FleetRolloutCompleted"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFleetRolloutCompletedDetails performs a merge with any union data inside the EventDetails, using the provided FleetRolloutCompletedDetails
+func (t *EventDetails) MergeFleetRolloutCompletedDetails(v FleetRolloutCompletedDetails) error {
+	v.DetailType = "FleetRolloutCompleted"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFleetRolloutBatchDispatchedDetails returns the union data inside the EventDetails as a FleetRolloutBatchDispatchedDetails
+func (t EventDetails) AsFleetRolloutBatchDispatchedDetails() (FleetRolloutBatchDispatchedDetails, error) {
+	var body FleetRolloutBatchDispatchedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFleetRolloutBatchDispatchedDetails overwrites any union data inside the EventDetails as the provided FleetRolloutBatchDispatchedDetails
+func (t *EventDetails) FromFleetRolloutBatchDispatchedDetails(v FleetRolloutBatchDispatchedDetails) error {
+	v.DetailType = "FleetRolloutBatchDispatched"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFleetRolloutBatchDispatchedDetails performs a merge with any union data inside the EventDetails, using the provided FleetRolloutBatchDispatchedDetails
+func (t *EventDetails) MergeFleetRolloutBatchDispatchedDetails(v FleetRolloutBatchDispatchedDetails) error {
+	v.DetailType = "FleetRolloutBatchDispatched"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFleetRolloutBatchCompletedDetails returns the union data inside the EventDetails as a FleetRolloutBatchCompletedDetails
+func (t EventDetails) AsFleetRolloutBatchCompletedDetails() (FleetRolloutBatchCompletedDetails, error) {
+	var body FleetRolloutBatchCompletedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFleetRolloutBatchCompletedDetails overwrites any union data inside the EventDetails as the provided FleetRolloutBatchCompletedDetails
+func (t *EventDetails) FromFleetRolloutBatchCompletedDetails(v FleetRolloutBatchCompletedDetails) error {
+	v.DetailType = "FleetRolloutBatchCompleted"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFleetRolloutBatchCompletedDetails performs a merge with any union data inside the EventDetails, using the provided FleetRolloutBatchCompletedDetails
+func (t *EventDetails) MergeFleetRolloutBatchCompletedDetails(v FleetRolloutBatchCompletedDetails) error {
+	v.DetailType = "FleetRolloutBatchCompleted"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFleetRolloutDeviceSelectedDetails returns the union data inside the EventDetails as a FleetRolloutDeviceSelectedDetails
+func (t EventDetails) AsFleetRolloutDeviceSelectedDetails() (FleetRolloutDeviceSelectedDetails, error) {
+	var body FleetRolloutDeviceSelectedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFleetRolloutDeviceSelectedDetails overwrites any union data inside the EventDetails as the provided FleetRolloutDeviceSelectedDetails
+func (t *EventDetails) FromFleetRolloutDeviceSelectedDetails(v FleetRolloutDeviceSelectedDetails) error {
+	v.DetailType = "FleetRolloutDeviceSelected"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFleetRolloutDeviceSelectedDetails performs a merge with any union data inside the EventDetails, using the provided FleetRolloutDeviceSelectedDetails
+func (t *EventDetails) MergeFleetRolloutDeviceSelectedDetails(v FleetRolloutDeviceSelectedDetails) error {
+	v.DetailType = "FleetRolloutDeviceSelected"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t EventDetails) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"detailType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "DeviceMultipleOwnersDetected":
+		return t.AsDeviceMultipleOwnersDetectedDetails()
+	case "DeviceMultipleOwnersResolved":
+		return t.AsDeviceMultipleOwnersResolvedDetails()
+	case "DeviceOwnershipChanged":
+		return t.AsDeviceOwnershipChangedDetails()
+	case "FleetRolloutBatchCompleted":
+		return t.AsFleetRolloutBatchCompletedDetails()
+	case "FleetRolloutBatchDispatched":
+		return t.AsFleetRolloutBatchDispatchedDetails()
+	case "FleetRolloutCompleted":
+		return t.AsFleetRolloutCompletedDetails()
+	case "FleetRolloutDeviceSelected":
+		return t.AsFleetRolloutDeviceSelectedDetails()
+	case "FleetRolloutFailed":
+		return t.AsFleetRolloutFailedDetails()
+	case "FleetRolloutStarted":
+		return t.AsFleetRolloutStartedDetails()
+	case "InternalTaskFailed":
+		return t.AsInternalTaskFailedDetails()
+	case "ReferencedRepositoryUpdated":
+		return t.AsReferencedRepositoryUpdatedDetails()
+	case "ResourceSyncCompleted":
+		return t.AsResourceSyncCompletedDetails()
+	case "ResourceUpdated":
+		return t.AsResourceUpdatedDetails()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t EventDetails) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *EventDetails) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsHookActionRun returns the union data inside the HookAction as a HookActionRun
 func (t HookAction) AsHookActionRun() (HookActionRun, error) {
 	var body HookActionRun
@@ -2046,90 +3370,6 @@ func (t HookCondition) MarshalJSON() ([]byte, error) {
 
 func (t *HookCondition) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsImageApplicationProvider returns the union data inside the RenderedApplicationSpec as a ImageApplicationProvider
-func (t RenderedApplicationSpec) AsImageApplicationProvider() (ImageApplicationProvider, error) {
-	var body ImageApplicationProvider
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromImageApplicationProvider overwrites any union data inside the RenderedApplicationSpec as the provided ImageApplicationProvider
-func (t *RenderedApplicationSpec) FromImageApplicationProvider(v ImageApplicationProvider) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeImageApplicationProvider performs a merge with any union data inside the RenderedApplicationSpec, using the provided ImageApplicationProvider
-func (t *RenderedApplicationSpec) MergeImageApplicationProvider(v ImageApplicationProvider) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t RenderedApplicationSpec) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if t.EnvVars != nil {
-		object["envVars"], err = json.Marshal(t.EnvVars)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
-		}
-	}
-
-	if t.Name != nil {
-		object["name"], err = json.Marshal(t.Name)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'name': %w", err)
-		}
-	}
-	b, err = json.Marshal(object)
-	return b, err
-}
-
-func (t *RenderedApplicationSpec) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["envVars"]; found {
-		err = json.Unmarshal(raw, &t.EnvVars)
-		if err != nil {
-			return fmt.Errorf("error reading 'envVars': %w", err)
-		}
-	}
-
-	if raw, found := object["name"]; found {
-		err = json.Unmarshal(raw, &t.Name)
-		if err != nil {
-			return fmt.Errorf("error reading 'name': %w", err)
-		}
-	}
-
 	return err
 }
 

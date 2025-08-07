@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os/exec"
 	"path"
 	"strings"
 	"testing"
@@ -12,12 +13,15 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestListenForEvents(t *testing.T) {
@@ -29,28 +33,29 @@ func TestListenForEvents(t *testing.T) {
 		expectedRestarts int
 		expectedStatus   v1alpha1.ApplicationStatusType
 		expectedSummary  v1alpha1.ApplicationsSummaryStatusType
-		events           []PodmanEvent
+		events           []client.PodmanEvent
 	}{
 		{
 			name: "single app start",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
 			},
-			expectedReady:   "1/1",
-			expectedStatus:  v1alpha1.ApplicationStatusRunning,
-			expectedSummary: v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedReady:    "1/1",
+			expectedStatus:   v1alpha1.ApplicationStatusRunning,
+			expectedSummary:  v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedRestarts: 0,
 		},
 		{
 			name: "single app multiple containers started then one manual stop exit code 0",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -66,9 +71,9 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app multiple containers started then one manual stop result sigkill",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -84,9 +89,9 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app start then die",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -99,9 +104,9 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app multiple containers one error one running",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -117,10 +122,10 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "multiple apps preparing to running",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
-				createTestApplication("app2", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app2", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -135,9 +140,9 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app start then removed",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -150,9 +155,9 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app upgrade different service/container counts",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -172,9 +177,9 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app only creates container no start",
 			apps: []Application{
-				createTestApplication("app1", v1alpha1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing),
 			},
-			events: []PodmanEvent{
+			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
@@ -192,20 +197,23 @@ func TestListenForEvents(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
-			var testInspect []PodmanInspect
+			var testInspect []client.PodmanInspect
 			restartsPerContainer := 3
 			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
-			podman := client.NewPodman(log, execMock, newTestBackoff())
-			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "")
+			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
+			podmanMonitor := NewPodmanMonitor(log, podman, "", rw)
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
-				err = podmanMonitor.ensure(testApp)
+				err := podmanMonitor.Ensure(testApp)
 				require.NoError(err)
 			}
 
@@ -263,7 +271,6 @@ func TestListenForEvents(t *testing.T) {
 					return true
 				}, timeoutDuration, retryDuration, "data was not processed in time")
 			}
-
 		})
 	}
 }
@@ -281,56 +288,56 @@ func TestApplicationAddRemove(t *testing.T) {
 		{
 			name:           "add app with '@' character",
 			appName:        "app1@2",
-			expectedName:   "app1_2",
+			expectedName:   "app1_2-819634",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "add app with ':' character",
 			appName:        "app-2:v2",
-			expectedName:   "app-2_v2",
+			expectedName:   "app-2_v2-721985",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "remove app1",
 			appName:        "app1@2",
-			expectedName:   "app1_2",
+			expectedName:   "app1_2-819634",
 			action:         "remove",
 			expectedExists: false,
 		},
 		{
 			name:           "remove app2",
 			appName:        "app-2:v2",
-			expectedName:   "app-2_v2",
+			expectedName:   "app-2_v2-721985",
 			action:         "remove",
 			expectedExists: false,
 		},
 		{
 			name:           "add app with '.' character",
 			appName:        "quay.io/test/app:v2.1",
-			expectedName:   "quay_io_test_app_v2_1",
+			expectedName:   "quay_io_test_app_v2_1-736341",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "add app with leading special characters",
 			appName:        "@app",
-			expectedName:   "_app",
+			expectedName:   "_app-221494",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "add app with trailing special characters",
 			appName:        "app@",
-			expectedName:   "app_",
+			expectedName:   "app_-583275",
 			action:         "add",
 			expectedExists: true,
 		},
 		{
 			name:           "add app with special characters in sequence",
 			appName:        "app!!",
-			expectedName:   "app__",
+			expectedName:   "app__-260528",
 			action:         "add",
 			expectedExists: true,
 		},
@@ -343,18 +350,21 @@ func TestApplicationAddRemove(t *testing.T) {
 			defer ctrl.Finish()
 
 			log := log.NewPrefixLogger("test")
+			tmpDir := t.TempDir()
+			readWriter := fileio.NewReadWriter()
+			readWriter.SetRootdir(tmpDir)
 			execMock := executer.NewMockExecuter(ctrl)
 
-			podman := client.NewPodman(log, execMock, newTestBackoff())
-			podmanMonitor := NewPodmanMonitor(log, execMock, podman, "")
-			testApp := createTestApplication(tc.appName, v1alpha1.ApplicationStatusPreparing)
+			podman := client.NewPodman(log, execMock, readWriter, util.NewPollConfig())
+			podmanMonitor := NewPodmanMonitor(log, podman, "", readWriter)
+			testApp := createTestApplication(require, tc.appName, v1alpha1.ApplicationStatusPreparing)
 
 			switch tc.action {
 			case "add":
-				err := podmanMonitor.ensure(testApp)
+				err := podmanMonitor.Ensure(testApp)
 				require.NoError(err)
 			case "remove":
-				err := podmanMonitor.remove(testApp)
+				err := podmanMonitor.Remove(testApp)
 				require.NoError(err)
 			}
 
@@ -365,15 +375,14 @@ func TestApplicationAddRemove(t *testing.T) {
 	}
 }
 
-func createTestApplication(name string, status v1alpha1.ApplicationStatusType) Application {
-	var provider v1alpha1.ImageApplicationProvider
-	id := client.SanitizePodmanLabel(name)
-	app := NewApplication(id, name, provider, AppCompose)
+func createTestApplication(require *require.Assertions, name string, status v1alpha1.ApplicationStatusType) Application {
+	provider := newMockProvider(require, name)
+	app := NewApplication(provider)
 	app.status.Status = status
 	return app
 }
 
-func writeEvent(writer io.WriteCloser, event *PodmanEvent) error {
+func writeEvent(writer io.WriteCloser, event *client.PodmanEvent) error {
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -383,16 +392,16 @@ func writeEvent(writer io.WriteCloser, event *PodmanEvent) error {
 	return err
 }
 
-func mockPodmanEventSuccess(name, service, status string) PodmanEvent {
+func mockPodmanEventSuccess(name, service, status string) client.PodmanEvent {
 	return createMockPodmanEvent(name, service, status, 0)
 }
 
-func mockPodmanEventError(name, service, status string, exitCode int) PodmanEvent {
+func mockPodmanEventError(name, service, status string, exitCode int) client.PodmanEvent {
 	return createMockPodmanEvent(name, service, status, exitCode)
 }
 
-func createMockPodmanEvent(name, service, status string, exitCode int) PodmanEvent {
-	event := PodmanEvent{
+func createMockPodmanEvent(name, service, status string, exitCode int) client.PodmanEvent {
+	event := client.PodmanEvent{
 		ID:     "8559c630e04ea852101467742e95b9e371fe6dd8c9195910354636d68d388a40",
 		Image:  "docker.io/library/alpine:latest",
 		Name:   fmt.Sprintf("%s-container", service),
@@ -401,7 +410,7 @@ func createMockPodmanEvent(name, service, status string, exitCode int) PodmanEve
 		Attributes: map[string]string{
 			"PODMAN_SYSTEMD_UNIT":                     "podman-compose@user.service",
 			"com.docker.compose.container-number":     "1",
-			"com.docker.compose.project":              name,
+			"com.docker.compose.project":              client.NewComposeID(name),
 			"com.docker.compose.project.config_files": "podman-compose.yaml",
 			"com.docker.compose.project.working_dir":  path.Join("/usr/local/lib/compose", name),
 			"com.docker.compose.service":              service,
@@ -416,15 +425,9 @@ func createMockPodmanEvent(name, service, status string, exitCode int) PodmanEve
 	return event
 }
 
-func mockPodmanInspect(restarts int) PodmanInspect {
-	return PodmanInspect{
+func mockPodmanInspect(restarts int) client.PodmanInspect {
+	return client.PodmanInspect{
 		Restarts: restarts,
-	}
-}
-
-func newTestBackoff() wait.Backoff {
-	return wait.Backoff{
-		Steps: 1,
 	}
 }
 
@@ -435,44 +438,143 @@ func BenchmarkNewComposeID(b *testing.B) {
 		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
 			input := strings.Repeat("a", size)
 			for i := 0; i < b.N; i++ {
-				newComposeID(input)
+				client.NewComposeID(input)
 			}
 		})
 	}
 }
 
-func TestNewComposeID(t *testing.T) {
+func newMockProvider(require *require.Assertions, name string) provider.Provider {
+	return &mockProvider{name: name, require: require}
+}
+
+type mockProvider struct {
+	name    string
+	require *require.Assertions
+}
+
+func (m *mockProvider) Name() string {
+	return m.name
+}
+
+func (m *mockProvider) Spec() *provider.ApplicationSpec {
+	volManager, err := provider.NewVolumeManager(nil, m.name, nil)
+	m.require.NoError(err)
+	return &provider.ApplicationSpec{
+		ID:     client.NewComposeID(m.name),
+		Name:   m.name,
+		Volume: volManager,
+	}
+}
+
+func (m *mockProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	return nil, nil
+}
+
+func (m *mockProvider) Verify(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockProvider) Install(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockProvider) Remove(ctx context.Context) error {
+	return nil
+}
+
+func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require := require.New(t)
-	testCases := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple",
-			input:    "app1",
-			expected: "app1-229522",
-		},
-		{
-			name:     "with @ special character",
-			input:    "app1@2",
-			expected: "app1_2-819634",
-		},
-		{
-			name:     "with : special characters",
-			input:    "app-2:v2",
-			expected: "app-2_v2-721985",
-		},
-		{
-			name:     "with multiple !! special characters",
-			input:    "app!!",
-			expected: "app__-260528",
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := newComposeID(tc.input)
-			require.Equal(tc.expected, result)
-		})
-	}
+
+	ctx := context.Background()
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+
+	readWriter := fileio.NewReadWriter()
+	tmpDir := t.TempDir()
+	readWriter.SetRootdir(tmpDir)
+
+	// Unlike the real podman events call, this will emit a single event and then close
+	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).
+		DoAndReturn(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			now := time.Now().UnixNano()
+			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
+		}).AnyTimes()
+
+	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, "", readWriter)
+
+	// Create test applications
+	app1 := createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing)
+	app2 := createTestApplication(require, "app2", v1alpha1.ApplicationStatusPreparing)
+
+	// Application IDs for tracking
+	app1ID := app1.ID()
+	app2ID := app2.ID()
+
+	// 1. Start with no applications - verify monitor is not running
+	require.False(podmanMonitor.isRunning())
+	require.Equal(0, len(podmanMonitor.apps))
+
+	// 2. Add two applications
+	err := podmanMonitor.Ensure(app1)
+	require.NoError(err)
+	err = podmanMonitor.Ensure(app2)
+	require.NoError(err)
+
+	// Execute actions - monitor should start because we have apps
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.True(podmanMonitor.isRunning())
+	require.True(podmanMonitor.Has(app1ID))
+	require.True(podmanMonitor.Has(app2ID))
+
+	// Process an event
+	require.Eventually(func() bool {
+		return podmanMonitor.getLastEventTime() != ""
+	}, time.Millisecond*100, 5*time.Millisecond)
+
+	// 3. Remove app1 - monitor should still be running
+	err = podmanMonitor.Remove(app1)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.True(podmanMonitor.isRunning()) // Still running because app2 exists
+	require.False(podmanMonitor.Has(app1ID))
+	require.True(podmanMonitor.Has(app2ID))
+
+	// 4. Remove app2 - monitor should stop
+	err = podmanMonitor.Remove(app2)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.False(podmanMonitor.isRunning()) // Stopped because no apps
+	require.False(podmanMonitor.Has(app1ID))
+	require.False(podmanMonitor.Has(app2ID))
+
+	// ensure no panic occurs as the result of stopping an already stopped monitor
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.False(podmanMonitor.isRunning())
+
+	// 5. Add app1 again - monitor should start
+	err = podmanMonitor.Ensure(app1)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.True(podmanMonitor.isRunning()) // Started again
+	require.True(podmanMonitor.Has(app1ID))
+
+	// 6. Remove app1 final time - monitor should stop
+	err = podmanMonitor.Remove(app1)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.False(podmanMonitor.isRunning()) // Stopped again
+	require.False(podmanMonitor.Has(app1ID))
 }

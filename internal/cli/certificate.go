@@ -6,6 +6,8 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -22,12 +24,13 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/client"
-	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
@@ -57,7 +60,7 @@ func DefaultCertificateOptions() *CertificateOptions {
 		Output:        "embedded",
 		OutputDir:     ".",
 		EncryptKey:    false,
-		SignerName:    "enrollment",
+		SignerName:    "flightctl.io/enrollment",
 	}
 }
 
@@ -76,7 +79,9 @@ func NewCmdCertificate() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -90,7 +95,7 @@ func (o *CertificateOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Expiration, "expiration", "x", o.Expiration, "Specify desired certificate expiration in days, example: 7d.")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, "Specify desired output format for an enrollment cert: either 'reference' to have the config file reference key and cert file paths, or 'embedded' to have the key and cert embedded in the config file.")
 	fs.StringVarP(&o.OutputDir, "output-dir", "d", o.OutputDir, "Specify desired output directory for key, cert, and ca files.")
-	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of certificate requested: 'enrollment' or 'ca'.")
+	fs.StringVarP(&o.SignerName, "signer", "s", o.SignerName, "Specify the signer of the certificate request.")
 	fs.BoolVarP(&o.EncryptKey, "encrypt", "e", o.EncryptKey, "Option to encrypt key file with a password from env var $FCPASS, or if $FCPASS is not set password must be provided during runtime.")
 }
 
@@ -99,8 +104,12 @@ func (o *CertificateOptions) Complete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if o.SignerName == "enrollment" {
+		o.SignerName = "flightctl.io/enrollment"
+	}
+
 	if len(o.Name) == 0 {
-		if o.SignerName == "enrollment" {
+		if o.SignerName == "flightctl.io/enrollment" {
 			o.Name = "client-enrollment"
 		} else {
 			o.Name = "cert"
@@ -119,12 +128,12 @@ func (o *CertificateOptions) Validate(args []string) error {
 	}
 
 	if errs := validation.ValidateSignerName(o.SignerName); len(errs) > 0 {
-		return fmt.Errorf("invalid certificate type. current certificate types supported: 'enrollment', 'ca'")
+		return fmt.Errorf("invalid signer name %q: %w", o.SignerName, errors.Join(errs...))
 	}
 
 	// check if user updated output format while requesting a cert that is not an enrollment cert -
 	// output format is only relevant for enrollment certs
-	if o.SignerName != "enrollment" && len(o.Output) > 0 {
+	if o.SignerName != "flightctl.io/enrollment" && len(o.Output) > 0 {
 		return fmt.Errorf("output format cannot be set for certificate types other than 'enrollment'")
 	}
 
@@ -163,7 +172,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		}
 	}
 
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -175,13 +184,13 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 
 	// if this isn't an enrollment cert, approval may take arbitrary time, so don't poll for
 	// the cert here - we're done!
-	if o.SignerName != "enrollment" {
+	if o.SignerName != "flightctl.io/enrollment" {
 		return nil
 	}
 
 	fmt.Fprintf(os.Stderr, "Waiting for certificate to be approved and issued...")
 	var currentCsr *api.CertificateSigningRequest
-	err = wait.PollWithContext(ctx, time.Second, 2*time.Minute, func(ctx context.Context) (bool, error) {
+	err = wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, false, func(ctx context.Context) (bool, error) {
 		fmt.Fprint(os.Stderr, ".")
 		currentCsr, err = getCsr(csrName, c, ctx)
 		if err != nil {
@@ -192,7 +201,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	switch {
 	case err == nil:
 		fmt.Fprintln(os.Stderr, " success.")
-	case errors.Is(err, wait.ErrWaitTimeout):
+	case wait.Interrupted(err):
 		return fmt.Errorf("timeout polling for certificate")
 	default:
 		return fmt.Errorf("polling for certificate: %w", err)
@@ -240,7 +249,8 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apiclient.ClientWithResponses, priv crypto.PrivateKey) (string, error) {
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		csrName := createUniqueName(o.Name)
-		csrResourceJSON, err := createCsr(o, csrName, priv)
+		csrOrg := o.GetEffectiveOrganization()
+		csrResourceJSON, err := createCsr(o, csrName, csrOrg, priv)
 		if err != nil {
 			return "", fmt.Errorf("creating CSR resource: %w", err)
 		}
@@ -262,13 +272,16 @@ func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apicli
 			continue
 		default:
 			fmt.Fprintln(os.Stderr, " failed.")
-			return "", fmt.Errorf("submitting CSR failed with status %q: %w", response.HTTPResponse.Status, err)
+			if response.JSON400 != nil {
+				return "", fmt.Errorf("submitting CSR failed with status %q: %s", response.HTTPResponse.Status, response.JSON400.Message)
+			}
+			return "", fmt.Errorf("submitting CSR failed with status %q", response.HTTPResponse.Status)
 		}
 	}
 	return "", fmt.Errorf("submitting CSR failed after %d attempts, giving up", maxAttempts)
 }
 
-func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]byte, error) {
+func createCsr(o *CertificateOptions, name string, organization string, priv crypto.PrivateKey) ([]byte, error) {
 	days, err := strconv.Atoi(strings.TrimSuffix(o.Expiration, "d"))
 	if err != nil {
 		return nil, err
@@ -278,9 +291,26 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 		return nil, err
 	}
 
-	// the CN is going to be a FC-generated UUID, populated at signing time
+	if name == "" {
+		name = uuid.NewString()
+	}
 	template := &x509.CertificateRequest{
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
+		Subject: pkix.Name{
+			CommonName: name,
+		},
+	}
+
+	if organization != "" {
+		encoded, err := asn1.Marshal(organization)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling org ID extension: %w", err)
+		}
+		template.ExtraExtensions = append(template.ExtraExtensions, pkix.Extension{
+			Id:       signer.OIDOrgID,
+			Critical: false,
+			Value:    encoded,
+		})
 	}
 
 	csrInner, err := x509.CreateCertificateRequest(rand.Reader, template, priv)
@@ -319,7 +349,7 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 }
 
 func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) (*api.CertificateSigningRequest, error) {
-	response, err := c.ReadCertificateSigningRequestWithResponse(ctx, name)
+	response, err := c.GetCertificateSigningRequestWithResponse(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +379,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 		return fmt.Errorf("base64 decoding CA data: %w", err)
 	}
 
-	config := &agent.Config{}
+	config := lo.ToPtr(config.NewServiceConfig())
 	config.EnrollmentService.AuthInfo.ClientCertificateData = *currentCsr.Status.Certificate
 	config.EnrollmentService.AuthInfo.ClientKeyData = pemPriv
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
@@ -357,7 +387,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
 	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling agent config: %w", err)
+		return fmt.Errorf("marshalling agent service config: %w", err)
 	}
 
 	fmt.Print(string(marshalled))
@@ -365,7 +395,7 @@ func createEmbeddedConfig(currentCsr *api.CertificateSigningRequest, priv crypto
 }
 
 func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigResponse) error {
-	config := &agent.Config{}
+	config := lo.ToPtr(config.NewServiceConfig())
 	config.EnrollmentService.AuthInfo.ClientCertificate = filepath.Join(agentPath, name+".crt")
 	config.EnrollmentService.AuthInfo.ClientKey = filepath.Join(agentPath, name+".key")
 	config.EnrollmentService.Service.Server = response.JSON200.EnrollmentService.Service.Server
@@ -373,7 +403,7 @@ func createReferenceConfig(name string, response *apiclient.GetEnrollmentConfigR
 	config.EnrollmentService.EnrollmentUIEndpoint = response.JSON200.EnrollmentService.EnrollmentUiEndpoint
 	marshalled, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshalling agent config: %w", err)
+		return fmt.Errorf("marshalling agent service config: %w", err)
 	}
 
 	fmt.Print(string(marshalled))

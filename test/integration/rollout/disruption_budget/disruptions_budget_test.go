@@ -7,11 +7,14 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -20,10 +23,18 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+var (
+	suiteCtx context.Context
+)
+
 func TestDisruptionBudget(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Disruption budget suite")
 }
+
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Disruption budget suite")
+})
 
 type equalLabelsMatcher func(name string) bool
 
@@ -48,8 +59,9 @@ var _ = Describe("Rollout disruption budget test", func() {
 		dbName              string
 		cfg                 *config.Config
 		storeInst           store.Store
+		serviceHandler      service.Service
 		ctrl                *gomock.Controller
-		mockCallbackManager *tasks.MockCallbackManager
+		mockCallbackManager *tasks_client.MockCallbackManager
 		tvName              string
 	)
 
@@ -73,7 +85,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			},
 		}
 
-		f, err := storeInst.Fleet().Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := storeInst.Fleet().Create(ctx, store.NullOrgId, fleet, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -87,13 +99,13 @@ var _ = Describe("Rollout disruption budget test", func() {
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
 		}
-		tv, err := storeInst.TemplateVersion().Create(ctx, store.NullOrgId, &templateVersion, nil)
+		tv, err := storeInst.TemplateVersion().Create(ctx, store.NullOrgId, &templateVersion, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 		tvName = *tv.Metadata.Name
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)).ToNot(HaveOccurred())
+		Expect(storeInst.Fleet().UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
 	}
 	var (
 		labels1 = map[string]string{
@@ -107,7 +119,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 	)
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := storeInst.Device().Update(ctx, store.NullOrgId, device, nil, false, nil, nil)
+		_, err := storeInst.Device().Update(ctx, store.NullOrgId, device, nil, false, nil, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -134,14 +146,19 @@ var _ = Describe("Rollout disruption budget test", func() {
 	}
 
 	BeforeEach(func() {
-		ctx = context.Background()
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(log)
+		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
-		mockCallbackManager = tasks.NewMockCallbackManager(ctrl)
+		mockCallbackManager = tasks_client.NewMockCallbackManager(ctrl)
+		publisher := queues.NewMockPublisher(ctrl)
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		Expect(err).ToNot(HaveOccurred())
+		serviceHandler = service.NewServiceHandler(storeInst, mockCallbackManager, kvStore, nil, log, "", "", []string{})
 	})
 	AfterEach(func() {
-		store.DeleteTestDB(log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 		ctrl.Finish()
 	})
 	Context("Query fleets", func() {
@@ -155,7 +172,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d)
+					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 					annotations := make(map[string]string)
 					if annotateTv {
@@ -167,56 +184,60 @@ var _ = Describe("Rollout disruption budget test", func() {
 					annotations[api.DeviceAnnotationRenderedVersion] = "5"
 					Expect(storeInst.Device().UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
 					d.Status.Config.RenderedVersion = "5"
-					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d)
+					_, err = storeInst.Device().UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}
 		}
 		It("One fleet - no devices", func() {
 			initTest(nil, 0, false, false)
-			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
+			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - one device no matching fleet", func() {
 			initTest(nil, 1, false, false)
-			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
+			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - one device with matching fleet - non matching disruption budget", func() {
 			initTest(nil, 1, true, false)
-			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
+			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - one device no matching fleet", func() {
 			initTest(nil, 1, true, true)
-			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
+			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - one device with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 1, true, false)
-			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
+			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - two devices with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 2, true, false)
-			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any())
+			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 6, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
-			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any())
+			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), equalLabels(labels1))
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), equalLabels(labels2))
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels - without unavailable", func() {
 			initTest(disruptionBudget(nil, lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 9, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 3})
-			reconciler := disruption_budget.NewReconciler(storeInst, mockCallbackManager, log)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), equalLabels(labels2)).Times(2)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), equalLabels(labels1)).Times(3)
-			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any())
+			reconciler := disruption_budget.NewReconciler(serviceHandler, mockCallbackManager, log)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), equalLabels(labels2)).Times(2)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), equalLabels(labels1)).Times(3)
+			mockCallbackManager.EXPECT().DeviceSourceUpdated(gomock.Any(), gomock.Any(), gomock.Any())
 			reconciler.Reconcile(ctx)
 		})
 	})

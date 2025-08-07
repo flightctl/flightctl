@@ -67,7 +67,7 @@ func (m *manager) EnsurePatterns(patterns []string) error {
 	return nil
 }
 
-func (m *manager) Status(ctx context.Context, device *v1alpha1.DeviceStatus) error {
+func (m *manager) Status(ctx context.Context, device *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
 	if len(m.patterns) == 0 {
 		return nil
 	}

@@ -8,8 +8,7 @@ import (
 	"os"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/client"
-	fccrypto "github.com/flightctl/flightctl/internal/crypto"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"sigs.k8s.io/yaml"
@@ -45,7 +44,9 @@ func NewCmdEnrollmentConfig() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -74,7 +75,7 @@ func (o *EnrollmentConfigOptions) Validate(args []string) error {
 }
 
 func (o *EnrollmentConfigOptions) Run(ctx context.Context, args []string) error {
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}

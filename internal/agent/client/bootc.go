@@ -37,9 +37,14 @@ func (b *bootc) Status(ctx context.Context) (*container.BootcHost, error) {
 		return nil, fmt.Errorf("bootc status: %w", errors.FromStderr(stderr, exitCode))
 	}
 
+	if !isJSON(stdout) {
+		b.log.Warnf("Non-JSON output from bootc status: %q", stdout)
+		return nil, errors.ErrBootcStatusInvalidJSON
+	}
+
 	var bootcHost container.BootcHost
 	if err := json.Unmarshal([]byte(stdout), &bootcHost); err != nil {
-		return nil, fmt.Errorf("unmarshalling config file: %w", err)
+		return nil, fmt.Errorf("unmarshalling bootc status: %w", err)
 	}
 
 	return &bootcHost, nil
@@ -107,4 +112,10 @@ func (b *bootc) UsrOverlay(ctx context.Context) error {
 		return fmt.Errorf("overlay image: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
+}
+
+// isJSON checks whether a string is valid JSON
+func isJSON(s string) bool {
+	var js json.RawMessage
+	return json.Unmarshal([]byte(s), &js) == nil
 }

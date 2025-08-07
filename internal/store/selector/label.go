@@ -97,14 +97,13 @@ func NewLabelSelector(input string) (*LabelSelector, error) {
 }
 
 // Parse converts the LabelSelector into a SQL query with parameters.
-// The method resolves the destination structure (dest) and maps it
-// to the label field to generate the query.
+// The method uses a provided resolver to determine the correct labels field.
 //
 // Parameters:
 //
-//	ctx   - The context for managing operation lifecycle.
-//	dest  - The target object (e.g., database model) providing field definitions.
-//	name  - The selector name to resolve the label field.
+//	ctx      - The context for managing operation lifecycle.
+//	name     - The selector name to resolve the labels field.
+//	resolver - A Resolver instance used to resolve the selector fields.
 //
 // Returns:
 //
@@ -115,18 +114,19 @@ func NewLabelSelector(input string) (*LabelSelector, error) {
 // Example:
 //
 //	ls, _ := NewLabelSelector("key1=value1,key2!=value2")
-//	query, args, err := ls.Parse(ctx, &MyModel{}, "labels")
+//	query, args, err := ls.Parse(ctx, "labels", myResolver)
 //	if err != nil {
 //	    log.Fatalf("Failed to parse label selector: %v", err)
 //	}
 //	fmt.Printf("Query: %s, Args: %v\n", query, args)
-func (ls *LabelSelector) Parse(ctx context.Context, dest any, name SelectorName) (string, []any, error) {
-	fr, err := SelectorFieldResolver(dest)
-	if err != nil {
-		return "", nil, NewSelectorError(flterrors.ErrLabelSelectorParseFailed, err)
+func (ls *LabelSelector) Parse(ctx context.Context, name SelectorName, resolver Resolver) (string, []any, error) {
+	if resolver == nil {
+		return "", nil, NewSelectorError(flterrors.ErrLabelSelectorParseFailed,
+			fmt.Errorf("resolver is not defined"))
 	}
 
-	resolvedFields, err := fr.ResolveFields(name)
+	// Resolve selector fields using the provided resolver
+	resolvedFields, err := resolver.ResolveFields(name)
 	if err != nil {
 		return "", nil, NewSelectorError(flterrors.ErrLabelSelectorParseFailed, err)
 	}
@@ -152,7 +152,7 @@ func (ls *LabelSelector) Parse(ctx context.Context, dest any, name SelectorName)
 
 	q, args, err := ls.parser.Parse(ctx, ls.selector)
 	if err != nil {
-		if ok := IsSelectorError(err); ok {
+		if IsSelectorError(err) {
 			return "", nil, err
 		}
 		return "", nil, NewSelectorError(flterrors.ErrLabelSelectorParseFailed, err)

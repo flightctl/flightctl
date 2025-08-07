@@ -1,249 +1,191 @@
 package selectors
 
 import (
+	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
-	"github.com/flightctl/flightctl/test/util"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/sirupsen/logrus"
 )
 
 const (
-	deviceYAMLPath  = "examples/device.yaml"
-	fleetYAMLPath   = "examples/fleet.yaml"
-	repoYAMLPath    = "examples/repository-flightctl.yaml"
+	deviceAYAMLPath = "device.yaml"
+	deviceBYAMLPath = "device-b.yaml"
+	fleetYAMLPath   = "fleet.yaml"
 	unknownSelector = "unknown or unsupported selector"
 	resourceCreated = `(200 OK|201 Created)`
 	unknownFlag     = "unknown flag"
 	failedToParse   = "failed to parse"
+	DefaultTimeout  = "120s"
+	RetryInterval   = "1s"
 )
+
+var (
+	suiteCtx context.Context
+)
+
+// FieldSelectorTestParams defines the parameters for field selector tests, including arguments, expected match status, and expected output.
+type FieldSelectorTestParams struct {
+	Args        []string
+	ShouldMatch bool
+	Expected    string
+}
+
+// EntryCase creates a test case for field selector tests with the given description, arguments, expected match status, and expected output.
+func EntryCase(desc string, args []string, shouldMatch bool, expected string) testutil.TestCase[FieldSelectorTestParams] {
+	return testutil.TestCase[FieldSelectorTestParams]{
+		Description: desc,
+		Params: FieldSelectorTestParams{
+			Args:        args,
+			ShouldMatch: shouldMatch,
+			Expected:    expected,
+		},
+	}
+}
 
 func TestFieldSelectors(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Field Selectors E2E Suite")
 }
 
-// Utility function to generate dynamic timestamps
-func generateTimestamps() (string, string) {
-	now := time.Now()
-	startOfYear := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
-	endOfYear := time.Date(now.Year()+1, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	return startOfYear.Format(time.RFC3339), endOfYear.Format(time.RFC3339)
-}
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Field Selectors E2E Suite")
+})
 
 var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 	var (
-		harness *e2e.Harness
+		harness       *e2e.Harness
+		deviceInfo    v1alpha1.Device
+		deviceBInfo   v1alpha1.Device
+		deviceAName   string
+		deviceBName   string
+		DeviceARegion string
 	)
+
+	BeforeEach(func() {
+		_ = testutil.StartSpecTracerForGinkgo(suiteCtx)
+	})
 
 	// Setup for the suite
 	BeforeAll(func() {
-		harness = e2e.NewTestHarness()
+		harness = e2e.NewTestHarness(suiteCtx)
 		login.LoginToAPIWithToken(harness)
+		logrus.Infof("Harness Created")
 	})
 
-	// Cleanup after each test
 	AfterEach(func() {
 		harness.Cleanup(false)
 	})
 
-	// Helper function to dynamically extract device name
-	extractDeviceName := func() string {
-		device := harness.GetDeviceByYaml(util.GetExamplesYamlPath("device.yaml"))
-		Expect(*device.Metadata.Name).ToNot(BeEmpty(), "device name should not be empty")
-		return strings.TrimSpace(*device.Metadata.Name)
-	}
-
-	Context("Basic Functionality Tests", Label("77917"), func() {
-		It("We can list devices and create resources", func() {
-			By("Listing devices", func() {
-				out, err := harness.CLI("get", "devices")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring("NAME"))
-			})
-			By("create a complete fleet", func() {
-				_, _ = harness.CLI("delete", "fleet")
-				out, err := harness.CLI("apply", "-f", filepath.Join(util.GetTopLevelDir(), fleetYAMLPath))
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(MatchRegexp(resourceCreated))
-			})
-			By("create a device", func() {
-				_, _ = harness.CLI("delete", "device")
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("apply", "-R", "-f", filepath.Join(util.GetTopLevelDir(), deviceYAMLPath))
-				time.Sleep(30 * time.Second) // to establish fleet before adding device to it
-				Eventually(func() error {
-					_, err := harness.CLI("get", "fleet")
-					return err
-				}, "30s", "1s").Should(BeNil(), "Timeout waiting for fleet to be ready")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(MatchRegexp(resourceCreated))
-				Expect(out).To(ContainSubstring(fmt.Sprintf("%s/%s", deviceYAMLPath, deviceName)))
-			})
-			By("create a complete repo", func() {
-				out, err := harness.CLI("apply", "-f", filepath.Join(util.GetTopLevelDir(), repoYAMLPath))
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(MatchRegexp(resourceCreated))
-			})
-		})
-
-		It("filters devices", func() {
-			By("filters devices by name", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "--field-selector", fmt.Sprintf("metadata.name=%s", deviceName))
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
-			})
-
-			By("filters devices by owner", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "--field-selector", "metadata.owner=Fleet/default", "-owide")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
-			})
-
-			By("filters devices by creation timestamp", func() {
-				deviceName := extractDeviceName()
-				startTimestamp, endTimestamp := generateTimestamps()
-				out, err := harness.CLI("get", "devices", "--field-selector",
-					fmt.Sprintf("metadata.creationTimestamp>=%s,metadata.creationTimestamp<%s", startTimestamp, endTimestamp), "-owide")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
-			})
-		})
+	AfterAll(func() {
+		err := harness.CleanUpAllResources()
+		Expect(err).ToNot(HaveOccurred())
 	})
 
-	Context("Advanced Functionality Tests", Label("77947"), func() {
-		It("Advanced Functionality Tests", func() {
-			By("filters devices by multiple field selectors", func() {
-				deviceName := extractDeviceName()
-				startTimestamp, _ := generateTimestamps()
-				out, err := harness.CLI("get", "devices", "-l", "region=eu-west-1", "--field-selector",
-					fmt.Sprintf("metadata.creationTimestamp>=%s", startTimestamp))
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
-			})
+	Context("Basic Functionality Tests", func() {
+		It("We can list devices and create resources", Label("77917", "sanity"), func() {
+			By("Listing devices")
+			out, err := harness.RunGetDevices()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("NAME"))
 
-			By("excludes devices by name", func() {
-				out, err := harness.CLI("get", "devices", "--field-selector", "metadata.name!=device1-name")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).ToNot(ContainSubstring("device1-name"))
+			By("create a complete fleet")
+			_, _ = harness.ManageResource("delete", "fleet")
+			out, err = harness.ManageResource("apply", fleetYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+
+			By("Get device info from the yaml")
+			deviceInfo = harness.GetDeviceByYaml(testutil.GetTestExamplesYamlPath(deviceAYAMLPath))
+			deviceAName = *deviceInfo.Metadata.Name
+			DeviceARegion = (*deviceInfo.Metadata.Labels)["region"]
+			deviceBInfo = harness.GetDeviceByYaml(testutil.GetTestExamplesYamlPath(deviceBYAMLPath))
+			deviceBName = *deviceBInfo.Metadata.Name
+			Expect(deviceAName).ToNot(BeEmpty())
+			Expect(deviceBName).ToNot(BeEmpty())
+
+			_, _ = harness.ManageResource("delete", "device")
+			out, err = harness.ManageResource("apply", deviceAYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			out, err = harness.ManageResource("apply", deviceBYAMLPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+
+			logrus.Infof("Device Created: %s", deviceAName)
+			logrus.Infof("Device Created: %s", deviceBName)
+
+			Eventually(func() error {
+				out, err = harness.CLI("get", "device")
+				return err
+			}, DefaultTimeout, RetryInterval).Should(BeNil(), "Timeout waiting for fleet to be ready")
+			Expect(out).To(ContainSubstring("defaultDevice"))
+		})
+
+		It("Field selector filters", Label("77947", "sanity"), func() {
+			start, end := testutil.GetCurrentYearBounds()
+			tests := testutil.Cases(
+				EntryCase("filters devices by name", []string{"--field-selector", fmt.Sprintf("metadata.name=%s", deviceAName)}, true, deviceAName),
+				EntryCase("filters devices by alias", []string{"--field-selector", fmt.Sprintf("metadata.alias=%s", (*deviceInfo.Metadata.Labels)["alias"])}, true, deviceAName),
+				EntryCase("filters devices by nameOrAlias", []string{"--field-selector", fmt.Sprintf("metadata.nameOrAlias=%s", (*deviceInfo.Metadata.Labels)["alias"])}, true, deviceAName),
+				EntryCase("filters devices by owner", []string{"--field-selector", "metadata.owner=Fleet/default", "-owide"}, true, ""),
+				EntryCase("filters devices by creation timestamp", []string{"--field-selector", fmt.Sprintf("metadata.creationTimestamp>=%s,metadata.creationTimestamp<%s", start, end), "-owide"}, true, deviceAName),
+			)
+			testutil.RunTable(tests, func(params FieldSelectorTestParams) {
+				out, err := harness.CLI(append([]string{"get", "device"}, params.Args...)...)
+				if params.ShouldMatch {
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(ContainSubstring(params.Expected))
+				} else {
+					Expect(out).ToNot(ContainSubstring(params.Expected))
+				}
 			})
 		})
-	})
 
-	Context("Label Selectors Tests", Label("78751"), func() {
-		It("Label Selectors Tests", func() {
-			By("filters devices by region in a set", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "-l", "region in (test, eu-west-1)", "-owide")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
-			})
-
-			By("filters devices by region not in a set", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "-l", "region notin (test, eu-west-2)", "-owide")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
-			})
-
-			By("filters devices by label existence", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "-l", "region", "-owide")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
-			})
-
-			By("filters devices by label non-existence", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "-l", "!region", "-owide")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).ToNot(ContainSubstring(deviceName))
-			})
-
-			By("filters devices by exact label match", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "-l", "region=eu-west-1")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
-			})
-
-			By("filters devices by label mismatch", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "-l", "region!=eu-west-1")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).ToNot(ContainSubstring(deviceName))
-			})
-
-			By("filters devices by label and field selector", func() {
-				deviceName := extractDeviceName()
-				out, err := harness.CLI("get", "devices", "-l", "region=eu-west-1", "--field-selector", "status.updated.status in (UpToDate, Unknown)")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(deviceName))
+		It("Label selector filters", Label("78751", "sanity"), func() {
+			tests := testutil.Cases(
+				EntryCase("filters by region in set", []string{"-l", fmt.Sprintf("region in (test, %s)", DeviceARegion), "-owide"}, true, deviceAName),
+				EntryCase("filters by region not in set", []string{"-l", "region notin (test, eu-west-2)", "-owide"}, true, deviceAName),
+				EntryCase("filters by label existence", []string{"-l", "region", "-owide"}, true, deviceAName),
+				EntryCase("filters by label non-existence", []string{"-l", "!region"}, false, deviceAName),
+				EntryCase("filters by exact label match", []string{"-l", fmt.Sprintf("region=%s", DeviceARegion)}, true, deviceAName),
+				EntryCase("filters by label mismatch", []string{"-l", fmt.Sprintf("region!=%s", DeviceARegion)}, false, deviceAName),
+				EntryCase("filters by label and field selector", []string{"-l", fmt.Sprintf("region=%s", DeviceARegion), "--field-selector", "status.updated.status in (UpToDate, Unknown)"}, true, deviceAName),
+			)
+			testutil.RunTable(tests, func(params FieldSelectorTestParams) {
+				out, err := harness.CLI(append([]string{"get", "device"}, params.Args...)...)
+				if params.ShouldMatch {
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(ContainSubstring(params.Expected))
+				} else {
+					Expect(out).ToNot(ContainSubstring(params.Expected))
+				}
 			})
 		})
-	})
 
-	Context("Negative Tests", Label("77948"), func() {
-		It("Negative Tests", func() {
-			By("returns an error for an invalid field selector", func() {
-				out, err := harness.CLI("get", "devices", "--field-selector", "invalid.field")
+		It("Negative field selector and label cases", Label("77948", "sanity"), func() {
+			tests := testutil.Cases(
+				EntryCase("invalid field selector", []string{"--field-selector", "invalid.field"}, false, unknownSelector),
+				EntryCase("unsupported field selector", []string{"--field-selector", "unsupported.field"}, false, unknownSelector),
+				EntryCase("invalid selector syntax", []string{"--field-selector", "metadata.name@=device1-name"}, false, failedToParse),
+				EntryCase("incorrect field type", []string{"--field-selector", "metadata.name>10"}, false, "unsupported for type string"),
+				EntryCase("deprecated contains operator", []string{"--field-selector", fmt.Sprintf("metadata.labels contains region=%s", DeviceARegion)}, false, "field is marked as private and cannot be selected"),
+				EntryCase("deprecated owner flag", []string{"--owner"}, false, unknownFlag),
+				EntryCase("deprecated status-filter flag", []string{"--status-filter=updated.status=UpToDate"}, false, unknownFlag),
+				EntryCase("bad syntax =!", []string{"-l", fmt.Sprintf("'region!=%s'", DeviceARegion)}, false, failedToParse),
+				EntryCase("bad syntax ! outside quotes", []string{"-l", fmt.Sprintf("!'region=%s'", DeviceARegion)}, false, failedToParse),
+				EntryCase("bad syntax ! at start of quotes", []string{"-l", fmt.Sprintf("'!region=%s'", DeviceARegion)}, false, failedToParse),
+			)
+			testutil.RunTable(tests, func(params FieldSelectorTestParams) {
+				out, err := harness.CLI(append([]string{"get", "device"}, params.Args...)...)
 				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(unknownSelector))
-			})
-			By("returns an error for an unsupported field selector", func() {
-				out, err := harness.CLI("get", "devices", "--field-selector", "unsupported.field")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(unknownSelector))
-			})
-			By("returns an error for an invalid operator", func() {
-				out, err := harness.CLI("get", "devices", "--field-selector", "metadata.name@=device1-name")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(unknownSelector))
-			})
-			By("returns an error for an incorrect field type", func() {
-				out, err := harness.CLI("get", "devices", "--field-selector", "metadata.name>10")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring("unsupported for type string"))
-				Expect(out).To(ContainSubstring("metadata.name"))
-			})
-			By("returns an error for filtering devices by deprecated contains operator", func() {
-				out, err := harness.CLI("get", "devices", "--field-selector", "metadata.labels contains region=eu-west-1")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring("field is marked as private and cannot be selected"))
-			})
-			By("returns an error for filtering devices by deprecated owner flag", func() {
-				out, err := harness.CLI("get", "devices", "--owner")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(unknownFlag))
-			})
-			By("returns an error for filtering devices by deprecated status-filter flag", func() {
-				out, err := harness.CLI("get", "devices", "--status-filter=updated.status=UpToDate")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(unknownFlag))
-			})
-			By("returns an error for bad syntax using =! operator", func() {
-				out, err := harness.CLI("get", "devices", "-l", "'region=!eu-west-1'")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(failedToParse))
-			})
-			By("returns an error for bad syntax using ! operator outside the quotes", func() {
-				out, err := harness.CLI("get", "devices", "-l", "!'region=eu-west-1'")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(failedToParse))
-			})
-			By("returns an error for bad syntax using ! operator at the start of the quotes", func() {
-				out, err := harness.CLI("get", "devices", "-l", "'!region=eu-west-1'")
-				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring(failedToParse))
+				Expect(out).To(ContainSubstring(params.Expected))
 			})
 		})
 	})

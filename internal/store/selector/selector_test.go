@@ -1,10 +1,12 @@
 package selector
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	gormschema "gorm.io/gorm/schema"
 )
 
@@ -23,6 +25,7 @@ type goodTestModel struct {
 	Field15 []time.Time `gorm:"type:timestamp[]" selector:"model.field15"` // Timestamp Array
 	Field16 string      `gorm:"type:jsonb" selector:"model.field16"`       // JSONB
 	Field17 string      `selector:"model.field17"`                         // Text
+	Field18 uuid.UUID   `gorm:"type:uuid" selector:"model.field18"`        // UUID
 }
 
 func (m *goodTestModel) MapSelectorName(selector SelectorName) []SelectorName {
@@ -46,28 +49,21 @@ func (m *goodTestModel) ResolveSelector(selector SelectorName) (*SelectorField, 
 	if strings.EqualFold("customfield2", selector.String()) {
 		return &SelectorField{
 			Type:      Timestamp,
-			FieldName: "goodfield.key",
+			FieldName: "goodfield ->> 'key'",
 			FieldType: "jsonb",
 		}, nil
 	}
 	if strings.EqualFold("customfield3", selector.String()) {
 		return &SelectorField{
 			Type:      Jsonb,
-			FieldName: "goodfield.key",
-			FieldType: "jsonb",
-		}, nil
-	}
-	if strings.EqualFold("customfield4.some.array[5]", selector.String()) {
-		return &SelectorField{
-			Type:      String,
-			FieldName: "goodfield.some.array[5]",
+			FieldName: "goodfield -> 'key'",
 			FieldType: "jsonb",
 		}, nil
 	}
 	if strings.EqualFold("customfield5.approved", selector.String()) {
 		return &SelectorField{
 			Type:      Bool,
-			FieldName: "goodfield.path.approved",
+			FieldName: "goodfield -> 'path' ->> 'approved'",
 			FieldType: "jsonb",
 		}, nil
 	}
@@ -80,12 +76,22 @@ func (m *goodTestModel) ListSelectors() SelectorNameSet {
 		NewSelectorName("customfield1"),
 		NewSelectorName("customfield2"),
 		NewSelectorName("customfield3"),
-		NewSelectorName("customfield4.some.array[5]"),
 		NewSelectorName("customfield5.approved"),
 	)
 }
 
 type badTestModel struct {
+	GoodSelector string `selector:"model.good.selector"` // Text
+}
+
+func (m *badTestModel) MapSelectorName(selector SelectorName) []SelectorName {
+	if strings.EqualFold("mappedselector", selector.String()) {
+		return []SelectorName{
+			NewSelectorName("model.good.selector"),
+			NewSelectorName("unknownselector"),
+		}
+	}
+	return nil
 }
 
 func (m *badTestModel) ResolveSelector(selector SelectorName) (*SelectorField, error) {
@@ -98,7 +104,7 @@ func (m *badTestModel) ResolveSelector(selector SelectorName) (*SelectorField, e
 	}
 	if strings.EqualFold("customfield5", selector.String()) {
 		return &SelectorField{
-			Type:      16, //Not supported
+			Type:      100, //Not supported
 			FieldName: "badfield.key",
 			FieldType: "jsonb",
 		}, nil
@@ -108,6 +114,7 @@ func (m *badTestModel) ResolveSelector(selector SelectorName) (*SelectorField, e
 
 func (m *badTestModel) ListSelectors() SelectorNameSet {
 	return NewSelectorFieldNameSet().Add(
+		NewSelectorName("mappedselector"),
 		NewSelectorName("customfield4"),
 		NewSelectorName("customfield5"),
 	)
@@ -138,19 +145,25 @@ func TestResolveFields(t *testing.T) {
 		return
 	}
 
-	selectors := fr.ListSelectors()
+	selectors := fr.List()
 	for _, selector := range selectors {
-		if _, err := fr.ResolveFields(selector); err != nil {
+		if fields, err := fr.ResolveFields(selector); err != nil {
 			t.Errorf("%s: error %v (%#v)\n", selector, err, err)
+			continue
+		} else if len(fields) == 0 {
+			t.Errorf("%s: error expected resolved fields\n", selector)
 			continue
 		}
 
-		if _, err := fr.ResolveNames(selector); err != nil {
+		if names, err := fr.ResolveNames(selector); err != nil {
 			t.Errorf("%s: error %v (%#v)\n", selector, err, err)
+		} else if len(names) == 0 {
+			t.Errorf("%s: error expected resolved names\n", selector)
+			continue
 		}
 	}
 
-	if _, err := fr.ResolveFields(NewSelectorName("unknownselector")); err == nil {
+	if f, _ := fr.ResolveFields(NewSelectorName("unknownselector")); len(f) > 0 {
 		t.Errorf("unknownselector: did not get expected error\n")
 	}
 
@@ -161,9 +174,11 @@ func TestResolveFields(t *testing.T) {
 		return
 	}
 
-	selectors = fr.ListSelectors()
+	selectors = slices.DeleteFunc(fr.List(), func(sn SelectorName) bool {
+		return strings.EqualFold(sn.String(), "model.good.selector")
+	})
 	for _, selector := range selectors {
-		if _, err := fr.ResolveFields(selector); err == nil {
+		if fields, err := fr.ResolveFields(selector); err == nil && len(fields) > 0 {
 			t.Errorf("%s: did not get expected error\n", selector)
 			continue
 		}

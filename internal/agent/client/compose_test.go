@@ -5,6 +5,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,61 +15,64 @@ func TestParseComposeSpecFromDir(t *testing.T) {
 		name          string
 		files         map[string][]byte
 		expectedError error
-		expectedSpec  ComposeSpec
+		expectedSpec  common.ComposeSpec
 	}{
 		{
 			name: "single compose.yaml file",
 			files: map[string][]byte{
-				"docker-compose.yaml": []byte(`
+				"docker-compose.yaml": []byte(`version: "3"
 services:
   web:
     image: nginx
 `),
 			},
-			expectedSpec: ComposeSpec{
-				Services: map[string]ComposeService{
+			expectedSpec: common.ComposeSpec{
+				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx"},
 				},
+				Volumes: map[string]common.ComposeVolume{},
 			},
 		},
 		{
 			name: "single compose.yml file with yml override",
 			files: map[string][]byte{
-				"docker-compose.yml": []byte(`
+				"docker-compose.yml": []byte(`version: "3"
 services:
   web:
     image: nginx
 `),
-				"docker-compose.override.yml": []byte(`
+				"docker-compose.override.yml": []byte(`version: "3"
 services:
   web:
     image: nginx:latest
 `),
 			},
-			expectedSpec: ComposeSpec{
-				Services: map[string]ComposeService{
+			expectedSpec: common.ComposeSpec{
+				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx:latest"},
 				},
+				Volumes: map[string]common.ComposeVolume{},
 			},
 		},
 		{
 			name: "multiple compose files priority .yaml",
 			files: map[string][]byte{
-				"docker-compose.yaml": []byte(`
+				"docker-compose.yaml": []byte(`version: "3"
 services:
   web:
     image: nginx
 `),
-				"docker-compose.yml": []byte(`
+				"docker-compose.yml": []byte(`version: "3"
 services:
   web:
     image: apache
 `),
 			},
-			expectedSpec: ComposeSpec{
-				Services: map[string]ComposeService{
+			expectedSpec: common.ComposeSpec{
+				Services: map[string]common.ComposeService{
 					"web": {Image: "nginx"},
 				},
+				Volumes: map[string]common.ComposeVolume{},
 			},
 		},
 		{
@@ -77,7 +81,7 @@ services:
 				"random-file.txt": []byte("not a compose file"),
 			},
 			expectedError: errors.ErrNoComposeFile,
-			expectedSpec:  ComposeSpec{},
+			expectedSpec:  common.ComposeSpec{},
 		},
 	}
 

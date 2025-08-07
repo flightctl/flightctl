@@ -14,24 +14,24 @@ import (
 )
 
 type CertificateSigningRequest interface {
-	InitialMigration() error
+	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
-	Update(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, error)
+	Create(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error)
+	Update(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
-	DeleteAll(ctx context.Context, orgId uuid.UUID) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
 
 	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
 }
 
 type CertificateSigningRequestStore struct {
-	db           *gorm.DB
-	log          logrus.FieldLogger
-	genericStore *GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, api.CertificateSigningRequest, api.CertificateSigningRequestList]
+	dbHandler           *gorm.DB
+	log                 logrus.FieldLogger
+	genericStore        *GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, api.CertificateSigningRequest, api.CertificateSigningRequestList]
+	eventCallbackCaller EventCallbackCaller
 }
 
 // Make sure we conform to CertificateSigningRequest interface
@@ -45,35 +45,41 @@ func NewCertificateSigningRequest(db *gorm.DB, log logrus.FieldLogger) Certifica
 		(*model.CertificateSigningRequest).ToApiResource,
 		model.CertificateSigningRequestsToApiResource,
 	)
-	return &CertificateSigningRequestStore{db: db, log: log, genericStore: genericStore}
+	return &CertificateSigningRequestStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(api.CertificateSigningRequestKind, log)}
 }
 
-func (s *CertificateSigningRequestStore) InitialMigration() error {
-	if err := s.db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
+func (s *CertificateSigningRequestStore) getDB(ctx context.Context) *gorm.DB {
+	return s.dbHandler.WithContext(ctx)
+}
+
+func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) error {
+	db := s.getDB(ctx)
+
+	if err := db.AutoMigrate(&model.CertificateSigningRequest{}); err != nil {
 		return err
 	}
 
 	// Create GIN index for CertificateSigningRequest labels
-	if !s.db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_labels") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_csr_labels ON certificate_signing_requests USING GIN (labels)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_labels") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_csr_labels ON certificate_signing_requests USING GIN (labels)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.CertificateSigningRequest{}, "Labels"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.CertificateSigningRequest{}, "Labels"); err != nil {
 				return err
 			}
 		}
 	}
 
 	// Create GIN index for CertificateSigningRequest annotations
-	if !s.db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_annotations") {
-		if s.db.Dialector.Name() == "postgres" {
-			if err := s.db.Exec("CREATE INDEX idx_csr_annotations ON certificate_signing_requests USING GIN (annotations)").Error; err != nil {
+	if !db.Migrator().HasIndex(&model.CertificateSigningRequest{}, "idx_csr_annotations") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_csr_annotations ON certificate_signing_requests USING GIN (annotations)").Error; err != nil {
 				return err
 			}
 		} else {
-			if err := s.db.Migrator().CreateIndex(&model.CertificateSigningRequest{}, "Annotations"); err != nil {
+			if err := db.Migrator().CreateIndex(&model.CertificateSigningRequest{}, "Annotations"); err != nil {
 				return err
 			}
 		}
@@ -83,17 +89,23 @@ func (s *CertificateSigningRequestStore) InitialMigration() error {
 }
 
 // Warning: this is a user-facing function and will set the Status to nil
-func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
-	return s.genericStore.Create(ctx, orgId, resource, nil)
+func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error) {
+	csr, err := s.genericStore.Create(ctx, orgId, resource, nil)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, csr, true, err)
+	return csr, err
 }
 
 // Warning: this is a user-facing function and will set the Status to nil
-func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error) {
+	newCsr, oldCsr, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCsr, newCsr, false, err)
+	return newCsr, err
 }
 
-func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
+func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, bool, error) {
+	newCsr, oldCsr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCsr, newCsr, created, err)
+	return newCsr, created, err
 }
 
 func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error) {
@@ -104,21 +116,21 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	return s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}, nil)
-}
-
-func (s *CertificateSigningRequestStore) DeleteAll(ctx context.Context, orgId uuid.UUID) error {
-	return s.genericStore.DeleteAll(ctx, orgId, nil)
+func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) error {
+	deleted, err := s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}, nil)
+	if deleted {
+		s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, nil, false, err)
+	}
+	return err
 }
 
 func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
-func (s *CertificateSigningRequestStore) updateConditions(orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
+func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
 	existingRecord := model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.db.First(&existingRecord)
+	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
 		return false, ErrorFromGormError(result.Error)
 	}
@@ -137,7 +149,7 @@ func (s *CertificateSigningRequestStore) updateConditions(orgId uuid.UUID, name 
 		return false, nil
 	}
 
-	result = s.db.Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
 		"status":           existingRecord.Status,
 		"resource_version": gorm.Expr("resource_version + 1"),
 	})
@@ -153,6 +165,6 @@ func (s *CertificateSigningRequestStore) updateConditions(orgId uuid.UUID, name 
 
 func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
 	return retryUpdate(func() (bool, error) {
-		return s.updateConditions(orgId, name, conditions)
+		return s.updateConditions(ctx, orgId, name, conditions)
 	})
 }

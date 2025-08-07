@@ -3,9 +3,11 @@ package v1alpha1
 import "time"
 
 const (
-	CertificateSigningRequestAPI      = "v1alpha1"
-	CertificateSigningRequestKind     = "CertificateSigningRequest"
-	CertificateSigningRequestListKind = "CertificateSigningRequestList"
+	APIGroup = "flightctl.io"
+
+	CertificateSigningRequestAPIVersion = "v1alpha1"
+	CertificateSigningRequestKind       = "CertificateSigningRequest"
+	CertificateSigningRequestListKind   = "CertificateSigningRequestList"
 
 	DeviceAPIVersion = "v1alpha1"
 	DeviceKind       = "Device"
@@ -25,6 +27,8 @@ const (
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.
 	DeviceDisconnectedTimeout = 5 * time.Minute
 
+	DeviceQueryConsoleSessionMetadata = "metadata"
+
 	EnrollmentRequestAPIVersion = "v1alpha1"
 	EnrollmentRequestKind       = "EnrollmentRequest"
 	EnrollmentRequestListKind   = "EnrollmentRequestList"
@@ -43,8 +47,12 @@ const (
 	// What is the active approval method: If automatic then it is based in the last batch success percentage.  Otherwise
 	// it requires manual approval
 	FleetAnnotationRolloutApprovalMethod = "fleet-controller/rolloutApprovalMethod"
-	// An integer value indicating what was the success rate of the last batch
-	FleetAnnotationLastBatchSuccessPercentage = "fleet-controller/lastBatchSuccessPercentage"
+	// A report specifying the completion report of the last batch
+	FleetAnnotationLastBatchCompletionReport = "fleet-controller/lastBatchCompletionReport"
+	// A frozen digest of device selection definition during rollout
+	FleetAnnotationDeviceSelectionConfigDigest = "fleet-controller/deviceSelectionConfigDigest"
+	// The requestID related to an event
+	EventAnnotationRequestID = "event-controller/requestID"
 
 	RepositoryAPIVersion = "v1alpha1"
 	RepositoryKind       = "Repository"
@@ -57,6 +65,14 @@ const (
 	TemplateVersionAPIVersion = "v1alpha1"
 	TemplateVersionKind       = "TemplateVersion"
 	TemplateVersionListKind   = "TemplateVersionList"
+
+	EventAPIVersion = "v1alpha1"
+	EventKind       = "Event"
+	EventListKind   = "EventList"
+
+	OrganizationAPIVersion = "v1alpha1"
+	OrganizationKind       = "Organization"
+	OrganizationListKind   = "OrganizationList"
 )
 
 type UpdateState string
@@ -105,4 +121,20 @@ const (
 	DecommissionStateComplete DecommissionState = "Completed"
 	// The agent has encoutered an error while decommissioning.
 	DecommissionStateError DecommissionState = "Error"
+)
+
+const (
+	// No rollout is currently active
+	RolloutInactiveReason = "Inactive"
+	// Rollout is in progress
+	RolloutActiveReason = "Active"
+	// Rollout is suspended
+	RolloutSuspendedReason = "Suspended"
+	// Rollout is pending on user approval
+	RolloutWaitingReason = "Waiting"
+
+	// The name of the preliminary batch
+	PreliminaryBatchName = "preliminary batch"
+	// The name of the final implicit batch
+	FinalImplicitBatchName = "final implicit batch"
 )

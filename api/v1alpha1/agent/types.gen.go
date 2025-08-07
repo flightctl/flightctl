@@ -7,11 +7,17 @@ import (
 	externalRef0 "github.com/flightctl/flightctl/api/v1alpha1"
 )
 
-// GetRenderedDeviceSpecParams defines parameters for GetRenderedDeviceSpec.
-type GetRenderedDeviceSpecParams struct {
+// GetRenderedDeviceParams defines parameters for GetRenderedDevice.
+type GetRenderedDeviceParams struct {
 	// KnownRenderedVersion The last known renderedVersion.
 	KnownRenderedVersion *string `form:"knownRenderedVersion,omitempty" json:"knownRenderedVersion,omitempty"`
 }
+
+// CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
+type CreateCertificateSigningRequestJSONRequestBody = externalRef0.CertificateSigningRequest
+
+// PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody defines body for PatchDeviceStatus for application/json-patch+json ContentType.
+type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = externalRef0.PatchRequest
 
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = externalRef0.Device

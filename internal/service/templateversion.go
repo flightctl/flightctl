@@ -2,194 +2,115 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/go-openapi/swag"
+	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
-func TemplateVersionFromReader(r io.Reader) (*api.TemplateVersion, error) {
-	var templateVersion api.TemplateVersion
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&templateVersion)
-	return &templateVersion, err
+func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, templateVersion api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	if errs := templateVersion.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	var callback store.TemplateVersionStoreCallback = func(ctx context.Context, u uuid.UUID, before *api.TemplateVersion, after *api.TemplateVersion) {
+		h.log.Infof("fleet %s: template version %s created with rollout device selection, not executing task for immediate rollout", templateVersion.Spec.Fleet, lo.FromPtr(templateVersion.Metadata.Name))
+	}
+	if immediateRollout {
+		callback = h.callbackManager.TemplateVersionCreatedCallback
+	}
+
+	result, err := h.store.TemplateVersion().Create(ctx, orgId, &templateVersion, callback, h.callbackTemplateVersionUpdated)
+	if err == nil {
+		h.EmitFleetRolloutStartedEvent(ctx, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
+	}
+	return result, StoreErrorToApiStatus(err, true, api.TemplateVersionKind, templateVersion.Metadata.Name)
 }
 
-// (GET /api/v1/api/v1/fleets/{fleet}/templateVersions)
-func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, request server.ListTemplateVersionsRequestObject) (server.ListTemplateVersionsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/templateversions", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListTemplateVersions503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ListTemplateVersions403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string, params api.ListTemplateVersionsParams) (*api.TemplateVersionList, api.Status) {
+	var err error
 
-	cont, err := store.ParseContinueString(request.Params.Continue)
-	if err != nil {
-		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+	orgId := getOrgIdFromContext(ctx)
+
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
+
+	// sort primarily by created_at with desc (newest first)
+	listParams.SortColumns = []store.SortColumn{store.SortByCreatedAt, store.SortByName}
+	listParams.SortOrder = lo.ToPtr(store.SortDesc)
 
 	var fieldSelector *selector.FieldSelector
-	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}); err != nil {
-		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
+	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": fleet}); err != nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse field selector: %v", err))
 	}
 
 	// If additional field selectors are provided, merge them
-	if request.Params.FieldSelector != nil {
-		additionalSelector, err := selector.NewFieldSelector(*request.Params.FieldSelector)
+	if params.FieldSelector != nil {
+		additionalSelector, err := selector.NewFieldSelector(*params.FieldSelector)
 		if err != nil {
-			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse additional field selector: %v", err)}, nil
+			return nil, api.StatusBadRequest(fmt.Sprintf("failed to parse additional field selector: %v", err))
 		}
 		fieldSelector.Add(additionalSelector)
 	}
 
-	var labelSelector *selector.LabelSelector
-	if request.Params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
-		}
-	}
-	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(request.Params.Limit)),
-		Continue:      cont,
-		FieldSelector: fieldSelector,
-		LabelSelector: labelSelector,
-	}
-	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	}
-	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListTemplateVersions400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
-	}
-
-	result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
+	listParams.FieldSelector = fieldSelector
+	result, err := h.store.TemplateVersion().List(ctx, orgId, *listParams)
 	if err == nil {
-		return server.ListTemplateVersions200JSONResponse(*result), nil
+		return result, api.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListTemplateVersions400JSONResponse{Message: se.Error()}, nil
+		return nil, api.StatusBadRequest(se.Error())
 	default:
-		return nil, err
+		return nil, api.StatusInternalServerError(err.Error())
 	}
 }
 
-// (DELETE /api/v1/api/v1/fleets/{fleet}/templateVersions)
-func (h *ServiceHandler) DeleteTemplateVersions(ctx context.Context, request server.DeleteTemplateVersionsRequestObject) (server.DeleteTemplateVersionsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/templateversions", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteTemplateVersions503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) GetTemplateVersion(ctx context.Context, fleet string, name string) (*api.TemplateVersion, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	var fieldSelector *selector.FieldSelector
-	if fieldSelector, err = selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": request.Fleet}); err != nil {
-		return server.DeleteTemplateVersions403JSONResponse{Message: Forbidden}, nil
-	}
-
-	// Iterate through the relevant templateVersions, 100 at a time, and delete each one's config storage
-	listParams := store.ListParams{
-		Limit:         100,
-		FieldSelector: fieldSelector,
-	}
-	for {
-		result, err := h.store.TemplateVersion().List(ctx, orgId, listParams)
-		if err != nil {
-			h.log.Warnf("failed deleting KV storage for templateVersions in org %s", orgId)
-			break
-		}
-		for _, tv := range result.Items {
-			tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: tv.Spec.Fleet, TemplateVersion: *tv.Metadata.Name}
-			err := h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
-			if err != nil {
-				h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, tv.Spec.Fleet, *tv.Metadata.Name)
-			}
-		}
-		if result.Metadata.Continue != nil {
-			cont, _ := store.ParseContinueString(result.Metadata.Continue)
-			listParams.Continue = cont
-		} else {
-			break
-		}
-	}
-
-	err = h.store.TemplateVersion().DeleteAll(ctx, orgId, &request.Fleet)
-	switch err {
-	case nil:
-		return server.DeleteTemplateVersions200JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.TemplateVersion().Get(ctx, orgId, fleet, name)
+	return result, StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
 }
 
-// (GET /api/v1/fleets/{fleet}/templateVersions/{name})
-func (h *ServiceHandler) ReadTemplateVersion(ctx context.Context, request server.ReadTemplateVersionRequestObject) (server.ReadTemplateVersionResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/templateversions", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadTemplateVersion503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadTemplateVersion403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string, name string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.TemplateVersion().Get(ctx, orgId, request.Fleet, request.Name)
-	switch {
-	case err == nil:
-		return server.ReadTemplateVersion200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadTemplateVersion404JSONResponse{}, nil
-	default:
-		return nil, err
+	tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: fleet, TemplateVersion: name}
+	err := h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
+	if err != nil {
+		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, fleet, name)
 	}
+
+	_, err = h.store.TemplateVersion().Delete(ctx, orgId, fleet, name, h.callbackTemplateVersionDeleted)
+	return StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
 }
 
-// (DELETE /api/v1/fleets/{fleet}/templateVersions/{name})
-func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, request server.DeleteTemplateVersionRequestObject) (server.DeleteTemplateVersionResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/templateversions", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteTemplateVersion503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteTemplateVersion403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, fleet string) (*api.TemplateVersion, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: request.Fleet, TemplateVersion: request.Name}
-	err = h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
-	if err != nil {
-		h.log.Warnf("failed deleting KV storage for templateVersion %s/%s/%s", orgId, request.Fleet, request.Name)
-	}
+	result, err := h.store.TemplateVersion().GetLatest(ctx, orgId, fleet)
+	return result, StoreErrorToApiStatus(err, false, api.TemplateVersionKind, nil)
+}
 
-	err = h.store.TemplateVersion().Delete(ctx, orgId, request.Fleet, request.Name)
-	switch {
-	case err == nil:
-		return server.DeleteTemplateVersion200JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteTemplateVersion404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+// callbackTemplateVersionUpdated is the template version-specific callback that handles template version events
+func (h *ServiceHandler) callbackTemplateVersionUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackTemplateVersionDeleted is the template version-specific callback that handles template version deletion events
+func (h *ServiceHandler) callbackTemplateVersionDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

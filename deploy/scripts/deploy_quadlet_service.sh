@@ -2,43 +2,60 @@
 
 set -eo pipefail
 
-source deploy/scripts/env.sh
+# Directory path for source files
+SOURCE_DIR="deploy"
+
+# Load shared functions
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}"/shared.sh
+source "${SCRIPT_DIR}"/secrets.sh
 
 deploy_service() {
     local service_name=$1
-    local service_full_name="flightctl-${service_name}-standalone.service"
+    local service_full_name="flightctl-${service_name}.service"
 
     echo "Starting Deployment for $service_full_name"
 
     # Stop the service if it's running
-    sudo systemctl stop $service_full_name || true
+    systemctl stop "$service_full_name" || true
 
-    # Handle special handling for the db service
+    echo "Performing install for $service_full_name"
+    # Handle pre-startup logic for each service
     if [[ "$service_name" == "db" ]]; then
-        sudo podman volume rm flightctl-db || true
-        sudo podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
+        podman volume rm flightctl-db || true
+        podman volume create --opt device=tmpfs --opt type=tmpfs --opt o=nodev,noexec flightctl-db
+        ensure_postgres_secrets
+    elif [[ "$service_name" == "kv" ]]; then
+        ensure_kv_secrets
+    else
+        echo "No pre-startup logic for $service_name"
     fi
 
-    # Copy the configuration files
-    sudo mkdir -p "$SYSTEMD_DIR/flightctl-$service_name"
-    sudo cp -r deploy/podman/flightctl-$service_name/* "$SYSTEMD_DIR/flightctl-$service_name"
+    echo "Installing quadlet files for $service_full_name"
 
-    start_service $service_full_name
-
-    # Handle post-startup logic for db service
-    if [[ "$service_name" == "db" ]]; then
-        test/scripts/wait_for_postgres.sh podman
-        sudo podman exec flightctl-db psql -c 'ALTER ROLE admin WITH SUPERUSER'
-        sudo podman exec flightctl-db createdb admin || true
-    fi
+    render_service "$service_name" "${SOURCE_DIR}" "standalone"
+    start_service "$service_full_name"
 
     echo "Deployment completed for $service_full_name"
 }
 
-if [[ $# -ne 1 ]]; then
-    echo "Usage: $0 <service_name>"
-    echo "Available services: db, kv"
-    exit 1
-fi
+main() {
+    if [[ $# -ne 1 ]]; then
+        echo "Usage: $0 <service_name>"
+        echo "Available services: db, kv, alertmanager"
+        exit 1
+    fi
 
-deploy_service "$1"
+    # Validate service name
+    local service_name="$1"
+    if [[ ! "$service_name" =~ ^(db|kv|alertmanager)$ ]]; then
+        echo "Error: Invalid service name: $service_name"
+        echo "Available services: db, kv, alertmanager"
+        exit 1
+    fi
+
+    deploy_service "$service_name"
+}
+
+# Execute the main function with all command line arguments
+main "$@"

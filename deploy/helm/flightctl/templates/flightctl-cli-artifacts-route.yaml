@@ -1,0 +1,31 @@
+{{ if and (.Values.cliArtifacts.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  {{- if .Values.global.appCode }}
+  labels:
+    external-exposed: "true"
+    paas.redhat.com/appcode: {{ .Values.global.appCode }}
+    shard: external
+  {{- end }}
+  name: flightctl-cli-artifacts-route
+  namespace: {{ .Release.Namespace }}
+spec:
+  host: cli-artifacts.{{ include "flightctl.getBaseDomain" . }}
+  port:
+    targetPort: 8090
+  {{- if eq (include "flightctl.getHttpScheme" .) "https" }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+    {{- if (.Values.global.baseDomainTls).cert }}
+    certificate: {{ .Values.global.baseDomainTls.cert | quote }}
+    key: {{ .Values.global.baseDomainTls.key | quote }}
+    {{- end }}
+  {{- end }}
+  to:
+    kind: Service
+    name: flightctl-cli-artifacts
+    weight: 100
+  wildcardPolicy: None
+{{ end }}

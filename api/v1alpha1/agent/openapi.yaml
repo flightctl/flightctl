@@ -50,19 +50,74 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
-          description: NotFound
+          description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
+    patch:
+      tags:
+        - device
+      description: Patch the status of a Device resource.
+      operationId: patchDeviceStatus
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/devices/{name}/rendered:
     #$ref: '../openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
     # this is buggy and generates invalid references, see:
@@ -70,12 +125,12 @@ paths:
     get:
       tags:
         - device
-      description: Get the rendered, self-contained device specification for a Device resource.
-      operationId: getRenderedDeviceSpec
+      description: Get the rendered device resource.
+      operationId: getRenderedDevice
       parameters:
         - name: name
           in: path
-          description: The name of the Device resource to get the rendered device specification for.
+          description: The name of the Device to get the rendered specification for.
           required: true
           schema:
             type: string
@@ -91,35 +146,35 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/RenderedDeviceSpec'
+                $ref: '../openapi.yaml#/components/schemas/Device'
         "204":
-          description: No content
+          description: No Content
           content: {}
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
-          description: NotFound
+          description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
-          description: StatusConflict
+          description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
     get:
       tags:
         - enrollmentrequest
       description: Get an EnrollmentRequest resource.
-      operationId: readEnrollmentRequest
+      operationId: getEnrollmentRequest
       parameters:
         - name: name
           in: path
@@ -139,25 +194,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
-          description: NotFound
+          description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
-          description: ServiceUnavailable
+          description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests:
     post:
       tags:
@@ -182,28 +237,125 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/certificatesigningrequests:
+    post:
+      tags:
+        - certificatesigningrequest
+      description: Create a CertificateSigningRequest resource.
+      operationId: createCertificateSigningRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Error'
+                $ref: '../openapi.yaml#/components/schemas/Status'
+
+  /api/v1/certificatesigningrequests/{name}:
+    get:
+      tags:
+        - certificatesigningrequest
+      description: Read the specified CertificateSigningRequest.
+      operationId: getCertificateSigningRequest
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the CertificateSigningRequest resource to get.
+          schema:
+            type: string
+            uniqueItems: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+
+

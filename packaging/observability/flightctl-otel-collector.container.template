@@ -1,0 +1,24 @@
+[Unit]
+Description=FlightCtl OpenTelemetry Collector
+After=flightctl-observability-network.service
+Wants=flightctl-observability-network.service
+PartOf=flightctl-otel-collector.target flightctl-observability.target
+
+[Container]
+Image=${OTEL_COLLECTOR_IMAGE}
+Pull=newer
+ContainerName=flightctl-otel-collector
+
+Volume=/etc/otelcol/config.yaml:/etc/otelcol-contrib/config.yaml:ro,z
+Volume=/var/lib/otelcol:/var/lib/otelcol:rw,z
+
+PublishPort=${OTEL_COLLECTOR_GRPC_PORT}:4317/tcp
+PublishPort=${OTEL_COLLECTOR_HTTP_PORT}:4318/tcp
+
+Network=flightctl-observability
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

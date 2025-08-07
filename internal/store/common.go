@@ -4,18 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 const retryIterations = 10
 
 type CreateOrUpdateMode string
+
+type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
+
+type EventCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
 func ErrorFromGormError(err error) error {
 	switch {
@@ -55,20 +63,47 @@ const (
 	ModeCreateOrUpdate CreateOrUpdateMode = "create-or-update"
 )
 
-type listQuery struct {
-	dest any
+type ListQueryOption func(*listQuery)
+
+func WithSelectorResolver(resolver selector.Resolver) ListQueryOption {
+	return func(q *listQuery) {
+		q.resolver = resolver
+	}
 }
 
-func ListQuery(model any) *listQuery {
-	return &listQuery{dest: model}
+type listQuery struct {
+	dest     any
+	resolver selector.Resolver
+}
+
+func ListQuery(dest any, opts ...ListQueryOption) *listQuery {
+	q := &listQuery{dest: dest}
+
+	for _, opt := range opts {
+		opt(q)
+	}
+
+	// Set resolver if not provided
+	if q.resolver == nil {
+		resolver, err := selector.SelectorFieldResolver(q.dest)
+		if err != nil {
+			q.resolver = selector.EmptyResolver{}
+		} else {
+			q.resolver = resolver
+		}
+	}
+	return q
 }
 
 func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
 	query := db.Model(lq.dest)
-	query = query.Where("org_id = ?", orgId)
+
+	query = query.Where(
+		fmt.Sprintf("%s = ?", lq.resolveOrDefault(
+			selector.NewHiddenSelectorName("metadata.orgid"), "org_id")), orgId)
 
 	if listParams.FieldSelector != nil {
-		q, p, err := listParams.FieldSelector.Parse(ctx, lq.dest)
+		q, p, err := listParams.FieldSelector.Parse(ctx, lq.resolver)
 		if err != nil {
 			return nil, err
 		}
@@ -76,8 +111,8 @@ func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.U
 	}
 
 	if listParams.LabelSelector != nil {
-		q, p, err := listParams.LabelSelector.Parse(ctx, lq.dest,
-			selector.NewHiddenSelectorName("metadata.labels"))
+		q, p, err := listParams.LabelSelector.Parse(ctx,
+			selector.NewHiddenSelectorName("metadata.labels"), lq.resolver)
 		if err != nil {
 			return nil, err
 		}
@@ -85,8 +120,8 @@ func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.U
 	}
 
 	if listParams.AnnotationSelector != nil {
-		q, p, err := listParams.AnnotationSelector.Parse(ctx, lq.dest,
-			selector.NewHiddenSelectorName("metadata.annotations"))
+		q, p, err := listParams.AnnotationSelector.Parse(ctx,
+			selector.NewHiddenSelectorName("metadata.annotations"), lq.resolver)
 		if err != nil {
 			return nil, err
 		}
@@ -96,29 +131,95 @@ func (lq *listQuery) BuildNoOrder(ctx context.Context, db *gorm.DB, orgId uuid.U
 	return query, nil
 }
 
+func getSortColumns(listParams ListParams) ([]SortColumn, SortOrder, string) {
+	order := SortAsc
+	if listParams.SortOrder != nil {
+		order = *listParams.SortOrder
+	}
+	op := map[SortOrder]string{SortAsc: ">=", SortDesc: "<="}[order]
+
+	columns := listParams.SortColumns
+	if len(columns) == 0 {
+		columns = []SortColumn{SortByName}
+	}
+
+	return columns, order, op
+}
+
 func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, listParams ListParams) (*gorm.DB, error) {
 	query, err := lq.BuildNoOrder(ctx, db, orgId, listParams)
 	if err != nil {
 		return nil, err
 	}
-	return query.Order("name"), nil
+
+	columns, order, _ := getSortColumns(listParams)
+	orderExprs := lo.Map(columns, func(col SortColumn, _ int) string {
+		return fmt.Sprintf("%s %s", col, order)
+	})
+
+	return query.Order(strings.Join(orderExprs, ", ")), nil
 }
 
-func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue) *gorm.DB {
+func (lq *listQuery) resolveOrDefault(sn selector.SelectorName, d string) string {
+	r, err := lq.resolver.ResolveFields(sn)
+	if err != nil {
+		return d
+	}
+	if len(r) > 0 && r[0] != nil {
+		return r[0].FieldName
+	}
+	return d
+}
+
+func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue, listParams ListParams) *gorm.DB {
 	if limit == 0 {
 		return query
 	}
+
 	query = query.Limit(limit)
-	if cont != nil {
-		query = query.Where("name >= ?", cont.Name)
+	if cont == nil {
+		return query
 	}
 
-	return query
+	columns, _, op := getSortColumns(listParams)
+	if len(columns) == 1 {
+		return query.Where(
+			fmt.Sprintf("%s %s ?", columns[0], op),
+			cont.Names[0],
+		)
+	}
+
+	// Multi-column tuple comparison
+	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(col SortColumn, _ int) string {
+		return string(col)
+	}), ", "))
+
+	placeholderExpr := strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ")
+	return query.Where(
+		fmt.Sprintf("%s %s (%s)", columnExpr, op, placeholderExpr),
+		lo.ToAnySlice(cont.Names)...,
+	)
 }
 
-func CountRemainingItems(query *gorm.DB, lastItemName string) int64 {
+func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListParams) int64 {
 	var count int64
-	query.Where("name >= ?", lastItemName).Count(&count)
+
+	columns, _, op := getSortColumns(listParams)
+	if len(columns) != len(nextValues) {
+		return 0
+	}
+
+	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(c SortColumn, _ int) string {
+		return string(c)
+	}), ", "))
+
+	placeholderExpr := strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ")
+	query = query.Where(
+		fmt.Sprintf("%s %s (%s)", columnExpr, op, placeholderExpr),
+		lo.ToAnySlice(nextValues)...,
+	)
+
+	query.Count(&count)
 	return count
 }
 
@@ -198,17 +299,17 @@ func createParamsFromKey(key string) string {
 	return params
 }
 
-func retryCreateOrUpdate[A any](fn func() (*A, bool, bool, error)) (*A, bool, error) {
+func retryCreateOrUpdate[A any](fn func() (*A, *A, bool, bool, error)) (*A, *A, bool, error) {
 	var (
-		a              *A
+		a, b           *A
 		created, retry bool
 		err            error
 	)
 	i := 0
-	for a, created, retry, err = fn(); retry && i < retryIterations; a, created, retry, err = fn() {
+	for a, b, created, retry, err = fn(); retry && i < retryIterations; a, b, created, retry, err = fn() {
 		i++
 	}
-	return a, created, err
+	return a, b, created, err
 }
 
 func retryUpdate(fn func() (bool, error)) error {
@@ -221,4 +322,30 @@ func retryUpdate(fn func() (bool, error)) error {
 		i++
 	}
 	return err
+}
+
+// Call callback if provided (but don't fail the operation if callback fails)
+// with panic recovery to prevent callback failures from affecting the main operation
+func SafeEventCallback(log logrus.FieldLogger, callback func()) {
+	if callback == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("Event Callback panicked: %v\nBacktrace:\n%s", r, string(debug.Stack()))
+		}
+	}()
+	callback()
+}
+
+func CallEventCallback(resourceKind api.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	return func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+		if callbackEvent == nil {
+			return
+		}
+
+		SafeEventCallback(log, func() {
+			callbackEvent(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+		})
+	}
 }

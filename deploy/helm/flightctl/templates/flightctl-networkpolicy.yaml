@@ -1,4 +1,4 @@
-{{ if eq (include "flightctl.getServiceExposeMethod" .) "route" }}
+{{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

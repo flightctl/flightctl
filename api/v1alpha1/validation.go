@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"text/template/parse"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
@@ -19,34 +21,48 @@ import (
 
 const (
 	maxBase64CertificateLength = 20 * 1024 * 1024
-	maxInlineConfigLength      = 1024 * 1024
-	// MaxDNSNameLength defines the maximum length of a DNS-1123 compliant name,
-	// as specified by RFC 1123. It is used to validate the length of strings
-	// that must conform to DNS naming requirements.
-	MaxDNSNameLength = 253
+	maxInlineLength            = 1024 * 1024
 )
 
-var ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
+var (
+	ErrStartGraceDurationExceedsCronInterval = errors.New("startGraceDuration exceeds the cron interval between schedule times")
+	ErrInfoAlertLessThanWarn                 = errors.New("info alert percentage must be less than warning")
+	ErrInfoAlertLessThanCritical             = errors.New("info alert percentage must be less than critical")
+	ErrWarnAlertLessThanCritical             = errors.New("warning alert percentage must be less than critical")
+	ErrDuplicateAlertSeverity                = errors.New("duplicate alertRule severity")
+)
 
 type Validator interface {
 	Validate() []error
 }
 
-func (r Device) Validate() []error {
+func (d Device) Validate() []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
-	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
-	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-	if r.Spec != nil {
-		allErrs = append(allErrs, r.Spec.Validate(false)...)
+	allErrs = append(allErrs, validation.ValidateResourceName(d.Metadata.Name)...)
+	allErrs = append(allErrs, validation.ValidateLabels(d.Metadata.Labels)...)
+	allErrs = append(allErrs, validation.ValidateAnnotations(d.Metadata.Annotations)...)
+	if d.Spec != nil {
+		allErrs = append(allErrs, d.Spec.Validate(false)...)
 	}
+
 	return allErrs
+}
+
+// ValidateUpdate ensures immutable fields are unchanged for Device.
+func (d *Device) ValidateUpdate(newObj *Device) []error {
+	return validateImmutableCoreFields(d.Metadata.Name, newObj.Metadata.Name,
+		d.ApiVersion, newObj.ApiVersion,
+		d.Kind, newObj.Kind,
+		d.Status, newObj.Status)
 }
 
 func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
 	if r.UpdatePolicy != nil {
 		allErrs = append(allErrs, r.UpdatePolicy.Validate()...)
+	}
+	if r.Consoles != nil {
+		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
 	}
 	if r.Os != nil {
 		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
@@ -56,71 +72,83 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		}
 	}
 	if r.Config != nil {
-		for _, config := range *r.Config {
-			allErrs = append(allErrs, config.Validate(fleetTemplate)...)
-		}
+		allErrs = append(allErrs, validateConfigs(*r.Config, fleetTemplate)...)
 	}
 	if r.Applications != nil {
-		allErrs = append(allErrs, validateApplications(*r.Applications)...)
+		allErrs = append(allErrs, validateApplications(*r.Applications, fleetTemplate)...)
 	}
 	if r.Resources != nil {
 		for _, resource := range *r.Resources {
 			allErrs = append(allErrs, resource.Validate()...)
 		}
 	}
-	if r.Systemd != nil {
+	if r.Systemd != nil && r.Systemd.MatchPatterns != nil {
 		for i, matchPattern := range *r.Systemd.MatchPatterns {
-			matchPattern := matchPattern
-			allErrs = append(allErrs, validation.ValidateString(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i), 1, 256, nil, "")...)
+			allErrs = append(allErrs, validation.ValidateSystemdName(&matchPattern, fmt.Sprintf("spec.systemd.matchPatterns[%d]", i))...)
 		}
 	}
 	return allErrs
 }
 
-func (c ConfigProviderSpec) Validate(fleetTemplate bool) []error {
+func validateConfigs(configs []ConfigProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
+	seenPath := make(map[string]struct{}, len(configs))
+	for i, config := range configs {
+		t, err := config.Type()
+		if err != nil {
+			allErrs = append(allErrs, err)
+			return allErrs
+		}
 
-	// validate the config provider type
-	t, err := c.Type()
-	if err != nil {
-		allErrs = append(allErrs, err)
-		return allErrs
+		switch t {
+		case GitConfigProviderType:
+			provider, err := config.AsGitConfigProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
+		case HttpConfigProviderType:
+			provider, err := config.AsHttpConfigProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+			path := provider.HttpRef.FilePath
+			if _, exists := seenPath[path]; exists {
+				allErrs = append(allErrs, fmt.Errorf("spec.config[%d].httpRef, device path must be unique for all config providers: %s", i, path))
+			} else {
+				seenPath[path] = struct{}{}
+			}
+			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
+		case InlineConfigProviderType:
+			provider, err := config.AsInlineConfigProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+
+			for j, inline := range provider.Inline {
+				path := inline.Path
+				if _, exists := seenPath[path]; exists {
+					allErrs = append(allErrs, fmt.Errorf("spec.config[%d].inline[%d], device path must be unique for all config providers: %s", i, j, path))
+				} else {
+					seenPath[path] = struct{}{}
+				}
+			}
+			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
+		case KubernetesSecretProviderType:
+			provider, err := config.AsKubernetesSecretProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+			allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
+		default:
+			// if we hit this case, it means that the type should be added to the switch statement above
+			allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
+		}
 	}
-
-	switch t {
-	case GitConfigProviderType:
-		provider, err := c.AsGitConfigProviderSpec()
-		if err != nil {
-			allErrs = append(allErrs, err)
-			break
-		}
-		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
-	case HttpConfigProviderType:
-		provider, err := c.AsHttpConfigProviderSpec()
-		if err != nil {
-			allErrs = append(allErrs, err)
-			break
-		}
-		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
-	case InlineConfigProviderType:
-		provider, err := c.AsInlineConfigProviderSpec()
-		if err != nil {
-			allErrs = append(allErrs, err)
-			break
-		}
-		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
-	case KubernetesSecretProviderType:
-		provider, err := c.AsKubernetesSecretProviderSpec()
-		if err != nil {
-			allErrs = append(allErrs, err)
-			break
-		}
-		allErrs = append(allErrs, provider.Validate(fleetTemplate)...)
-	default:
-		// if we hit this case, it means that the type should be added to the switch statement above
-		allErrs = append(allErrs, fmt.Errorf("unknown config provider type: %s", t))
-	}
-
 	return allErrs
 }
 
@@ -142,7 +170,7 @@ func (a HookAction) Validate(path string) []error {
 		}
 		allErrs = append(allErrs, validation.ValidateString(&runAction.Run, path+".run", 1, 2048, nil, "")...)
 		// TODO: pull the extra validation done by the agent up here
-		allErrs = append(allErrs, validation.ValidateStringMap(runAction.EnvVars, path+".envVars", 1, 256, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateStringMap(runAction.EnvVars, path+".envVars", 1, 256, nil, nil, "")...)
 		allErrs = append(allErrs, validation.ValidateFileOrDirectoryPath(runAction.WorkDir, path+".workDir")...)
 	default:
 		// if we hit this case, it means that the type should be added to the switch statement above
@@ -196,42 +224,60 @@ func (r ResourceMonitor) Validate() []error {
 		allErrs = append(allErrs, err)
 	}
 
-	validateAlertRulesFn := func(alertRules []ResourceAlertRule, samplingInterval string) []error {
-		seen := make(map[string]struct{})
-		for _, rule := range alertRules {
-			// ensure uniqueness of Severity per resource type
-			if _, exists := seen[string(rule.Severity)]; exists {
-				allErrs = append(allErrs, fmt.Errorf("duplicate alertRule severity: %s", rule.Severity))
-			} else {
-				seen[string(rule.Severity)] = struct{}{}
-			}
-			allErrs = append(allErrs, rule.Validate(samplingInterval)...)
-		}
-		return allErrs
-	}
-
 	switch monitorType {
 	case "CPU":
 		spec, err := r.AsCpuResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
-		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	case "Disk":
 		spec, err := r.AsDiskResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
 		allErrs = append(allErrs, validation.ValidateString(&spec.Path, "spec.resources[].disk.path", 0, 2048, nil, "")...)
-		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	case "Memory":
 		spec, err := r.AsMemoryResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
-		allErrs = append(allErrs, validateAlertRulesFn(spec.AlertRules, spec.SamplingInterval)...)
+		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown monitor type valid types are CPU, Disk and Memory: %s", monitorType))
+	}
+
+	return allErrs
+}
+
+func validateAlertRules(alertRules []ResourceAlertRule, samplingInterval string) []error {
+	var allErrs []error
+	seen := make(map[ResourceAlertSeverityType]struct{})
+	percentages := make(map[ResourceAlertSeverityType]float32)
+
+	for _, rule := range alertRules {
+		if _, exists := seen[rule.Severity]; exists {
+			allErrs = append(allErrs, fmt.Errorf("%w: %s", ErrDuplicateAlertSeverity, rule.Severity))
+			continue
+		}
+		seen[rule.Severity] = struct{}{}
+		percentages[rule.Severity] = rule.Percentage
+		allErrs = append(allErrs, rule.Validate(samplingInterval)...)
+	}
+
+	info, hasInfo := percentages[ResourceAlertSeverityTypeInfo]
+	warning, hasWarning := percentages[ResourceAlertSeverityTypeWarning]
+	critical, hasCritical := percentages[ResourceAlertSeverityTypeCritical]
+
+	if hasInfo && hasWarning && info >= warning {
+		allErrs = append(allErrs, ErrInfoAlertLessThanWarn)
+	}
+	if hasInfo && hasCritical && info >= critical {
+		allErrs = append(allErrs, ErrInfoAlertLessThanCritical)
+	}
+	if hasWarning && hasCritical && warning >= critical {
+		allErrs = append(allErrs, ErrWarnAlertLessThanCritical)
 	}
 
 	return allErrs
@@ -318,16 +364,16 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].Group, fmt.Sprintf("spec.config[].inline[%d].group", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxFileMode(c.Inline[i].Mode, fmt.Sprintf("spec.config[].inline[%d].mode", i))...)
 
-		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64 {
+		if c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == EncodingBase64 {
 			// Contents should be base64 encoded and limited to 1MB (1024*1024=1048576 bytes)
-			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineConfigLength)...)
+			allErrs = append(allErrs, validation.ValidateBase64Field(c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), maxInlineLength)...)
 			// Can ignore errors because we just validated it in the previous line
 			b, _ := base64.StdEncoding.DecodeString(c.Inline[i].Content)
-			_, paramErrs = validateParametersInString(util.StrToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
+			_, paramErrs = validateParametersInString(lo.ToPtr(string(b)), "spec.config[].inline[%d].content", fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
-		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == Base64) {
+		} else if c.Inline[i].ContentEncoding == nil || (c.Inline[i].ContentEncoding != nil && *(c.Inline[i].ContentEncoding) == EncodingPlain) {
 			// Contents should be limited to 1MB (1024*1024=1048576 bytes)
-			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineConfigLength, nil, "")...)
+			allErrs = append(allErrs, validation.ValidateString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), 0, maxInlineLength, nil, "")...)
 			_, paramErrs = validateParametersInString(&c.Inline[i].Content, fmt.Sprintf("spec.config[].inline[%d].content", i), fleetTemplate)
 			allErrs = append(allErrs, paramErrs...)
 		} else {
@@ -362,8 +408,17 @@ func (r EnrollmentRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-	allErrs = append(allErrs, validation.ValidateCSR([]byte(r.Spec.Csr))...)
+	allErrs = append(allErrs, validation.ValidateCSRWithTCGSupport([]byte(r.Spec.Csr))...)
+
 	return allErrs
+}
+
+// ValidateUpdate ensures immutable fields are unchanged for EnrollmentRequest.
+func (er *EnrollmentRequest) ValidateUpdate(newObj *EnrollmentRequest) []error {
+	return validateImmutableCoreFields(er.Metadata.Name, newObj.Metadata.Name,
+		er.ApiVersion, newObj.ApiVersion,
+		er.Kind, newObj.Kind,
+		er.Status, newObj.Status)
 }
 
 func (r EnrollmentRequestApproval) Validate() []error {
@@ -384,11 +439,48 @@ func (r CertificateSigningRequest) Validate() []error {
 	return allErrs
 }
 
+// ValidateUpdate ensures immutable fields are unchanged for CertificateSigningRequest.
+func (csr *CertificateSigningRequest) ValidateUpdate(newObj *CertificateSigningRequest) []error {
+	return validateImmutableCoreFields(csr.Metadata.Name, newObj.Metadata.Name,
+		csr.ApiVersion, newObj.ApiVersion,
+		csr.Kind, newObj.Kind,
+		csr.Status, newObj.Status)
+}
+
+func (b *Batch_Limit) Validate() []error {
+	if b == nil {
+		return nil
+	}
+	intVal, err := b.AsBatchLimit1()
+	if err == nil {
+		if intVal <= 0 {
+			return []error{errors.New("absolute limit value must be positive integer")}
+		}
+		return nil
+	}
+	p, err := b.AsPercentage()
+	if err != nil {
+		return []error{fmt.Errorf("limit must either an integer value or a percentage: %w", err)}
+	}
+	if err = validatePercentage(p); err != nil {
+		return []error{err}
+	}
+	return nil
+}
+
 func (b *Batch) Validate() []error {
+	var errs []error
 	if b == nil {
 		return []error{errors.New("a batch in a batch sequence must not be null")}
 	}
-	return b.Selector.Validate()
+	errs = append(errs, b.Selector.Validate()...)
+	errs = append(errs, b.Limit.Validate()...)
+	if b.SuccessThreshold != nil {
+		if err := validatePercentage(*b.SuccessThreshold); err != nil {
+			errs = append(errs, fmt.Errorf("batch success threshold: %w", err))
+		}
+	}
+	return errs
 }
 
 func (b BatchSequence) Validate() []error {
@@ -417,13 +509,18 @@ func (r *RolloutDeviceSelection) Validate() []error {
 }
 
 func (d *DisruptionBudget) Validate() []error {
+	var errs []error
 	if d == nil {
 		return nil
 	}
 	if d.MinAvailable == nil && d.MaxUnavailable == nil {
-		return []error{errors.New("at least one of [MinAvailable, MaxUnavailable] must be defined in disruption budget")}
+		errs = append(errs, errors.New("at least one of [MinAvailable, MaxUnavailable] must be defined in disruption budget"))
 	}
-	return nil
+	groupBy := lo.FromPtr(d.GroupBy)
+	if len(groupBy) != len(lo.Uniq(groupBy)) {
+		errs = append(errs, errors.New("groupBy items must be unique"))
+	}
+	return errs
 }
 
 func (r *RolloutPolicy) Validate() []error {
@@ -436,6 +533,11 @@ func (r *RolloutPolicy) Validate() []error {
 	}
 	errs = append(errs, r.DeviceSelection.Validate()...)
 	errs = append(errs, r.DisruptionBudget.Validate()...)
+	if r.SuccessThreshold != nil {
+		if err := validatePercentage(*r.SuccessThreshold); err != nil {
+			errs = append(errs, fmt.Errorf("rollout policy success threshold: %w", err))
+		}
+	}
 	return errs
 }
 
@@ -451,6 +553,14 @@ func (r Fleet) Validate() []error {
 	allErrs = append(allErrs, r.Spec.Template.Spec.Validate(true)...)
 
 	return allErrs
+}
+
+// ValidateUpdate ensures immutable fields are unchanged for Fleet.
+func (f *Fleet) ValidateUpdate(newObj *Fleet) []error {
+	return validateImmutableCoreFields(f.Metadata.Name, newObj.Metadata.Name,
+		f.ApiVersion, newObj.ApiVersion,
+		f.Kind, newObj.Kind,
+		f.Status, newObj.Status)
 }
 
 func (u DeviceUpdatePolicySpec) Validate() []error {
@@ -472,7 +582,7 @@ func (u DeviceUpdatePolicySpec) Validate() []error {
 func (u UpdateSchedule) Validate() []error {
 	var allErrs []error
 	if u.TimeZone != nil {
-		if err := validateTimeZone(util.FromPtr(u.TimeZone)); err != nil {
+		if err := validateTimeZone(lo.FromPtr(u.TimeZone)); err != nil {
 			allErrs = append(allErrs, err...)
 		}
 	}
@@ -493,7 +603,10 @@ func (u UpdateSchedule) Validate() []error {
 	return allErrs
 }
 
-func (r Repository) Validate() []error {
+func (r *Repository) Validate() []error {
+	if r == nil {
+		return nil
+	}
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
@@ -526,6 +639,14 @@ func (r Repository) Validate() []error {
 	return allErrs
 }
 
+// ValidateUpdate ensures immutable fields are unchanged for Repository.
+func (r *Repository) ValidateUpdate(newObj *Repository) []error {
+	return validateImmutableCoreFields(r.Metadata.Name, newObj.Metadata.Name,
+		r.ApiVersion, newObj.ApiVersion,
+		r.Kind, newObj.Kind,
+		r.Status, newObj.Status)
+}
+
 func (r ResourceSync) Validate() []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
@@ -537,6 +658,25 @@ func (r ResourceSync) Validate() []error {
 	return allErrs
 }
 
+// ValidateUpdate ensures immutable fields are unchanged for ResourceSync.
+func (rs *ResourceSync) ValidateUpdate(newObj *ResourceSync) []error {
+	return validateImmutableCoreFields(rs.Metadata.Name, newObj.Metadata.Name,
+		rs.ApiVersion, newObj.ApiVersion,
+		rs.Kind, newObj.Kind,
+		rs.Status, newObj.Status)
+}
+
+func (tv TemplateVersion) Validate() []error {
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateResourceName(tv.Metadata.Name)...)
+	allErrs = append(allErrs, validation.ValidateResourceOwner(tv.Metadata.Owner, lo.ToPtr(FleetKind))...)
+	_, passedOwnerResource, _ := util.GetResourceOwner(tv.Metadata.Owner)
+	if passedOwnerResource != tv.Spec.Fleet {
+		allErrs = append(allErrs, errors.New("metadata.owner and spec.fleet must match"))
+	}
+	return allErrs
+}
+
 func (l *LabelSelector) Validate() []error {
 	if l != nil && l.MatchExpressions == nil && l.MatchLabels == nil {
 		return []error{errors.New("at least one of [matchLabels,matchExpressions] must appear in a label selector")}
@@ -545,7 +685,8 @@ func (l *LabelSelector) Validate() []error {
 }
 
 func (d *DeviceSystemInfo) IsEmpty() bool {
-	return *d == DeviceSystemInfo{}
+	empty := DeviceSystemInfo{}
+	return reflect.DeepEqual(*d, empty)
 }
 
 func validateHttpConfig(config *HttpConfig) []error {
@@ -598,65 +739,213 @@ func validateSshConfig(config *SshConfig) []error {
 	return errs
 }
 
-func (a ApplicationSpec) Validate() []error {
+func (a ApplicationProviderSpec) Validate() []error {
 	allErrs := []error{}
-	pattern := regexp.MustCompile(`^[a-zA-Z0-9].*`)
-	// name must be between 1 and 253 characters and start with a letter or number.
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, MaxDNSNameLength, pattern, "")...)
+	// name must be 1–253 characters long, start with a letter or number, and contain no whitespace
+	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, validation.DNS1123MaxLength, validation.GenericNameRegexp, validation.Dns1123LabelFmt)...)
 	// envVars keys and values must be between 1 and 253 characters
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, MaxDNSNameLength, nil, "")...)
+	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, validation.DNS1123MaxLength, validation.EnvVarNameRegexp, nil, "")...)
 	return allErrs
 }
 
-func validateApplications(apps []ApplicationSpec) []error {
+func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTemplate bool) []error {
 	allErrs := []error{}
-	seenName := make(map[string]struct{})
+	appType := lo.FromPtr(appTypeRef)
+
+	seenPath := make(map[string]struct{}, len(a.Inline))
+	for i := range a.Inline {
+		path := a.Inline[i].Path
+		// ensure uniqueness of path per application
+		if _, exists := seenPath[path]; exists {
+			allErrs = append(allErrs, fmt.Errorf("duplicate inline path: %s", path))
+		} else {
+			seenPath[path] = struct{}{}
+		}
+
+		allErrs = append(allErrs, a.Inline[i].Validate(i, appType, fleetTemplate)...)
+	}
+
+	if appType == AppTypeCompose {
+		paths := make([]string, 0, len(seenPath))
+		for path := range seenPath {
+			paths = append(paths, path)
+		}
+		if err := validation.ValidateComposePaths(paths); err != nil {
+			allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", err))
+		}
+	}
+
+	return allErrs
+}
+
+func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate bool) []error {
+	var allErrs []error
+	pathPrefix := fmt.Sprintf("spec.applications[].inline[%d]", index)
+
+	// validate path
+	containsParams, paramErrs := validateParametersInString(&c.Path, pathPrefix+".path", fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateRelativePath(&c.Path, pathPrefix+".path", 253)...)
+	}
+
+	content := lo.FromPtr(c.Content)
+	if content == "" {
+		return allErrs
+	}
+
+	var decodedBytes []byte
+	var decodedStr string
+	contentPath := fmt.Sprintf("%s.content", pathPrefix)
+	if c.IsBase64() {
+		var err error
+		decodedBytes, err = base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("decode base64 content: %w", err))
+			return allErrs
+		}
+		decodedStr = string(decodedBytes)
+	} else if c.IsPlain() {
+		decodedStr = content
+		decodedBytes = []byte(content)
+	} else {
+		allErrs = append(allErrs, fmt.Errorf("unknown encoding type: %s", *c.ContentEncoding))
+		return allErrs
+	}
+
+	// validate content
+	allErrs = append(allErrs, validation.ValidateString(&decodedStr, contentPath, 0, maxInlineLength, nil, "")...)
+	_, paramErrs = validateParametersInString(&decodedStr, contentPath, fleetTemplate)
+	allErrs = append(allErrs, paramErrs...)
+	allErrs = append(allErrs, ValidateApplicationContent(decodedBytes, appType)...)
+
+	return allErrs
+}
+
+func (c ApplicationContent) IsBase64() bool {
+	return c.ContentEncoding != nil && *c.ContentEncoding == EncodingBase64
+}
+
+func (c ApplicationContent) IsPlain() bool {
+	return c.ContentEncoding == nil || *c.ContentEncoding == EncodingPlain
+}
+
+func ValidateApplicationContent(content []byte, appType AppType) []error {
+	var allErrs []error
+	switch appType {
+	case AppTypeCompose:
+		composeSpec, err := common.ParseComposeSpec(content)
+		if err != nil {
+			return []error{fmt.Errorf("parse compose spec: %w", err)}
+		}
+		allErrs = append(allErrs, validation.ValidateComposeSpec(composeSpec)...)
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unsupported application type: %s", appType))
+	}
+
+	return allErrs
+}
+
+func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []error {
+	allErrs := []error{}
+	seenAppNames := make(map[string]struct{})
+
 	for _, app := range apps {
+		seenVolumeNames := make(map[string]struct{})
 		providerType, err := validateAppProviderType(app)
 		if err != nil {
 			allErrs = append(allErrs, err)
+			continue
 		}
-		appName, err := getAppName(app, providerType)
+
+		appName, err := ensureAppName(app, providerType)
 		if err != nil {
 			allErrs = append(allErrs, err)
+			continue
 		}
 
-		// ensure uniqueness of application name
-		if _, exists := seenName[appName]; exists {
+		if _, exists := seenAppNames[appName]; exists {
 			allErrs = append(allErrs, fmt.Errorf("duplicate application name: %s", appName))
-		} else {
-			seenName[appName] = struct{}{}
+			continue
+		}
+		seenAppNames[appName] = struct{}{}
+
+		var volumes *[]ApplicationVolume
+		switch providerType {
+		case ImageApplicationProviderType:
+			provider, err := app.AsImageApplicationProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid image application provider: %w", err))
+				continue
+			}
+			if provider.Image == "" && app.Name == nil {
+				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
+			}
+			allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName))...)
+			volumes = provider.Volumes
+
+		case InlineApplicationProviderType:
+			provider, err := app.AsInlineApplicationProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid inline application provider: %w", err))
+				continue
+			}
+			if app.AppType == nil {
+				allErrs = append(allErrs, fmt.Errorf("inline application type cannot be empty"))
+			}
+			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
+			volumes = provider.Volumes
+
+		default:
+			allErrs = append(allErrs, fmt.Errorf("no validations implemented for application provider type: %s", providerType))
+			continue
 		}
 
-		allErrs = append(allErrs, validateAppProvider(app, providerType)...)
 		allErrs = append(allErrs, app.Validate()...)
+
+		if volumes != nil {
+			for i, vol := range *volumes {
+				path := fmt.Sprintf("spec.applications[%s].volumes[%d]", appName, i)
+				if _, exists := seenVolumeNames[vol.Name]; exists {
+					allErrs = append(allErrs, fmt.Errorf("duplicate volume name for application: %s", vol.Name))
+					continue
+				}
+				seenVolumeNames[vol.Name] = struct{}{}
+
+				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
+				allErrs = append(allErrs, validateVolume(vol, path)...)
+			}
+		}
 	}
+
 	return allErrs
 }
 
-func validateAppProvider(app ApplicationSpec, appType ApplicationProviderType) []error {
+func validateVolume(vol ApplicationVolume, path string) []error {
 	var errs []error
-	switch appType {
-	case ImageApplicationProviderType:
-		provider, err := app.AsImageApplicationProvider()
+
+	providerType, err := vol.Type()
+	if err != nil {
+		return []error{fmt.Errorf("invalid application volume provider: %w", err)}
+	}
+
+	switch providerType {
+	case ImageApplicationVolumeProviderType:
+		imgProvider, err := vol.AsImageVolumeProviderSpec()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("invalid image application provider: %w", err))
-			return errs
+			errs = append(errs, fmt.Errorf("invalid image application volume provider: %w", err))
+		} else {
+			errs = append(errs, validation.ValidateOciImageReference(&imgProvider.Image.Reference, path+".image.reference")...)
 		}
 
-		if provider.Image == "" && app.Name == nil {
-			errs = append(errs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
-		} else if app.Name != nil {
-			errs = append(errs, validation.ValidateOciImageReference(&provider.Image, "spec.applications[].image")...)
-		}
 	default:
-		errs = append(errs, fmt.Errorf("no validations implemented for application provider type: %s", appType))
+		errs = append(errs, fmt.Errorf("unknown application volume provider type: %s", providerType))
 	}
 
 	return errs
 }
 
-func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, error) {
+func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderType, error) {
 	providerType, err := app.Type()
 	if err != nil {
 		return "", fmt.Errorf("application type error: %w", err)
@@ -665,15 +954,17 @@ func validateAppProviderType(app ApplicationSpec) (ApplicationProviderType, erro
 	switch providerType {
 	case ImageApplicationProviderType:
 		return providerType, nil
+	case InlineApplicationProviderType:
+		return providerType, nil
 	default:
 		return "", fmt.Errorf("unknown application provider type: %s", providerType)
 	}
 }
 
-func getAppName(app ApplicationSpec, appType ApplicationProviderType) (string, error) {
+func ensureAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (string, error) {
 	switch appType {
 	case ImageApplicationProviderType:
-		provider, err := app.AsImageApplicationProvider()
+		provider, err := app.AsImageApplicationProviderSpec()
 		if err != nil {
 			return "", fmt.Errorf("invalid image application provider: %w", err)
 		}
@@ -686,6 +977,11 @@ func getAppName(app ApplicationSpec, appType ApplicationProviderType) (string, e
 			return provider.Image, nil
 		}
 
+		return *app.Name, nil
+	case InlineApplicationProviderType:
+		if app.Name == nil {
+			return "", fmt.Errorf("inline application name cannot be empty")
+		}
 		return *app.Name, nil
 	default:
 		return "", fmt.Errorf("unsupported application provider type: %s", appType)
@@ -747,9 +1043,15 @@ func validateTimeZone(timeZone string) []error {
 }
 
 func validateGraceDuration(schedule cron.Schedule, duration string) error {
+	// validating the duration first so that we can potentially report more issues
+	// to the caller if malformed duration is also applied
 	graceDuration, err := time.ParseDuration(duration)
 	if err != nil {
 		return fmt.Errorf("invalid duration: %w", err)
+	}
+
+	if schedule == nil {
+		return fmt.Errorf("invalid schedule: cannot validate grace duration")
 	}
 
 	start := time.Now()
@@ -799,7 +1101,7 @@ func validateParametersInString(s *string, path string, fleetTemplate bool) (boo
 	// strings, so an empty map is fine.
 	dev := &Device{
 		Metadata: ObjectMeta{
-			Name:   util.StrToPtr("name"),
+			Name:   lo.ToPtr("name"),
 			Labels: &map[string]string{},
 		},
 	}
@@ -834,4 +1136,34 @@ func ValidateConditions(conditions []Condition, allowedConditions, trueCondition
 		allErrs = append(allErrs, fmt.Errorf("only one of %v may be set", exclusiveConditions))
 	}
 	return allErrs
+}
+
+func validatePercentage(p Percentage) error {
+	pattern := `^(100|[1-9]?[0-9])%$`
+	matched, err := regexp.MatchString(pattern, p)
+	if err != nil {
+		return fmt.Errorf("failed to match percentage %s: %w", p, err)
+	}
+	if !matched {
+		return fmt.Errorf("'%s' doesn't match percentage pattern '%s'", p, pattern)
+	}
+	return nil
+}
+
+// validateImmutableCoreFields is a helper used by ValidateUpdate to ensure name, apiVersion, kind and status are unchanged.
+func validateImmutableCoreFields(currentName, newName *string, currentAPIVersion, newAPIVersion, currentKind, newKind string, currentStatus, newStatus interface{}) []error {
+	var errs []error
+	if newName == nil || *currentName != *newName {
+		errs = append(errs, fmt.Errorf("metadata.name is immutable"))
+	}
+	if currentAPIVersion != newAPIVersion {
+		errs = append(errs, fmt.Errorf("apiVersion is immutable"))
+	}
+	if currentKind != newKind {
+		errs = append(errs, fmt.Errorf("kind is immutable"))
+	}
+	if !reflect.DeepEqual(currentStatus, newStatus) {
+		errs = append(errs, fmt.Errorf("status is immutable"))
+	}
+	return errs
 }

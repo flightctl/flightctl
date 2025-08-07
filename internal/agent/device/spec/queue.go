@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 // requeueState represents the state of a queued template version.
@@ -37,12 +38,8 @@ type queueManager struct {
 	// maxRetries is the number of times a template version can be requeued before being removed.
 	// A value of 0 means infinite retries.
 	maxRetries int
-	// delayThreshold is the number of times a template version can be requeued before enforcing a delay.
-	// A value of 0 means this is disabled.
-	delayThreshold int
-	// delayDuration is the duration to wait before the item is
-	// available to be retrieved form the queue.
-	delayDuration time.Duration
+	// pollConfig contains the backoff configuration for retries
+	pollConfig poll.Config
 
 	log *log.PrefixLogger
 }
@@ -51,8 +48,7 @@ type queueManager struct {
 func newPriorityQueue(
 	maxSize int,
 	maxRetries int,
-	delayThreshold int,
-	delayDuration time.Duration,
+	pollConfig poll.Config,
 	policyManager policy.Manager,
 	log *log.PrefixLogger,
 ) PriorityQueue {
@@ -62,18 +58,26 @@ func newPriorityQueue(
 		failedVersions: make(map[int64]struct{}),
 		requeueLookup:  make(map[int64]*requeueState),
 		maxRetries:     maxRetries,
-		delayThreshold: delayThreshold,
-		delayDuration:  delayDuration,
+		pollConfig:     pollConfig,
 		log:            log,
 	}
 }
 
-func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpec) {
+func (m *queueManager) Add(ctx context.Context, device *v1alpha1.Device) {
 	if ctx.Err() != nil {
 		return
 	}
 
-	item := newItem(spec)
+	if device.Spec == nil {
+		m.log.Errorf("Skipping device with nil spec: %s", device.Version())
+		return
+	}
+
+	item, err := newItem(device)
+	if err != nil {
+		m.log.Errorf("Failed to create queue item: %v", err)
+		return
+	}
 	version := item.Version
 	if _, failed := m.failedVersions[version]; failed {
 		m.log.Debugf("Skipping adding failed template version: %d", version)
@@ -95,11 +99,11 @@ func (m *queueManager) Add(ctx context.Context, spec *v1alpha1.RenderedDeviceSpe
 	m.queue.Add(item)
 }
 
-func (m *queueManager) Remove(version string) {
-	m.queue.Remove(stringToInt64(version))
+func (m *queueManager) Remove(version int64) {
+	m.queue.Remove(version)
 }
 
-func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, bool) {
+func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	if ctx.Err() != nil {
 		return nil, false
 	}
@@ -107,34 +111,41 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.RenderedDeviceSpec, 
 	if !ok {
 		return nil, false
 	}
+	version := item.Version
 
-	m.log.Debugf("Evaluating template version: %d", item.Version)
+	m.log.Debugf("Evaluating template version: %d", version)
 	now := time.Now()
-	requeue, exists := m.requeueLookup[item.Version]
-	if exists && now.Before(requeue.nextAvailable) {
+	requeue := m.getOrCreateRequeueState(ctx, version)
+	if now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
-		m.log.Debugf("Template version %d is not yet ready. Available after: %s", item.Version, requeue.nextAvailable.Format(time.RFC3339))
+		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339Nano))
 		return nil, false
 	}
-	if m.updatePolicy(ctx, requeue) {
-		m.log.Debugf("Template version policy updated: %d", item.Version)
-	}
 
-	if exists {
-		requeue.nextAvailable = time.Time{}
-		m.log.Debugf("Template version is now available for retrieval: %d", item.Version)
-		requeue.tries++
+	// currently it's useful to allow specs to be consumed if the download policy is satisfied
+	// even if the updatePolicy isn't
+	if !requeue.downloadPolicySatisfied && !requeue.updatePolicySatisfied {
+		m.log.Debugf("Template version %d policies are not satisfied skipping...", version)
+		m.queue.Add(item)
+		return nil, false
 	}
 
 	if item.Spec != nil {
-		m.log.Debugf("Retrieved template version from the queue: %d", item.Version)
+		m.log.Debugf("Retrieved template version from the queue: %d", version)
+		requeue.nextAvailable = time.Time{}
+		requeue.tries++
 		return item.Spec, true
 	}
+
+	m.log.Errorf("Dropping template version %d from queue: missing or invalid spec", version)
 	return nil, false
 }
 
 func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
-	v := stringToInt64(version)
+	v, err := stringToInt64(version)
+	if err != nil {
+		return err
+	}
 	requeue, exists := m.requeueLookup[v]
 	if !exists {
 		// this would be very unexpected so we would need to requeue the version
@@ -158,9 +169,8 @@ func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, 
 	}
 }
 
-func (m *queueManager) SetFailed(version string) {
-	v := stringToInt64(version)
-	m.setFailed(v)
+func (m *queueManager) SetFailed(version int64) {
+	m.setFailed(version)
 }
 
 func (m *queueManager) setFailed(version int64) {
@@ -169,8 +179,8 @@ func (m *queueManager) setFailed(version int64) {
 	m.queue.Remove(version)
 }
 
-func (m *queueManager) IsFailed(version string) bool {
-	_, ok := m.failedVersions[stringToInt64(version)]
+func (m *queueManager) IsFailed(version int64) bool {
+	_, ok := m.failedVersions[version]
 	return ok
 }
 
@@ -192,15 +202,22 @@ func (m *queueManager) getOrCreateRequeueState(ctx context.Context, version int6
 }
 
 func (m *queueManager) shouldEnforceDelay(state *requeueState) bool {
-	if m.delayThreshold <= 0 || !m.queue.IsEmpty() || state.tries == 0 {
+	if state.tries == 0 {
 		return false
 	}
-	if state.tries >= m.delayThreshold && state.nextAvailable.IsZero() {
-		state.nextAvailable = time.Now().Add(m.delayDuration)
-		m.log.Debugf("Delay enforced until: %s", state.nextAvailable)
+
+	if state.nextAvailable.IsZero() {
+		// incremental delay based on tries
+		delay := m.calculateBackoffDelay(state.tries)
+		state.nextAvailable = time.Now().Add(delay)
+		m.log.Debugf("Incremental delay enforced for version: %d: until: %s", state.version, state.nextAvailable.Format(time.RFC3339))
 		return true
 	}
 	return false
+}
+
+func (m *queueManager) calculateBackoffDelay(tries int) time.Duration {
+	return poll.CalculateBackoffDelay(&m.pollConfig, tries)
 }
 
 func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64) bool {
@@ -211,6 +228,9 @@ func (m *queueManager) hasExceededMaxRetries(state *requeueState, version int64)
 	return false
 }
 
+// updatePolicy calls into the policyManager to check if the policy have been
+// satisfied since the last call an updates accordingly returns true if the
+// policy has changed.
 func (m *queueManager) updatePolicy(ctx context.Context, requeue *requeueState) bool {
 	changed := false
 	if !requeue.downloadPolicySatisfied {
@@ -239,8 +259,8 @@ func (m *queueManager) pruneRequeueStatus() {
 		var minVersion int64
 		var initialized bool
 
-		for version := range m.requeueLookup {
-			if !initialized || version < minVersion {
+		for version, state := range m.requeueLookup {
+			if !initialized || version < minVersion && state.tries > 0 {
 				minVersion = version
 				initialized = true
 			}
@@ -315,15 +335,13 @@ func (q *queue) Clear() {
 }
 
 func (q *queue) Remove(version int64) {
-	if _, ok := q.items[version]; ok {
-		delete(q.items, version)
-		q.log.Debugf("Forgetting item version %v", version)
-	}
+	q.log.Tracef("Removing item version: %d", version)
+	delete(q.items, version)
 
 	// ensure heap removal
 	for i, heapItem := range q.heap {
 		if heapItem.Version == version {
-			q.log.Debugf("Removing item version from heap: %d", version)
+			q.log.Tracef("Removing item version from heap: %d", version)
 			heap.Remove(&q.heap, i)
 			break
 		}
@@ -332,15 +350,19 @@ func (q *queue) Remove(version int64) {
 
 type Item struct {
 	Version int64
-	Spec    *v1alpha1.RenderedDeviceSpec
+	Spec    *v1alpha1.Device
 }
 
 // newItem creates a new queue item.
-func newItem(data *v1alpha1.RenderedDeviceSpec) *Item {
+func newItem(data *v1alpha1.Device) (*Item, error) {
+	version, err := stringToInt64(data.Version())
+	if err != nil {
+		return nil, err
+	}
 	return &Item{
 		Spec:    data,
-		Version: stringToInt64(data.RenderedVersion),
-	}
+		Version: version,
+	}, nil
 }
 
 // ItemHeap is a priority queue that orders items by version.
@@ -370,7 +392,16 @@ func (h *ItemHeap) Pop() interface{} {
 	return item
 }
 
-func stringToInt64(s string) int64 {
-	i, _ := strconv.ParseInt(s, 10, 64)
-	return i
+func stringToInt64(s string) (int64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	i, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("convert string to int64: %w", err)
+	}
+	if i < 0 {
+		return 0, fmt.Errorf("version number cannot be negative: %d", i)
+	}
+	return i, nil
 }

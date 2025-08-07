@@ -10,4 +10,4 @@ Rules-Requires-Root: no
 Package: flightctl-agent
 Architecture: amd64 arm64 riscv64
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: FlightCTL management agent and cmdline client
+Description: Flight Control management agent

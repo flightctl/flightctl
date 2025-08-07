@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -61,10 +62,8 @@ func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error)
 	}, nil
 }
 
-func hideValue(value *string) {
-	if value != nil {
-		*value = *util.StrToPtr("*****")
-	}
+func RepositoryAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.RepositoryAPIVersion)
 }
 
 func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, error) {
@@ -82,35 +81,12 @@ func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, 
 		status = r.Status.Data
 	}
 
-	_, err := spec.GetGenericRepoSpec()
-	if err != nil {
-		gitHttpSpec, err := spec.GetHttpRepoSpec()
-		if err == nil {
-			hideValue(gitHttpSpec.HttpConfig.Password)
-			hideValue(gitHttpSpec.HttpConfig.TlsKey)
-			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
-			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
-				return &api.Repository{}, err
-			}
-
-		} else {
-			gitSshRepoSpec, err := spec.GetSshRepoSpec()
-			if err == nil {
-				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
-				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
-				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
-					return &api.Repository{}, err
-				}
-			}
-		}
-	}
-
 	return &api.Repository{
-		ApiVersion: api.RepositoryAPIVersion,
+		ApiVersion: RepositoryAPIVersion(),
 		Kind:       api.RepositoryKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(r.Name),
-			CreationTimestamp: util.TimeToPtr(r.CreatedAt.UTC()),
+			Name:              lo.ToPtr(r.Name),
+			CreationTimestamp: lo.ToPtr(r.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(r.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(r.Resource.Annotations)),
 			ResourceVersion:   lo.Ternary(r.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(r.ResourceVersion), 10)), nil),
@@ -126,7 +102,7 @@ func RepositoriesToApiResource(repos []Repository, cont *string, numRemaining *i
 		repo, err := repository.ToApiResource()
 		if err != nil {
 			return api.RepositoryList{
-				ApiVersion: api.RepositoryAPIVersion,
+				ApiVersion: RepositoryAPIVersion(),
 				Kind:       api.RepositoryListKind,
 				Items:      []api.Repository{},
 			}, err
@@ -134,7 +110,7 @@ func RepositoriesToApiResource(repos []Repository, cont *string, numRemaining *i
 		repositoryList[i] = *repo
 	}
 	ret := api.RepositoryList{
-		ApiVersion: api.RepositoryAPIVersion,
+		ApiVersion: RepositoryAPIVersion(),
 		Kind:       api.RepositoryListKind,
 		Items:      repositoryList,
 		Metadata:   api.ListMeta{},

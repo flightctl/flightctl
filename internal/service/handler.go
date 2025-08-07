@@ -1,38 +1,28 @@
 package service
 
 import (
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/go-chi/chi/v5"
+	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/sirupsen/logrus"
 )
 
 type ServiceHandler struct {
+	*EventHandler
 	store           store.Store
-	ca              *crypto.CA
+	ca              *crypto.CAClient
 	log             logrus.FieldLogger
-	callbackManager tasks.CallbackManager
+	callbackManager tasks_client.CallbackManager
 	kvStore         kvstore.KVStore
 	agentEndpoint   string
 	uiUrl           string
+	tpmCAPaths      []string
 }
 
-type WebsocketHandler struct {
-	store                 store.Store
-	ca                    *crypto.CA
-	log                   logrus.FieldLogger
-	consoleSessionManager *console.ConsoleSessionManager
-}
-
-// Make sure we conform to servers Service interface
-var _ server.Service = (*ServiceHandler)(nil)
-
-func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CA, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store store.Store, callbackManager tasks_client.CallbackManager, kvStore kvstore.KVStore, ca *crypto.CAClient, log logrus.FieldLogger, agentEndpoint string, uiUrl string, tpmCAPaths []string) *ServiceHandler {
 	return &ServiceHandler{
+		EventHandler:    NewEventHandler(store, log),
 		store:           store,
 		ca:              ca,
 		log:             log,
@@ -40,19 +30,6 @@ func NewServiceHandler(store store.Store, callbackManager tasks.CallbackManager,
 		kvStore:         kvStore,
 		agentEndpoint:   agentEndpoint,
 		uiUrl:           uiUrl,
+		tpmCAPaths:      tpmCAPaths,
 	}
-}
-
-func NewWebsocketHandler(store store.Store, ca *crypto.CA, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {
-	return &WebsocketHandler{
-		store:                 store,
-		ca:                    ca,
-		log:                   log,
-		consoleSessionManager: consoleSessionManager,
-	}
-}
-
-func (h *WebsocketHandler) RegisterRoutes(r chi.Router) {
-	// Websocket handler for console
-	r.Get("/ws/v1/devices/{name}/console", h.HandleDeviceConsole)
 }

@@ -58,7 +58,7 @@ type BootcClient interface {
 }
 
 // IsOsImageReconciled returns true if the booted image equals the target for the spec image.
-func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.RenderedDeviceSpec) (bool, error) {
+func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.DeviceSpec) (bool, error) {
 	if desiredSpec.Os == nil {
 		return false, nil
 	}

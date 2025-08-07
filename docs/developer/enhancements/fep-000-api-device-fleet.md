@@ -126,8 +126,6 @@ The proposed changes include:
 
 * Some config items reference external configurations (`KubernetesSecretProviderSpec`, `GitConfigProviderSpec`)
 
-* `GitConfigProviderSpec` config types add a `mountPath` field for consistency, in the same way k8s secrets add such field.
-
 * External references (image or config items) must support floating tags (`latest`, `main`, `v1.0`), although
   **when managed from a fleet, the floating tags will be frozen as hashes** on the device spec by the
   fleet controller.
@@ -144,7 +142,7 @@ The proposed changes include:
 Complete representation of the proposed device:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   name: fab9839018890a88b898b980f8f809f8e8ac333761977d987a777a777a987ccce
@@ -179,7 +177,6 @@ spec:
       repository: my-repo
       ref: v1.0.0
       path: /path/to/config/in/git
-      mountPath: /path/to/config/in/device
 
     - name: config-from-k8s-secret
       configType: KubernetesSecretProviderSpec
@@ -382,7 +379,7 @@ This endpoint provides read/write access to fleets.
 Full example of fleet:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
   creationTimestamp: "2024-04-30T14:06:17Z"

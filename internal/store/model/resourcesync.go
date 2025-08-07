@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -55,6 +56,10 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, 
 	}, nil
 }
 
+func ResourceSyncAPIVersion() string {
+	return fmt.Sprintf("%s/%s", api.APIGroup, api.ResourceSyncAPIVersion)
+}
+
 func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceSync, error) {
 	if rs == nil {
 		return &api.ResourceSync{}, nil
@@ -71,11 +76,11 @@ func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceS
 	}
 
 	return &api.ResourceSync{
-		ApiVersion: api.ResourceSyncAPIVersion,
+		ApiVersion: ResourceSyncAPIVersion(),
 		Kind:       api.ResourceSyncKind,
 		Metadata: api.ObjectMeta{
-			Name:              util.StrToPtr(rs.Name),
-			CreationTimestamp: util.TimeToPtr(rs.CreatedAt.UTC()),
+			Name:              lo.ToPtr(rs.Name),
+			CreationTimestamp: lo.ToPtr(rs.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(rs.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(rs.Resource.Annotations)),
 			Generation:        rs.Generation,
@@ -93,7 +98,7 @@ func ResourceSyncsToApiResource(rss []ResourceSync, cont *string, numRemaining *
 		resourceSyncList[i] = *apiResource
 	}
 	ret := api.ResourceSyncList{
-		ApiVersion: api.ResourceSyncAPIVersion,
+		ApiVersion: ResourceSyncAPIVersion(),
 		Kind:       api.ResourceSyncListKind,
 		Items:      resourceSyncList,
 		Metadata:   api.ListMeta{},
@@ -103,62 +108,6 @@ func ResourceSyncsToApiResource(rss []ResourceSync, cont *string, numRemaining *
 		ret.Metadata.RemainingItemCount = numRemaining
 	}
 	return ret, nil
-}
-
-// NeedsSyncToHash returns true if the resource needs to be synced to the given hash.
-func (rs *ResourceSync) NeedsSyncToHash(hash string) bool {
-	if rs.Status == nil || rs.Status.Data.Conditions == nil {
-		return true
-	}
-
-	if api.IsStatusConditionFalse(rs.Status.Data.Conditions, api.ResourceSyncSynced) {
-		return true
-	}
-
-	var observedGen int64 = 0
-	if rs.Status.Data.ObservedGeneration != nil {
-		observedGen = *rs.Status.Data.ObservedGeneration
-	}
-	var prevHash string = util.DefaultIfNil(rs.Status.Data.ObservedCommit, "")
-	return hash != prevHash || observedGen != *rs.Generation
-}
-
-func (rs *ResourceSync) ensureConditionsNotNil() {
-	if rs.Status == nil {
-		rs.Status = &JSONField[api.ResourceSyncStatus]{
-			Data: api.ResourceSyncStatus{
-				Conditions: []api.Condition{},
-			},
-		}
-	}
-	if rs.Status.Data.Conditions == nil {
-		rs.Status.Data.Conditions = []api.Condition{}
-	}
-}
-
-func (rs *ResourceSync) SetCondition(conditionType api.ConditionType, okReason, failReason string, err error) bool {
-	rs.ensureConditionsNotNil()
-	return api.SetStatusConditionByError(&rs.Status.Data.Conditions, conditionType, okReason, failReason, err)
-}
-
-func (rs *ResourceSync) AddRepoNotFoundCondition(err error) {
-	rs.SetCondition(api.ResourceSyncAccessible, "accessible", "repository resource not found", err)
-}
-
-func (rs *ResourceSync) AddRepoAccessCondition(err error) {
-	rs.SetCondition(api.ResourceSyncAccessible, "accessible", "failed to clone repository", err)
-}
-
-func (rs *ResourceSync) AddPathAccessCondition(err error) {
-	rs.SetCondition(api.ResourceSyncAccessible, "accessible", "path not found in repository", err)
-}
-
-func (rs *ResourceSync) AddResourceParsedCondition(err error) {
-	rs.SetCondition(api.ResourceSyncResourceParsed, "Success", "Fail", err)
-}
-
-func (rs *ResourceSync) AddSyncedCondition(err error) {
-	rs.SetCondition(api.ResourceSyncSynced, "Success", "Fail", err)
 }
 
 func (rs *ResourceSync) GetKind() string {

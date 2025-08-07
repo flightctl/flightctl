@@ -1,0 +1,23 @@
+{{ if and (.Values.cliArtifacts.enabled) (eq .Values.global.target "acm")}}
+{{- $url := (include "flightctl.getCliArtifactsUrl" . )}}
+apiVersion: console.openshift.io/v1
+kind: ConsoleCLIDownload
+metadata:
+  name: flightctl-cli-downloads
+spec:
+  description: Flight Control is a service for declarative management of fleets of edge devices and their workloads.
+  displayName: flightctl - Flight Control Command Line Interface (CLI)
+  links:
+    - href: '{{ $url }}/amd64/linux/flightctl-linux-amd64.tar.gz'
+      text: Download flightctl for Linux for x86_64
+    - href: '{{ $url }}/amd64/mac/flightctl-darwin-amd64.zip'
+      text: Download flightctl for Mac for x86_64
+    - href: '{{ $url }}/amd64/windows/flightctl-windows-amd64.zip'
+      text: Download flightctl for Windows for x86_64
+    - href: '{{ $url }}/arm64/linux/flightctl-linux-arm64.tar.gz'
+      text: Download flightctl for Linux for ARM 64
+    - href: '{{ $url }}/arm64/mac/flightctl-darwin-arm64.zip'
+      text: Download flightctl for Mac for ARM 64
+    - href: '{{ $url }}/arm64/windows/flightctl-windows-arm64.zip'
+      text: Download flightctl for Windows for ARM 64
+{{ end }}

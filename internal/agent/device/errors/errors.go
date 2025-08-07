@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/flightctl/flightctl/pkg/poll"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -23,11 +24,18 @@ var (
 	ErrAppNameRequired        = errors.New("application name is required")
 	ErrAppNotFound            = errors.New("application not found")
 	ErrUnsupportedAppType     = errors.New("unsupported application type")
+	ErrUnsupportedVolumeType  = errors.New("unsupported volume type")
 	ErrParseAppType           = errors.New("failed to parse application type")
 	ErrAppDependency          = errors.New("failed to resolve application dependency")
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")
-	ErrNoComposeFile          = errors.New("no compose file found")
-	ErrNoComposeServices      = errors.New("no services found in compose spec")
+	ErrAppLabel               = errors.New("required label not found")
+
+	// compose
+	ErrNoComposeFile     = errors.New("no valid compose file found")
+	ErrNoComposeServices = errors.New("no services found in compose spec")
+
+	// application status
+	ErrUnknownApplicationStatus = errors.New("unknown application status")
 
 	// container images
 	ErrImageShortName = errors.New("failed to resolve image short name: use the full name i.e registry/image:tag")
@@ -49,6 +57,7 @@ var (
 	ErrInvalidTokenFormat             = errors.New("invalid token: formatting")
 	ErrTokenNotSupported              = errors.New("invalid token: not supported")
 	ErrActionTypeNotFound             = errors.New("failed to find action type")
+	ErrRunActionInvalid               = errors.New("invalid run action")
 	ErrUnsupportedFilesystemOperation = errors.New("unsupported filesystem operation")
 
 	// networking
@@ -64,6 +73,7 @@ var (
 	ErrPathIsDir   = errors.New("provided path is a directory")
 	ErrNotFound    = errors.New("not found")
 	ErrNotExist    = os.ErrNotExist
+	ErrInvalidPath = errors.New("invalid path")
 
 	// images
 	ErrImageNotFound = errors.New("image not found")
@@ -72,6 +82,12 @@ var (
 	ErrDownloadPolicyNotReady = errors.New("download policy not ready")
 	ErrUpdatePolicyNotReady   = errors.New("update policy not ready")
 	ErrInvalidPolicyType      = errors.New("invalid policy type")
+
+	// prefetch
+	ErrPrefetchNotReady = errors.New("oci prefetch not ready")
+
+	// bootc
+	ErrBootcStatusInvalidJSON = errors.New("bootc status did not return valid JSON")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
@@ -85,9 +101,18 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
+	case errors.Is(err, ErrPrefetchNotReady):
+		return true
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a
 		// new template version
+		return true
+	case errors.Is(err, ErrBootcStatusInvalidJSON):
+		// this is a retryable error because it means the bootc status did not
+		// return valid JSON. this is a bug in the bootc status and we should
+		// retry the request as the error is transient.
+		return true
+	case errors.Is(err, poll.ErrMaxSteps):
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false
@@ -117,7 +142,7 @@ func IsTimeoutError(err error) bool {
 		return true
 	}
 
-	if errors.Is(err, wait.ErrWaitTimeout) {
+	if wait.Interrupted(err) {
 		return true
 	}
 
@@ -145,11 +170,14 @@ func FromStderr(stderr string, exitCode int) error {
 		"connection refused":     ErrNetwork,
 		"unable to resolve host": ErrNetwork,
 		"network is unreachable": ErrNetwork,
+		"i/o timeout":            ErrNetwork,
 		// context
 		"context canceled":          context.Canceled,
 		"context deadline exceeded": context.DeadlineExceeded,
 		// container image resolution
 		"short-name resolution enforced": ErrImageShortName,
+		// no such object
+		"no such object": ErrNotFound,
 	}
 	for check, err := range errMap {
 		if strings.Contains(stderr, check) {
@@ -157,4 +185,14 @@ func FromStderr(stderr string, exitCode int) error {
 		}
 	}
 	return fmt.Errorf("code: %d: %s", exitCode, stderr)
+}
+
+func IsContext(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return false
 }

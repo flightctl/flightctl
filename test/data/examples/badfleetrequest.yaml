@@ -1,0 +1,39 @@
+# This file is an example for a bad yaml that will fail due to use of decimals in percentages
+apiVersion: v1alpha1
+kind: Fleet
+metadata:
+  name: default
+spec:
+  selector:
+    matchLabels:
+      fleet: default
+  rolloutPolicy:
+    deviceSelection:
+      strategy: 'BatchSequence'
+      sequence:
+        # percentage to fail yaml
+        - limit: 10.11%
+    disruptionAllowance:
+      minAvailable: 1
+  template:
+    metadata:
+      labels:
+        fleet: default
+    spec:
+      config:
+        - name: motd-update
+          inline:
+            - path: "/etc/motd"
+              content: "This system is managed by example test content."
+              mode: 0644
+      resources:
+        - monitorType: CPU
+          alertRules:
+            - severity: Warning
+              duration: 10m
+              percentage: 50
+              description: 'CPU load is above 50% for more than 10 minutes'
+          samplingInterval: 30s
+      systemd:
+        matchPatterns:
+          - chronyd.service

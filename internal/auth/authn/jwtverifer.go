@@ -18,6 +18,7 @@ type JWTAuth struct {
 	externalOIDCAuthority string
 	jwksUri               string
 	clientTlsConfig       *tls.Config
+	client                *http.Client
 }
 
 type OIDCServerResponse struct {
@@ -30,15 +31,14 @@ func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, clientTlsCon
 		oidcAuthority:         oidcAuthority,
 		externalOIDCAuthority: externalOIDCAuthority,
 		clientTlsConfig:       clientTlsConfig,
-	}
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: clientTlsConfig,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: clientTlsConfig,
+			},
 		},
 	}
 
-	res, err := client.Get(fmt.Sprintf("%s/.well-known/openid-configuration", oidcAuthority))
+	res, err := jwtAuth.client.Get(fmt.Sprintf("%s/.well-known/openid-configuration", oidcAuthority))
 	if err != nil {
 		return jwtAuth, err
 	}
@@ -55,20 +55,13 @@ func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, clientTlsCon
 	return jwtAuth, nil
 }
 
-func (j JWTAuth) ValidateToken(ctx context.Context, token string) (bool, error) {
-	client := &http.Client{Transport: &http.Transport{
-		TLSClientConfig: j.clientTlsConfig,
-	}}
-	jwkSet, err := jwk.Fetch(ctx, j.jwksUri, jwk.WithHTTPClient(client))
+func (j JWTAuth) ValidateToken(ctx context.Context, token string) error {
+	jwkSet, err := jwk.Fetch(ctx, j.jwksUri, jwk.WithHTTPClient(j.client))
 	if err != nil {
-		return false, err
+		return err
 	}
 	_, err = jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
+	return err
 }
 
 func (j JWTAuth) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
@@ -78,7 +71,11 @@ func (j JWTAuth) GetIdentity(ctx context.Context, token string) (*common.Identit
 
 func (j JWTAuth) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
-		Type: "OIDC",
+		Type: common.AuthTypeOIDC,
 		Url:  j.externalOIDCAuthority,
 	}
+}
+
+func (j JWTAuth) GetAuthToken(r *http.Request) (string, error) {
+	return common.ExtractBearerToken(r)
 }

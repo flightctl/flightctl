@@ -2,15 +2,18 @@ package device_selection
 
 import (
 	"context"
+	"crypto/md5" // #nosec G401,G501
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -28,19 +31,20 @@ func newQuerySelectorParts() *querySelectorParts {
 	return &querySelectorParts{}
 }
 
-func (q *querySelectorParts) listParams() store.ListParams {
-	var ret store.ListParams
+func (q *querySelectorParts) listParams() (api.ListDevicesParams, *selector.AnnotationSelector) {
+	var ret api.ListDevicesParams
+	var annotationSelector *selector.AnnotationSelector
 
 	if len(q.fieldSelectorList) > 0 {
-		ret.FieldSelector = selector.NewFieldSelectorOrDie(strings.Join(q.fieldSelectorList, ","))
+		ret.FieldSelector = lo.ToPtr(strings.Join(q.fieldSelectorList, ","))
 	}
 	if len(q.labelSelectorList) > 0 {
-		ret.LabelSelector = selector.NewLabelSelectorOrDie(strings.Join(q.labelSelectorList, ","))
+		ret.LabelSelector = lo.ToPtr(strings.Join(q.labelSelectorList, ","))
 	}
 	if len(q.annotationSelectorList) > 0 {
-		ret.AnnotationSelector = selector.NewAnnotationSelectorOrDie(strings.Join(q.annotationSelectorList, ","))
+		annotationSelector = selector.NewAnnotationSelectorOrDie(strings.Join(q.annotationSelectorList, ","))
 	}
-	return ret
+	return ret, annotationSelector
 }
 
 func (q *querySelectorParts) withSelectedForRollout() *querySelectorParts {
@@ -87,10 +91,10 @@ func (q *querySelectorParts) withoutDisconnected() *querySelectorParts {
 	return q
 }
 
-func newBatchSequenceSelector(sequence api.BatchSequence, updateTimeout time.Duration, store store.Store, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) RolloutDeviceSelector {
+func newBatchSequenceSelector(sequence api.BatchSequence, updateTimeout time.Duration, serviceHandler service.Service, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) RolloutDeviceSelector {
 	return &batchSequenceSelector{
 		BatchSequence:       sequence,
-		store:               store,
+		serviceHandler:      serviceHandler,
 		orgId:               orgId,
 		fleetName:           lo.FromPtr(fleet.Metadata.Name),
 		fleet:               fleet,
@@ -102,7 +106,7 @@ func newBatchSequenceSelector(sequence api.BatchSequence, updateTimeout time.Dur
 
 type batchSequenceSelector struct {
 	api.BatchSequence
-	store               store.Store
+	serviceHandler      service.Service
 	orgId               uuid.UUID
 	fleet               *api.Fleet
 	fleetName           string
@@ -111,12 +115,8 @@ type batchSequenceSelector struct {
 	log                 logrus.FieldLogger
 }
 
-func (b *batchSequenceSelector) getAnnotation(annotation string) (string, bool) {
-	return util.GetFromMap(lo.FromPtr(b.fleet.Metadata.Annotations), annotation)
-}
-
 func (b *batchSequenceSelector) IsRolloutNew() bool {
-	dtv, exists := b.getAnnotation(api.FleetAnnotationDeployingTemplateVersion)
+	dtv, exists := b.fleet.GetAnnotation(api.FleetAnnotationDeployingTemplateVersion)
 	if !exists {
 		return true
 	}
@@ -126,18 +126,47 @@ func (b *batchSequenceSelector) IsRolloutNew() bool {
 	return b.templateVersionName != dtv
 }
 
+func (b *batchSequenceSelector) getPreviousBatchSequenceDigest() (string, bool) {
+	return b.fleet.GetAnnotation(api.FleetAnnotationDeviceSelectionConfigDigest)
+}
+
+func (b *batchSequenceSelector) batchSequenceDigest() (string, error) {
+	marshalled, err := json.Marshal(&b.BatchSequence)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", md5.Sum(marshalled)), nil // #nosec G401,G501
+}
+
+func (b *batchSequenceSelector) IsDefinitionUpdated() (bool, error) {
+	previousBatchSequenceDigest, exists := b.getPreviousBatchSequenceDigest()
+	if !exists {
+		return true, nil
+	}
+	currentBatchSequenceDigest, err := b.batchSequenceDigest()
+	if err != nil {
+		return false, err
+	}
+	return previousBatchSequenceDigest != currentBatchSequenceDigest, nil
+}
+
 func (b *batchSequenceSelector) OnNewRollout(ctx context.Context) error {
 	b.log.Infof("%v/%s: OnNewRollout. Template version %s", b.orgId, b.fleetName, b.templateVersionName)
-	annotations := map[string]string{
-		api.FleetAnnotationDeployingTemplateVersion: b.templateVersionName,
+	batchSequenceDigest, err := b.batchSequenceDigest()
+	if err != nil {
+		return err
 	}
-	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
+	annotations := map[string]string{
+		api.FleetAnnotationDeployingTemplateVersion:    b.templateVersionName,
+		api.FleetAnnotationDeviceSelectionConfigDigest: batchSequenceDigest,
+	}
+	return service.ApiStatusToErr(b.serviceHandler.UpdateFleetAnnotations(ctx, b.fleetName, annotations, nil))
 }
 
 func (b *batchSequenceSelector) getCurrentBatch(ctx context.Context) (int, error) {
-	fleet, err := b.store.Fleet().Get(ctx, b.orgId, b.fleetName)
-	if err != nil {
-		return 0, err
+	fleet, status := b.serviceHandler.GetFleet(ctx, b.fleetName, api.GetFleetParams{})
+	if status.Code != http.StatusOK {
+		return 0, service.ApiStatusToErr(status)
 	}
 	annotations := lo.FromPtr(fleet.Metadata.Annotations)
 	if annotations == nil {
@@ -159,7 +188,7 @@ func (b *batchSequenceSelector) setCurrentBatch(ctx context.Context, currentBatc
 	annotations := map[string]string{
 		api.FleetAnnotationBatchNumber: strconv.FormatInt(int64(currentBatch), 10),
 	}
-	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
+	return service.ApiStatusToErr(b.serviceHandler.UpdateFleetAnnotations(ctx, b.fleetName, annotations, nil))
 }
 
 func (b *batchSequenceSelector) HasMoreSelections(ctx context.Context) (bool, error) {
@@ -216,26 +245,36 @@ func (b *batchSequenceSelector) Advance(ctx context.Context) error {
 		}
 	}
 
-	if nextBatch == 0 || nextBatch == len(lo.FromPtr(b.Sequence)) {
-
-		// Automatically approve first batch or the last implicit batch
-		return selection.Approve(ctx)
-	}
 	return nil
 }
 
 func (b *batchSequenceSelector) clearApproval(ctx context.Context) error {
-	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, make(map[string]string), []string{api.FleetAnnotationRolloutApproved})
+	return service.ApiStatusToErr(b.serviceHandler.UpdateFleetAnnotations(ctx, b.fleetName, make(map[string]string), []string{api.FleetAnnotationRolloutApproved}))
 }
 
-func (b *batchSequenceSelector) resetApprovalAndSuccessPercentage(ctx context.Context) error {
-	annotations := map[string]string{
+func (b *batchSequenceSelector) resetApprovalAndCompletionReport(ctx context.Context) error {
+	annotations := make(map[string]string)
+	if !lo.HasKey(lo.FromPtr(b.fleet.Metadata.Annotations), api.FleetAnnotationRolloutApprovalMethod) {
 
 		// TODO: Return to manual when manual approval will be supported by the UI
-		api.FleetAnnotationRolloutApprovalMethod: "automatic",
+		annotations[api.FleetAnnotationRolloutApprovalMethod] = "automatic"
 	}
-	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, []string{
-		api.FleetAnnotationRolloutApproved, api.FleetAnnotationLastBatchSuccessPercentage})
+	return service.ApiStatusToErr(b.serviceHandler.UpdateFleetAnnotations(ctx, b.fleetName, annotations, []string{
+		api.FleetAnnotationRolloutApproved, api.FleetAnnotationLastBatchCompletionReport}))
+}
+
+func (b *batchSequenceSelector) batchName(currentBatch int) string {
+	printableBatchNum := currentBatch + 1
+	switch {
+	case currentBatch == -1:
+		return api.PreliminaryBatchName
+	case currentBatch >= 0 && currentBatch < len(lo.FromPtr(b.Sequence)):
+		return fmt.Sprintf("batch %d", printableBatchNum)
+	case currentBatch == len(lo.FromPtr(b.Sequence)):
+		return api.FinalImplicitBatchName
+	default:
+		return fmt.Sprintf("unexpected batch %d", printableBatchNum)
+	}
 }
 
 func (b *batchSequenceSelector) currentSelection(ctx context.Context, currentBatch int) (*batchSelection, error) {
@@ -243,22 +282,26 @@ func (b *batchSequenceSelector) currentSelection(ctx context.Context, currentBat
 	if currentBatch < -1 || currentBatch > len(lo.FromPtr(b.Sequence))+1 {
 		return nil, fmt.Errorf("batch number out of bounds")
 	}
-	fleet, err := b.store.Fleet().Get(ctx, b.orgId, b.fleetName)
-	if err != nil {
-		return nil, err
+	fleet, status := b.serviceHandler.GetFleet(ctx, b.fleetName, api.GetFleetParams{})
+	if status.Code != http.StatusOK {
+		return nil, service.ApiStatusToErr(status)
 	}
 	if currentBatch >= 0 && currentBatch < len(lo.FromPtr(b.Sequence)) {
 		batch = lo.ToPtr(lo.FromPtr(b.Sequence)[currentBatch])
 	}
+	batchName := b.batchName(currentBatch)
 	return &batchSelection{
 		batch:               batch,
-		store:               b.store,
+		batchNum:            currentBatch,
+		batchName:           batchName,
+		serviceHandler:      b.serviceHandler,
 		orgId:               b.orgId,
 		fleetName:           b.fleetName,
 		templateVersionName: b.templateVersionName,
 		fleet:               fleet,
 		updateTimeout:       b.updateTimeout,
 		log:                 b.log,
+		conditionEmitter:    newConditionEmitter(b.orgId, b.fleetName, batchName, b.serviceHandler),
 	}, nil
 }
 
@@ -271,7 +314,7 @@ func (b *batchSequenceSelector) CurrentSelection(ctx context.Context) (Selection
 }
 
 func (b *batchSequenceSelector) UnmarkRolloutSelection(ctx context.Context) error {
-	return b.store.Device().UnmarkRolloutSelection(ctx, b.orgId, b.fleetName)
+	return service.ApiStatusToErr(b.serviceHandler.UnmarkDevicesRolloutSelection(ctx, b.fleetName))
 }
 
 func (b *batchSequenceSelector) Reset(ctx context.Context) error {
@@ -279,7 +322,7 @@ func (b *batchSequenceSelector) Reset(ctx context.Context) error {
 	if err := b.UnmarkRolloutSelection(ctx); err != nil {
 		return err
 	}
-	if err := b.resetApprovalAndSuccessPercentage(ctx); err != nil {
+	if err := b.resetApprovalAndCompletionReport(ctx); err != nil {
 		return err
 	}
 	return b.setCurrentBatch(ctx, -1)
@@ -287,26 +330,20 @@ func (b *batchSequenceSelector) Reset(ctx context.Context) error {
 
 type batchSelection struct {
 	batch               *api.Batch
-	store               store.Store
+	batchNum            int
+	batchName           string
+	serviceHandler      service.Service
 	orgId               uuid.UUID
 	fleetName           string
 	templateVersionName string
 	fleet               *api.Fleet
 	updateTimeout       time.Duration
+	conditionEmitter    *conditionEmitter
 	log                 logrus.FieldLogger
 }
 
-func (b *batchSelection) getAnnotation(annotation string) (string, bool) {
-	annotations := lo.FromPtr(b.fleet.Metadata.Annotations)
-	if annotations == nil {
-		return "", false
-	}
-	v, exists := annotations[annotation]
-	return v, exists
-}
-
 func (b *batchSelection) IsApproved() bool {
-	approvedStr, exists := b.getAnnotation(api.FleetAnnotationRolloutApproved)
+	approvedStr, exists := b.fleet.GetAnnotation(api.FleetAnnotationRolloutApproved)
 	if !exists {
 		return false
 	}
@@ -318,13 +355,14 @@ func (b *batchSelection) IsRolledOut(ctx context.Context) (bool, error) {
 	// A rolled out batch is a batch that for every of its devices there is no device that its template
 	// version is not equal to the expected template version
 	newQuerySelectorParts().withOwner(b.fleetName).withSelectedForRollout().withoutRolledOut(b.templateVersionName).listParams()
-	count, err := b.store.Device().Count(ctx, b.orgId, newQuerySelectorParts().
+	listParams, annotationSelector := newQuerySelectorParts().
 		withOwner(b.fleetName).
 		withSelectedForRollout().
 		withoutRolledOut(b.templateVersionName).
-		listParams())
-	if err != nil {
-		return false, err
+		listParams()
+	count, status := b.serviceHandler.CountDevices(ctx, listParams, annotationSelector)
+	if status.Code != http.StatusOK {
+		return false, service.ApiStatusToErr(status)
 	}
 	return count == 0, nil
 }
@@ -349,32 +387,50 @@ func (b *batchSelection) getSuccessThreshold() (int, error) {
 	return ret, nil
 }
 
-func (b *batchSelection) getLastSuccessPercentage() (int, bool, error) {
-	percentageStr, exists := b.getAnnotation(api.FleetAnnotationLastBatchSuccessPercentage)
+func (b *batchSelection) getLastCompletionReport() (api.RolloutBatchCompletionReport, bool, error) {
+	var report api.RolloutBatchCompletionReport
+	completionReportStr, exists := b.fleet.GetAnnotation(api.FleetAnnotationLastBatchCompletionReport)
 	if !exists {
-		return 0, false, nil
+		return report, false, nil
 	}
-	ret, err := strconv.ParseInt(percentageStr, 10, 64)
-	if err != nil {
-		return 0, false, err
+	if err := json.Unmarshal([]byte(completionReportStr), &report); err != nil {
+		return report, false, fmt.Errorf("failed to unmarshal completion report: %w", err)
 	}
-	return int(ret), true, nil
+	return report, true, nil
+}
+
+func (b *batchSelection) getLastSuccessPercentage() (int, bool, error) {
+	report, exists, err := b.getLastCompletionReport()
+	if err != nil || !exists {
+		return 0, exists, err
+	}
+	return int(report.SuccessPercentage), true, nil
+}
+
+func (b *batchSelection) isApprovalMethodAutomatic() bool {
+	approvalMethod, _ := b.fleet.GetAnnotation(api.FleetAnnotationRolloutApprovalMethod)
+	return approvalMethod == "automatic"
 }
 
 // A batch may be approved atotmatically only if its approval method is "automatic" and the
 // success percentage of the previous batch is greater or equal to the success threshold
 func (b *batchSelection) MayApproveAutomatically() (bool, error) {
-	approvalMethod, _ := b.getAnnotation(api.FleetAnnotationRolloutApprovalMethod)
-	if approvalMethod != "automatic" {
+	if b.batchNum == -1 {
+		return true, nil
+	}
+	if !b.isApprovalMethodAutomatic() {
 		return false, nil
 	}
 	successThreshold, err := b.getSuccessThreshold()
 	if err != nil {
-		return false, nil
+		return false, err
 	}
 	lastSuccessPercentage, exists, err := b.getLastSuccessPercentage()
-	if err != nil || !exists {
+	if err != nil {
 		return false, err
+	}
+	if !exists {
+		return true, nil
 	}
 
 	return lastSuccessPercentage >= successThreshold, nil
@@ -385,69 +441,99 @@ func (b *batchSelection) Approve(ctx context.Context) error {
 	annotations := map[string]string{
 		api.FleetAnnotationRolloutApproved: "true",
 	}
-	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
+	return service.ApiStatusToErr(b.serviceHandler.UpdateFleetAnnotations(ctx, b.fleetName, annotations, nil))
 }
 
 // A group of device is considered as completed successfully if the rendered template version is the same as the
 // template version of the fleet and same-rendered-version is true
-func (b *batchSelection) isUpdateCompletedSuccessfully(c store.CompletionCount) bool {
+func (b *batchSelection) isUpdateCompletedSuccessfully(c api.DeviceCompletionCount) bool {
 	return c.SameTemplateVersion && c.SameRenderedVersion
+}
+
+func (b *batchSelection) isFailed(c api.DeviceCompletionCount) bool {
+	return c.SameTemplateVersion && c.UpdatingReason == api.UpdateStateError
+}
+
+func (b *batchSelection) isTimedOut(c api.DeviceCompletionCount) bool {
+	return c.SameTemplateVersion && c.UpdateTimedOut
 }
 
 // IsComplete checks is the total number of devices in a batch is the same as the number of completed
 func (b *batchSelection) IsComplete(ctx context.Context) (bool, error) {
-	counts, err := b.store.Device().CompletionCounts(ctx, b.orgId, util.ResourceOwner(api.FleetKind, b.fleetName), b.templateVersionName, &b.updateTimeout)
-	if err != nil {
-		return false, err
+	counts, status := b.serviceHandler.GetDeviceCompletionCounts(ctx, util.ResourceOwner(api.FleetKind, b.fleetName), b.templateVersionName, &b.updateTimeout)
+	if status.Code != http.StatusOK {
+		return false, service.ApiStatusToErr(status)
 	}
 
 	// A device is counted in total if it has completed successfully, or it is in update.
-	total := lo.Sum(lo.Map(counts, func(c store.CompletionCount, _ int) int64 {
+	total := lo.Sum(lo.Map(counts, func(c api.DeviceCompletionCount, _ int) int64 {
 		return c.Count
 	}))
 
 	// A device is counted as completed if it has completed successfully or, it is in error state or its update is timed out
-	complete := lo.Sum(lo.Map(counts, func(c store.CompletionCount, _ int) int64 {
+	complete := lo.Sum(lo.Map(counts, func(c api.DeviceCompletionCount, _ int) int64 {
 		return lo.Ternary(b.isUpdateCompletedSuccessfully(c) || c.SameTemplateVersion && (c.UpdatingReason == api.UpdateStateError || c.UpdateTimedOut), c.Count, 0)
 	}))
 	return total == complete, nil
 }
 
-func (b *batchSelection) SetSuccessPercentage(ctx context.Context) error {
-	counts, err := b.store.Device().CompletionCounts(ctx, b.orgId, util.ResourceOwner(api.FleetKind, b.fleetName), b.templateVersionName, nil)
-	if err != nil {
-		return err
+func (b *batchSelection) completionReport(counts []api.DeviceCompletionCount) api.RolloutBatchCompletionReport {
+	ret := api.RolloutBatchCompletionReport{
+		BatchName: b.batchName,
 	}
 
-	// A device is counted in total if it has completed successfully, or it is not disconnected (Unknown), or it is in update.
-	total := lo.Sum(lo.Map(counts, func(c store.CompletionCount, _ int) int64 {
-		return c.Count
-	}))
-	successful := lo.Sum(lo.Map(counts, func(c store.CompletionCount, _ int) int64 {
-		return lo.Ternary(b.isUpdateCompletedSuccessfully(c), c.Count, 0)
-	}))
-	successPercentage := int64(100)
-	if total != 0 {
-		successPercentage = successful * 100 / total
+	for _, c := range counts {
+		ret.Total += c.Count
+		if b.isUpdateCompletedSuccessfully(c) {
+			ret.Successful += c.Count
+		} else if b.isFailed(c) {
+			ret.Failed += c.Count
+		} else if b.isTimedOut(c) {
+			ret.TimedOut += c.Count
+		}
 	}
-	b.log.Infof("%v/%s:In SetSuccessPercentage: %d", b.orgId, b.fleetName, successPercentage)
+	ret.SuccessPercentage = 100
+	if ret.Total != 0 {
+		ret.SuccessPercentage = ret.Successful * 100 / ret.Total
+	}
+	return ret
+}
+
+func (b *batchSelection) SetCompletionReport(ctx context.Context) error {
+	counts, status := b.serviceHandler.GetDeviceCompletionCounts(ctx, util.ResourceOwner(api.FleetKind, b.fleetName), b.templateVersionName, &b.updateTimeout)
+	if status.Code != http.StatusOK {
+		return service.ApiStatusToErr(status)
+	}
+
+	report := b.completionReport(counts)
+	if report.Total == 0 {
+		return nil
+	}
+	out, err := json.Marshal(&report)
+	if err != nil {
+		return fmt.Errorf("failed to marshal completion report: %w", err)
+	}
+	outStr := string(out)
+	b.log.Infof("%v/%s:In SetCompletionReport: %s", b.orgId, b.fleetName, outStr)
 	annotations := map[string]string{
-		api.FleetAnnotationLastBatchSuccessPercentage: strconv.FormatInt(successPercentage, 10),
+		api.FleetAnnotationLastBatchCompletionReport: outStr,
 	}
-	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
+	return service.ApiStatusToErr(b.serviceHandler.UpdateFleetAnnotations(ctx, b.fleetName, annotations, nil))
 }
 
 func (b *batchSelection) batchCounts(ctx context.Context) (int, int, error) {
 	parts := newQuerySelectorParts().
 		withOwner(b.fleetName).
 		withLabelSelector(b.batch.Selector)
-	total, err := b.store.Device().Count(ctx, b.orgId, parts.listParams())
-	if err != nil {
-		return 0, 0, err
+	listParams, annotationSelector := parts.listParams()
+	total, status := b.serviceHandler.CountDevices(ctx, listParams, annotationSelector)
+	if status.Code != http.StatusOK {
+		return 0, 0, service.ApiStatusToErr(status)
 	}
-	rolledOut, err := b.store.Device().Count(ctx, b.orgId, parts.withRolledOut(b.templateVersionName).listParams())
-	if err != nil {
-		return 0, 0, err
+	listParams, annotationSelector = parts.withRolledOut(b.templateVersionName).listParams()
+	rolledOut, status := b.serviceHandler.CountDevices(ctx, listParams, annotationSelector)
+	if status.Code != http.StatusOK {
+		return 0, 0, service.ApiStatusToErr(status)
 	}
 	return int(rolledOut), int(total), nil
 }
@@ -482,7 +568,7 @@ func (b *batchSelection) calculateLimit(ctx context.Context) (*int, error) {
 }
 
 func (b *batchSelection) unmark(ctx context.Context) error {
-	return b.store.Device().UnmarkRolloutSelection(ctx, b.orgId, b.fleetName)
+	return service.ApiStatusToErr(b.serviceHandler.UnmarkDevicesRolloutSelection(ctx, b.fleetName))
 }
 
 func (b *batchSelection) markBatchSelection(ctx context.Context) error {
@@ -497,24 +583,55 @@ func (b *batchSelection) markBatchSelection(ctx context.Context) error {
 		// Limit already reached.  Do not mark any device for rollout
 		return nil
 	}
-	return b.store.Device().MarkRolloutSelection(ctx, b.orgId, newQuerySelectorParts().
+	listParams, annotationSelector := newQuerySelectorParts().
 		withOwner(b.fleetName).
 		withLabelSelector(b.batch.Selector).
 		withoutRolledOut(b.templateVersionName).
 		withoutDisconnected().
-		listParams(), limit)
+		listParams()
+	return service.ApiStatusToErr(b.serviceHandler.MarkDevicesRolloutSelection(ctx, listParams, annotationSelector, limit))
 }
 
 func (b *batchSelection) markRemainingDevices(ctx context.Context) error {
-	return b.store.Device().MarkRolloutSelection(ctx, b.orgId, newQuerySelectorParts().
+	listParams, annotationSelector := newQuerySelectorParts().
 		withOwner(b.fleetName).
 		withoutRolledOut(b.templateVersionName).
-		listParams(), nil)
+		listParams()
+	return service.ApiStatusToErr(b.serviceHandler.MarkDevicesRolloutSelection(ctx, listParams, annotationSelector, nil))
 }
 
 func (b *batchSelection) Devices(ctx context.Context) (*api.DeviceList, error) {
-	return b.store.Device().List(ctx, b.orgId, newQuerySelectorParts().
+	listParams, annotationSelector := newQuerySelectorParts().
 		withOwner(b.fleetName).
 		withSelectedForRollout().
-		listParams())
+		listParams()
+	result, status := b.serviceHandler.ListDevices(ctx, listParams, annotationSelector)
+	return result, service.ApiStatusToErr(status)
+}
+
+func (b *batchSelection) OnRollout(ctx context.Context) error {
+	return b.conditionEmitter.active(ctx)
+}
+
+func (b *batchSelection) OnSuspended(ctx context.Context) error {
+	if b.isApprovalMethodAutomatic() {
+		report, exists, err := b.getLastCompletionReport()
+		if err != nil {
+			return fmt.Errorf("failed to get last completion report: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("last completion report doesn't exist")
+		}
+		successThreshold, err := b.getSuccessThreshold()
+		if err != nil {
+			return fmt.Errorf("failed to get succuess threshold: %w", err)
+		}
+		return b.conditionEmitter.suspended(ctx, successThreshold, report)
+	} else {
+		return b.conditionEmitter.waiting(ctx)
+	}
+}
+
+func (b *batchSelection) OnFinish(ctx context.Context) error {
+	return b.conditionEmitter.inactive(ctx)
 }

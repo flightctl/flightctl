@@ -22,7 +22,7 @@ func NewController(
 	}
 }
 
-func (c *Controller) Sync(ctx context.Context, desired *v1alpha1.RenderedDeviceSpec) error {
+func (c *Controller) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
 	c.log.Debug("Syncing device image")
 	defer c.log.Debug("Finished syncing device image")
 

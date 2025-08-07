@@ -2,16 +2,28 @@ package v1alpha1
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"text/template"
 
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/util"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
+
+type DeviceCompletionCount struct {
+	Count               int64
+	SameRenderedVersion bool
+	SameTemplateVersion bool
+	UpdatingReason      UpdateState
+	UpdateTimedOut      bool
+}
 
 type HookActionType string
 
@@ -38,7 +50,14 @@ const (
 type ApplicationProviderType string
 
 const (
-	ImageApplicationProviderType ApplicationProviderType = "image"
+	ImageApplicationProviderType  ApplicationProviderType = "image"
+	InlineApplicationProviderType ApplicationProviderType = "inline"
+)
+
+type ApplicationVolumeProviderType string
+
+const (
+	ImageApplicationVolumeProviderType ApplicationVolumeProviderType = "image"
 )
 
 // Type returns the type of the action.
@@ -106,12 +125,7 @@ func (c ConfigProviderSpec) Type() (ConfigProviderType, error) {
 }
 
 // Type returns the type of the application provider.
-func (a ApplicationSpec) Type() (ApplicationProviderType, error) {
-	return getApplicationType(a.union)
-}
-
-// Type returns the type of the application provider.
-func (a RenderedApplicationSpec) Type() (ApplicationProviderType, error) {
+func (a ApplicationProviderSpec) Type() (ApplicationProviderType, error) {
 	return getApplicationType(a.union)
 }
 
@@ -125,7 +139,24 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 		return ImageApplicationProviderType, nil
 	}
 
+	if _, exists := data[InlineApplicationProviderType]; exists {
+		return InlineApplicationProviderType, nil
+	}
+
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
+}
+
+func (c ApplicationVolume) Type() (ApplicationVolumeProviderType, error) {
+	var data map[ApplicationVolumeProviderType]interface{}
+	if err := json.Unmarshal(c.union, &data); err != nil {
+		return "", err
+	}
+
+	if _, exists := data[ImageApplicationVolumeProviderType]; exists {
+		return ImageApplicationVolumeProviderType, nil
+	}
+
+	return "", fmt.Errorf("unable to determine application volume type: %+v", data)
 }
 
 func PercentageAsInt(p Percentage) (int, error) {
@@ -143,151 +174,12 @@ func PercentageAsInt(p Percentage) (int, error) {
 	return int(percentage), nil
 }
 
-func configsAreEqual(c1, c2 *[]ConfigProviderSpec) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ConfigProviderSpec, item2 ConfigProviderSpec) bool {
-		type1, err := item1.Type()
-		if err != nil {
-			return false
-		}
-		type2, err := item2.Type()
-		if err != nil {
-			return false
-		}
-		if type1 != type2 {
-			return false
-		}
-
-		switch type1 {
-		case GitConfigProviderType:
-			c1, err := item1.AsGitConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsGitConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case HttpConfigProviderType:
-			c1, err := item1.AsHttpConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsHttpConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case InlineConfigProviderType:
-			c1, err := item1.AsInlineConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsInlineConfigProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		case KubernetesSecretProviderType:
-			c1, err := item1.AsKubernetesSecretProviderSpec()
-			if err != nil {
-				return false
-			}
-			c2, err := item2.AsKubernetesSecretProviderSpec()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(c1, c2)
-		default:
-			return false
-		}
-	})
-}
-
-func applicationsAreEqual(c1, c2 *[]ApplicationSpec) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ApplicationSpec, item2 ApplicationSpec) bool {
-		type1, err := item1.Type()
-		if err != nil {
-			return false
-		}
-		type2, err := item2.Type()
-		if err != nil {
-			return false
-		}
-		if type1 != type2 {
-			return false
-		}
-
-		switch type1 {
-		case ImageApplicationProviderType:
-			imageSpec1, err := item1.AsImageApplicationProvider()
-			if err != nil {
-				return false
-			}
-			imageSpec2, err := item2.AsImageApplicationProvider()
-			if err != nil {
-				return false
-			}
-			return reflect.DeepEqual(imageSpec1, imageSpec2)
-		default:
-			return false
-		}
-	})
-}
-
-func resourcesAreEqual(c1, c2 *[]ResourceMonitor) bool {
-	return slices.EqualFunc(lo.FromPtr(c1), lo.FromPtr(c2), func(item1 ResourceMonitor, item2 ResourceMonitor) bool {
-		value1, err := item1.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		value2, err := item2.ValueByDiscriminator()
-		if err != nil {
-			return false
-		}
-		return reflect.DeepEqual(value1, value2)
-	})
-}
-
 func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
-	// Check OS
-	if !reflect.DeepEqual(d1.Os, d2.Os) {
-		return false
-	}
-
-	// Check Config
-	if !configsAreEqual(d1.Config, d2.Config) {
-		return false
-	}
-
-	// Check Applications
-	if !applicationsAreEqual(d1.Applications, d2.Applications) {
-		return false
-	}
-
-	// Check Systemd
-	if !reflect.DeepEqual(d1.Systemd, d2.Systemd) {
-		return false
-	}
-
-	// Check Resources
-	if !resourcesAreEqual(d1.Resources, d2.Resources) {
-		return false
-	}
-
-	return true
+	return util.DeepEqualWithUnionHandling(reflect.ValueOf(d1), reflect.ValueOf(d2))
 }
 
 func FleetSpecsAreEqual(f1, f2 FleetSpec) bool {
-	if !reflect.DeepEqual(f1.Selector, f2.Selector) {
-		return false
-	}
-
-	if !reflect.DeepEqual(f1.Template.Metadata, f2.Template.Metadata) {
-		return false
-	}
-
-	return DeviceSpecsAreEqual(f1.Template.Spec, f2.Template.Spec)
+	return util.DeepEqualWithUnionHandling(reflect.ValueOf(f1), reflect.ValueOf(f2))
 }
 
 // Some functions that we provide to users.  In case of a missing label,
@@ -410,4 +302,157 @@ func (e MatchExpression) String() string {
 		return ""
 	}
 	return sb.String()
+}
+
+// GetConsoles returns the list of DeviceConsole objects, or an empty list if the field is nil.
+func (rd DeviceSpec) GetConsoles() []DeviceConsole {
+	if rd.Consoles == nil {
+		return []DeviceConsole{}
+	} else {
+		return *rd.Consoles
+	}
+}
+
+func GetNextDeviceRenderedVersion(annotations map[string]string) (string, error) {
+	var currentRenderedVersion int64 = 0
+	var err error
+	renderedVersionString, ok := annotations[DeviceAnnotationRenderedVersion]
+	if ok {
+		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	currentRenderedVersion++
+	return strconv.FormatInt(currentRenderedVersion, 10), nil
+}
+
+type SensitiveDataHider interface {
+	HideSensitiveData() error
+}
+
+func hideValue(value *string) {
+	if value != nil {
+		*value = "*****"
+	}
+}
+
+func (r *Repository) HideSensitiveData() error {
+	if r == nil {
+		return nil
+	}
+	spec := r.Spec
+
+	_, err := spec.GetGenericRepoSpec()
+	if err != nil {
+		gitHttpSpec, err := spec.GetHttpRepoSpec()
+		if err == nil {
+			hideValue(gitHttpSpec.HttpConfig.Password)
+			hideValue(gitHttpSpec.HttpConfig.TlsKey)
+			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
+			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
+				return err
+			}
+
+		} else {
+			gitSshRepoSpec, err := spec.GetSshRepoSpec()
+			if err == nil {
+				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
+				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
+				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	r.Spec = spec
+	return nil
+}
+
+func (r *RepositoryList) HideSensitiveData() error {
+	if r == nil {
+		return nil
+	}
+	for _, repo := range r.Items {
+		if err := repo.HideSensitiveData(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetBaseEvent creates a base event with common fields
+func GetBaseEvent(ctx context.Context, resourceKind ResourceKind, resourceName string, reason EventReason, message string, details *EventDetails) *Event {
+	var actorStr string
+	if actor := ctx.Value(consts.EventActorCtxKey); actor != nil {
+		actorStr = actor.(string)
+	}
+
+	var componentStr string
+	if component := ctx.Value(consts.EventSourceComponentCtxKey); component != nil {
+		componentStr = component.(string)
+	}
+
+	// Generate a UUID for the event name to ensure k8s compliance
+	eventName := uuid.New().String()
+
+	event := Event{
+		Metadata: ObjectMeta{
+			Name: lo.ToPtr(eventName),
+		},
+		InvolvedObject: ObjectReference{
+			Kind: string(resourceKind),
+			Name: resourceName,
+		},
+		Source: EventSource{
+			Component: componentStr,
+		},
+		Actor: actorStr,
+	}
+
+	// Add request ID to the event for correlation
+	if reqID := ctx.Value(middleware.RequestIDKey); reqID != nil {
+		event.Metadata.Annotations = &map[string]string{EventAnnotationRequestID: reqID.(string)}
+	}
+
+	event.Reason = reason
+	event.Message = message
+	event.Type = GetEventType(reason)
+	event.Details = details
+
+	return &event
+}
+
+// warningReasons contains all event reasons that should result in Warning events
+var warningReasons = map[EventReason]struct{}{
+	EventReasonResourceCreationFailed:          {},
+	EventReasonResourceUpdateFailed:            {},
+	EventReasonResourceDeletionFailed:          {},
+	EventReasonDeviceDecommissionFailed:        {},
+	EventReasonEnrollmentRequestApprovalFailed: {},
+	EventReasonDeviceApplicationDegraded:       {},
+	EventReasonDeviceApplicationError:          {},
+	EventReasonDeviceCPUCritical:               {},
+	EventReasonDeviceCPUWarning:                {},
+	EventReasonDeviceMemoryCritical:            {},
+	EventReasonDeviceMemoryWarning:             {},
+	EventReasonDeviceDiskCritical:              {},
+	EventReasonDeviceDiskWarning:               {},
+	EventReasonDeviceDisconnected:              {},
+	EventReasonDeviceSpecInvalid:               {},
+	EventReasonDeviceMultipleOwnersDetected:    {},
+	EventReasonDeviceUpdateFailed:              {},
+	EventReasonInternalTaskFailed:              {},
+	EventReasonResourceSyncInaccessible:        {},
+	EventReasonResourceSyncParsingFailed:       {},
+	EventReasonResourceSyncSyncFailed:          {},
+}
+
+// GetEventType determines the event type based on the event reason
+func GetEventType(reason EventReason) EventType {
+	if _, contains := warningReasons[reason]; contains {
+		return Warning
+	}
+	return Normal
 }

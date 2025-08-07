@@ -19,6 +19,8 @@
 ## @param global.auth.k8s.rbacNs Namespace that should be used for the RBAC checks
 ## @param global.auth.oidc.oidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
 ## @param global.auth.oidc.externalOidcAuthority The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
+## @param global.auth.aap.apiUrl The URL of the AAP Gateway API endpoint
+## @param global.auth.aap.externalApiUrl The URL of the AAP Gateway API endpoint that is reachable by clients
 ## @param global.metrics.enabled Enable metrics exporting and service
 ## @param global.timestamp Timestamp to be used to trigger a new deployment, i.e. if you want pods to be restarted and pickup ":latest"
 ## @param global.internalNamespace Namespace where internal components are deployed
@@ -26,10 +28,10 @@
 ## @param global.appCode This is only related to deployment in Red Hat's PAAS.
 ## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
-## @param global.generateSecrets Generate secrets when deploying FCTL. This should be set to false if you want to provide your own secrets or when upgrading FCTL to avoid overriding the existing secrets
+## @param global.imagePullPolicy Image pull policy for all containers
 
 global:
-  target: "standalone" # standalone, acm
+  target: "standalone" # standalone, acm, aap
   baseDomain: ""
   baseDomainTls:
     cert: ""
@@ -38,7 +40,7 @@ global:
   imagePullSecretName: ""
   apiUrl: "" # alternative to global.auth.k8s.externalOpenShiftApiUrl used by multiclusterhub operator
   auth:
-    type: "builtin" # builtin, k8s, oidc, none
+    type: "builtin" # builtin, k8s, oidc, aap, none
     caCert: ""
     insecureSkipTlsVerify: false
     k8s:
@@ -49,8 +51,15 @@ global:
     oidc:
       oidcAuthority: http://keycloak:8081/realms/flightctl
       externalOidcAuthority: ""
+    aap:
+      apiUrl: ""
+      externalApiUrl: ""
   metrics:
     enabled: true
+  tracing:
+    enabled: false
+    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    insecure: true
   internalNamespace: ""
   clusterLevelSecretAccess: false
   appCode: ""
@@ -58,14 +67,17 @@ global:
   gatewayClass: ""
   nodePorts:
     api: 3443
+    cliArtifacts: 8090
     agent: 7443
-    grpc: 7444
     ui: 9000
     keycloak: 8081
+    alertmanagerProxy: 8443
   gatewayPorts:
     tls: 443
     http: 80
-  generateSecrets: true
+  imagePullPolicy: IfNotPresent
+  rbac:
+    create: true
 
 
 ## @section Component specific parameters
@@ -74,11 +86,19 @@ global:
 
 db:
   image:
-    image: quay.io/sclorg/postgresql-12-c8s
-    tag: latest
-    pullPolicy: Always
+    image: quay.io/sclorg/postgresql-16-c9s
+    tag: "20250214"
+    pullPolicy: ""
   masterUser: admin
-  user: demouser
+  user: flightctl_app
+  # password: Leave empty to auto-generate secure password, or set to use a specific password.
+  password: ""
+  # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  masterPassword: ""
+  # userPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  userPassword: ""
+  # migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password.
+  migrationPassword: ""
   maxConnections: 200
   storage:
     size: "60Gi"
@@ -86,30 +106,60 @@ db:
     requests:
       cpu: "512m"
       memory: "512Mi"
-
+  fsGroup: ""
 kv:
   enabled: true
   image:
-    image: docker.io/redis
-    tag: 7.4.1
-    pullPolicy: Always
-  password: adminpass
+    image: quay.io/sclorg/redis-7-c9s
+    tag: "20250108"
+    pullPolicy: ""
+  # password: Leave empty to auto-generate secure password, or set to use a specific password.
+  password: ""
   # Save if at least 1 key changed in 5 minutes
   save: 300 1
   loglevel: warning
+  fsGroup: ""
+alertmanager:
+  enabled: true
+  image:
+    image: quay.io/prometheus/alertmanager
+    tag: "v0.28.1"
+    pullPolicy: ""
+keycloak:
+  db:
+    fsGroup: ""
 api:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-api
-    pullPolicy: Always
+    pullPolicy: ""
     tag: ""
-  agentGrpcBaseURL: "" # grpcs://agent-grpc.flightctl.example.com
-  baseUIUrl: "" # ui.flightctl.example.com
+  baseUIUrl: "" # ui.flightctl.example.com
+  # Rate limiting configuration - enabled by default for production
+  rateLimit:
+    # General API rate limiting
+    requests: 60
+    window: "1m"
+    # Auth-specific rate limiting
+    authRequests: 10
+    authWindow: "1h"
+    # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
+    # This should include your load balancer and UI proxy IPs
+    trustedProxies:
+      - "10.0.0.0/8"    # Example: Internal network range
+      - "172.16.0.0/12" # Example: Docker/container network range
+      - "192.168.0.0/16" # Example: Private network range
+cliArtifacts:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-cli-artifacts
+    pullPolicy: ""
+    tag: ""
 worker:
   enabled: true
   image:
     image: quay.io/flightctl/flightctl-worker
-    pullPolicy: Always
+    pullPolicy: ""
     tag: ""
   enableSecretsClusterRoleBinding: true
 periodic:
@@ -117,10 +167,32 @@ periodic:
   image:
     image: quay.io/flightctl/flightctl-periodic
     tag: ""
-    pullPolicy: Always
+    pullPolicy: ""
+alertExporter:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alert-exporter
+    tag: ""
+    pullPolicy: ""
+alertmanagerProxy:
+  enabled: true
+  image:
+    image: quay.io/flightctl/flightctl-alertmanager-proxy
+    tag: ""
+    pullPolicy: ""
 prometheus:
   enabled: false
 ui:
   enabled: true
   api:
     insecureSkipTlsVerify: true
+cleanupJob:
+  image:
+    image: registry.k8s.io/kubectl
+    tag: "v1.33.0"
+    pullPolicy: ""
+dbSetup:
+  image:
+    image: quay.io/flightctl/flightctl-db-setup
+    tag: ""
+    pullPolicy: ""

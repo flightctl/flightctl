@@ -11,7 +11,6 @@ import (
 
 	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -24,22 +23,35 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const TIMEOUT = "30s"
-const POLLING = "250ms"
+const (
+	TIMEOUT = "60s"
+	POLLING = "250ms"
+)
+
+var (
+	suiteCtx context.Context
+)
 
 func TestAgent(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Agent Suite")
 }
 
+var _ = BeforeSuite(func() {
+	suiteCtx = testutil.InitSuiteTracerForGinkgo("Agent Suite")
+})
+
 var _ = Describe("Device Agent behavior", func() {
 	var (
-		h *harness.TestHarness
+		ctx context.Context
+		h   *harness.TestHarness
 	)
 
 	BeforeEach(func() {
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+
 		var err error
-		h, err = harness.NewTestHarness(GinkgoT().TempDir(), func(err error) {
+		h, err = harness.NewTestHarness(ctx, GinkgoT().TempDir(), func(err error) {
 			// this inline function handles any errors that are returned from go routines
 			fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
 			GinkgoWriter.Printf("Error in go routine: %v\n", err)
@@ -66,7 +78,7 @@ var _ = Describe("Device Agent behavior", func() {
 				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// verify that the enrollment request is marked as approved
-				er, err := h.Client.ReadEnrollmentRequestWithResponse(h.Context, deviceName)
+				er, err := h.Client.GetEnrollmentRequestWithResponse(h.Context, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(er.JSON200.Status.Conditions).ToNot(BeEmpty())
 
@@ -140,13 +152,12 @@ var _ = Describe("Device Agent behavior", func() {
 				dev := enrollAndWaitForDevice(h, approval)
 
 				waitForFile("/var/lib/flightctl/certs/agent.crt", *dev.Metadata.Name, h.TestDirPath, nil, nil)
-				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This system is managed by flightctl."), util.IntToPtr(0o0600))
-				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, util.StrToPtr("This text is encoded."), util.IntToPtr(0o1775))
+				waitForFile("/etc/motd", *dev.Metadata.Name, h.TestDirPath, lo.ToPtr("This system is managed by flightctl."), lo.ToPtr(0o0600))
+				waitForFile("/etc/testdir/encoded", *dev.Metadata.Name, h.TestDirPath, lo.ToPtr("This text is encoded."), lo.ToPtr(0o1775))
 
 				for key, value := range secrets {
-					value := value
 					fname := filepath.Join("/etc/secret/secretMountPath", key)
-					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, util.IntToPtr(0644))
+					waitForFile(fname, *dev.Metadata.Name, h.TestDirPath, &value, lo.ToPtr(0644))
 				}
 			})
 		})
@@ -187,7 +198,7 @@ func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.Enrollmen
 	approveEnrollment(h, deviceName, approval)
 
 	// verify that the device is created
-	dev, err := h.Client.ReadDeviceWithResponse(h.Context, deviceName)
+	dev, err := h.Client.GetDeviceWithResponse(h.Context, deviceName)
 	Expect(err).ToNot(HaveOccurred())
 	assertRestResponse(200, dev.HTTPResponse, dev.Body)
 	return dev.JSON200

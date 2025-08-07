@@ -2,11 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 
-	"github.com/flightctl/flightctl/internal/client"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -27,9 +28,9 @@ func DefaultDeleteOptions() *DeleteOptions {
 func NewCmdDelete() *cobra.Command {
 	o := DefaultDeleteOptions()
 	cmd := &cobra.Command{
-		Use:       "delete (TYPE | TYPE/NAME)",
-		Short:     "Delete resources by resources or owner.",
-		Args:      cobra.ExactArgs(1),
+		Use:       "delete (TYPE NAME [NAME...] | TYPE/NAME)",
+		Short:     "Delete one or more resources by name.",
+		Args:      cobra.MinimumNArgs(1),
 		ValidArgs: getValidResourceKinds(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -38,7 +39,9 @@ func NewCmdDelete() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -65,9 +68,25 @@ func (o *DeleteOptions) Validate(args []string) error {
 		return err
 	}
 
-	kind, _, err := parseAndValidateKindName(args[0])
+	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
+	}
+	if len(name) == 0 && len(args) < 2 {
+		return fmt.Errorf("name must be specified when deleting %s", kind)
+	}
+	if len(name) > 0 {
+		if len(args) > 1 {
+			return fmt.Errorf("invalid format: cannot mix TYPE/NAME syntax with additional resource names. Use either 'delete TYPE/NAME' or 'delete TYPE NAME [NAME...]'")
+		}
+		if errs := validation.ValidateResourceName(&name); len(errs) > 0 {
+			return fmt.Errorf("invalid resource name: %s", errors.Join(errs...).Error())
+		}
+	}
+	for _, resName := range args[1:] {
+		if errs := validation.ValidateResourceName(&resName); len(errs) > 0 {
+			return fmt.Errorf("invalid resource name: %s", errors.Join(errs...).Error())
+		}
 	}
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
 		return fmt.Errorf("fleetname must be specified when deleting templateversions")
@@ -75,8 +94,8 @@ func (o *DeleteOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *DeleteOptions) Run(ctx context.Context, args []string) error { //nolint:gocyclo
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
+	c, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -86,42 +105,69 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error { //nolint
 		return err
 	}
 
-	var response interface{}
-
-	switch {
-	case kind == DeviceKind && len(name) > 0:
-		response, err = c.DeleteDeviceWithResponse(ctx, name)
-	case kind == DeviceKind && len(name) == 0:
-		response, err = c.DeleteDevicesWithResponse(ctx)
-	case kind == EnrollmentRequestKind && len(name) > 0:
-		response, err = c.DeleteEnrollmentRequestWithResponse(ctx, name)
-	case kind == EnrollmentRequestKind && len(name) == 0:
-		response, err = c.DeleteEnrollmentRequestsWithResponse(ctx)
-	case kind == FleetKind && len(name) > 0:
-		response, err = c.DeleteFleetWithResponse(ctx, name)
-	case kind == FleetKind && len(name) == 0:
-		response, err = c.DeleteFleetsWithResponse(ctx)
-	case kind == TemplateVersionKind && len(name) > 0:
-		response, err = c.DeleteTemplateVersionWithResponse(ctx, o.FleetName, name)
-	case kind == TemplateVersionKind && len(name) == 0:
-		response, err = c.DeleteTemplateVersionsWithResponse(ctx, o.FleetName)
-	case kind == RepositoryKind && len(name) > 0:
-		response, err = c.DeleteRepositoryWithResponse(ctx, name)
-	case kind == RepositoryKind && len(name) == 0:
-		response, err = c.DeleteRepositoriesWithResponse(ctx)
-	case kind == ResourceSyncKind && len(name) > 0:
-		response, err = c.DeleteResourceSyncWithResponse(ctx, name)
-	case kind == ResourceSyncKind && len(name) == 0:
-		response, err = c.DeleteResourceSyncsWithResponse(ctx)
-	case kind == CertificateSigningRequestKind && len(name) > 0:
-		response, err = c.DeleteCertificateSigningRequestWithResponse(ctx, name)
-	case kind == CertificateSigningRequestKind && len(name) == 0:
-		response, err = c.DeleteCertificateSigningRequestsWithResponse(ctx)
-	default:
-		return fmt.Errorf("unsupported resource kind: %s", kind)
+	if len(args) == 1 {
+		response, err := o.deleteOne(ctx, c, kind, name)
+		if err != nil {
+			return err
+		}
+		if err := processDeletionReponse(response, err, kind, name); err != nil {
+			return err
+		}
+		fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		return nil
 	}
 
-	return processDeletionReponse(response, err, kind, name)
+	names := args[1:]
+
+	return o.deleteMultiple(ctx, c, kind, names)
+}
+
+func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientWithResponses, kind string, names []string) error {
+	var errorCount int
+
+	for _, name := range names {
+		response, deleteErr := o.deleteOne(ctx, c, kind, name)
+
+		processErr := processDeletionReponse(response, deleteErr, kind, name)
+		if processErr != nil {
+			fmt.Printf("Error: %v\n", processErr)
+			errorCount++
+		} else {
+			fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		}
+	}
+
+	if errorCount > 0 {
+		return fmt.Errorf("failed to delete %d %s(s)", errorCount, kind)
+	}
+
+	return nil
+}
+
+func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithResponses, kind string, name string) (interface{}, error) {
+	var response interface{}
+	var err error
+
+	switch kind {
+	case DeviceKind:
+		response, err = c.DeleteDeviceWithResponse(ctx, name)
+	case EnrollmentRequestKind:
+		response, err = c.DeleteEnrollmentRequestWithResponse(ctx, name)
+	case FleetKind:
+		response, err = c.DeleteFleetWithResponse(ctx, name)
+	case TemplateVersionKind:
+		response, err = c.DeleteTemplateVersionWithResponse(ctx, o.FleetName, name)
+	case RepositoryKind:
+		response, err = c.DeleteRepositoryWithResponse(ctx, name)
+	case ResourceSyncKind:
+		response, err = c.DeleteResourceSyncWithResponse(ctx, name)
+	case CertificateSigningRequestKind:
+		response, err = c.DeleteCertificateSigningRequestWithResponse(ctx, name)
+	default:
+		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
+	}
+
+	return response, err
 }
 
 func processDeletionReponse(response interface{}, err error, kind string, name string) error {
@@ -134,9 +180,18 @@ func processDeletionReponse(response interface{}, err error, kind string, name s
 		return fmt.Errorf("%s: %w", errorPrefix, err)
 	}
 
-	v := reflect.ValueOf(response).Elem()
-	if v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int() != http.StatusOK {
-		return fmt.Errorf(errorPrefix+": %s (%d)", v.FieldByName("HTTPResponse").Elem().FieldByName("Status").String(), v.FieldByName("HTTPResponse").Elem().FieldByName("StatusCode").Int())
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return fmt.Errorf("%s: %w", errorPrefix, err)
+	}
+
+	responseBody, err := responseField[[]byte](response, "Body")
+	if err != nil {
+		return fmt.Errorf("%s: %w", errorPrefix, err)
+	}
+
+	if err := validateHttpResponse(responseBody, httpResponse.StatusCode, http.StatusOK); err != nil {
+		return fmt.Errorf("%s: %w", errorPrefix, err)
 	}
 
 	return nil

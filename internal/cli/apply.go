@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
@@ -54,7 +53,9 @@ func NewCmdApply() *cobra.Command {
 			if err := o.Validate(args); err != nil {
 				return err
 			}
-			return o.Run(cmd.Context(), args)
+			ctx, cancel := o.WithTimeout(cmd.Context())
+			defer cancel()
+			return o.Run(ctx, args)
 		},
 		SilenceUsage: true,
 	}
@@ -101,7 +102,7 @@ func (o *ApplyOptions) Validate(args []string) error {
 }
 
 func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}

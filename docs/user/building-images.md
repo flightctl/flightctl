@@ -36,7 +36,6 @@ Before you start, ensure you have installed the following prerequisites:
 * `flightctl` CLI latest version ([installation guide](getting-started.md#installing-the-flight-control-cli))
 * `podman` version 5.0 or higher ([installation guide](https://podman.io/docs/installation))
 * `skopeo` version 1.14 or higher ([installation guide](https://github.com/containers/skopeo/blob/main/install.md))
-* `bootc-image-builder` latest version ([installation guide](https://github.com/osbuild/bootc-image-builder))
 
 ### Choosing an Enrollment Method
 
@@ -46,17 +45,15 @@ When the Flight Control agent starts, it expects to find its configuration in `/
 * the X.509 client certificate and key to connect with (enrollment certificate),
 * optionally, any further agent configuration (see [Configuring the Flight Control Agent](configuring-agent.md)).
 
-You have multiple options how and when to provision the enrollment endpoint and certificate to the device:
+You can provision the enrollment endpoint and certificate to the device in the following ways:
 
-* You can build the OS image including enrollment endpoint and certificate (*"early binding"*).
+* **Early binding:** You can build an OS image that includes both the enrollment endpoint and certificate.
 
   Devices using this image can automatically connect to "their" Flight Control service to request enrollment, without depending on any provisioning infrastructure. On the other hand, devices are bound to a specific service and owner. They also share the same, typically long-lived X.509 client certificate for connecting to the enrollment service.
 
-* You can build the OS image without enrollment endpoint and certificate, but inject these at provisioning-time (*"late binding"*).
+* **Late binding:** You can build an OS image without enrollment endpoint and certificate and instead inject both at provisioning-time.
 
-  Devices using this image are not bound to a single owner or service and can have device-specific, short-lived X.509 client certificates for connecting to the enrollment service. However, this requires the presence of virtualization or bare metal provisioning infrastructure that can request device-specific enrollment endpoints and certificates from Flight Control and inject these using mechanisms like [cloud-init](https://cloud-init.io/), [Ignition](https://coreos.github.io/ignition/supported-platforms/), or [kickstart](https://anaconda-installer.readthedocs.io/en/latest/kickstart.html).
-
-* You can build the OS image including the agent configuration including the enrollment endpoint, but inject the enrollment certificate at provisioning-time.
+  Devices using this image are not bound to a single owner or service and can have device-specific, short-lived X.509 client certificates for connecting to the enrollment service. However, late binding requires virtualization or bare metal provisioning infrastructure that can request device-specific enrollment endpoints and certificates from Flight Control and inject them into the provisioned device using mechanisms such as [cloud-init](https://cloud-init.io/), [Ignition](https://coreos.github.io/ignition/supported-platforms/), or [kickstart](https://anaconda-installer.readthedocs.io/en/latest/kickstart.html).
 
 > [!NOTE]
 > The enrollment certificate is only used to secure the network connection for submitting an enrollment request. It is not involved in the actual verification or approval of the enrollment request. It is also no longer used with enrolled devices, as these rely on device-specific management certificates instead.
@@ -82,7 +79,6 @@ enrollment-service:
     certificate-authority-data: LS0tLS1CRUdJTiBD...
     server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
   enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8081
-  grpc-management-endpoint: grpcs://agent-grpc.flightctl.127.0.0.1.nip.io:7444
 ```
 
 ### Building the OS Image (bootc)
@@ -92,15 +88,16 @@ Create a file named `Containerfile` with the following content to build an OS im
 ```console
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl centos-stream-9-x86_64 && \
+RUN dnf -y copr enable @redhat-et/flightctl && \
     dnf -y install flightctl-agent && \
     dnf -y clean all && \
     systemctl enable flightctl-agent.service
 
-# Optional: to enable podman-compose application support uncomment below”
-# RUN dnf -y install epel-release epel-next-release && \
-#    dnf -y install podman-compose && \
-#    systemctl enable podman.service
+# Optional: To enable podman-compose application support, uncomment below
+# RUN dnf -y install epel-release && \
+#     dnf -y install podman-compose && \
+#     dnf -y clean all && \
+#     systemctl enable podman.service
 
 ADD config.yaml /etc/flightctl/
 ```
@@ -108,18 +105,14 @@ ADD config.yaml /etc/flightctl/
 > [!NOTE]
 > If you have used Podman or Docker before to build application containers, you will notice this is a regular `Containerfile`, with the only difference that the base image referenced in `FROM` is bootable container (bootc) image. That means it already contains a Linux kernel. This allows you to reuse existing standard container build tools and workflows.
 
-> [!IMPORTANT]
-> When using Flight Control with a RHEL 9 base image, you need to disable the default automatic updates by adding the following command to the `Containerfile`:
->
-> ```console
-> RUN systemctl mask bootc-fetch-apply-updates.timer
-> ```
+> [!NOTE]
+If your device relies on an OS image from a private repository, [authentication credentials](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#configuring-container-pull-secrets_managing-users-groups-ssh-key-and-secrets-in-image-mode-for-rhel) (pull secrets) must be placed in the appropriate system path `/etc/ostree/auth.json`. Authentication must exist on the device before it can be consumed.
 
 Define the OCI registry, image repository, and image tag you want to use (ensure you have write-permissions to that repository):
 
 ```console
 OCI_REGISTRY=quay.io
-OCI_IMAGE_REPO=${OCI_REGISTRY}/your_org/centos-bootc-flightctl
+OCI_IMAGE_REPO=${OCI_REGISTRY}/your_org/centos-bootc
 OCI_IMAGE_TAG=v1
 ```
 
@@ -127,6 +120,35 @@ Build the OS image for your target platform:
 
 ```console
 sudo podman build -t ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG} .
+```
+
+#### Using RHEL base images
+
+When using Flight Control with a RHEL 9 base image, you need to make a few changes to the `Containerfile`, specifically you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository in case you need `podman-compose`:
+
+```console
+FROM registry.redhat.io/rhel9/rhel-bootc:9.5
+
+RUN dnf -y copr enable @redhat-et/flightctl && \
+    dnf -y install flightctl-agent && \
+    dnf -y clean all && \
+    systemctl enable flightctl-agent.service && \
+    systemctl mask bootc-fetch-apply-updates.timer
+
+# Optional: To enable podman-compose application support, uncomment below
+# RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
+#     dnf -y install podman-compose && \
+#     dnf -y clean all && \
+#     rm -rf /var/{cache,log} /var/lib/{dnf,rhsm} && \
+#     systemctl enable podman.service
+
+ADD config.yaml /etc/flightctl/
+```
+
+You also need to log in to the Red Hat registry before building your image:
+
+```console
+sudo podman login registry.redhat.io
 ```
 
 ### Signing and Publishing the OS Image (bootc)
@@ -158,48 +180,46 @@ sudo podman push --sign-by-sigstore-private-key ./signingkey.private ${OCI_IMAGE
 
 ### Building the OS Disk Image
 
-Next, create a directory called "output" and use `bootc-image-builder` to generate an OS disk image of type "raw" from your OS image:
+Next, create a directory called "output" and use `bootc-image-builder` to generate an OS disk image of type `iso` from your OS image:
 
 ```console
 mkdir -p output
 
 sudo podman run --rm -it --privileged --pull=newer \
     --security-opt label=type:unconfined_t \
-    -v $(pwd)/output:/output \
+    -v "${PWD}/output":/output \
     -v /var/lib/containers/storage:/var/lib/containers/storage \
     quay.io/centos-bootc/bootc-image-builder:latest \
-    --type raw \
+    --type iso \
     ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG}
 ```
 
-Once `bootc-image-builder` completes, you can find the disk image under `$(pwd)/output/image/disk.raw`.
+Once `bootc-image-builder` completes, you can find the ISO disk image under `${PWD}/output/bootiso/install.iso`.
 
 Refer to `bootc-image-builder`'s [list of image types](https://github.com/osbuild/bootc-image-builder?tab=readme-ov-file#-image-types) for other supported types.
 
-### Signing and Publishing the OS Disk Image (bootc)
+### Optional: Signing and Publishing the OS Disk Image to an OCI Registry
 
-Optionally, you can compress, sign, and publish your disk image to your OCI registry, too. This helps unify hosting and distribution. Using manifest lists, you can even keep matching bootc and disk images together:
+Optionally, you can compress, sign, and publish your disk image as so-called "OCI artifacts" to your OCI registry, too. This helps unify hosting and distribution. For example, to publish your ISO disk image to a repository named after your bootc image with `/diskimage-iso` appended, run the following commands:
 
 ```console
+sudo chown -R $(whoami):$(whoami) "${PWD}/output"
+
+OCI_DISK_IMAGE_REPO=${OCI_IMAGE_REPO}/diskimage-iso
+
 sudo podman manifest create \
-    ${OCI_IMAGE_REPO}-unified:${OCI_IMAGE_TAG}
+    ${OCI_DISK_IMAGE_REPO}:${OCI_IMAGE_TAG}
 
 sudo podman manifest add \
-    ${OCI_IMAGE_REPO}-unified:${OCI_IMAGE_TAG} \
-    docker://${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG}
-
-gzip $(pwd)/output/image/disk.raw
-
-sudo podman manifest add \
-    --artifact --artifact-type application/vnd.diskimage.raw.gzip \
+    --artifact --artifact-type application/vnd.diskimage.iso \
     --arch=amd64 --os=linux \
-    ${OCI_IMAGE_REPO}-unified:${OCI_IMAGE_TAG} \
-    $(pwd)/output/image/disk.raw.gz
+    ${OCI_DISK_IMAGE_REPO}:${OCI_IMAGE_TAG} \
+    "${PWD}/output/bootiso/install.iso"
 
 sudo podman manifest push --all \
      --sign-by-sigstore-private-key ./signingkey.private \
-    ${OCI_IMAGE_REPO}-unified:${OCI_IMAGE_TAG} \
-    docker://${OCI_IMAGE_REPO}-unified:${OCI_IMAGE_TAG}
+    ${OCI_DISK_IMAGE_REPO}:${OCI_IMAGE_TAG} \
+    docker://${OCI_DISK_IMAGE_REPO}:${OCI_IMAGE_TAG}
 ```
 
 ### Further References
@@ -212,49 +232,127 @@ For further information and practical examples, refer to:
 
 ## Considerations for Specific Target Platforms
 
-### Red Hat OpenShift Container Native Virtualization (CNV)
+### Red Hat OpenShift Virtualization
 
-### Red Hat Satellite
-
-### VMware vSphere
-
-When building OS images and disk images for VMware vSphere, follow the [generic process](#building-and-publishing-os-images-and-disk-images) with the following changes:
+When building an OS image and disk image for OpenShift Virtualization, follow the [generic process](#building-and-publishing-os-images-and-disk-images) with the following changes:
 
 1. Use late binding of the enrollment endpoint and enrollment certificates, injecting the enrollment certificate or even the whole agent configuration through `cloud-init` when provisioning the virtual device.
-2. Optionally, add the `open-vm-tools` guest tools to the image.
-3. Build a disk image of type "vmdk" instead of "raw".
+2. Add the `open-vm-tools` guest tools to the image.
+3. Build a disk image of type "qcow2" instead of type "iso".
+4. Optional: Upload the disk image to an OCI registry as a container disk.
 
-Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and VMware guest tools, but no agent configuration:
+Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and VM guest tools, but no agent configuration:
 
 ```console
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl centos-stream-9-x86_64 && \
-    dnf -y install flightctl-agent; \
-    dnf -y clean all; \
+RUN dnf -y copr enable @redhat-et/flightctl && \
+    dnf -y install flightctl-agent && \
+    dnf -y clean all && \
     systemctl enable flightctl-agent.service
 
-RUN dnf -y install cloud-init open-vm-tools; \
-    dnf -y clean all; \
+RUN dnf -y install cloud-init open-vm-tools && \
+    dnf -y clean all && \
     ln -s ../cloud-init.target /usr/lib/systemd/system/default.target.wants && \
     systemctl enable vmtoolsd.service
+
+# Optional: To enable podman-compose application support, uncomment below
+# RUN dnf -y install epel-release epel-next-release && \
+#    dnf -y install podman-compose && \
+#    dnf -y clean all && \
+#    systemctl enable podman.service
 ```
 
-Build the OS image (bootc) in the [generic process](#building-and-publishing-os-images-and-disk-images), but build an image of type "vmdk" instead of "raw":
+Build, sign, and publish the OS image (bootc) following the [generic process](#building-and-publishing-os-images-and-disk-images).
+
+For the disk image, build an image of type "qcow2" instead of "iso":
 
 ```console
 mkdir -p output
 
 sudo podman run --rm -it --privileged --pull=newer \
     --security-opt label=type:unconfined_t \
-    -v $(pwd)/output:/output \
+    -v "${PWD}/output":/output \
+    -v /var/lib/containers/storage:/var/lib/containers/storage \
+    quay.io/centos-bootc/bootc-image-builder:latest \
+    --type qcow2 \
+    ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG}
+```
+
+Once `bootc-image-builder` completes, you can find the disk image under `${PWD}/output/qcow2/disk.qcow2`.
+
+As OpenShift Virtualization can download disk images from an OCI registry, but expects a "container disk" image instead of an OCI artifact, use the following procedure to build, sign, and upload the QCoW2 disk image:
+
+Create a file called `Containerfile.qcow2` with the following content:
+
+```console
+FROM registry.access.redhat.com/ubi9/ubi:latest AS builder
+ADD --chown=107:107 output/qcow2/disk.qcow2 /disk/
+RUN chmod 0440 /disk/*
+
+FROM scratch
+COPY --from=builder /disk/* /disk/
+```
+
+This adds the QCoW2 disk image to a builder container in order to set the required file ownership (107 is the QEMU user) and file permissions (0440), then copies the file to a scratch image.
+
+Next, build, sign, and publish your disk image:
+
+```console
+sudo chown -R $(whoami):$(whoami) "${PWD}/output"
+
+OCI_DISK_IMAGE_REPO=${OCI_IMAGE_REPO}/diskimage-qcow2
+
+sudo podman build -t ${OCI_DISK_IMAGE_REPO}:${OCI_IMAGE_TAG} -f Containerfile.qcow2 .
+
+sudo podman push --sign-by-sigstore-private-key ./signingkey.private ${OCI_DISK_IMAGE_REPO}:${OCI_IMAGE_TAG}
+```
+
+### VMware vSphere
+
+When building OS images and disk images for VMware vSphere, follow the [generic process](#building-and-publishing-os-images-and-disk-images) with the following changes:
+
+1. Use late binding of the enrollment endpoint and enrollment certificates, injecting the enrollment certificate or even the whole agent configuration through `cloud-init` when provisioning the virtual device.
+2. Add the `open-vm-tools` guest tools to the image.
+3. Build a disk image of type "vmdk" instead of type "iso".
+
+Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and VM guest tools, but no agent configuration:
+
+```console
+FROM quay.io/centos-bootc/centos-bootc:stream9
+
+RUN dnf -y copr enable @redhat-et/flightctl && \
+    dnf -y install flightctl-agent && \
+    dnf -y clean all && \
+    systemctl enable flightctl-agent.service
+
+RUN dnf -y install cloud-init open-vm-tools && \
+    dnf -y clean all && \
+    ln -s ../cloud-init.target /usr/lib/systemd/system/default.target.wants && \
+    systemctl enable vmtoolsd.service
+```
+
+Build the OS image (bootc) in the [generic process](#building-and-publishing-os-images-and-disk-images), but build an image of type "vmdk" instead of "iso":
+
+```console
+mkdir -p output
+
+sudo podman run --rm -it --privileged --pull=newer \
+    --security-opt label=type:unconfined_t \
+    -v "${PWD}/output":/output \
     -v /var/lib/containers/storage:/var/lib/containers/storage \
     quay.io/centos-bootc/bootc-image-builder:latest \
     --type vmdk \
     ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG}
 ```
 
-Once `bootc-image-builder` completes, you can find the disk image under `$(pwd)/output/vmdk/disk.vmdk`.
+Once `bootc-image-builder` completes, you can find the disk image under `${PWD}/output/vmdk/disk.vmdk`.
+
+### References
+
+For details and other target platforms, refer to
+
+* The "[Deploying the RHEL bootc images](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#deploying-the-rhel-bootc-images_using-image-mode-for-rhel-to-build-deploy-and-manage-operating-systems)" section of the RHEL documentation
 
 ## Best Practices When Building Images
 

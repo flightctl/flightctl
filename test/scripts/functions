@@ -45,6 +45,7 @@ kind_load_image() {
     fi
 
     # Save to tar file
+    rm -f "${tar_filename}"
     podman save "${image}" -o "${tar_filename}"
     if [ $? -eq 0 ]; then
       echo "Image saved successfully to ${tar_filename}."
@@ -112,11 +113,8 @@ function get_endpoint_host() {
         flightctl-api-route-agent)
             echo "agent-api.${IP}.nip.io:7443"
             ;;
-        flightctl-api-route-agent-grpc)
-            echo "agent-grpc.${IP}.nip.io:7444"
-            ;;
         flightctl-ui)
-            echo "ui.${IP}.nip.io:7444"
+            echo "ui.${IP}.nip.io:9000"
             ;;
         *)
             echo "Unable to find endpoint for ${name}" >&2
@@ -128,17 +126,16 @@ function get_endpoint_host() {
 function get_endpoints() {
   export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://$(get_endpoint_host "flightctl-api-route")}
   export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://$(get_endpoint_host "flightctl-api-route-agent")}
-  export FLIGHTCTL_AGENT_GRPC=${FLIGHTCTL_AGENT_GRPC:-grpcs://$(get_endpoint_host "flightctl-api-route-agent-grpc")}
   export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://$(get_endpoint_host "flightctl-ui")}
 }
 
 function get_token() {
   if ! oc whoami -t 2>/dev/null; then
-    if [ -z "${KUBEADMIN_PASSWORD}" ]; then
-      echo "KUBEADMIN_PASSWORD is not set. Please set it to the kubeadmin password, or login as kubeadmin before calling this script" >&2
+    if [ -z "${KUBEADMIN_PASS}" ]; then
+      echo "KUBEADMIN_PASS is not set. Please set it to the kubeadmin password, or login as kubeadmin before calling this script" >&2
       exit 1
     fi
-    oc login -u kubeadmin -p ${KUBEADMIN_PASSWORD} >/dev/null
+    oc login -u kubeadmin -p ${KUBEADMIN_PASS} >/dev/null
     oc whoami -t
   fi
 }
@@ -151,8 +148,12 @@ function try_login() {
   if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify; then
     echo "Trying token login"
     TOKEN=$(get_token)
-    bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN} 2>/dev/null"
-    return 0
+    if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN}"; then
+      echo "Trying standalone login"
+      PASS=$(kubectl get secret keycloak-demouser-secret -n "${FLIGHTCTL_NS}" -o json | jq -r '.data.password' | base64 -d)
+      bin/flightctl login -k "${FLIGHTCTL_API_ENDPOINT}" -u demouser -p ${PASS} 2>/dev/null
+      return 0
+    fi
   fi
 }
 
@@ -189,3 +190,39 @@ function package_cli() {
     local VERSION=$(echo "${FLIGHTCTL_RPM}" | cut -d'/' -f2)
     append_rpm_version "flightctl"
 }
+
+# Function to check if acm is installed in the env
+function is_acm_installed() {
+  local output
+  output=$(oc get multiclusterhub -A 2>/dev/null) || return 1
+  echo "output=${output}"
+
+  if echo "$output" | grep -qE 'Paused|Running'; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Function to get the ocp nodes network name
+function get_ocp_nodes_network() {
+  ip=$(/usr/local/bin/oc get node -owide --no-headers | tail -n 1 | awk '{print $6}') || return 1
+  if [[ -z "$ip" ]]; then
+    echo "No nodes found" >&2
+    return 1
+  fi
+   ip=${ip%.*}
+  if [[ -z "$ip" ]]; then
+    echo "Invalid IP format" >&2
+    return 1
+  fi
+
+  # get the network name from the ip
+  for net in $(sudo virsh net-list --name); do
+    if [[ "$(sudo virsh net-dumpxml $net |grep $ip)" != "" ]];
+      then echo $net;
+      break;
+    fi;
+  done
+}
+

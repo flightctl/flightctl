@@ -1,10 +1,11 @@
-# FlightCtl API
+# Flight Control API
 
 This document is intended to provide context to the API definition.
 
 ## Device.Status
 
 ### Conditions
+
 These are the core conditions that cover the ability of the device to accept/manage workloads.
 
 | Name    | Desc |
@@ -18,6 +19,7 @@ These are the core conditions that cover the ability of the device to accept/man
 | ContainersRunning | True is all specified containers are running, otherwise False. |
 
 ### Conditions
+
 These conditions that cover the operation of the agent
 
 | Name    | Desc |

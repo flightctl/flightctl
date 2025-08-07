@@ -14,7 +14,6 @@ var (
 	ErrResourceVersionConflict             = errors.New("the object has been modified; please apply your changes to the latest version and try again")
 	ErrIllegalResourceVersionFormat        = errors.New("resource version does not match the required integer format")
 	ErrNoRowsUpdated                       = errors.New("no rows were updated; assuming resource version was updated or resource was deleted")
-	ErrLimitParamOutOfBounds               = errors.New("the limit parameter is out of the valid bounds")
 	ErrFieldSelectorSyntax                 = errors.New("invalid field selector syntax")
 	ErrFieldSelectorParseFailed            = errors.New("failed to parse field selector")
 	ErrFieldSelectorUnknownSelector        = errors.New("unknown or unsupported selector")
@@ -37,4 +36,7 @@ var (
 	ErrSignature       = errors.New("signature error")
 	ErrSignCert        = errors.New("error signing certificate")
 	ErrEncodeCert      = errors.New("error encoding certificate")
+
+	// certificate extensions
+	ErrExtensionNotFound = errors.New("certificate extension not found")
 )

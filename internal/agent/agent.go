@@ -2,32 +2,34 @@ package agent
 
 import (
 	"context"
-	"crypto"
-	"encoding/base32"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 
-	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/identity"
+	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
-	fcrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -38,16 +40,18 @@ const (
 )
 
 // New creates a new agent.
-func New(log *log.PrefixLogger, config *Config) *Agent {
+func New(log *log.PrefixLogger, config *agent_config.Config, configFile string) *Agent {
 	return &Agent{
-		config: config,
-		log:    log,
+		config:     config,
+		configFile: configFile,
+		log:        log,
 	}
 }
 
 type Agent struct {
-	config *Config
-	log    *log.PrefixLogger
+	config     *agent_config.Config
+	configFile string
+	log        *log.PrefixLogger
 }
 
 func (a *Agent) GetLogPrefix() string {
@@ -63,27 +67,33 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer cancel()
 
 	// create file io writer and reader
-	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.testRootDir))
+	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
-	// ensure the agent key exists if not create it.
-	if !a.config.ManagementService.Config.HasCredentials() {
-		a.config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(a.config.DataDir, DefaultCertsDirName, GeneratedCertFile)
-		a.config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(a.config.DataDir, DefaultCertsDirName, KeyFile)
-	}
-	publicKey, privateKey, _, err := fcrypto.EnsureKey(deviceReadWriter.PathFor(a.config.ManagementService.AuthInfo.ClientKey))
+	tpmClient, err := a.tryLoadTPM(deviceReadWriter)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialize TPM client: %w", err)
 	}
 
-	publicKeyHash, err := fcrypto.HashPublicKey(publicKey)
-	if err != nil {
-		return err
+	// create identity provider
+	identityProvider := identity.NewProvider(
+		tpmClient,
+		deviceReadWriter,
+		a.config,
+		a.log,
+	)
+
+	if err := identityProvider.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize identity provider: %w", err)
 	}
 
-	deviceName := strings.ToLower(base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(publicKeyHash))
-	csr, err := fcrypto.MakeCSR(privateKey.(crypto.Signer), deviceName)
+	deviceName, err := identityProvider.GetDeviceName()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get device name: %w", err)
+	}
+
+	csr, err := identityProvider.GenerateCSR(deviceName)
+	if err != nil {
+		return fmt.Errorf("failed to generate CSR: %w", err)
 	}
 
 	executer := &executer.CommonExecuter{}
@@ -94,7 +104,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: this needs tuned
+	// TODO: replace wait with poll
 	backoff := wait.Backoff{
 		Cap:      1 * time.Minute,
 		Duration: 10 * time.Second,
@@ -102,34 +112,60 @@ func (a *Agent) Run(ctx context.Context) error {
 		Steps:    6,
 	}
 
+	pollBackoff := poll.Config{
+		MaxDelay:  1 * time.Minute,
+		BaseDelay: 10 * time.Second,
+		Factor:    1.5,
+		MaxSteps:  a.config.PullRetrySteps,
+	}
+
 	// create os client
 	osClient := os.NewClient(a.log, executer)
 
 	// create podman client
-	podmanClient := client.NewPodman(a.log, executer, backoff)
+	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
 
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
 
-	// create system client
-	systemClient := client.NewSystem(executer, deviceReadWriter, a.config.DataDir)
-	if err := systemClient.Initialize(); err != nil {
+	// create systemInfo manager
+	systemInfoManager := systeminfo.NewManager(
+		a.log,
+		executer,
+		deviceReadWriter,
+		a.config.DataDir,
+		a.config.SystemInfo,
+		a.config.SystemInfoCustom,
+		a.config.SystemInfoTimeout,
+	)
+	if err := systemInfoManager.Initialize(ctx); err != nil {
 		return err
 	}
 
 	// create shutdown manager
-	shutdownManager := shutdown.New(a.log, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.NewManager(a.log, gracefulShutdownTimeout, cancel)
+
+	if tpmClient != nil {
+		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
+		shutdownManager.Register("tpm-client", tpmClient.Close)
+	}
+
+	reloadManager := reload.NewManager(a.configFile, a.log)
 
 	policyManager := policy.NewManager(a.log)
 
+	devicePublisher := publisher.New(deviceName,
+		time.Duration(a.config.SpecFetchInterval),
+		backoff,
+		a.log)
+
 	// create spec manager
 	specManager := spec.NewManager(
-		deviceName,
 		a.config.DataDir,
 		policyManager,
 		deviceReadWriter,
 		osClient,
-		backoff,
+		devicePublisher.Subscribe(),
 		a.log,
 	)
 
@@ -145,24 +181,28 @@ func (a *Agent) Run(ctx context.Context) error {
 	applicationManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
-		executer,
 		podmanClient,
-		systemClient,
+		systemInfoManager,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationManager.Stop)
 
+	// register identity provider with shutdown manager
+	shutdownManager.Register("identity", identityProvider.Close)
+
 	// create systemd manager
 	systemdManager := systemd.NewManager(a.log, systemdClient)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, podmanClient)
+	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
+
+	// create prefetch manager
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, a.config.PullTimeout)
 
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
-		systemClient,
 		a.log,
 	)
 
@@ -178,6 +218,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.DefaultLabels,
 		statusManager,
 		systemdClient,
+		identityProvider,
 		backoff,
 		a.log,
 	)
@@ -188,6 +229,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	statusManager.RegisterStatusExporter(resourceManager)
 	statusManager.RegisterStatusExporter(osManager)
 	statusManager.RegisterStatusExporter(specManager)
+	statusManager.RegisterStatusExporter(systemInfoManager)
 
 	// create config controller
 	configController := config.NewController(
@@ -200,11 +242,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		specManager,
+		devicePublisher,
 		statusManager,
 		hookManager,
 		lifecycleManager,
 		&a.config.ManagementService.Config,
-		systemClient,
+		systemInfoManager,
+		a.config.GetManagementMetricsCallback(),
+		podmanClient,
+		identityProvider,
 		a.log,
 	)
 
@@ -214,7 +260,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create the gRPC client this must be done after bootstrap
-	grpcClient, err := newGrpcClient(&a.config.ManagementService)
+	grpcClient, err := identityProvider.CreateGRPCClient(&a.config.ManagementService.Config)
 	if err != nil {
 		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
@@ -230,6 +276,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		grpcClient,
 		deviceName,
 		executer,
+		devicePublisher.Subscribe(),
 		a.log,
 	)
 
@@ -246,6 +293,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		statusManager,
 		specManager,
+		devicePublisher,
 		applicationManager,
 		systemdManager,
 		a.config.SpecFetchInterval,
@@ -260,6 +308,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		consoleController,
 		osClient,
 		podmanClient,
+		prefetchManager,
 		backoff,
 		a.log,
 	)
@@ -267,24 +316,36 @@ func (a *Agent) Run(ctx context.Context) error {
 	// register agent with shutdown manager
 	shutdownManager.Register("agent", agent.Stop)
 
+	// register reloader with reload manager
+	reloadManager.Register(agent.ReloadConfig)
+	reloadManager.Register(systemInfoManager.ReloadConfig)
+	reloadManager.Register(statusManager.ReloadCollect)
+
 	go shutdownManager.Run(ctx)
+	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
+	go prefetchManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *Config) (client.Enrollment, error) {
+func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
 	if err != nil {
 		return nil, err
 	}
-	return client.NewEnrollment(httpClient), nil
+	return client.NewEnrollment(httpClient, cfg.GetEnrollmentMetricsCallback()), nil
 }
 
-func newGrpcClient(cfg *ManagementService) (grpc_v1.RouterServiceClient, error) {
-	client, err := client.NewGRPCClientFromConfig(&cfg.Config)
-	if err != nil {
-		return nil, fmt.Errorf("creating gRPC client: %w", err)
+func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
+	if !a.config.TPM.Enabled {
+		a.log.Info("TPM auth is disabled. Skipping TPM setup.")
+		return nil, nil
 	}
-	return client, nil
+
+	tpmClient, err := tpm.NewClient(a.log, writer, a.config)
+	if err != nil {
+		return nil, fmt.Errorf("creating TPM client: %w", err)
+	}
+	return tpmClient, nil
 }

@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -25,12 +28,20 @@ type kvStore struct {
 	getSetNxScript *redis.Script
 }
 
-func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password string) (KVStore, error) {
+func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password config.SecureString) (KVStore, error) {
+	ctx, span := instrumentation.StartSpan(ctx, "flightctl/kvstore", "KVStore")
+	defer span.End()
+
 	client := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", hostname, port),
-		Password: password,
+		Password: password.Value(),
 		DB:       0,
 	})
+
+	// Enable tracing instrumentation.
+	if err := redisotel.InstrumentTracing(client); err != nil {
+		return nil, fmt.Errorf("failed to enable Redis tracing instrumentation: %w", err)
+	}
 
 	// Test the connection
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

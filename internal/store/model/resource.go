@@ -9,20 +9,23 @@ import (
 )
 
 type Resource struct {
-	// Uniquely identifies the tenant the resource belongs to.
-	// Assigned by IAM. Immutable.
-	OrgID uuid.UUID `gorm:"type:uuid;primary_key;index:owner_idx,priority:2"`
+	// Composite Primary Key: Unique within a tenant (OrgID, Name)
 
-	// Uniquely identifies the resource within a tenant and schema.
+	// Uniquely identifies the organization the resource belongs to.
+	// Assigned by IAM. Immutable.
+	OrgID        uuid.UUID    `gorm:"type:uuid;primaryKey;index:,composite:org_name,priority:1"`
+	Organization Organization `gorm:"foreignKey:OrgID"`
+
+	// Uniquely identifies the resource within an organization and schema.
 	// Depending on the schema (kind), assigned by the device management system or the crypto identity of the device (public key). Immutable.
 	// This may become a URN later, so it's important API users treat this as an opaque handle.
-	Name string `gorm:"primary_key;" selector:"metadata.name"`
+	Name string `gorm:"primaryKey;index:,composite:org_name,priority:2" selector:"metadata.name"`
 
 	// User-defined name, if non-null used in the UI as a more human-friendly alias to the resource ID.
 	// DisplayName string
 
 	// The "kind/name" of the resource owner of this resource.
-	Owner *string `gorm:"index:owner_idx,priority:1" selector:"metadata.owner"`
+	Owner *string `gorm:"index:owner_idx" selector:"metadata.owner"`
 
 	// Labels associated with the resource, used for selecting and querying objects.
 	// Labels are stored as a JSONB object, supporting flexible indexing and querying capabilities.
@@ -49,7 +52,16 @@ func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 type APIResourceOption func(*apiResourceOptions)
 
 type apiResourceOptions struct {
-	devicesSummary *api.DevicesSummary // Used by Fleet
+	devicesSummary       *api.DevicesSummary // Used by Fleet
+	isRendered           bool                // Used by Device
+	knownRenderedVersion *string
+}
+
+func WithRendered(knownRenderedVersion *string) APIResourceOption {
+	return func(o *apiResourceOptions) {
+		o.isRendered = true
+		o.knownRenderedVersion = knownRenderedVersion
+	}
 }
 
 func WithDevicesSummary(devicesSummary *api.DevicesSummary) APIResourceOption {
@@ -130,6 +142,10 @@ func (r *Resource) GetNonNilFieldsFromResource() []string {
 	return ret
 }
 
+func (r *Resource) GetTimestamp() time.Time {
+	return r.CreatedAt
+}
+
 type ResourceInterface interface {
 	GetKind() string
 	GetName() string
@@ -149,6 +165,7 @@ type ResourceInterface interface {
 	HasNilSpec() bool
 	HasSameSpecAs(any) bool
 	GetStatusAsJson() ([]byte, error)
+	GetTimestamp() time.Time
 }
 
 var _ ResourceInterface = (*Device)(nil)
@@ -158,3 +175,4 @@ var _ ResourceInterface = (*EnrollmentRequest)(nil)
 var _ ResourceInterface = (*Repository)(nil)
 var _ ResourceInterface = (*ResourceSync)(nil)
 var _ ResourceInterface = (*TemplateVersion)(nil)
+var _ ResourceInterface = (*Event)(nil)

@@ -63,6 +63,12 @@ func (e *Engine) Run(ctx context.Context) error {
 	tickerInterval := e.calculateTickerInterval()
 	timeTicker := e.clock.NewTicker(tickerInterval)
 	defer timeTicker.Stop()
+
+	// fire first spec sync immediately
+	now := e.clock.Now()
+	e.fetchSpecFn(ctx)
+	lastSpecSync = now
+
 	close(e.startedCh)
 	for {
 		select {

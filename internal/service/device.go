@@ -4,194 +4,117 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/go-openapi/swag"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 )
 
-// (POST /api/v1/devices)
-func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.CreateDeviceRequestObject) (server.CreateDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "create")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.CreateDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.CreateDevice403JSONResponse{Message: Forbidden}, nil
-	}
-
-	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status) {
+	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
-		return server.CreateDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+		return nil, api.StatusBadRequest(flterrors.ErrDecommission.Error())
 	}
 
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
 	// don't set fields that are managed by the service
-	request.Body.Status = nil
-	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
+	device.Status = nil
+	NilOutManagedObjectMetaProperties(&device.Metadata)
 
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	if errs := device.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
+	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
-	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.callbackManager.DeviceUpdatedCallback)
-	switch {
-	case err == nil:
-		return server.CreateDevice201JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.CreateDevice400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrDuplicateName):
-		return server.CreateDevice409JSONResponse{Message: err.Error()}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackManager.DeviceUpdatedCallback, h.callbackDeviceUpdated)
+	return result, StoreErrorToApiStatus(err, true, api.DeviceKind, device.Metadata.Name)
 }
 
-// (GET /api/v1/devices)
-func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDevicesRequestObject) (server.ListDevicesResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListDevices503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+func convertDeviceListParams(params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*store.ListParams, api.Status) {
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
-	if !allowed {
-		return server.ListDevices403JSONResponse{Message: Forbidden}, nil
-	}
+	listParams.AnnotationSelector = annotationSelector
+	return listParams, api.StatusOK()
+}
 
-	orgId := store.NullOrgId
-
-	var fieldSelector *selector.FieldSelector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
-		}
-	}
-
-	var labelSelector *selector.LabelSelector
-	if request.Params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
-		}
+func (h *ServiceHandler) ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+	storeParams, status := convertDeviceListParams(params, annotationSelector)
+	if status.Code != http.StatusOK {
+		return nil, status
 	}
 
 	// Check if SummaryOnly is true
-	if request.Params.SummaryOnly != nil && *request.Params.SummaryOnly {
+	if params.SummaryOnly != nil && *params.SummaryOnly {
 		// Check for unsupported parameters
-		if request.Params.Limit != nil ||
-			request.Params.Continue != nil {
-			return server.ListDevices400JSONResponse{
-				Message: "parameters such as 'limit', and 'continue' are not supported when 'summaryOnly' is true",
-			}, nil
+		if params.Limit != nil || params.Continue != nil {
+			return nil, api.StatusBadRequest("parameters such as 'limit', and 'continue' are not supported when 'summaryOnly' is true")
 		}
 
-		result, err := h.store.Device().Summary(ctx, orgId, store.ListParams{
-			FieldSelector: fieldSelector,
-			LabelSelector: labelSelector,
-		})
+		result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
 
 		switch err {
 		case nil:
 			// Create an empty DeviceList and set the summary
 			emptyList, _ := model.DevicesToApiResource([]model.Device{}, nil, nil)
 			emptyList.Summary = result
-			return server.ListDevices200JSONResponse(emptyList), nil
+			return &emptyList, api.StatusOK()
 		default:
-			return nil, err
+			return nil, api.StatusInternalServerError(err.Error())
 		}
 	}
 
-	cont, err := store.ParseContinueString(request.Params.Continue)
-	if err != nil {
-		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+	if storeParams.Limit == 0 {
+		storeParams.Limit = MaxRecordsPerListRequest
+	} else if storeParams.Limit > MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
+	} else if storeParams.Limit < 0 {
+		return nil, api.StatusBadRequest("limit cannot be negative")
 	}
 
-	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(request.Params.Limit)),
-		Continue:      cont,
-		FieldSelector: fieldSelector,
-		LabelSelector: labelSelector,
-	}
-	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	}
-	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListDevices400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
-	}
-
-	result, err := h.store.Device().List(ctx, orgId, listParams)
+	result, err := h.store.Device().List(ctx, orgId, *storeParams)
 	if err == nil {
-		return server.ListDevices200JSONResponse(*result), nil
+		return result, api.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
-	case errors.Is(err, flterrors.ErrLimitParamOutOfBounds):
-		return server.ListDevices400JSONResponse{Message: err.Error()}, nil
 	case selector.AsSelectorError(err, &se):
-		return server.ListDevices400JSONResponse{Message: se.Error()}, nil
+		return nil, api.StatusBadRequest(se.Error())
 	default:
-		return nil, err
+		return nil, api.StatusInternalServerError(err.Error())
 	}
 }
 
-// (DELETE /api/v1/devices)
-func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteDevices503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteDevices403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	err = h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
-	switch err {
-	case nil:
-		return server.DeleteDevices200JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Device().ListDevicesByServiceCondition(ctx, orgId, conditionType, conditionStatus, listParams)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-// (GET /api/v1/devices/{name})
-func (h *ServiceHandler) ReadDevice(ctx context.Context, request server.ReadDeviceRequestObject) (server.ReadDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadDevice403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) GetDevice(ctx context.Context, name string) (*api.Device, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.Device().Get(ctx, orgId, request.Name)
-	switch {
-	case err == nil:
-		return server.ReadDevice200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadDevice404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Device().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func DeviceVerificationCallback(before, after *api.Device) error {
+func DeviceVerificationCallback(ctx context.Context, before, after *api.Device) error {
 	// Ensure the device wasn't decommissioned
 	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
 		return flterrors.ErrDecommission
@@ -199,263 +122,404 @@ func DeviceVerificationCallback(before, after *api.Device) error {
 	return nil
 }
 
-// (PUT /api/v1/devices/{name})
-func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.ReplaceDeviceRequestObject) (server.ReplaceDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceDevice403JSONResponse{Message: Forbidden}, nil
-	}
-
-	if request.Body.Spec != nil && request.Body.Spec.Decommissioning != nil {
+func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
+	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
-		return server.ReplaceDevice400JSONResponse{Message: flterrors.ErrDecommission.Error()}, nil
+		return nil, api.StatusBadRequest(flterrors.ErrDecommission.Error())
 	}
 
-	orgId := store.NullOrgId
+	orgId := getOrgIdFromContext(ctx)
 
-	// don't overwrite fields that are managed by the service
-	request.Body.Status = nil
-	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
-
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
-	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceDevice400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+	// don't overwrite fields that are managed by the service for external requests
+	isNotInternal := !IsInternalRequest(ctx)
+	if isNotInternal {
+		device.Status = nil
+		NilOutManagedObjectMetaProperties(&device.Metadata)
 	}
 
-	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, request.Body)
-
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, DeviceVerificationCallback, h.callbackManager.DeviceUpdatedCallback)
-	switch {
-	case err == nil:
-		if created {
-			return server.ReplaceDevice201JSONResponse(*result), nil
-		} else {
-			return server.ReplaceDevice200JSONResponse(*result), nil
-		}
-	case errors.Is(err, flterrors.ErrResourceIsNil):
-		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.ReplaceDevice400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceDevice404JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed), errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.ReplaceDevice409JSONResponse{Message: err.Error()}, nil
-	default:
-		return nil, err
+	if errs := device.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
+	if name != *device.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
+	delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
+	if ok && delayDeviceRender {
+		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
+	}
+
+	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, callback, h.callbackDeviceUpdated)
+	return result, StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
 }
 
-// (DELETE /api/v1/devices/{name})
-func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, error) {
+	if device.Spec != nil && device.Spec.Decommissioning != nil {
+		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
+		return nil, flterrors.ErrDecommission
 	}
-	if !allowed {
-		return server.DeleteDevice403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
 
-	err = h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
-	switch {
-	case err == nil:
-		return server.DeleteDevice200JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteDevice404JSONResponse{}, nil
-	default:
-		return nil, err
+	orgId := getOrgIdFromContext(ctx)
+
+	// don't overwrite fields that are managed by the service for external requests
+	if !IsInternalRequest(ctx) {
+		device.Status = nil
+		NilOutManagedObjectMetaProperties(&device.Metadata)
 	}
+
+	if errs := device.Validate(); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	if name != *device.Metadata.Name {
+		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
+	}
+
+	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
+	delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
+	if ok && delayDeviceRender {
+		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
+	}
+	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+
+	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback, h.callbackDeviceUpdated)
+}
+
+func (h *ServiceHandler) DeleteDevice(ctx context.Context, name string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+
+	_, err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback, h.callbackDeviceDeleted)
+	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 // (GET /api/v1/devices/{name}/status)
-func (h *ServiceHandler) ReadDeviceStatus(ctx context.Context, request server.ReadDeviceStatusRequestObject) (server.ReadDeviceStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/status", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadDeviceStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadDeviceStatus403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) GetDeviceStatus(ctx context.Context, name string) (*api.Device, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.Device().Get(ctx, orgId, request.Name)
-	switch {
-	case err == nil:
-		return server.ReadDeviceStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadDeviceStatus404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Device().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-// (PUT /api/v1/devices/{name}/status)
-func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, request server.ReplaceDeviceStatusRequestObject) (server.ReplaceDeviceStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/status", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceDeviceStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceDeviceStatus403JSONResponse{Message: Forbidden}, nil
-	}
-	return common.ReplaceDeviceStatus(ctx, h.store, h.log, request)
+func validateDeviceStatus(d *api.Device) []error {
+	allErrs := append([]error{}, validation.ValidateResourceName(d.Metadata.Name)...)
+	// TODO: implement validation of agent's status updates
+	return allErrs
 }
 
-// (GET /api/v1/devices/{name}/rendered)
-func (h *ServiceHandler) GetRenderedDeviceSpec(ctx context.Context, request server.GetRenderedDeviceSpecRequestObject) (server.GetRenderedDeviceSpecResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/rendered", "get")
+func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, incomingDevice api.Device) (*api.Device, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	if errs := validateDeviceStatus(&incomingDevice); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	if incomingDevice.Metadata.Name == nil || *incomingDevice.Metadata.Name == "" {
+		return nil, api.StatusBadRequest("device name is required")
+	}
+	if name != *incomingDevice.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+	isNotInternal := !IsInternalRequest(ctx)
+	if isNotInternal {
+		incomingDevice.Status.LastSeen = time.Now()
+	}
+
+	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
+	// that the agent does not provide or only have an outdated knowledge of
+	originalDevice, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.GetRenderedDeviceSpec503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
-	if !allowed {
-		return server.GetRenderedDeviceSpec403JSONResponse{Message: Forbidden}, nil
-	}
-	return common.GetRenderedDeviceSpec(ctx, h.store, h.log, request, h.agentEndpoint)
+
+	deviceToStore := &api.Device{}
+	*deviceToStore = *originalDevice
+
+	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
+	deviceToStore.Status = incomingDevice.Status
+	common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
+
+	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-// (PATCH /api/v1/devices/{name})
-// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchDevice(ctx context.Context, request server.PatchDeviceRequestObject) (server.PatchDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices", "patch")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.PatchDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.PatchDevice403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	currentObj, err := h.store.Device().Get(ctx, orgId, request.Name)
+	currentObj, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
-		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.PatchDevice404JSONResponse{}, nil
-		default:
-			return nil, err
-		}
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
 
 	newObj := &api.Device{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/devices/"+request.Name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/devices/"+name)
 	if err != nil {
-		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
+		return nil, api.StatusBadRequest(err.Error())
+	}
+
+	if errs := validateDeviceStatus(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
 	if errs := newObj.Validate(); len(errs) > 0 {
-		return server.PatchDevice400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchDevice400JSONResponse{Message: "metadata.name is immutable"}, nil
+	if !reflect.DeepEqual(newObj.Metadata, currentObj.Metadata) {
+		return nil, api.StatusBadRequest("metadata is immutable")
 	}
 	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchDevice400JSONResponse{Message: "apiVersion is immutable"}, nil
+		return nil, api.StatusBadRequest("apiVersion is immutable")
 	}
 	if currentObj.Kind != newObj.Kind {
-		return server.PatchDevice400JSONResponse{Message: "kind is immutable"}, nil
+		return nil, api.StatusBadRequest("kind is immutable")
 	}
-	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchDevice400JSONResponse{Message: "status is immutable"}, nil
-	}
-	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
-		return server.PatchDevice400JSONResponse{Message: "spec.decommissioning cannot be changed via patch request"}, nil
+	if !reflect.DeepEqual(currentObj.Spec, newObj.Spec) {
+		return nil, api.StatusBadRequest("spec is immutable")
 	}
 
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
 
-	common.UpdateServiceSideStatus(ctx, h.store, h.log, orgId, newObj)
-
-	// create
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback)
-
-	switch {
-	case err == nil:
-		return server.PatchDevice200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.PatchDevice400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.PatchDevice404JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict), errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed):
-		return server.PatchDevice409JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback, h.callbackDeviceUpdated)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-// (PATCH /api/v1/devices/{name}/status)
-func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, request server.PatchDeviceStatusRequestObject) (server.PatchDeviceStatusResponseObject, error) {
-	return nil, fmt.Errorf("not yet implemented")
+func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	result, err := h.store.Device().GetRendered(ctx, orgId, name, params.KnownRenderedVersion, h.agentEndpoint)
+	if err == nil && result == nil {
+		return nil, api.StatusNoContent()
+	}
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-// (PUT /api/v1/devices/{name}/decommission)
-func (h *ServiceHandler) DecommissionDevice(ctx context.Context, request server.DecommissionDeviceRequestObject) (server.DecommissionDeviceResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "devices/decommission", "update")
+// Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
+func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	currentObj, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DecommissionDevice503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DecommissionDevice403JSONResponse{Message: Forbidden}, nil
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
 
-	orgId := store.NullOrgId
-	deviceObj, err := h.store.Device().Get(ctx, orgId, request.Name)
+	newObj := &api.Device{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/devices/"+name)
 	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
-		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.DecommissionDevice404JSONResponse{}, nil
-		default:
-			return nil, err
-		}
+		return nil, api.StatusBadRequest(err.Error())
+	}
+
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
+		return nil, api.StatusBadRequest("spec.decommissioning cannot be changed via patch request")
+	}
+
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
+
+	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
+	if h.callbackManager != nil {
+		updateCallback = h.callbackManager.DeviceUpdatedCallback
+	}
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback, h.callbackDeviceUpdated)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	deviceObj, err := h.store.Device().Get(ctx, orgId, name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
 	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
-		return nil, fmt.Errorf("device already has decommissioning requested")
+		return nil, api.StatusConflict("device already has decommissioning requested")
 	}
 
-	deviceObj.Spec.Decommissioning = request.Body
+	deviceObj.Status.Lifecycle.Status = api.DeviceLifecycleStatusDecommissioning
+	deviceObj.Spec.Decommissioning = &decom
 
 	// these fields must be un-set so that device is no longer associated with any fleet
 	deviceObj.Metadata.Owner = nil
 	deviceObj.Metadata.Labels = nil
 
-	var updateCallback func(uuid.UUID, *api.Device, *api.Device)
+	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.DeviceUpdatedCallback
 	}
 
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"owner"}, false, DeviceVerificationCallback, updateCallback)
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback, h.callbackDeviceDecommission)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
 
-	switch {
-	case err == nil:
-		return server.DecommissionDevice200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.DecommissionDevice400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DecommissionDevice404JSONResponse{}, nil
-	default:
-		return nil, err
+func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+	err := h.store.Device().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
+	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+	err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, name string, conditions []api.Condition) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+
+	// Create callback to handle condition changes
+	callback := func(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition) {
+		h.diffAndEmitConditionEvents(ctx, device, oldConditions, newConditions)
 	}
+
+	err := h.store.Device().SetServiceConditions(ctx, orgId, name, conditions, callback)
+	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+// diffAndEmitConditionEvents compares old and new conditions and emits events for condition changes
+func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, device *api.Device, oldConditions, newConditions []api.Condition) {
+	// Track condition changes for MultipleOwners
+	oldMultipleOwnersCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeDeviceMultipleOwners)
+	newMultipleOwnersCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceMultipleOwners)
+
+	// Check if MultipleOwners condition changed
+	multipleOwnersConditionChanged := hasConditionChanged(oldMultipleOwnersCondition, newMultipleOwnersCondition)
+
+	if multipleOwnersConditionChanged {
+		common.EmitMultipleOwnersEvents(ctx, device, oldMultipleOwnersCondition, newMultipleOwnersCondition,
+			h.CreateEvent, common.GetDeviceMultipleOwnersDetectedEvent, common.GetDeviceMultipleOwnersResolvedEvent,
+			h.log,
+		)
+	}
+
+	// Track condition changes for SpecValid
+	oldSpecValidCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeDeviceSpecValid)
+	newSpecValidCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceSpecValid)
+
+	// Check if SpecValid condition changed
+	specValidConditionChanged := hasConditionChanged(oldSpecValidCondition, newSpecValidCondition)
+
+	if specValidConditionChanged {
+		common.EmitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition,
+			h.CreateEvent, common.GetDeviceSpecValidEvent, common.GetDeviceSpecInvalidEvent,
+			h.log)
+	}
+}
+
+// hasConditionChanged checks if a condition actually changed between old and new
+func hasConditionChanged(oldCondition, newCondition *api.Condition) bool {
+	if oldCondition == nil && newCondition == nil {
+		return false
+	}
+	if oldCondition == nil || newCondition == nil {
+		return true
+	}
+
+	changed := oldCondition.Status != newCondition.Status ||
+		oldCondition.Reason != newCondition.Reason ||
+		oldCondition.Message != newCondition.Message
+
+	return changed
+}
+
+func (h *ServiceHandler) OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+	err := h.store.Device().OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
+	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) GetDeviceRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+	result, err := h.store.Device().GetRepositoryRefs(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) CountDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+	storeParams, status := convertDeviceListParams(params, annotationSelector)
+	if status.Code != http.StatusOK {
+		return 0, status
+	}
+	result, err := h.store.Device().Count(ctx, orgId, *storeParams)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
+}
+
+func (h *ServiceHandler) UnmarkDevicesRolloutSelection(ctx context.Context, fleetName string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+	err := h.store.Device().UnmarkRolloutSelection(ctx, orgId, fleetName)
+	return StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
+}
+
+func (h *ServiceHandler) MarkDevicesRolloutSelection(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+	storeParams, status := convertDeviceListParams(params, annotationSelector)
+	if status.Code != http.StatusOK {
+		return status
+	}
+	err := h.store.Device().MarkRolloutSelection(ctx, orgId, *storeParams, limit)
+	return StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
+}
+
+func (h *ServiceHandler) GetDeviceCompletionCounts(ctx context.Context, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+	result, err := h.store.Device().CompletionCounts(ctx, orgId, owner, templateVersion, updateTimeout)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
+}
+
+func (h *ServiceHandler) CountDevicesByLabels(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+	storeParams, status := convertDeviceListParams(params, annotationSelector)
+	if status.Code != http.StatusOK {
+		return nil, status
+	}
+	result, err := h.store.Device().CountByLabels(ctx, orgId, *storeParams, groupBy)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
+}
+
+func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+	storeParams, status := convertDeviceListParams(params, annotationSelector)
+	if status.Code != http.StatusOK {
+		return nil, status
+	}
+	result, err := h.store.Device().Summary(ctx, orgId, *storeParams)
+	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
+}
+
+func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
+	orgId := getOrgIdFromContext(ctx)
+	return common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+}
+
+// callbackDeviceUpdated is the device-specific callback that handles device events
+func (h *ServiceHandler) callbackDeviceUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleDeviceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackDeviceDecommission is the device-specific callback that handles device decommission events
+func (h *ServiceHandler) callbackDeviceDecommission(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleDeviceDecommissionEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackDeviceDeleted is the device-specific callback that handles device deletion events
+func (h *ServiceHandler) callbackDeviceDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

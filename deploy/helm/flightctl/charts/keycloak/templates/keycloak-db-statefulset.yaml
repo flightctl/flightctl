@@ -17,10 +17,14 @@ spec:
       labels:
         app: keycloak-db
     spec:
+      {{- if .Values.db.fsGroup }}
+      securityContext:
+        fsGroup: {{ .Values.db.fsGroup }}
+      {{- end }}
       containers:
         - name: keycloak-db
           image: {{ .Values.db.image }}
-          imagePullPolicy: {{ .Values.db.imagePullPolicy }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.db.imagePullPolicy }}
           env:
             - name: POSTGRESQL_MASTER_USER
               valueFrom:

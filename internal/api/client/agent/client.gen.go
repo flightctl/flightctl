@@ -91,8 +91,21 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
-	// GetRenderedDeviceSpec request
-	GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// CreateCertificateSigningRequestWithBody request with any body
+	CreateCertificateSigningRequestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateCertificateSigningRequest(ctx context.Context, body CreateCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetCertificateSigningRequest request
+	GetCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetRenderedDevice request
+	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchDeviceStatusWithBody request with any body
+	PatchDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchDeviceStatusWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReplaceDeviceStatusWithBody request with any body
 	ReplaceDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -104,12 +117,72 @@ type ClientInterface interface {
 
 	CreateEnrollmentRequest(ctx context.Context, body CreateEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadEnrollmentRequest request
-	ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetEnrollmentRequest request
+	GetEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-func (c *Client) GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetRenderedDeviceSpecRequest(c.Server, name, params)
+func (c *Client) CreateCertificateSigningRequestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCertificateSigningRequestRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateCertificateSigningRequest(ctx context.Context, body CreateCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCertificateSigningRequestRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCertificateSigningRequestRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRenderedDeviceRequest(c.Server, name, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchDeviceStatusRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchDeviceStatusWithApplicationJSONPatchPlusJSONBody(ctx context.Context, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchDeviceStatusRequestWithApplicationJSONPatchPlusJSONBody(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +241,8 @@ func (c *Client) CreateEnrollmentRequest(ctx context.Context, body CreateEnrollm
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadEnrollmentRequestRequest(c.Server, name)
+func (c *Client) GetEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentRequestRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +253,82 @@ func (c *Client) ReadEnrollmentRequest(ctx context.Context, name string, reqEdit
 	return c.Client.Do(req)
 }
 
-// NewGetRenderedDeviceSpecRequest generates requests for GetRenderedDeviceSpec
-func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRenderedDeviceSpecParams) (*http.Request, error) {
+// NewCreateCertificateSigningRequestRequest calls the generic CreateCertificateSigningRequest builder with application/json body
+func NewCreateCertificateSigningRequestRequest(server string, body CreateCertificateSigningRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateCertificateSigningRequestRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateCertificateSigningRequestRequestWithBody generates requests for CreateCertificateSigningRequest with any type of body
+func NewCreateCertificateSigningRequestRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetCertificateSigningRequestRequest generates requests for GetCertificateSigningRequest
+func NewGetCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetRenderedDeviceRequest generates requests for GetRenderedDevice
+func NewGetRenderedDeviceRequest(server string, name string, params *GetRenderedDeviceParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -232,6 +379,53 @@ func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRend
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewPatchDeviceStatusRequestWithApplicationJSONPatchPlusJSONBody calls the generic PatchDeviceStatus builder with application/json-patch+json body
+func NewPatchDeviceStatusRequestWithApplicationJSONPatchPlusJSONBody(server string, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchDeviceStatusRequestWithBody(server, name, "application/json-patch+json", bodyReader)
+}
+
+// NewPatchDeviceStatusRequestWithBody generates requests for PatchDeviceStatus with any type of body
+func NewPatchDeviceStatusRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/devices/%s/status", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -323,8 +517,8 @@ func NewCreateEnrollmentRequestRequestWithBody(server string, contentType string
 	return req, nil
 }
 
-// NewReadEnrollmentRequestRequest generates requests for ReadEnrollmentRequest
-func NewReadEnrollmentRequestRequest(server string, name string) (*http.Request, error) {
+// NewGetEnrollmentRequestRequest generates requests for GetEnrollmentRequest
+func NewGetEnrollmentRequestRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -400,8 +594,21 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
-	// GetRenderedDeviceSpecWithResponse request
-	GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error)
+	// CreateCertificateSigningRequestWithBodyWithResponse request with any body
+	CreateCertificateSigningRequestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCertificateSigningRequestResponse, error)
+
+	CreateCertificateSigningRequestWithResponse(ctx context.Context, body CreateCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCertificateSigningRequestResponse, error)
+
+	// GetCertificateSigningRequestWithResponse request
+	GetCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetCertificateSigningRequestResponse, error)
+
+	// GetRenderedDeviceWithResponse request
+	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
+
+	// PatchDeviceStatusWithBodyWithResponse request with any body
+	PatchDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error)
+
+	PatchDeviceStatusWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error)
 
 	// ReplaceDeviceStatusWithBodyWithResponse request with any body
 	ReplaceDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceDeviceStatusResponse, error)
@@ -413,21 +620,23 @@ type ClientWithResponsesInterface interface {
 
 	CreateEnrollmentRequestWithResponse(ctx context.Context, body CreateEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentRequestResponse, error)
 
-	// ReadEnrollmentRequestWithResponse request
-	ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error)
+	// GetEnrollmentRequestWithResponse request
+	GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestResponse, error)
 }
 
-type GetRenderedDeviceSpecResponse struct {
+type CreateCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.RenderedDeviceSpec
-	JSON401      *externalRef0.Error
-	JSON404      *externalRef0.Error
-	JSON409      *externalRef0.Error
+	JSON201      *externalRef0.CertificateSigningRequest
+	JSON400      *externalRef0.Status
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON409      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
-func (r GetRenderedDeviceSpecResponse) Status() string {
+func (r CreateCertificateSigningRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -435,7 +644,85 @@ func (r GetRenderedDeviceSpecResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetRenderedDeviceSpecResponse) StatusCode() int {
+func (r CreateCertificateSigningRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetCertificateSigningRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.CertificateSigningRequest
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON503      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetCertificateSigningRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetCertificateSigningRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetRenderedDeviceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.Device
+	JSON401      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON409      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetRenderedDeviceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetRenderedDeviceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PatchDeviceStatusResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.Device
+	JSON400      *externalRef0.Status
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON503      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchDeviceStatusResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchDeviceStatusResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -446,9 +733,9 @@ type ReplaceDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.Device
-	JSON400      *externalRef0.Error
-	JSON401      *externalRef0.Error
-	JSON404      *externalRef0.Error
+	JSON400      *externalRef0.Status
+	JSON401      *externalRef0.Status
+	JSON404      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -471,11 +758,11 @@ type CreateEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *externalRef0.EnrollmentRequest
-	JSON400      *externalRef0.Error
-	JSON401      *externalRef0.Error
-	JSON403      *externalRef0.Error
-	JSON409      *externalRef0.Error
-	JSON503      *externalRef0.Error
+	JSON400      *externalRef0.Status
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON409      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -494,18 +781,18 @@ func (r CreateEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadEnrollmentRequestResponse struct {
+type GetEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *externalRef0.EnrollmentRequest
-	JSON401      *externalRef0.Error
-	JSON403      *externalRef0.Error
-	JSON404      *externalRef0.Error
-	JSON503      *externalRef0.Error
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadEnrollmentRequestResponse) Status() string {
+func (r GetEnrollmentRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -513,20 +800,63 @@ func (r ReadEnrollmentRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadEnrollmentRequestResponse) StatusCode() int {
+func (r GetEnrollmentRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-// GetRenderedDeviceSpecWithResponse request returning *GetRenderedDeviceSpecResponse
-func (c *ClientWithResponses) GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error) {
-	rsp, err := c.GetRenderedDeviceSpec(ctx, name, params, reqEditors...)
+// CreateCertificateSigningRequestWithBodyWithResponse request with arbitrary body returning *CreateCertificateSigningRequestResponse
+func (c *ClientWithResponses) CreateCertificateSigningRequestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCertificateSigningRequestResponse, error) {
+	rsp, err := c.CreateCertificateSigningRequestWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetRenderedDeviceSpecResponse(rsp)
+	return ParseCreateCertificateSigningRequestResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateCertificateSigningRequestWithResponse(ctx context.Context, body CreateCertificateSigningRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCertificateSigningRequestResponse, error) {
+	rsp, err := c.CreateCertificateSigningRequest(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCertificateSigningRequestResponse(rsp)
+}
+
+// GetCertificateSigningRequestWithResponse request returning *GetCertificateSigningRequestResponse
+func (c *ClientWithResponses) GetCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetCertificateSigningRequestResponse, error) {
+	rsp, err := c.GetCertificateSigningRequest(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetCertificateSigningRequestResponse(rsp)
+}
+
+// GetRenderedDeviceWithResponse request returning *GetRenderedDeviceResponse
+func (c *ClientWithResponses) GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error) {
+	rsp, err := c.GetRenderedDevice(ctx, name, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetRenderedDeviceResponse(rsp)
+}
+
+// PatchDeviceStatusWithBodyWithResponse request with arbitrary body returning *PatchDeviceStatusResponse
+func (c *ClientWithResponses) PatchDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error) {
+	rsp, err := c.PatchDeviceStatusWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchDeviceStatusResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchDeviceStatusWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx context.Context, name string, body PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error) {
+	rsp, err := c.PatchDeviceStatusWithApplicationJSONPatchPlusJSONBody(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchDeviceStatusResponse(rsp)
 }
 
 // ReplaceDeviceStatusWithBodyWithResponse request with arbitrary body returning *ReplaceDeviceStatusResponse
@@ -563,56 +893,232 @@ func (c *ClientWithResponses) CreateEnrollmentRequestWithResponse(ctx context.Co
 	return ParseCreateEnrollmentRequestResponse(rsp)
 }
 
-// ReadEnrollmentRequestWithResponse request returning *ReadEnrollmentRequestResponse
-func (c *ClientWithResponses) ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error) {
-	rsp, err := c.ReadEnrollmentRequest(ctx, name, reqEditors...)
+// GetEnrollmentRequestWithResponse request returning *GetEnrollmentRequestResponse
+func (c *ClientWithResponses) GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestResponse, error) {
+	rsp, err := c.GetEnrollmentRequest(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadEnrollmentRequestResponse(rsp)
+	return ParseGetEnrollmentRequestResponse(rsp)
 }
 
-// ParseGetRenderedDeviceSpecResponse parses an HTTP response from a GetRenderedDeviceSpecWithResponse call
-func ParseGetRenderedDeviceSpecResponse(rsp *http.Response) (*GetRenderedDeviceSpecResponse, error) {
+// ParseCreateCertificateSigningRequestResponse parses an HTTP response from a CreateCertificateSigningRequestWithResponse call
+func ParseCreateCertificateSigningRequestResponse(rsp *http.Response) (*CreateCertificateSigningRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetRenderedDeviceSpecResponse{
+	response := &CreateCertificateSigningRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.CertificateSigningRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetCertificateSigningRequestResponse parses an HTTP response from a GetCertificateSigningRequestWithResponse call
+func ParseGetCertificateSigningRequestResponse(rsp *http.Response) (*GetCertificateSigningRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetCertificateSigningRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.RenderedDeviceSpec
+		var dest externalRef0.CertificateSigningRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetRenderedDeviceResponse parses an HTTP response from a GetRenderedDeviceWithResponse call
+func ParseGetRenderedDeviceResponse(rsp *http.Response) (*GetRenderedDeviceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetRenderedDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchDeviceStatusResponse parses an HTTP response from a PatchDeviceStatusWithResponse call
+func ParsePatchDeviceStatusResponse(rsp *http.Response) (*PatchDeviceStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchDeviceStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -641,21 +1147,21 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -688,35 +1194,35 @@ func ParseCreateEnrollmentRequestResponse(rsp *http.Response) (*CreateEnrollment
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -727,15 +1233,15 @@ func ParseCreateEnrollmentRequestResponse(rsp *http.Response) (*CreateEnrollment
 	return response, nil
 }
 
-// ParseReadEnrollmentRequestResponse parses an HTTP response from a ReadEnrollmentRequestWithResponse call
-func ParseReadEnrollmentRequestResponse(rsp *http.Response) (*ReadEnrollmentRequestResponse, error) {
+// ParseGetEnrollmentRequestResponse parses an HTTP response from a GetEnrollmentRequestWithResponse call
+func ParseGetEnrollmentRequestResponse(rsp *http.Response) (*GetEnrollmentRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadEnrollmentRequestResponse{
+	response := &GetEnrollmentRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -749,28 +1255,28 @@ func ParseReadEnrollmentRequestResponse(rsp *http.Response) (*ReadEnrollmentRequ
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest externalRef0.Error
+		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

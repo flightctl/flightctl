@@ -2,15 +2,17 @@ package util
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/client"
@@ -24,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	. "github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -73,7 +76,7 @@ func (t *testProvider) Wait() {
 	t.wg.Wait()
 }
 
-func (t *testProvider) Publish(b []byte) error {
+func (t *testProvider) Publish(_ context.Context, b []byte) error {
 	t.queue <- b
 	return nil
 }
@@ -104,9 +107,9 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig, provider queues.Provider) (*apiserver.Server, net.Listener, error) {
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
 	// create a listener using the next available port
-	tlsConfig, _, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestServer: error creating TLS certs: %w", err)
 	}
@@ -119,13 +122,13 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 
 	metrics := instrumentation.NewApiMetrics(cfg)
 
-	return apiserver.New(log, cfg, store, ca, listener, provider, metrics, nil), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, metrics, nil), listener, nil
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CA, serverCerts *crypto.TLSCertificateConfig) (*agentserver.AgentServer, net.Listener, error) {
+func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
-	_, tlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
@@ -138,11 +141,11 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 
 	metrics := instrumentation.NewApiMetrics(cfg)
 
-	return agentserver.New(log, cfg, store, ca, listener, tlsConfig, metrics), listener, nil
+	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig, metrics), listener, nil
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
-func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
+func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
 	// cfg.Database.Name = ""
 	dbTemp, err := store.InitDB(&cfg, log)
 	if err != nil {
@@ -152,7 +155,7 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)
-	dbTemp = dbTemp.Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
+	dbTemp = dbTemp.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
 	if dbTemp.Error != nil {
 		return nil, "", fmt.Errorf("NewTestStore: creating test db %s: %w", randomDBName, dbTemp.Error)
 	}
@@ -164,17 +167,19 @@ func NewTestStore(cfg config.Config, log *logrus.Logger) (store.Store, string, e
 	}
 
 	dbStore := store.NewStore(db, log.WithField("pkg", "store"))
-	err = dbStore.InitialMigration()
+	err = dbStore.RunMigrations(ctx)
 	if err != nil {
-		return nil, "", fmt.Errorf("NewTestStore: performing initial migration: %w", err)
+		return nil, "", fmt.Errorf("NewTestStore: performing migrations: %w", err)
 	}
 
 	return dbStore, randomDBName, nil
 }
 
 // NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and enrollment certificate.
-func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
-	ca, _, err := crypto.EnsureCA(filepath.Join(cfg.Service.CertStore, "ca.crt"), filepath.Join(cfg.Service.CertStore, "ca.key"), "", "ca", caCertValidityDays)
+func NewTestCerts(cfg *config.Config) (*crypto.CAClient, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
+	ctx := context.Background()
+
+	ca, _, err := crypto.EnsureCA(cfg.CA)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring CA: %w", err)
 	}
@@ -184,12 +189,12 @@ func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig,
 		cfg.Service.AltNames = []string{"localhost", "127.0.0.1", "::"}
 	}
 
-	serverCerts, _, err := ca.EnsureServerCertificate(filepath.Join(cfg.Service.CertStore, "server.crt"), filepath.Join(cfg.Service.CertStore, "server.key"), cfg.Service.AltNames, serverCertValidityDays)
+	serverCerts, _, err := ca.EnsureServerCertificate(ctx, crypto.CertStorePath("server.crt", cfg.Service.CertStore), crypto.CertStorePath("server.key", cfg.Service.CertStore), cfg.Service.AltNames, serverCertValidityDays)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring server certificate: %w", err)
 	}
 
-	enrollmentCerts, _, err := ca.EnsureClientCertificate(filepath.Join(cfg.Service.CertStore, "client-enrollment.crt"), filepath.Join(cfg.Service.CertStore, "client-enrollment.key"), clientBootstrapCertName, clientBootStrapValidityDays)
+	enrollmentCerts, _, err := ca.EnsureClientCertificate(ctx, crypto.CertStorePath("client-enrollment.crt", cfg.Service.CertStore), crypto.CertStorePath("client-enrollment.key", cfg.Service.CertStore), clientBootstrapCertName, clientBootStrapValidityDays)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring client enrollment certificate: %w", err)
 	}
@@ -198,8 +203,8 @@ func NewTestCerts(cfg *config.Config) (*crypto.CA, *crypto.TLSCertificateConfig,
 }
 
 // NewClient creates a new client with the given server URL and certificates. If the certs are nil a http client will be created.
-func NewClient(serverUrl string, caCert *crypto.TLSCertificateConfig) (*client.ClientWithResponses, error) {
-	httpClient, err := NewBareHTTPsClient(caCert, nil)
+func NewClient(serverUrl string, caBundle []*x509.Certificate) (*client.ClientWithResponses, error) {
+	httpClient, err := NewBareHTTPsClient(caBundle, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating TLS config: %v", err)
 	}
@@ -208,8 +213,8 @@ func NewClient(serverUrl string, caCert *crypto.TLSCertificateConfig) (*client.C
 }
 
 // NewClient creates a new client with the given server URL and certificates. If the certs are nil a http client will be created.
-func NewAgentClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateConfig) (*agentclient.ClientWithResponses, error) {
-	httpClient, err := NewBareHTTPsClient(caCert, clientCert)
+func NewAgentClient(serverUrl string, caBundle []*x509.Certificate, clientCert *crypto.TLSCertificateConfig) (*agentclient.ClientWithResponses, error) {
+	httpClient, err := NewBareHTTPsClient(caBundle, clientCert)
 	if err != nil {
 		return nil, fmt.Errorf("creating TLS config: %v", err)
 	}
@@ -217,12 +222,11 @@ func NewAgentClient(serverUrl string, caCert, clientCert *crypto.TLSCertificateC
 	return agentclient.NewClientWithResponses(serverUrl, agentclient.WithHTTPClient(httpClient))
 }
 
-func NewBareHTTPsClient(caCert, clientCert *crypto.TLSCertificateConfig) (*http.Client, error) {
+func NewBareHTTPsClient(caBundle []*x509.Certificate, clientCert *crypto.TLSCertificateConfig) (*http.Client, error) {
 
 	httpClient := &http.Client{}
-	if caCert != nil || clientCert != nil {
-		var err error
-		tlsConfig, err := crypto.TLSConfigForClient(caCert, clientCert)
+	if len(caBundle) > 0 || clientCert != nil {
+		tlsConfig, err := crypto.TLSConfigForClient(caBundle, clientCert)
 		if err != nil {
 			return nil, fmt.Errorf("creating TLS config: %v", err)
 		}
@@ -263,4 +267,45 @@ func GetEnrollmentIdFromText(text string) string {
 		return valuesRe.FindStringSubmatch(text)[1]
 	}
 	return ""
+}
+
+// RandString generates a random string of length 'n' using lowercase alphabetic characters.
+func RandString(n int) (string, error) {
+	const alphanum = "abcdefghijklmnopqrstuvwxyz"
+	var bytes = make([]byte, n)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate random string: %w", err)
+	}
+	for i, b := range bytes {
+		bytes[i] = alphanum[b%byte(len(alphanum))]
+	}
+	return string(bytes), nil
+}
+
+// GetCurrentYearBounds returns start of current and next year in RFC3339 format.
+func GetCurrentYearBounds() (string, string) {
+	now := time.Now()
+	startOfYear := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
+	endOfYear := time.Date(now.Year()+1, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	return startOfYear.Format(time.RFC3339), endOfYear.Format(time.RFC3339)
+}
+
+// RunTable runs a table of test cases with the given run function.
+// Each test case has a description and parameters of type T.
+type TestCase[T any] struct {
+	Description string
+	Params      T
+}
+
+func Cases[T any](items ...TestCase[T]) []TestCase[T] {
+	return items
+}
+
+// RunTable executes the provided run function for each test case in the cases slice.
+func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
+	for _, tc := range cases {
+		By("Case: " + tc.Description)
+		runFunc(tc.Params)
+	}
 }

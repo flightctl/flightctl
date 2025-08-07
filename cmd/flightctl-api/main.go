@@ -5,8 +5,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
+	"time"
 
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
@@ -21,16 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	caCertValidityDays          = 365 * 10
-	serverCertValidityDays      = 365 * 1
-	clientBootStrapValidityDays = 365 * 1
-	signerCertName              = "ca"
-	serverCertName              = "server"
-	clientBootstrapCertName     = "client-enrollment"
-)
-
 func main() {
+	ctx := context.Background()
+
 	log := log.InitLogs()
 	log.Println("Starting API service")
 	defer log.Println("API service stopped")
@@ -47,31 +40,83 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	ca, _, err := crypto.EnsureCA(certFile(signerCertName), keyFile(signerCertName), "", signerCertName, caCertValidityDays)
+	ca, _, err := crypto.EnsureCA(cfg.CA)
 	if err != nil {
 		log.Fatalf("ensuring CA cert: %v", err)
 	}
 
-	// default certificate hostnames to localhost if nothing else is configured
-	if len(cfg.Service.AltNames) == 0 {
-		cfg.Service.AltNames = []string{"localhost"}
+	var serverCerts *crypto.TLSCertificateConfig
+
+	// check for user-provided certificate files
+	if cfg.Service.SrvCertFile != "" || cfg.Service.SrvKeyFile != "" {
+		if canReadCertAndKey, err := crypto.CanReadCertAndKey(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile); !canReadCertAndKey {
+			log.Fatalf("cannot read provided server certificate or key: %v", err)
+		}
+
+		serverCerts, err = crypto.GetTLSCertificateConfig(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile)
+		if err != nil {
+			log.Fatalf("failed to load provided certificate: %v", err)
+		}
+	} else {
+		srvCertFile := crypto.CertStorePath(cfg.Service.ServerCertName+".crt", cfg.Service.CertStore)
+		srvKeyFile := crypto.CertStorePath(cfg.Service.ServerCertName+".key", cfg.Service.CertStore)
+
+		// check if existing self-signed certificate is available
+		if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
+			serverCerts, err = crypto.GetTLSCertificateConfig(srvCertFile, srvKeyFile)
+			if err != nil {
+				log.Fatalf("failed to load existing self-signed certificate: %v", err)
+			}
+		} else {
+			// default to localhost if no alternative names are set
+			if len(cfg.Service.AltNames) == 0 {
+				cfg.Service.AltNames = []string{"localhost"}
+			}
+
+			serverCerts, err = ca.MakeAndWriteServerCertificate(ctx, srvCertFile, srvKeyFile, cfg.Service.AltNames, cfg.CA.ServerCertValidityDays)
+			if err != nil {
+				log.Fatalf("failed to create self-signed certificate: %v", err)
+			}
+		}
 	}
 
-	serverCerts, _, err := ca.EnsureServerCertificate(certFile(serverCertName), keyFile(serverCertName), cfg.Service.AltNames, serverCertValidityDays)
-	if err != nil {
-		log.Fatalf("ensuring server cert: %v", err)
+	// check for expired certificate
+	for _, x509Cert := range serverCerts.Certs {
+		expired := time.Now().After(x509Cert.NotAfter)
+		log.Printf("checking certificate: subject='%s', issuer='%s', expiry='%v'",
+			x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
+
+		if expired {
+			log.Warnf("server certificate for '%s' issued by '%s' has expired on: %v",
+				x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
+		}
 	}
 
-	_, _, err = ca.EnsureClientCertificate(certFile(clientBootstrapCertName), keyFile(clientBootstrapCertName), crypto.ClientBootstrapCommonName, clientBootStrapValidityDays)
+	clientCertFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".crt", cfg.Service.CertStore)
+	clientKeyFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".key", cfg.Service.CertStore)
+	_, _, err = ca.EnsureClientCertificate(ctx, clientCertFile, clientKeyFile, cfg.CA.ClientBootstrapCommonName, cfg.CA.ClientBootstrapValidityDays)
 	if err != nil {
 		log.Fatalf("ensuring bootstrap client cert: %v", err)
 	}
 
 	// also write out a client config file
-	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", ca.Config, nil)
+
+	caPemBytes, err := ca.GetCABundle()
+	if err != nil {
+		log.Fatalf("loading CA certificate bundle: %v", err)
+	}
+
+	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", caPemBytes, nil)
 	if err != nil {
 		log.Fatalf("writing client config: %v", err)
 	}
+
+	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-api")
+	defer func() {
+		if err := tracerShutdown(ctx); err != nil {
+			log.Fatalf("failed to shut down tracer: %v", err)
+		}
+	}()
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
@@ -82,16 +127,12 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
-	if err := store.InitialMigration(); err != nil {
-		log.Fatalf("running initial migration: %v", err)
-	}
-
-	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.Config, serverCerts)
+	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
 	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
@@ -106,7 +147,7 @@ func main() {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentserver := agentserver.New(log, cfg, store, ca, agentListener, agentTlsConfig, metrics)
+	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig, metrics)
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
@@ -139,12 +180,4 @@ func main() {
 	}
 
 	<-ctx.Done()
-}
-
-func certFile(name string) string {
-	return filepath.Join(config.CertificateDir(), name+".crt")
-}
-
-func keyFile(name string) string {
-	return filepath.Join(config.CertificateDir(), name+".key")
 }

@@ -1,0 +1,16 @@
+database:
+  hostname: flightctl-db
+  type: pgsql
+  port: 5432
+  name: flightctl
+  user: admin
+
+service: {}
+
+kv:
+  hostname: flightctl-kv
+  port: 6379
+
+alertmanager:
+  hostname: flightctl-alertmanager
+  port: 9093

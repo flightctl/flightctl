@@ -5,6 +5,7 @@
 # where filename is relative to this configuration file
 AAP
 ACM
+Alertmanager
 amd64
 API
 APIs
@@ -33,8 +34,11 @@ e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
+env
+EPEL
 FIDO
 filesystem
+FIPS
 firewalld
 fleetless
 flightctl
@@ -43,8 +47,10 @@ GitLab
 GitOps
 greenboot
 hostname
+hostnames
 HTTPS
 i.e.
+infos
 IP
 JSON-encoded
 JWT
@@ -56,6 +62,7 @@ KVM
 lifecycle
 lifecycle-bound
 linux
+macOS
 metadata
 microservices
 MicroShift
@@ -82,6 +89,7 @@ Quadlet
 Quadlets
 quay.io
 RBAC
+read-only
 resource-unintensive
 ResourceSync
 ResourceSyncs
@@ -90,6 +98,7 @@ RHACM
 RHEL
 rollbacks
 rollout
+rootful
 runtime
 schemas
 Sigstore
@@ -112,6 +121,7 @@ toolchains
 TPM
 transactionally
 UI
+unenroll
 UTF-8
 versioned
 versioning
@@ -129,6 +139,36 @@ YAML
 openshift
 acm
 namespaces
+USB
+quay.io.
+API_URL
+madrid
+paris
+apptype
+IPs
+SIGHUP
+JSON
+DMI
+UUID
+cron
+IANA
+OpenTelemetry
+OTLP
+crontab
+datasets
+grafana
+oauth
+grpc
+dns
+zipkin
+backends
+ansible
+openid
+pki
+uid
+idp
+systemctl
+enablement
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -144,7 +184,7 @@ orin
 demouser
 v3.15
 values.yaml
-keycloak
+Keycloak
 flightctl.MY.DOMAIN
 global.flightctl.baseDomain
 ui.flightctl.MY.DOMAIN
@@ -171,12 +211,17 @@ undeploy
 unpackaged
 v3.4
 WorkDir
+10s
  - docs/user/managing-fleets.md
-OverlappingSelectors
 factory-berlinsite
 factory-madridsite
+GroupBy
+MinAvailable
+MaxUnavailable
+MultipleOwners
  - docs/user/building-images.md
 usr
+iso
  - docs/user/registering-microshift-devices-acm.md
 klusterlet
  - docs/user/field-selectors.md
@@ -203,3 +248,70 @@ global.auth.k8s.externalApiToken
 global.auth.k8s.externalOpenShiftApiUrl
 caCert
 ClusterRoleBinding
+ - docs/user/provisioning-devices.md
+cloud-config.yaml
+config.yaml
+datastore
+disk.vmdk
+iso
+ISOs
+yaml
+ - docs/user/rollout-policies.md
+rollouts
+BatchSequence
+ - docs/user/alerts.md
+alertmanager
+DeviceDisconnected
+DeviceCPUCritical
+programmatically
+ - docs/user/standalone-observability.md
+UserInfo
+Pre-configured
+is_superuser
+is_platform_auditor
+flightctl-api
+flightctl-kv
+IdPs
+- docs/user/network-requirements.md
+Air-Gapped
+Backend
+dev
+docker.io
+HTTPS
+LoadBalancer
+passthrough
+nodePort
+NodePort
+OTel
+Redis
+registry.redhat.io
+TCP
+UserInfo
+- docs/user/database-migration.md
+CREATEDB
+CREATEROLE
+DDL
+quadlet
+misconfigured
+- docs/user/security-guidelines.md
+journald
+quadlets
+Sanitization
+SELinux
+SNI
+SSO
+VPN
+- docs/user/events.md
+lifecycles
+Rollouts
+- docs/user/rate-limiting.md
+1m
+1h
+authRequests
+authWindow
+CIDR
+HAProxy
+nginx
+rateLimit
+real_ip
+untrusted

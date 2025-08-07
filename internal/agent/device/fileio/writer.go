@@ -2,9 +2,8 @@ package fileio
 
 import (
 	"bufio"
-	"bytes"
-	"compress/gzip"
 	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
@@ -13,11 +12,12 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 
-	ign3types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/google/renameio"
-	"github.com/vincent-petithory/dataurl"
+	"github.com/samber/lo"
 	"k8s.io/klog/v2"
 )
 
@@ -72,20 +72,53 @@ func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...F
 
 func (w *writer) RemoveFile(file string) error {
 	if err := os.Remove(filepath.Join(w.rootDir, file)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove file %q: %w", file, err)
+		return fmt.Errorf("remove file %q: %w", file, err)
 	}
 	return nil
 }
 
 func (w *writer) RemoveAll(path string) error {
 	if err := os.RemoveAll(filepath.Join(w.rootDir, path)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove path %q: %w", path, err)
+		return fmt.Errorf("remove path %q: %w", path, err)
 	}
+	return nil
+}
+
+func (w *writer) RemoveContents(path string) error {
+	fullPath := filepath.Join(w.rootDir, path)
+	entries, err := os.ReadDir(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// nothing to do
+			return nil
+		}
+		return fmt.Errorf("read contents of %q: %w", fullPath, err)
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(fullPath, entry.Name())
+		if err := os.RemoveAll(entryPath); err != nil {
+			return fmt.Errorf("remove entry %q: %w", entryPath, err)
+		}
+	}
+
 	return nil
 }
 
 func (w *writer) MkdirAll(path string, perm os.FileMode) error {
 	return os.MkdirAll(filepath.Join(w.rootDir, path), perm)
+}
+
+func (w *writer) MkdirTemp(prefix string) (string, error) {
+	baseDir := filepath.Join(w.rootDir, os.TempDir())
+	if err := os.MkdirAll(baseDir, DefaultDirectoryPermissions); err != nil {
+		return "", err
+	}
+	path, err := os.MkdirTemp(baseDir, prefix)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(path, w.rootDir), nil
 }
 
 func (w *writer) CopyFile(src, dst string) error {
@@ -99,13 +132,12 @@ func (w *writer) copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	var dstTarget string
+	dstTarget := dst
 	dstInfo, err := os.Stat(dst)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to stat destination: %w", err)
 		}
-		dstTarget = dst
 	} else {
 		if dstInfo.IsDir() {
 			// destination is a directory, append the source file's base name
@@ -115,7 +147,7 @@ func (w *writer) copyFile(src, dst string) error {
 
 	dstFile, err := os.Create(dstTarget)
 	if err != nil {
-		return fmt.Errorf("failed to create destination file: %w", err)
+		return fmt.Errorf("failed to create destination file %s: %w", dstTarget, err)
 	}
 	defer dstFile.Close()
 
@@ -148,7 +180,7 @@ func (w *writer) copyFile(src, dst string) error {
 	return nil
 }
 
-func (w *writer) CreateManagedFile(file ign3types.File) (ManagedFile, error) {
+func (w *writer) CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error) {
 	return newManagedFile(file, w)
 }
 
@@ -221,27 +253,49 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 }
 
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
-func getFileOwnership(file ign3types.File) (int, int, error) {
+func getFileOwnership(file v1alpha1.FileSpec) (int, int, error) {
 	uid, gid := 0, 0 // default to root
-	var err error    // create default error var
-	if file.User.ID != nil {
-		uid = *file.User.ID
-	} else if file.User.Name != nil && *file.User.Name != "" {
-		uid, err = lookupUID(*file.User.Name)
+	var err error
+	user := lo.FromPtr(file.User)
+	if user != "" {
+		uid, err = userToUID(user)
 		if err != nil {
 			return uid, gid, err
 		}
 	}
 
-	if file.Group.ID != nil {
-		gid = *file.Group.ID
-	} else if file.Group.Name != nil && *file.Group.Name != "" {
-		gid, err = lookupGID(*file.Group.Name)
+	group := lo.FromPtr(file.Group)
+	if group != "" {
+		gid, err = groupToGID(*file.Group)
 		if err != nil {
 			return uid, gid, err
 		}
 	}
 	return uid, gid, nil
+}
+
+func userToUID(user string) (int, error) {
+	userID, err := strconv.Atoi(user)
+	if err != nil {
+		uid, err := lookupUID(user)
+		if err != nil {
+			return 0, fmt.Errorf("failed to convert user to UID: %w", err)
+		}
+		return uid, nil
+	}
+	return userID, nil
+}
+
+func groupToGID(group string) (int, error) {
+	groupID, err := strconv.Atoi(group)
+	if err != nil {
+		gid, err := lookupGID(group)
+		if err != nil {
+			return 0, fmt.Errorf("failed to convert group to GID: %w", err)
+		}
+		return gid, nil
+	}
+	return groupID, nil
 }
 
 func getUserIdentity() (int, int, error) {
@@ -280,35 +334,42 @@ func lookupGID(group string) (int, error) {
 	return gid, nil
 }
 
-func decodeIgnitionFileContents(source, compression *string) ([]byte, error) {
-	var contentsBytes []byte
-
-	// To allow writing of "empty" files we'll allow source to be nil
-	if source != nil {
-		source, err := dataurl.DecodeString(*source)
-		if err != nil {
-			return []byte{}, fmt.Errorf("could not decode file content string: %w", err)
-		}
-		if compression != nil {
-			switch *compression {
-			case "":
-				contentsBytes = source.Data
-			case "gzip":
-				reader, err := gzip.NewReader(bytes.NewReader(source.Data))
-				if err != nil {
-					return []byte{}, fmt.Errorf("could not create gzip reader: %w", err)
-				}
-				defer reader.Close()
-				contentsBytes, err = io.ReadAll(reader)
-				if err != nil {
-					return []byte{}, fmt.Errorf("failed decompressing: %w", err)
-				}
-			default:
-				return []byte{}, fmt.Errorf("unsupported compression type %q", *compression)
-			}
-		} else {
-			contentsBytes = source.Data
-		}
+// DecodeContents decodes the content based on the encoding type and returns the
+// decoded content as a byte slice.
+func DecodeContent(content string, encoding *v1alpha1.EncodingType) ([]byte,
+	error) {
+	if encoding == nil || *encoding == "plain" {
+		return []byte(content), nil
 	}
-	return contentsBytes, nil
+
+	switch *encoding {
+	case "base64":
+		decoded, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode base64 content: %w", err)
+		}
+		return decoded, nil
+	default:
+		return nil, fmt.Errorf("unsupported content encoding: %q", *encoding)
+	}
+}
+
+// WriteTmpFile writes the given content to a temporary file with the specified name prefix.
+// It returns the path to the tmp file and a cleanup function to remove it.
+func WriteTmpFile(rw ReadWriter, prefix, filename string, content []byte, perm os.FileMode) (path string, cleanup func(), err error) {
+	tmpDir, err := rw.MkdirTemp(prefix)
+	if err != nil {
+		return "", nil, fmt.Errorf("creating tmp dir: %w", err)
+	}
+
+	tmpPath := filepath.Join(tmpDir, filename)
+	if err := rw.WriteFile(tmpPath, content, perm); err != nil {
+		_ = rw.RemoveAll(tmpDir)
+		return "", nil, fmt.Errorf("writing tmp file: %w", err)
+	}
+
+	cleanup = func() {
+		_ = rw.RemoveAll(tmpDir)
+	}
+	return tmpPath, cleanup, nil
 }

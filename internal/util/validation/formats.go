@@ -5,14 +5,19 @@ import (
 )
 
 const (
-	dns1123LabelFmt       string = `[a-z0-9]([-a-z0-9]*[a-z0-9])?`
+	Dns1123LabelFmt       string = `[a-z0-9]([-a-z0-9]*[a-z0-9])?`
 	dns1123LabelMaxLength int    = 63
+	DNS1123MaxLength      int    = 253
+	envVarNameFmt         string = `[A-Za-z_][A-Za-z0-9_]*`
 )
 
-var GenericNameRegexp = regexp.MustCompile("^" + dns1123LabelFmt + "$")
+var (
+	GenericNameRegexp = regexp.MustCompile("^" + Dns1123LabelFmt + "$")
+	EnvVarNameRegexp  = regexp.MustCompile("^" + envVarNameFmt + "$")
+)
 
 func ValidateGenericName(name *string, path string) []error {
-	return ValidateString(name, path, 1, dns1123LabelMaxLength, GenericNameRegexp, dns1123LabelFmt)
+	return ValidateString(name, path, 1, dns1123LabelMaxLength, GenericNameRegexp, Dns1123LabelFmt)
 }
 
 const (
@@ -25,6 +30,10 @@ const (
 	OciImageDigestFmt          string = `[A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}`
 	OciImageReferenceFmt       string = `(` + OciImageNameFmt + `)(?:\:(` + OciImageTagFmt + `))?(?:\@(` + OciImageDigestFmt + `))?`
 	OciImageReferenceMaxLength int    = 2048
+
+	// short names (nginx:latest) are forbidden with strict mode
+	StrictOciImageNameFmt      string = OciImageDomainFmt + `\/` + ociNameCompFmt + `(?:\/` + ociNameCompFmt + `)*`
+	StrictOciImageReferenceFmt string = `(` + StrictOciImageNameFmt + `)(?:\:(` + OciImageTagFmt + `))?(?:\@(` + OciImageDigestFmt + `))?`
 )
 
 // capture(namePat)
@@ -32,12 +41,19 @@ const (
 // optional(literal("@"), capture(digestPat))
 
 var (
-	OciImageReferenceRegexp = regexp.MustCompile("^" + OciImageReferenceFmt + "$")
+	OciImageReferenceRegexp       = regexp.MustCompile("^" + OciImageReferenceFmt + "$")
+	StrictOciImageReferenceRegexp = regexp.MustCompile("^" + StrictOciImageReferenceFmt + "$")
 )
 
 // Validates an OCI image reference.
 func ValidateOciImageReference(s *string, path string) []error {
 	return ValidateString(s, path, 1, OciImageReferenceMaxLength, OciImageReferenceRegexp, OciImageReferenceFmt, "quay.io/flightctl/flightctl:latest")
+}
+
+// Validates an OCI image reference in strict mode.
+// This mode forbids short names (nginx:latest) and requires a domain name.
+func ValidateOciImageReferenceStrict(s *string, path string) []error {
+	return ValidateString(s, path, 1, OciImageReferenceMaxLength, StrictOciImageReferenceRegexp, StrictOciImageReferenceFmt, "quay.io/flightctl/flightctl:latest")
 }
 
 const (
@@ -51,4 +67,18 @@ var GitRevisionRegexp = regexp.MustCompile("^" + GitRevisionFmt + "$")
 
 func ValidateGitRevision(name *string, path string) []error {
 	return ValidateString(name, path, 1, GitRevisionMaxLength, GitRevisionRegexp, GitRevisionFmt)
+}
+
+const (
+	// SystemD unit pattern supports all allowed formats for unit files and glob searches
+	// This includes templated services (e.g., foo@.service, foo@bar.service)
+	// and glob patterns (e.g., foo*.service, foo[0-9].service)
+	SystemdNameFmt       string = `[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+(@[0-9a-zA-Z:\-_.\\\[\]!\-\*\?]+)?(\.[a-zA-Z\[\]!\-\*\?]+)?`
+	SystemDNameMaxLength int    = 256 // SystemD unit names are limited to 256 characters
+)
+
+var SystemdNameRegexp = regexp.MustCompile("^" + SystemdNameFmt + "$")
+
+func ValidateSystemdName(name *string, path string) []error {
+	return ValidateString(name, path, 1, SystemDNameMaxLength, SystemdNameRegexp, SystemdNameFmt)
 }

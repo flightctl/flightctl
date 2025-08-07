@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -40,9 +41,19 @@ type TestVMInterface interface {
 	WaitForSSHToBeReady() error
 	RunAndWaitForSSH() error
 	SSHCommand(inputArgs []string) *exec.Cmd
+	SSHCommandWithUser(nputArgs []string, user string) *exec.Cmd
 	RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error)
+	RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error)
 	Exists() (bool, error)
 	GetConsoleOutput() string
+	JournalLogs(opts JournalOpts) (string, error)
+}
+
+// JournalOpts collects optional filters.
+// Zero values mean "all units" / "start of journal".
+type JournalOpts struct {
+	Unit  string
+	Since string // time string like "20 minutes ago" or empty for all logs
 }
 
 func (v *TestVM) WaitForSSHToBeReady() error {
@@ -75,10 +86,9 @@ func (v *TestVM) WaitForSSHToBeReady() error {
 	return fmt.Errorf("SSH did not become ready in %s seconds", sshWaitTimeout)
 }
 
-// RunSSH runs a command over ssh or starts an interactive ssh connection if no command is provided
-func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
+func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
 
-	sshDestination := v.VMUser + "@localhost"
+	sshDestination := user + "@localhost"
 	port := strconv.Itoa(v.SSHPort)
 
 	args := []string{"-p", v.SSHPassword, "ssh", "-p", port, sshDestination,
@@ -98,8 +108,14 @@ func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
 	return cmd
 }
 
-func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error) {
-	cmd := v.SSHCommand(inputArgs)
+// RunSSH runs a command over ssh or starts an interactive ssh connection if no command is provided
+func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
+
+	return v.SSHCommandWithUser(inputArgs, v.VMUser)
+}
+
+func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
+	cmd := v.SSHCommandWithUser(inputArgs, user)
 	var stderr bytes.Buffer
 	var stdout bytes.Buffer
 	cmd.Stderr = &stderr
@@ -114,6 +130,30 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 	}
 
 	return &stdout, nil
+}
+
+func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer, error) {
+
+	stdout, err := v.RunSSHWithUser(inputArgs, stdin, v.VMUser)
+	return stdout, err
+}
+
+func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
+	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname", "--boot=all"}
+
+	if opts.Unit != "" {
+		args = append(args, "-u", opts.Unit)
+	}
+	if opts.Since != "" {
+		args = append(args, "--since", fmt.Sprintf("%q", opts.Since))
+	}
+
+	logrus.Debugf("Reading journal logs with command: %s", strings.Join(args, " "))
+	stdout, err := v.RunSSH(args, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to read journal logs: %w", err)
+	}
+	return stdout.String(), nil
 }
 
 func StartAndWaitForSSH(params TestVM) (vm TestVMInterface, err error) {

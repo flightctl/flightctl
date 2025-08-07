@@ -96,9 +96,6 @@ type ClientInterface interface {
 	// AuthValidate request
 	AuthValidate(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteCertificateSigningRequests request
-	DeleteCertificateSigningRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListCertificateSigningRequests request
 	ListCertificateSigningRequests(ctx context.Context, params *ListCertificateSigningRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -110,8 +107,8 @@ type ClientInterface interface {
 	// DeleteCertificateSigningRequest request
 	DeleteCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadCertificateSigningRequest request
-	ReadCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetCertificateSigningRequest request
+	GetCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchCertificateSigningRequestWithBody request with any body
 	PatchCertificateSigningRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -128,9 +125,6 @@ type ClientInterface interface {
 
 	UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteDevices request
-	DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListDevices request
 	ListDevices(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -142,8 +136,8 @@ type ClientInterface interface {
 	// DeleteDevice request
 	DeleteDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadDevice request
-	ReadDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetDevice request
+	GetDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchDeviceWithBody request with any body
 	PatchDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -155,19 +149,16 @@ type ClientInterface interface {
 
 	ReplaceDevice(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RequestConsole request
-	RequestConsole(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// DecommissionDeviceWithBody request with any body
 	DecommissionDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetRenderedDeviceSpec request
-	GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetRenderedDevice request
+	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadDeviceStatus request
-	ReadDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetDeviceStatus request
+	GetDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchDeviceStatusWithBody request with any body
 	PatchDeviceStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -182,9 +173,6 @@ type ClientInterface interface {
 	// GetEnrollmentConfig request
 	GetEnrollmentConfig(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteEnrollmentRequests request
-	DeleteEnrollmentRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListEnrollmentRequests request
 	ListEnrollmentRequests(ctx context.Context, params *ListEnrollmentRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -196,8 +184,8 @@ type ClientInterface interface {
 	// DeleteEnrollmentRequest request
 	DeleteEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadEnrollmentRequest request
-	ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetEnrollmentRequest request
+	GetEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchEnrollmentRequestWithBody request with any body
 	PatchEnrollmentRequestWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -214,8 +202,8 @@ type ClientInterface interface {
 
 	ApproveEnrollmentRequest(ctx context.Context, name string, body ApproveEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadEnrollmentRequestStatus request
-	ReadEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetEnrollmentRequestStatus request
+	GetEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchEnrollmentRequestStatusWithBody request with any body
 	PatchEnrollmentRequestStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -227,8 +215,8 @@ type ClientInterface interface {
 
 	ReplaceEnrollmentRequestStatus(ctx context.Context, name string, body ReplaceEnrollmentRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteFleets request
-	DeleteFleets(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ListEvents request
+	ListEvents(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListFleets request
 	ListFleets(ctx context.Context, params *ListFleetsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -238,23 +226,20 @@ type ClientInterface interface {
 
 	CreateFleet(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteTemplateVersions request
-	DeleteTemplateVersions(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListTemplateVersions request
 	ListTemplateVersions(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteTemplateVersion request
 	DeleteTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadTemplateVersion request
-	ReadTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetTemplateVersion request
+	GetTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteFleet request
 	DeleteFleet(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadFleet request
-	ReadFleet(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetFleet request
+	GetFleet(ctx context.Context, name string, params *GetFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchFleetWithBody request with any body
 	PatchFleetWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -266,8 +251,8 @@ type ClientInterface interface {
 
 	ReplaceFleet(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadFleetStatus request
-	ReadFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetFleetStatus request
+	GetFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchFleetStatusWithBody request with any body
 	PatchFleetStatusWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -279,8 +264,11 @@ type ClientInterface interface {
 
 	ReplaceFleetStatus(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteRepositories request
-	DeleteRepositories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ListLabels request
+	ListLabels(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListOrganizations request
+	ListOrganizations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListRepositories request
 	ListRepositories(ctx context.Context, params *ListRepositoriesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -293,8 +281,8 @@ type ClientInterface interface {
 	// DeleteRepository request
 	DeleteRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadRepository request
-	ReadRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetRepository request
+	GetRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchRepositoryWithBody request with any body
 	PatchRepositoryWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -306,11 +294,8 @@ type ClientInterface interface {
 
 	ReplaceRepository(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteResourceSyncs request
-	DeleteResourceSyncs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListResourceSync request
-	ListResourceSync(ctx context.Context, params *ListResourceSyncParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ListResourceSyncs request
+	ListResourceSyncs(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateResourceSyncWithBody request with any body
 	CreateResourceSyncWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -320,8 +305,8 @@ type ClientInterface interface {
 	// DeleteResourceSync request
 	DeleteResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadResourceSync request
-	ReadResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetResourceSync request
+	GetResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchResourceSyncWithBody request with any body
 	PatchResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -332,6 +317,9 @@ type ClientInterface interface {
 	ReplaceResourceSyncWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetVersion request
+	GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -348,18 +336,6 @@ func (c *Client) AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) 
 
 func (c *Client) AuthValidate(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAuthValidateRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteCertificateSigningRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteCertificateSigningRequestsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -418,8 +394,8 @@ func (c *Client) DeleteCertificateSigningRequest(ctx context.Context, name strin
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadCertificateSigningRequestRequest(c.Server, name)
+func (c *Client) GetCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCertificateSigningRequestRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -502,18 +478,6 @@ func (c *Client) UpdateCertificateSigningRequestApproval(ctx context.Context, na
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteDevices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteDevicesRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListDevices(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListDevicesRequest(c.Server, params)
 	if err != nil {
@@ -562,8 +526,8 @@ func (c *Client) DeleteDevice(ctx context.Context, name string, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadDeviceRequest(c.Server, name)
+func (c *Client) GetDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDeviceRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -622,18 +586,6 @@ func (c *Client) ReplaceDevice(ctx context.Context, name string, body ReplaceDev
 	return c.Client.Do(req)
 }
 
-func (c *Client) RequestConsole(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRequestConsoleRequest(c.Server, name)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) DecommissionDeviceWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDecommissionDeviceRequestWithBody(c.Server, name, contentType, body)
 	if err != nil {
@@ -658,8 +610,8 @@ func (c *Client) DecommissionDevice(ctx context.Context, name string, body Decom
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetRenderedDeviceSpec(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetRenderedDeviceSpecRequest(c.Server, name, params)
+func (c *Client) GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRenderedDeviceRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -670,8 +622,8 @@ func (c *Client) GetRenderedDeviceSpec(ctx context.Context, name string, params 
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadDeviceStatusRequest(c.Server, name)
+func (c *Client) GetDeviceStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDeviceStatusRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -742,18 +694,6 @@ func (c *Client) GetEnrollmentConfig(ctx context.Context, params *GetEnrollmentC
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteEnrollmentRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteEnrollmentRequestsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListEnrollmentRequests(ctx context.Context, params *ListEnrollmentRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListEnrollmentRequestsRequest(c.Server, params)
 	if err != nil {
@@ -802,8 +742,8 @@ func (c *Client) DeleteEnrollmentRequest(ctx context.Context, name string, reqEd
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadEnrollmentRequestRequest(c.Server, name)
+func (c *Client) GetEnrollmentRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentRequestRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -886,8 +826,8 @@ func (c *Client) ApproveEnrollmentRequest(ctx context.Context, name string, body
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadEnrollmentRequestStatusRequest(c.Server, name)
+func (c *Client) GetEnrollmentRequestStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnrollmentRequestStatusRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -946,8 +886,8 @@ func (c *Client) ReplaceEnrollmentRequestStatus(ctx context.Context, name string
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteFleets(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteFleetsRequest(c.Server)
+func (c *Client) ListEvents(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListEventsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -994,18 +934,6 @@ func (c *Client) CreateFleet(ctx context.Context, body CreateFleetJSONRequestBod
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteTemplateVersions(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteTemplateVersionsRequest(c.Server, fleet)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListTemplateVersions(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListTemplateVersionsRequest(c.Server, fleet, params)
 	if err != nil {
@@ -1030,8 +958,8 @@ func (c *Client) DeleteTemplateVersion(ctx context.Context, fleet string, name s
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadTemplateVersionRequest(c.Server, fleet, name)
+func (c *Client) GetTemplateVersion(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTemplateVersionRequest(c.Server, fleet, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1054,8 +982,8 @@ func (c *Client) DeleteFleet(ctx context.Context, name string, reqEditors ...Req
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadFleet(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadFleetRequest(c.Server, name, params)
+func (c *Client) GetFleet(ctx context.Context, name string, params *GetFleetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetFleetRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1114,8 +1042,8 @@ func (c *Client) ReplaceFleet(ctx context.Context, name string, body ReplaceFlee
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadFleetStatusRequest(c.Server, name)
+func (c *Client) GetFleetStatus(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetFleetStatusRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1174,8 +1102,20 @@ func (c *Client) ReplaceFleetStatus(ctx context.Context, name string, body Repla
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteRepositories(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteRepositoriesRequest(c.Server)
+func (c *Client) ListLabels(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLabelsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListOrganizations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListOrganizationsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1234,8 +1174,8 @@ func (c *Client) DeleteRepository(ctx context.Context, name string, reqEditors .
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadRepositoryRequest(c.Server, name)
+func (c *Client) GetRepository(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRepositoryRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1294,20 +1234,8 @@ func (c *Client) ReplaceRepository(ctx context.Context, name string, body Replac
 	return c.Client.Do(req)
 }
 
-func (c *Client) DeleteResourceSyncs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteResourceSyncsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListResourceSync(ctx context.Context, params *ListResourceSyncParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListResourceSyncRequest(c.Server, params)
+func (c *Client) ListResourceSyncs(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListResourceSyncsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1354,8 +1282,8 @@ func (c *Client) DeleteResourceSync(ctx context.Context, name string, reqEditors
 	return c.Client.Do(req)
 }
 
-func (c *Client) ReadResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadResourceSyncRequest(c.Server, name)
+func (c *Client) GetResourceSync(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetResourceSyncRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1404,6 +1332,18 @@ func (c *Client) ReplaceResourceSyncWithBody(ctx context.Context, name string, c
 
 func (c *Client) ReplaceResourceSync(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceResourceSyncRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetVersionRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1467,44 +1407,17 @@ func NewAuthValidateRequest(server string, params *AuthValidateParams) (*http.Re
 
 	if params != nil {
 
-		if params.Authentication != nil {
+		if params.Authorization != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "Authentication", runtime.ParamLocationHeader, *params.Authentication)
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "Authorization", runtime.ParamLocationHeader, *params.Authorization)
 			if err != nil {
 				return nil, err
 			}
 
-			req.Header.Set("Authentication", headerParam0)
+			req.Header.Set("Authorization", headerParam0)
 		}
 
-	}
-
-	return req, nil
-}
-
-// NewDeleteCertificateSigningRequestsRequest generates requests for DeleteCertificateSigningRequests
-func NewDeleteCertificateSigningRequestsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
 	}
 
 	return req, nil
@@ -1681,8 +1594,8 @@ func NewDeleteCertificateSigningRequestRequest(server string, name string) (*htt
 	return req, nil
 }
 
-// NewReadCertificateSigningRequestRequest generates requests for ReadCertificateSigningRequest
-func NewReadCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
+// NewGetCertificateSigningRequestRequest generates requests for GetCertificateSigningRequest
+func NewGetCertificateSigningRequestRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -1852,33 +1765,6 @@ func NewUpdateCertificateSigningRequestApprovalRequestWithBody(server string, na
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteDevicesRequest generates requests for DeleteDevices
-func NewDeleteDevicesRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/devices")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -2070,8 +1956,8 @@ func NewDeleteDeviceRequest(server string, name string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewReadDeviceRequest generates requests for ReadDevice
-func NewReadDeviceRequest(server string, name string) (*http.Request, error) {
+// NewGetDeviceRequest generates requests for GetDevice
+func NewGetDeviceRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -2198,40 +2084,6 @@ func NewReplaceDeviceRequestWithBody(server string, name string, contentType str
 	return req, nil
 }
 
-// NewRequestConsoleRequest generates requests for RequestConsole
-func NewRequestConsoleRequest(server string, name string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/devices/%s/console", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewDecommissionDeviceRequest calls the generic DecommissionDevice builder with application/json body
 func NewDecommissionDeviceRequest(server string, name string, body DecommissionDeviceJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2279,8 +2131,8 @@ func NewDecommissionDeviceRequestWithBody(server string, name string, contentTyp
 	return req, nil
 }
 
-// NewGetRenderedDeviceSpecRequest generates requests for GetRenderedDeviceSpec
-func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRenderedDeviceSpecParams) (*http.Request, error) {
+// NewGetRenderedDeviceRequest generates requests for GetRenderedDevice
+func NewGetRenderedDeviceRequest(server string, name string, params *GetRenderedDeviceParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -2335,8 +2187,8 @@ func NewGetRenderedDeviceSpecRequest(server string, name string, params *GetRend
 	return req, nil
 }
 
-// NewReadDeviceStatusRequest generates requests for ReadDeviceStatus
-func NewReadDeviceStatusRequest(server string, name string) (*http.Request, error) {
+// NewGetDeviceStatusRequest generates requests for GetDeviceStatus
+func NewGetDeviceStatusRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -2505,33 +2357,6 @@ func NewGetEnrollmentConfigRequest(server string, params *GetEnrollmentConfigPar
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewDeleteEnrollmentRequestsRequest generates requests for DeleteEnrollmentRequests
-func NewDeleteEnrollmentRequestsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/enrollmentrequests")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2710,8 +2535,8 @@ func NewDeleteEnrollmentRequestRequest(server string, name string) (*http.Reques
 	return req, nil
 }
 
-// NewReadEnrollmentRequestRequest generates requests for ReadEnrollmentRequest
-func NewReadEnrollmentRequestRequest(server string, name string) (*http.Request, error) {
+// NewGetEnrollmentRequestRequest generates requests for GetEnrollmentRequest
+func NewGetEnrollmentRequestRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -2885,8 +2710,8 @@ func NewApproveEnrollmentRequestRequestWithBody(server string, name string, cont
 	return req, nil
 }
 
-// NewReadEnrollmentRequestStatusRequest generates requests for ReadEnrollmentRequestStatus
-func NewReadEnrollmentRequestStatusRequest(server string, name string) (*http.Request, error) {
+// NewGetEnrollmentRequestStatusRequest generates requests for GetEnrollmentRequestStatus
+func NewGetEnrollmentRequestStatusRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3013,8 +2838,8 @@ func NewReplaceEnrollmentRequestStatusRequestWithBody(server string, name string
 	return req, nil
 }
 
-// NewDeleteFleetsRequest generates requests for DeleteFleets
-func NewDeleteFleetsRequest(server string) (*http.Request, error) {
+// NewListEventsRequest generates requests for ListEvents
+func NewListEventsRequest(server string, params *ListEventsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -3022,7 +2847,7 @@ func NewDeleteFleetsRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/fleets")
+	operationPath := fmt.Sprintf("/api/v1/events")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -3032,7 +2857,77 @@ func NewDeleteFleetsRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.FieldSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "fieldSelector", runtime.ParamLocationQuery, *params.FieldSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Order != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "order", runtime.ParamLocationQuery, *params.Order); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Continue != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "continue", runtime.ParamLocationQuery, *params.Continue); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -3126,9 +3021,9 @@ func NewListFleetsRequest(server string, params *ListFleetsParams) (*http.Reques
 
 		}
 
-		if params.AddDevicesCount != nil {
+		if params.AddDevicesSummary != nil {
 
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "addDevicesCount", runtime.ParamLocationQuery, *params.AddDevicesCount); err != nil {
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "addDevicesSummary", runtime.ParamLocationQuery, *params.AddDevicesSummary); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
@@ -3189,40 +3084,6 @@ func NewCreateFleetRequestWithBody(server string, contentType string, body io.Re
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteTemplateVersionsRequest generates requests for DeleteTemplateVersions
-func NewDeleteTemplateVersionsRequest(server string, fleet string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "fleet", runtime.ParamLocationPath, fleet)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/fleets/%s/templateversions", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -3372,8 +3233,8 @@ func NewDeleteTemplateVersionRequest(server string, fleet string, name string) (
 	return req, nil
 }
 
-// NewReadTemplateVersionRequest generates requests for ReadTemplateVersion
-func NewReadTemplateVersionRequest(server string, fleet string, name string) (*http.Request, error) {
+// NewGetTemplateVersionRequest generates requests for GetTemplateVersion
+func NewGetTemplateVersionRequest(server string, fleet string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3447,8 +3308,8 @@ func NewDeleteFleetRequest(server string, name string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewReadFleetRequest generates requests for ReadFleet
-func NewReadFleetRequest(server string, name string, params *ReadFleetParams) (*http.Request, error) {
+// NewGetFleetRequest generates requests for GetFleet
+func NewGetFleetRequest(server string, name string, params *GetFleetParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3597,8 +3458,8 @@ func NewReplaceFleetRequestWithBody(server string, name string, contentType stri
 	return req, nil
 }
 
-// NewReadFleetStatusRequest generates requests for ReadFleetStatus
-func NewReadFleetStatusRequest(server string, name string) (*http.Request, error) {
+// NewGetFleetStatusRequest generates requests for GetFleetStatus
+func NewGetFleetStatusRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -3725,8 +3586,8 @@ func NewReplaceFleetStatusRequestWithBody(server string, name string, contentTyp
 	return req, nil
 }
 
-// NewDeleteRepositoriesRequest generates requests for DeleteRepositories
-func NewDeleteRepositoriesRequest(server string) (*http.Request, error) {
+// NewListLabelsRequest generates requests for ListLabels
+func NewListLabelsRequest(server string, params *ListLabelsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -3734,7 +3595,7 @@ func NewDeleteRepositoriesRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/repositories")
+	operationPath := fmt.Sprintf("/api/v1/labels")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -3744,7 +3605,100 @@ func NewDeleteRepositoriesRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "kind", runtime.ParamLocationQuery, params.Kind); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if params.LabelSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "labelSelector", runtime.ParamLocationQuery, *params.LabelSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.FieldSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "fieldSelector", runtime.ParamLocationQuery, *params.FieldSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListOrganizationsRequest generates requests for ListOrganizations
+func NewListOrganizationsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/organizations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -3923,8 +3877,8 @@ func NewDeleteRepositoryRequest(server string, name string) (*http.Request, erro
 	return req, nil
 }
 
-// NewReadRepositoryRequest generates requests for ReadRepository
-func NewReadRepositoryRequest(server string, name string) (*http.Request, error) {
+// NewGetRepositoryRequest generates requests for GetRepository
+func NewGetRepositoryRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4051,35 +4005,8 @@ func NewReplaceRepositoryRequestWithBody(server string, name string, contentType
 	return req, nil
 }
 
-// NewDeleteResourceSyncsRequest generates requests for DeleteResourceSyncs
-func NewDeleteResourceSyncsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/resourcesyncs")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewListResourceSyncRequest generates requests for ListResourceSync
-func NewListResourceSyncRequest(server string, params *ListResourceSyncParams) (*http.Request, error) {
+// NewListResourceSyncsRequest generates requests for ListResourceSyncs
+func NewListResourceSyncsRequest(server string, params *ListResourceSyncsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -4249,8 +4176,8 @@ func NewDeleteResourceSyncRequest(server string, name string) (*http.Request, er
 	return req, nil
 }
 
-// NewReadResourceSyncRequest generates requests for ReadResourceSync
-func NewReadResourceSyncRequest(server string, name string) (*http.Request, error) {
+// NewGetResourceSyncRequest generates requests for GetResourceSync
+func NewGetResourceSyncRequest(server string, name string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -4377,6 +4304,33 @@ func NewReplaceResourceSyncRequestWithBody(server string, name string, contentTy
 	return req, nil
 }
 
+// NewGetVersionRequest generates requests for GetVersion
+func NewGetVersionRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/version")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -4426,9 +4380,6 @@ type ClientWithResponsesInterface interface {
 	// AuthValidateWithResponse request
 	AuthValidateWithResponse(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*AuthValidateResponse, error)
 
-	// DeleteCertificateSigningRequestsWithResponse request
-	DeleteCertificateSigningRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteCertificateSigningRequestsResponse, error)
-
 	// ListCertificateSigningRequestsWithResponse request
 	ListCertificateSigningRequestsWithResponse(ctx context.Context, params *ListCertificateSigningRequestsParams, reqEditors ...RequestEditorFn) (*ListCertificateSigningRequestsResponse, error)
 
@@ -4440,8 +4391,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteCertificateSigningRequestWithResponse request
 	DeleteCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteCertificateSigningRequestResponse, error)
 
-	// ReadCertificateSigningRequestWithResponse request
-	ReadCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadCertificateSigningRequestResponse, error)
+	// GetCertificateSigningRequestWithResponse request
+	GetCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetCertificateSigningRequestResponse, error)
 
 	// PatchCertificateSigningRequestWithBodyWithResponse request with any body
 	PatchCertificateSigningRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchCertificateSigningRequestResponse, error)
@@ -4458,9 +4409,6 @@ type ClientWithResponsesInterface interface {
 
 	UpdateCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error)
 
-	// DeleteDevicesWithResponse request
-	DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error)
-
 	// ListDevicesWithResponse request
 	ListDevicesWithResponse(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*ListDevicesResponse, error)
 
@@ -4472,8 +4420,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteDeviceWithResponse request
 	DeleteDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteDeviceResponse, error)
 
-	// ReadDeviceWithResponse request
-	ReadDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceResponse, error)
+	// GetDeviceWithResponse request
+	GetDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceResponse, error)
 
 	// PatchDeviceWithBodyWithResponse request with any body
 	PatchDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchDeviceResponse, error)
@@ -4485,19 +4433,16 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceDeviceWithResponse(ctx context.Context, name string, body ReplaceDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceDeviceResponse, error)
 
-	// RequestConsoleWithResponse request
-	RequestConsoleWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*RequestConsoleResponse, error)
-
 	// DecommissionDeviceWithBodyWithResponse request with any body
 	DecommissionDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
 
 	DecommissionDeviceWithResponse(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
 
-	// GetRenderedDeviceSpecWithResponse request
-	GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error)
+	// GetRenderedDeviceWithResponse request
+	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
 
-	// ReadDeviceStatusWithResponse request
-	ReadDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceStatusResponse, error)
+	// GetDeviceStatusWithResponse request
+	GetDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceStatusResponse, error)
 
 	// PatchDeviceStatusWithBodyWithResponse request with any body
 	PatchDeviceStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchDeviceStatusResponse, error)
@@ -4512,9 +4457,6 @@ type ClientWithResponsesInterface interface {
 	// GetEnrollmentConfigWithResponse request
 	GetEnrollmentConfigWithResponse(ctx context.Context, params *GetEnrollmentConfigParams, reqEditors ...RequestEditorFn) (*GetEnrollmentConfigResponse, error)
 
-	// DeleteEnrollmentRequestsWithResponse request
-	DeleteEnrollmentRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestsResponse, error)
-
 	// ListEnrollmentRequestsWithResponse request
 	ListEnrollmentRequestsWithResponse(ctx context.Context, params *ListEnrollmentRequestsParams, reqEditors ...RequestEditorFn) (*ListEnrollmentRequestsResponse, error)
 
@@ -4526,8 +4468,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteEnrollmentRequestWithResponse request
 	DeleteEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestResponse, error)
 
-	// ReadEnrollmentRequestWithResponse request
-	ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error)
+	// GetEnrollmentRequestWithResponse request
+	GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestResponse, error)
 
 	// PatchEnrollmentRequestWithBodyWithResponse request with any body
 	PatchEnrollmentRequestWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchEnrollmentRequestResponse, error)
@@ -4544,8 +4486,8 @@ type ClientWithResponsesInterface interface {
 
 	ApproveEnrollmentRequestWithResponse(ctx context.Context, name string, body ApproveEnrollmentRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*ApproveEnrollmentRequestResponse, error)
 
-	// ReadEnrollmentRequestStatusWithResponse request
-	ReadEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestStatusResponse, error)
+	// GetEnrollmentRequestStatusWithResponse request
+	GetEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestStatusResponse, error)
 
 	// PatchEnrollmentRequestStatusWithBodyWithResponse request with any body
 	PatchEnrollmentRequestStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchEnrollmentRequestStatusResponse, error)
@@ -4557,8 +4499,8 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceEnrollmentRequestStatusWithResponse(ctx context.Context, name string, body ReplaceEnrollmentRequestStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceEnrollmentRequestStatusResponse, error)
 
-	// DeleteFleetsWithResponse request
-	DeleteFleetsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteFleetsResponse, error)
+	// ListEventsWithResponse request
+	ListEventsWithResponse(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*ListEventsResponse, error)
 
 	// ListFleetsWithResponse request
 	ListFleetsWithResponse(ctx context.Context, params *ListFleetsParams, reqEditors ...RequestEditorFn) (*ListFleetsResponse, error)
@@ -4568,23 +4510,20 @@ type ClientWithResponsesInterface interface {
 
 	CreateFleetWithResponse(ctx context.Context, body CreateFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateFleetResponse, error)
 
-	// DeleteTemplateVersionsWithResponse request
-	DeleteTemplateVersionsWithResponse(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error)
-
 	// ListTemplateVersionsWithResponse request
 	ListTemplateVersionsWithResponse(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*ListTemplateVersionsResponse, error)
 
 	// DeleteTemplateVersionWithResponse request
 	DeleteTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionResponse, error)
 
-	// ReadTemplateVersionWithResponse request
-	ReadTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*ReadTemplateVersionResponse, error)
+	// GetTemplateVersionWithResponse request
+	GetTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*GetTemplateVersionResponse, error)
 
 	// DeleteFleetWithResponse request
 	DeleteFleetWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteFleetResponse, error)
 
-	// ReadFleetWithResponse request
-	ReadFleetWithResponse(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*ReadFleetResponse, error)
+	// GetFleetWithResponse request
+	GetFleetWithResponse(ctx context.Context, name string, params *GetFleetParams, reqEditors ...RequestEditorFn) (*GetFleetResponse, error)
 
 	// PatchFleetWithBodyWithResponse request with any body
 	PatchFleetWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchFleetResponse, error)
@@ -4596,8 +4535,8 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceFleetWithResponse(ctx context.Context, name string, body ReplaceFleetJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetResponse, error)
 
-	// ReadFleetStatusWithResponse request
-	ReadFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadFleetStatusResponse, error)
+	// GetFleetStatusWithResponse request
+	GetFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetFleetStatusResponse, error)
 
 	// PatchFleetStatusWithBodyWithResponse request with any body
 	PatchFleetStatusWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchFleetStatusResponse, error)
@@ -4609,8 +4548,11 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceFleetStatusWithResponse(ctx context.Context, name string, body ReplaceFleetStatusJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceFleetStatusResponse, error)
 
-	// DeleteRepositoriesWithResponse request
-	DeleteRepositoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteRepositoriesResponse, error)
+	// ListLabelsWithResponse request
+	ListLabelsWithResponse(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*ListLabelsResponse, error)
+
+	// ListOrganizationsWithResponse request
+	ListOrganizationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOrganizationsResponse, error)
 
 	// ListRepositoriesWithResponse request
 	ListRepositoriesWithResponse(ctx context.Context, params *ListRepositoriesParams, reqEditors ...RequestEditorFn) (*ListRepositoriesResponse, error)
@@ -4623,8 +4565,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteRepositoryWithResponse request
 	DeleteRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteRepositoryResponse, error)
 
-	// ReadRepositoryWithResponse request
-	ReadRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadRepositoryResponse, error)
+	// GetRepositoryWithResponse request
+	GetRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetRepositoryResponse, error)
 
 	// PatchRepositoryWithBodyWithResponse request with any body
 	PatchRepositoryWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchRepositoryResponse, error)
@@ -4636,11 +4578,8 @@ type ClientWithResponsesInterface interface {
 
 	ReplaceRepositoryWithResponse(ctx context.Context, name string, body ReplaceRepositoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceRepositoryResponse, error)
 
-	// DeleteResourceSyncsWithResponse request
-	DeleteResourceSyncsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteResourceSyncsResponse, error)
-
-	// ListResourceSyncWithResponse request
-	ListResourceSyncWithResponse(ctx context.Context, params *ListResourceSyncParams, reqEditors ...RequestEditorFn) (*ListResourceSyncResponse, error)
+	// ListResourceSyncsWithResponse request
+	ListResourceSyncsWithResponse(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*ListResourceSyncsResponse, error)
 
 	// CreateResourceSyncWithBodyWithResponse request with any body
 	CreateResourceSyncWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateResourceSyncResponse, error)
@@ -4650,8 +4589,8 @@ type ClientWithResponsesInterface interface {
 	// DeleteResourceSyncWithResponse request
 	DeleteResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteResourceSyncResponse, error)
 
-	// ReadResourceSyncWithResponse request
-	ReadResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadResourceSyncResponse, error)
+	// GetResourceSyncWithResponse request
+	GetResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetResourceSyncResponse, error)
 
 	// PatchResourceSyncWithBodyWithResponse request with any body
 	PatchResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchResourceSyncResponse, error)
@@ -4662,12 +4601,16 @@ type ClientWithResponsesInterface interface {
 	ReplaceResourceSyncWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
 
 	ReplaceResourceSyncWithResponse(ctx context.Context, name string, body ReplaceResourceSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceResourceSyncResponse, error)
+
+	// GetVersionWithResponse request
+	GetVersionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetVersionResponse, error)
 }
 
 type AuthConfigResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *AuthConfig
+	JSON418      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4689,7 +4632,11 @@ func (r AuthConfigResponse) StatusCode() int {
 type AuthValidateResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON500      *Error
+	JSON200      *Status
+	JSON400      *Status
+	JSON401      *Status
+	JSON418      *Status
+	JSON500      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4708,39 +4655,15 @@ func (r AuthValidateResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteCertificateSigningRequestsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteCertificateSigningRequestsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteCertificateSigningRequestsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListCertificateSigningRequestsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequestList
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4763,11 +4686,12 @@ type CreateCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *CertificateSigningRequest
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4789,11 +4713,12 @@ func (r CreateCertificateSigningRequestResponse) StatusCode() int {
 type DeleteCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *CertificateSigningRequest
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON200      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4812,18 +4737,19 @@ func (r DeleteCertificateSigningRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadCertificateSigningRequestResponse struct {
+type GetCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadCertificateSigningRequestResponse) Status() string {
+func (r GetCertificateSigningRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -4831,7 +4757,7 @@ func (r ReadCertificateSigningRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadCertificateSigningRequestResponse) StatusCode() int {
+func (r GetCertificateSigningRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -4842,12 +4768,13 @@ type PatchCertificateSigningRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4871,12 +4798,13 @@ type ReplaceCertificateSigningRequestResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
 	JSON201      *CertificateSigningRequest
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4899,12 +4827,13 @@ type UpdateCertificateSigningRequestApprovalResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CertificateSigningRequest
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4923,39 +4852,15 @@ func (r UpdateCertificateSigningRequestApprovalResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteDevicesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteDevicesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteDevicesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListDevicesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *DeviceList
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4978,11 +4883,12 @@ type CreateDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *Device
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5004,11 +4910,12 @@ func (r CreateDeviceResponse) StatusCode() int {
 type DeleteDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Device
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON200      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5027,18 +4934,19 @@ func (r DeleteDeviceResponse) StatusCode() int {
 	return 0
 }
 
-type ReadDeviceResponse struct {
+type GetDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadDeviceResponse) Status() string {
+func (r GetDeviceResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5046,7 +4954,7 @@ func (r ReadDeviceResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadDeviceResponse) StatusCode() int {
+func (r GetDeviceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5057,12 +4965,13 @@ type PatchDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5086,12 +4995,13 @@ type ReplaceDeviceResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *Device
 	JSON201      *Device
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5110,42 +5020,16 @@ func (r ReplaceDeviceResponse) StatusCode() int {
 	return 0
 }
 
-type RequestConsoleResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *DeviceConsole
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r RequestConsoleResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r RequestConsoleResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type DecommissionDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5164,19 +5048,20 @@ func (r DecommissionDeviceResponse) StatusCode() int {
 	return 0
 }
 
-type GetRenderedDeviceSpecResponse struct {
+type GetRenderedDeviceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *RenderedDeviceSpec
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON200      *Device
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r GetRenderedDeviceSpecResponse) Status() string {
+func (r GetRenderedDeviceResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5184,25 +5069,26 @@ func (r GetRenderedDeviceSpecResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetRenderedDeviceSpecResponse) StatusCode() int {
+func (r GetRenderedDeviceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type ReadDeviceStatusResponse struct {
+type GetDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadDeviceStatusResponse) Status() string {
+func (r GetDeviceStatusResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5210,7 +5096,7 @@ func (r ReadDeviceStatusResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadDeviceStatusResponse) StatusCode() int {
+func (r GetDeviceStatusResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5221,11 +5107,12 @@ type PatchDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5248,11 +5135,13 @@ type ReplaceDeviceStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Device
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5275,11 +5164,12 @@ type GetEnrollmentConfigResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentConfig
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5298,39 +5188,15 @@ func (r GetEnrollmentConfigResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteEnrollmentRequestsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteEnrollmentRequestsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteEnrollmentRequestsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListEnrollmentRequestsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequestList
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5353,11 +5219,12 @@ type CreateEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *EnrollmentRequest
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5379,11 +5246,13 @@ func (r CreateEnrollmentRequestResponse) StatusCode() int {
 type DeleteEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *EnrollmentRequest
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON200      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5402,18 +5271,19 @@ func (r DeleteEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadEnrollmentRequestResponse struct {
+type GetEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadEnrollmentRequestResponse) Status() string {
+func (r GetEnrollmentRequestResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5421,7 +5291,7 @@ func (r ReadEnrollmentRequestResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadEnrollmentRequestResponse) StatusCode() int {
+func (r GetEnrollmentRequestResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5432,12 +5302,13 @@ type PatchEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5461,12 +5332,13 @@ type ReplaceEnrollmentRequestResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
 	JSON201      *EnrollmentRequest
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5489,11 +5361,12 @@ type ApproveEnrollmentRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequestApprovalStatus
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5512,18 +5385,19 @@ func (r ApproveEnrollmentRequestResponse) StatusCode() int {
 	return 0
 }
 
-type ReadEnrollmentRequestStatusResponse struct {
+type GetEnrollmentRequestStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadEnrollmentRequestStatusResponse) Status() string {
+func (r GetEnrollmentRequestStatusResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5531,7 +5405,7 @@ func (r ReadEnrollmentRequestStatusResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadEnrollmentRequestStatusResponse) StatusCode() int {
+func (r GetEnrollmentRequestStatusResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5542,12 +5416,13 @@ type PatchEnrollmentRequestStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5570,10 +5445,11 @@ type ReplaceEnrollmentRequestStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnrollmentRequest
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5592,17 +5468,19 @@ func (r ReplaceEnrollmentRequestStatusResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteFleetsResponse struct {
+type ListEventsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON200      *EventList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r DeleteFleetsResponse) Status() string {
+func (r ListEventsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5610,7 +5488,7 @@ func (r DeleteFleetsResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DeleteFleetsResponse) StatusCode() int {
+func (r ListEventsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5621,10 +5499,11 @@ type ListFleetsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *FleetList
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5647,11 +5526,12 @@ type CreateFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *Fleet
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5670,39 +5550,15 @@ func (r CreateFleetResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteTemplateVersionsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteTemplateVersionsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteTemplateVersionsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListTemplateVersionsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *TemplateVersionList
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5724,11 +5580,12 @@ func (r ListTemplateVersionsResponse) StatusCode() int {
 type DeleteTemplateVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *TemplateVersion
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON200      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5747,18 +5604,19 @@ func (r DeleteTemplateVersionResponse) StatusCode() int {
 	return 0
 }
 
-type ReadTemplateVersionResponse struct {
+type GetTemplateVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *TemplateVersion
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadTemplateVersionResponse) Status() string {
+func (r GetTemplateVersionResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5766,7 +5624,7 @@ func (r ReadTemplateVersionResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadTemplateVersionResponse) StatusCode() int {
+func (r GetTemplateVersionResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5776,11 +5634,12 @@ func (r ReadTemplateVersionResponse) StatusCode() int {
 type DeleteFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Fleet
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON200      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5799,18 +5658,19 @@ func (r DeleteFleetResponse) StatusCode() int {
 	return 0
 }
 
-type ReadFleetResponse struct {
+type GetFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadFleetResponse) Status() string {
+func (r GetFleetResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5818,7 +5678,7 @@ func (r ReadFleetResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadFleetResponse) StatusCode() int {
+func (r GetFleetResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5829,12 +5689,13 @@ type PatchFleetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5858,12 +5719,13 @@ type ReplaceFleetResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *Fleet
 	JSON201      *Fleet
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5882,18 +5744,19 @@ func (r ReplaceFleetResponse) StatusCode() int {
 	return 0
 }
 
-type ReadFleetStatusResponse struct {
+type GetFleetStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadFleetStatusResponse) Status() string {
+func (r GetFleetStatusResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5901,7 +5764,7 @@ func (r ReadFleetStatusResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadFleetStatusResponse) StatusCode() int {
+func (r GetFleetStatusResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5912,11 +5775,12 @@ type PatchFleetStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5939,10 +5803,11 @@ type ReplaceFleetStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Fleet
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5961,17 +5826,19 @@ func (r ReplaceFleetStatusResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteRepositoriesResponse struct {
+type ListLabelsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON200      *LabelList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r DeleteRepositoriesResponse) Status() string {
+func (r ListLabelsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5979,7 +5846,34 @@ func (r DeleteRepositoriesResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r DeleteRepositoriesResponse) StatusCode() int {
+func (r ListLabelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListOrganizationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *OrganizationList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r ListOrganizationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListOrganizationsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5990,10 +5884,11 @@ type ListRepositoriesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *RepositoryList
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6016,11 +5911,12 @@ type CreateRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *Repository
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6042,11 +5938,12 @@ func (r CreateRepositoryResponse) StatusCode() int {
 type DeleteRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *Repository
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON200      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6065,18 +5962,19 @@ func (r DeleteRepositoryResponse) StatusCode() int {
 	return 0
 }
 
-type ReadRepositoryResponse struct {
+type GetRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Repository
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadRepositoryResponse) Status() string {
+func (r GetRepositoryResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -6084,7 +5982,7 @@ func (r ReadRepositoryResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadRepositoryResponse) StatusCode() int {
+func (r GetRepositoryResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6095,12 +5993,13 @@ type PatchRepositoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Repository
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6124,12 +6023,13 @@ type ReplaceRepositoryResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *Repository
 	JSON201      *Repository
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6148,43 +6048,19 @@ func (r ReplaceRepositoryResponse) StatusCode() int {
 	return 0
 }
 
-type DeleteResourceSyncsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *Status
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteResourceSyncsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteResourceSyncsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ListResourceSyncResponse struct {
+type ListResourceSyncsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ResourceSyncList
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ListResourceSyncResponse) Status() string {
+func (r ListResourceSyncsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -6192,7 +6068,7 @@ func (r ListResourceSyncResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ListResourceSyncResponse) StatusCode() int {
+func (r ListResourceSyncsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6203,11 +6079,12 @@ type CreateResourceSyncResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *ResourceSync
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6229,11 +6106,12 @@ func (r CreateResourceSyncResponse) StatusCode() int {
 type DeleteResourceSyncResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *ResourceSync
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON200      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6252,18 +6130,19 @@ func (r DeleteResourceSyncResponse) StatusCode() int {
 	return 0
 }
 
-type ReadResourceSyncResponse struct {
+type GetResourceSyncResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ResourceSync
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON503      *Error
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
-func (r ReadResourceSyncResponse) Status() string {
+func (r GetResourceSyncResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -6271,7 +6150,7 @@ func (r ReadResourceSyncResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ReadResourceSyncResponse) StatusCode() int {
+func (r GetResourceSyncResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6282,12 +6161,13 @@ type PatchResourceSyncResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ResourceSync
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6311,12 +6191,13 @@ type ReplaceResourceSyncResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *ResourceSync
 	JSON201      *ResourceSync
-	JSON400      *Error
-	JSON401      *Error
-	JSON403      *Error
-	JSON404      *Error
-	JSON409      *Error
-	JSON503      *Error
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6329,6 +6210,31 @@ func (r ReplaceResourceSyncResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReplaceResourceSyncResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetVersionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Version
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetVersionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetVersionResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6351,15 +6257,6 @@ func (c *ClientWithResponses) AuthValidateWithResponse(ctx context.Context, para
 		return nil, err
 	}
 	return ParseAuthValidateResponse(rsp)
-}
-
-// DeleteCertificateSigningRequestsWithResponse request returning *DeleteCertificateSigningRequestsResponse
-func (c *ClientWithResponses) DeleteCertificateSigningRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteCertificateSigningRequestsResponse, error) {
-	rsp, err := c.DeleteCertificateSigningRequests(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteCertificateSigningRequestsResponse(rsp)
 }
 
 // ListCertificateSigningRequestsWithResponse request returning *ListCertificateSigningRequestsResponse
@@ -6397,13 +6294,13 @@ func (c *ClientWithResponses) DeleteCertificateSigningRequestWithResponse(ctx co
 	return ParseDeleteCertificateSigningRequestResponse(rsp)
 }
 
-// ReadCertificateSigningRequestWithResponse request returning *ReadCertificateSigningRequestResponse
-func (c *ClientWithResponses) ReadCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadCertificateSigningRequestResponse, error) {
-	rsp, err := c.ReadCertificateSigningRequest(ctx, name, reqEditors...)
+// GetCertificateSigningRequestWithResponse request returning *GetCertificateSigningRequestResponse
+func (c *ClientWithResponses) GetCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetCertificateSigningRequestResponse, error) {
+	rsp, err := c.GetCertificateSigningRequest(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadCertificateSigningRequestResponse(rsp)
+	return ParseGetCertificateSigningRequestResponse(rsp)
 }
 
 // PatchCertificateSigningRequestWithBodyWithResponse request with arbitrary body returning *PatchCertificateSigningRequestResponse
@@ -6457,15 +6354,6 @@ func (c *ClientWithResponses) UpdateCertificateSigningRequestApprovalWithRespons
 	return ParseUpdateCertificateSigningRequestApprovalResponse(rsp)
 }
 
-// DeleteDevicesWithResponse request returning *DeleteDevicesResponse
-func (c *ClientWithResponses) DeleteDevicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteDevicesResponse, error) {
-	rsp, err := c.DeleteDevices(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteDevicesResponse(rsp)
-}
-
 // ListDevicesWithResponse request returning *ListDevicesResponse
 func (c *ClientWithResponses) ListDevicesWithResponse(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*ListDevicesResponse, error) {
 	rsp, err := c.ListDevices(ctx, params, reqEditors...)
@@ -6501,13 +6389,13 @@ func (c *ClientWithResponses) DeleteDeviceWithResponse(ctx context.Context, name
 	return ParseDeleteDeviceResponse(rsp)
 }
 
-// ReadDeviceWithResponse request returning *ReadDeviceResponse
-func (c *ClientWithResponses) ReadDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceResponse, error) {
-	rsp, err := c.ReadDevice(ctx, name, reqEditors...)
+// GetDeviceWithResponse request returning *GetDeviceResponse
+func (c *ClientWithResponses) GetDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceResponse, error) {
+	rsp, err := c.GetDevice(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadDeviceResponse(rsp)
+	return ParseGetDeviceResponse(rsp)
 }
 
 // PatchDeviceWithBodyWithResponse request with arbitrary body returning *PatchDeviceResponse
@@ -6544,15 +6432,6 @@ func (c *ClientWithResponses) ReplaceDeviceWithResponse(ctx context.Context, nam
 	return ParseReplaceDeviceResponse(rsp)
 }
 
-// RequestConsoleWithResponse request returning *RequestConsoleResponse
-func (c *ClientWithResponses) RequestConsoleWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*RequestConsoleResponse, error) {
-	rsp, err := c.RequestConsole(ctx, name, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseRequestConsoleResponse(rsp)
-}
-
 // DecommissionDeviceWithBodyWithResponse request with arbitrary body returning *DecommissionDeviceResponse
 func (c *ClientWithResponses) DecommissionDeviceWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error) {
 	rsp, err := c.DecommissionDeviceWithBody(ctx, name, contentType, body, reqEditors...)
@@ -6570,22 +6449,22 @@ func (c *ClientWithResponses) DecommissionDeviceWithResponse(ctx context.Context
 	return ParseDecommissionDeviceResponse(rsp)
 }
 
-// GetRenderedDeviceSpecWithResponse request returning *GetRenderedDeviceSpecResponse
-func (c *ClientWithResponses) GetRenderedDeviceSpecWithResponse(ctx context.Context, name string, params *GetRenderedDeviceSpecParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceSpecResponse, error) {
-	rsp, err := c.GetRenderedDeviceSpec(ctx, name, params, reqEditors...)
+// GetRenderedDeviceWithResponse request returning *GetRenderedDeviceResponse
+func (c *ClientWithResponses) GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error) {
+	rsp, err := c.GetRenderedDevice(ctx, name, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetRenderedDeviceSpecResponse(rsp)
+	return ParseGetRenderedDeviceResponse(rsp)
 }
 
-// ReadDeviceStatusWithResponse request returning *ReadDeviceStatusResponse
-func (c *ClientWithResponses) ReadDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceStatusResponse, error) {
-	rsp, err := c.ReadDeviceStatus(ctx, name, reqEditors...)
+// GetDeviceStatusWithResponse request returning *GetDeviceStatusResponse
+func (c *ClientWithResponses) GetDeviceStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceStatusResponse, error) {
+	rsp, err := c.GetDeviceStatus(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadDeviceStatusResponse(rsp)
+	return ParseGetDeviceStatusResponse(rsp)
 }
 
 // PatchDeviceStatusWithBodyWithResponse request with arbitrary body returning *PatchDeviceStatusResponse
@@ -6631,15 +6510,6 @@ func (c *ClientWithResponses) GetEnrollmentConfigWithResponse(ctx context.Contex
 	return ParseGetEnrollmentConfigResponse(rsp)
 }
 
-// DeleteEnrollmentRequestsWithResponse request returning *DeleteEnrollmentRequestsResponse
-func (c *ClientWithResponses) DeleteEnrollmentRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteEnrollmentRequestsResponse, error) {
-	rsp, err := c.DeleteEnrollmentRequests(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteEnrollmentRequestsResponse(rsp)
-}
-
 // ListEnrollmentRequestsWithResponse request returning *ListEnrollmentRequestsResponse
 func (c *ClientWithResponses) ListEnrollmentRequestsWithResponse(ctx context.Context, params *ListEnrollmentRequestsParams, reqEditors ...RequestEditorFn) (*ListEnrollmentRequestsResponse, error) {
 	rsp, err := c.ListEnrollmentRequests(ctx, params, reqEditors...)
@@ -6675,13 +6545,13 @@ func (c *ClientWithResponses) DeleteEnrollmentRequestWithResponse(ctx context.Co
 	return ParseDeleteEnrollmentRequestResponse(rsp)
 }
 
-// ReadEnrollmentRequestWithResponse request returning *ReadEnrollmentRequestResponse
-func (c *ClientWithResponses) ReadEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestResponse, error) {
-	rsp, err := c.ReadEnrollmentRequest(ctx, name, reqEditors...)
+// GetEnrollmentRequestWithResponse request returning *GetEnrollmentRequestResponse
+func (c *ClientWithResponses) GetEnrollmentRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestResponse, error) {
+	rsp, err := c.GetEnrollmentRequest(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadEnrollmentRequestResponse(rsp)
+	return ParseGetEnrollmentRequestResponse(rsp)
 }
 
 // PatchEnrollmentRequestWithBodyWithResponse request with arbitrary body returning *PatchEnrollmentRequestResponse
@@ -6735,13 +6605,13 @@ func (c *ClientWithResponses) ApproveEnrollmentRequestWithResponse(ctx context.C
 	return ParseApproveEnrollmentRequestResponse(rsp)
 }
 
-// ReadEnrollmentRequestStatusWithResponse request returning *ReadEnrollmentRequestStatusResponse
-func (c *ClientWithResponses) ReadEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadEnrollmentRequestStatusResponse, error) {
-	rsp, err := c.ReadEnrollmentRequestStatus(ctx, name, reqEditors...)
+// GetEnrollmentRequestStatusWithResponse request returning *GetEnrollmentRequestStatusResponse
+func (c *ClientWithResponses) GetEnrollmentRequestStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetEnrollmentRequestStatusResponse, error) {
+	rsp, err := c.GetEnrollmentRequestStatus(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadEnrollmentRequestStatusResponse(rsp)
+	return ParseGetEnrollmentRequestStatusResponse(rsp)
 }
 
 // PatchEnrollmentRequestStatusWithBodyWithResponse request with arbitrary body returning *PatchEnrollmentRequestStatusResponse
@@ -6778,13 +6648,13 @@ func (c *ClientWithResponses) ReplaceEnrollmentRequestStatusWithResponse(ctx con
 	return ParseReplaceEnrollmentRequestStatusResponse(rsp)
 }
 
-// DeleteFleetsWithResponse request returning *DeleteFleetsResponse
-func (c *ClientWithResponses) DeleteFleetsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteFleetsResponse, error) {
-	rsp, err := c.DeleteFleets(ctx, reqEditors...)
+// ListEventsWithResponse request returning *ListEventsResponse
+func (c *ClientWithResponses) ListEventsWithResponse(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*ListEventsResponse, error) {
+	rsp, err := c.ListEvents(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteFleetsResponse(rsp)
+	return ParseListEventsResponse(rsp)
 }
 
 // ListFleetsWithResponse request returning *ListFleetsResponse
@@ -6813,15 +6683,6 @@ func (c *ClientWithResponses) CreateFleetWithResponse(ctx context.Context, body 
 	return ParseCreateFleetResponse(rsp)
 }
 
-// DeleteTemplateVersionsWithResponse request returning *DeleteTemplateVersionsResponse
-func (c *ClientWithResponses) DeleteTemplateVersionsWithResponse(ctx context.Context, fleet string, reqEditors ...RequestEditorFn) (*DeleteTemplateVersionsResponse, error) {
-	rsp, err := c.DeleteTemplateVersions(ctx, fleet, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteTemplateVersionsResponse(rsp)
-}
-
 // ListTemplateVersionsWithResponse request returning *ListTemplateVersionsResponse
 func (c *ClientWithResponses) ListTemplateVersionsWithResponse(ctx context.Context, fleet string, params *ListTemplateVersionsParams, reqEditors ...RequestEditorFn) (*ListTemplateVersionsResponse, error) {
 	rsp, err := c.ListTemplateVersions(ctx, fleet, params, reqEditors...)
@@ -6840,13 +6701,13 @@ func (c *ClientWithResponses) DeleteTemplateVersionWithResponse(ctx context.Cont
 	return ParseDeleteTemplateVersionResponse(rsp)
 }
 
-// ReadTemplateVersionWithResponse request returning *ReadTemplateVersionResponse
-func (c *ClientWithResponses) ReadTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*ReadTemplateVersionResponse, error) {
-	rsp, err := c.ReadTemplateVersion(ctx, fleet, name, reqEditors...)
+// GetTemplateVersionWithResponse request returning *GetTemplateVersionResponse
+func (c *ClientWithResponses) GetTemplateVersionWithResponse(ctx context.Context, fleet string, name string, reqEditors ...RequestEditorFn) (*GetTemplateVersionResponse, error) {
+	rsp, err := c.GetTemplateVersion(ctx, fleet, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadTemplateVersionResponse(rsp)
+	return ParseGetTemplateVersionResponse(rsp)
 }
 
 // DeleteFleetWithResponse request returning *DeleteFleetResponse
@@ -6858,13 +6719,13 @@ func (c *ClientWithResponses) DeleteFleetWithResponse(ctx context.Context, name 
 	return ParseDeleteFleetResponse(rsp)
 }
 
-// ReadFleetWithResponse request returning *ReadFleetResponse
-func (c *ClientWithResponses) ReadFleetWithResponse(ctx context.Context, name string, params *ReadFleetParams, reqEditors ...RequestEditorFn) (*ReadFleetResponse, error) {
-	rsp, err := c.ReadFleet(ctx, name, params, reqEditors...)
+// GetFleetWithResponse request returning *GetFleetResponse
+func (c *ClientWithResponses) GetFleetWithResponse(ctx context.Context, name string, params *GetFleetParams, reqEditors ...RequestEditorFn) (*GetFleetResponse, error) {
+	rsp, err := c.GetFleet(ctx, name, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadFleetResponse(rsp)
+	return ParseGetFleetResponse(rsp)
 }
 
 // PatchFleetWithBodyWithResponse request with arbitrary body returning *PatchFleetResponse
@@ -6901,13 +6762,13 @@ func (c *ClientWithResponses) ReplaceFleetWithResponse(ctx context.Context, name
 	return ParseReplaceFleetResponse(rsp)
 }
 
-// ReadFleetStatusWithResponse request returning *ReadFleetStatusResponse
-func (c *ClientWithResponses) ReadFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadFleetStatusResponse, error) {
-	rsp, err := c.ReadFleetStatus(ctx, name, reqEditors...)
+// GetFleetStatusWithResponse request returning *GetFleetStatusResponse
+func (c *ClientWithResponses) GetFleetStatusWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetFleetStatusResponse, error) {
+	rsp, err := c.GetFleetStatus(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadFleetStatusResponse(rsp)
+	return ParseGetFleetStatusResponse(rsp)
 }
 
 // PatchFleetStatusWithBodyWithResponse request with arbitrary body returning *PatchFleetStatusResponse
@@ -6944,13 +6805,22 @@ func (c *ClientWithResponses) ReplaceFleetStatusWithResponse(ctx context.Context
 	return ParseReplaceFleetStatusResponse(rsp)
 }
 
-// DeleteRepositoriesWithResponse request returning *DeleteRepositoriesResponse
-func (c *ClientWithResponses) DeleteRepositoriesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteRepositoriesResponse, error) {
-	rsp, err := c.DeleteRepositories(ctx, reqEditors...)
+// ListLabelsWithResponse request returning *ListLabelsResponse
+func (c *ClientWithResponses) ListLabelsWithResponse(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*ListLabelsResponse, error) {
+	rsp, err := c.ListLabels(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteRepositoriesResponse(rsp)
+	return ParseListLabelsResponse(rsp)
+}
+
+// ListOrganizationsWithResponse request returning *ListOrganizationsResponse
+func (c *ClientWithResponses) ListOrganizationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOrganizationsResponse, error) {
+	rsp, err := c.ListOrganizations(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListOrganizationsResponse(rsp)
 }
 
 // ListRepositoriesWithResponse request returning *ListRepositoriesResponse
@@ -6988,13 +6858,13 @@ func (c *ClientWithResponses) DeleteRepositoryWithResponse(ctx context.Context, 
 	return ParseDeleteRepositoryResponse(rsp)
 }
 
-// ReadRepositoryWithResponse request returning *ReadRepositoryResponse
-func (c *ClientWithResponses) ReadRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadRepositoryResponse, error) {
-	rsp, err := c.ReadRepository(ctx, name, reqEditors...)
+// GetRepositoryWithResponse request returning *GetRepositoryResponse
+func (c *ClientWithResponses) GetRepositoryWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetRepositoryResponse, error) {
+	rsp, err := c.GetRepository(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadRepositoryResponse(rsp)
+	return ParseGetRepositoryResponse(rsp)
 }
 
 // PatchRepositoryWithBodyWithResponse request with arbitrary body returning *PatchRepositoryResponse
@@ -7031,22 +6901,13 @@ func (c *ClientWithResponses) ReplaceRepositoryWithResponse(ctx context.Context,
 	return ParseReplaceRepositoryResponse(rsp)
 }
 
-// DeleteResourceSyncsWithResponse request returning *DeleteResourceSyncsResponse
-func (c *ClientWithResponses) DeleteResourceSyncsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteResourceSyncsResponse, error) {
-	rsp, err := c.DeleteResourceSyncs(ctx, reqEditors...)
+// ListResourceSyncsWithResponse request returning *ListResourceSyncsResponse
+func (c *ClientWithResponses) ListResourceSyncsWithResponse(ctx context.Context, params *ListResourceSyncsParams, reqEditors ...RequestEditorFn) (*ListResourceSyncsResponse, error) {
+	rsp, err := c.ListResourceSyncs(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteResourceSyncsResponse(rsp)
-}
-
-// ListResourceSyncWithResponse request returning *ListResourceSyncResponse
-func (c *ClientWithResponses) ListResourceSyncWithResponse(ctx context.Context, params *ListResourceSyncParams, reqEditors ...RequestEditorFn) (*ListResourceSyncResponse, error) {
-	rsp, err := c.ListResourceSync(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListResourceSyncResponse(rsp)
+	return ParseListResourceSyncsResponse(rsp)
 }
 
 // CreateResourceSyncWithBodyWithResponse request with arbitrary body returning *CreateResourceSyncResponse
@@ -7075,13 +6936,13 @@ func (c *ClientWithResponses) DeleteResourceSyncWithResponse(ctx context.Context
 	return ParseDeleteResourceSyncResponse(rsp)
 }
 
-// ReadResourceSyncWithResponse request returning *ReadResourceSyncResponse
-func (c *ClientWithResponses) ReadResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadResourceSyncResponse, error) {
-	rsp, err := c.ReadResourceSync(ctx, name, reqEditors...)
+// GetResourceSyncWithResponse request returning *GetResourceSyncResponse
+func (c *ClientWithResponses) GetResourceSyncWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetResourceSyncResponse, error) {
+	rsp, err := c.GetResourceSync(ctx, name, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseReadResourceSyncResponse(rsp)
+	return ParseGetResourceSyncResponse(rsp)
 }
 
 // PatchResourceSyncWithBodyWithResponse request with arbitrary body returning *PatchResourceSyncResponse
@@ -7118,6 +6979,15 @@ func (c *ClientWithResponses) ReplaceResourceSyncWithResponse(ctx context.Contex
 	return ParseReplaceResourceSyncResponse(rsp)
 }
 
+// GetVersionWithResponse request returning *GetVersionResponse
+func (c *ClientWithResponses) GetVersionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetVersionResponse, error) {
+	rsp, err := c.GetVersion(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetVersionResponse(rsp)
+}
+
 // ParseAuthConfigResponse parses an HTTP response from a AuthConfigWithResponse call
 func ParseAuthConfigResponse(rsp *http.Response) (*AuthConfigResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7139,6 +7009,13 @@ func ParseAuthConfigResponse(rsp *http.Response) (*AuthConfigResponse, error) {
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 418:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON418 = &dest
+
 	}
 
 	return response, nil
@@ -7158,32 +7035,6 @@ func ParseAuthValidateResponse(rsp *http.Response) (*AuthValidateResponse, error
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteCertificateSigningRequestsResponse parses an HTTP response from a DeleteCertificateSigningRequestsWithResponse call
-func ParseDeleteCertificateSigningRequestsResponse(rsp *http.Response) (*DeleteCertificateSigningRequestsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteCertificateSigningRequestsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7191,26 +7042,33 @@ func ParseDeleteCertificateSigningRequestsResponse(rsp *http.Response) (*DeleteC
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 418:
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON403 = &dest
+		response.JSON418 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON503 = &dest
+		response.JSON500 = &dest
 
 	}
 
@@ -7239,28 +7097,35 @@ func ParseListCertificateSigningRequestsResponse(rsp *http.Response) (*ListCerti
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7293,35 +7158,42 @@ func ParseCreateCertificateSigningRequestResponse(rsp *http.Response) (*CreateCe
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7347,35 +7219,42 @@ func ParseDeleteCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCe
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CertificateSigningRequest
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7386,15 +7265,15 @@ func ParseDeleteCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCe
 	return response, nil
 }
 
-// ParseReadCertificateSigningRequestResponse parses an HTTP response from a ReadCertificateSigningRequestWithResponse call
-func ParseReadCertificateSigningRequestResponse(rsp *http.Response) (*ReadCertificateSigningRequestResponse, error) {
+// ParseGetCertificateSigningRequestResponse parses an HTTP response from a GetCertificateSigningRequestWithResponse call
+func ParseGetCertificateSigningRequestResponse(rsp *http.Response) (*GetCertificateSigningRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadCertificateSigningRequestResponse{
+	response := &GetCertificateSigningRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -7408,28 +7287,35 @@ func ParseReadCertificateSigningRequestResponse(rsp *http.Response) (*ReadCertif
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7462,42 +7348,49 @@ func ParsePatchCertificateSigningRequestResponse(rsp *http.Response) (*PatchCert
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7537,42 +7430,49 @@ func ParseReplaceCertificateSigningRequestResponse(rsp *http.Response) (*Replace
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7605,89 +7505,49 @@ func ParseUpdateCertificateSigningRequestApprovalResponse(rsp *http.Response) (*
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteDevicesResponse parses an HTTP response from a DeleteDevicesWithResponse call
-func ParseDeleteDevicesResponse(rsp *http.Response) (*DeleteDevicesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteDevicesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
+		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7720,28 +7580,35 @@ func ParseListDevicesResponse(rsp *http.Response) (*ListDevicesResponse, error) 
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7774,35 +7641,42 @@ func ParseCreateDeviceResponse(rsp *http.Response) (*CreateDeviceResponse, error
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7828,35 +7702,42 @@ func ParseDeleteDeviceResponse(rsp *http.Response) (*DeleteDeviceResponse, error
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Device
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7867,15 +7748,15 @@ func ParseDeleteDeviceResponse(rsp *http.Response) (*DeleteDeviceResponse, error
 	return response, nil
 }
 
-// ParseReadDeviceResponse parses an HTTP response from a ReadDeviceWithResponse call
-func ParseReadDeviceResponse(rsp *http.Response) (*ReadDeviceResponse, error) {
+// ParseGetDeviceResponse parses an HTTP response from a GetDeviceWithResponse call
+func ParseGetDeviceResponse(rsp *http.Response) (*GetDeviceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadDeviceResponse{
+	response := &GetDeviceResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -7889,28 +7770,35 @@ func ParseReadDeviceResponse(rsp *http.Response) (*ReadDeviceResponse, error) {
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7943,42 +7831,49 @@ func ParsePatchDeviceResponse(rsp *http.Response) (*PatchDeviceResponse, error) 
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8018,103 +7913,49 @@ func ParseReplaceDeviceResponse(rsp *http.Response) (*ReplaceDeviceResponse, err
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseRequestConsoleResponse parses an HTTP response from a RequestConsoleWithResponse call
-func ParseRequestConsoleResponse(rsp *http.Response) (*RequestConsoleResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &RequestConsoleResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest DeviceConsole
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
+		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8147,35 +7988,42 @@ func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceRes
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8186,76 +8034,15 @@ func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceRes
 	return response, nil
 }
 
-// ParseGetRenderedDeviceSpecResponse parses an HTTP response from a GetRenderedDeviceSpecWithResponse call
-func ParseGetRenderedDeviceSpecResponse(rsp *http.Response) (*GetRenderedDeviceSpecResponse, error) {
+// ParseGetRenderedDeviceResponse parses an HTTP response from a GetRenderedDeviceWithResponse call
+func ParseGetRenderedDeviceResponse(rsp *http.Response) (*GetRenderedDeviceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetRenderedDeviceSpecResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest RenderedDeviceSpec
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseReadDeviceStatusResponse parses an HTTP response from a ReadDeviceStatusWithResponse call
-func ParseReadDeviceStatusResponse(rsp *http.Response) (*ReadDeviceStatusResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ReadDeviceStatusResponse{
+	response := &GetRenderedDeviceResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -8269,28 +8056,103 @@ func ParseReadDeviceStatusResponse(rsp *http.Response) (*ReadDeviceStatusRespons
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetDeviceStatusResponse parses an HTTP response from a GetDeviceStatusWithResponse call
+func ParseGetDeviceStatusResponse(rsp *http.Response) (*GetDeviceStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDeviceStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8323,35 +8185,42 @@ func ParsePatchDeviceStatusResponse(rsp *http.Response) (*PatchDeviceStatusRespo
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8384,35 +8253,49 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8445,82 +8328,42 @@ func ParseGetEnrollmentConfigResponse(rsp *http.Response) (*GetEnrollmentConfigR
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteEnrollmentRequestsResponse parses an HTTP response from a DeleteEnrollmentRequestsWithResponse call
-func ParseDeleteEnrollmentRequestsResponse(rsp *http.Response) (*DeleteEnrollmentRequestsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteEnrollmentRequestsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
+		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8553,28 +8396,35 @@ func ParseListEnrollmentRequestsResponse(rsp *http.Response) (*ListEnrollmentReq
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8607,35 +8457,42 @@ func ParseCreateEnrollmentRequestResponse(rsp *http.Response) (*CreateEnrollment
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8661,35 +8518,49 @@ func ParseDeleteEnrollmentRequestResponse(rsp *http.Response) (*DeleteEnrollment
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest EnrollmentRequest
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8700,15 +8571,15 @@ func ParseDeleteEnrollmentRequestResponse(rsp *http.Response) (*DeleteEnrollment
 	return response, nil
 }
 
-// ParseReadEnrollmentRequestResponse parses an HTTP response from a ReadEnrollmentRequestWithResponse call
-func ParseReadEnrollmentRequestResponse(rsp *http.Response) (*ReadEnrollmentRequestResponse, error) {
+// ParseGetEnrollmentRequestResponse parses an HTTP response from a GetEnrollmentRequestWithResponse call
+func ParseGetEnrollmentRequestResponse(rsp *http.Response) (*GetEnrollmentRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadEnrollmentRequestResponse{
+	response := &GetEnrollmentRequestResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -8722,28 +8593,35 @@ func ParseReadEnrollmentRequestResponse(rsp *http.Response) (*ReadEnrollmentRequ
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8776,42 +8654,49 @@ func ParsePatchEnrollmentRequestResponse(rsp *http.Response) (*PatchEnrollmentRe
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8851,42 +8736,49 @@ func ParseReplaceEnrollmentRequestResponse(rsp *http.Response) (*ReplaceEnrollme
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8919,35 +8811,42 @@ func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollme
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8958,15 +8857,15 @@ func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollme
 	return response, nil
 }
 
-// ParseReadEnrollmentRequestStatusResponse parses an HTTP response from a ReadEnrollmentRequestStatusWithResponse call
-func ParseReadEnrollmentRequestStatusResponse(rsp *http.Response) (*ReadEnrollmentRequestStatusResponse, error) {
+// ParseGetEnrollmentRequestStatusResponse parses an HTTP response from a GetEnrollmentRequestStatusWithResponse call
+func ParseGetEnrollmentRequestStatusResponse(rsp *http.Response) (*GetEnrollmentRequestStatusResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadEnrollmentRequestStatusResponse{
+	response := &GetEnrollmentRequestStatusResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -8980,28 +8879,35 @@ func ParseReadEnrollmentRequestStatusResponse(rsp *http.Response) (*ReadEnrollme
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9034,42 +8940,49 @@ func ParsePatchEnrollmentRequestStatusResponse(rsp *http.Response) (*PatchEnroll
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9102,28 +9015,35 @@ func ParseReplaceEnrollmentRequestStatusResponse(rsp *http.Response) (*ReplaceEn
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9134,43 +9054,57 @@ func ParseReplaceEnrollmentRequestStatusResponse(rsp *http.Response) (*ReplaceEn
 	return response, nil
 }
 
-// ParseDeleteFleetsResponse parses an HTTP response from a DeleteFleetsWithResponse call
-func ParseDeleteFleetsResponse(rsp *http.Response) (*DeleteFleetsResponse, error) {
+// ParseListEventsResponse parses an HTTP response from a ListEventsWithResponse call
+func ParseListEventsResponse(rsp *http.Response) (*ListEventsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DeleteFleetsResponse{
+	response := &ListEventsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
+		var dest EventList
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9203,28 +9137,35 @@ func ParseListFleetsResponse(rsp *http.Response) (*ListFleetsResponse, error) {
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9257,82 +9198,42 @@ func ParseCreateFleetResponse(rsp *http.Response) (*CreateFleetResponse, error) 
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteTemplateVersionsResponse parses an HTTP response from a DeleteTemplateVersionsWithResponse call
-func ParseDeleteTemplateVersionsResponse(rsp *http.Response) (*DeleteTemplateVersionsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteTemplateVersionsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
+		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9365,28 +9266,35 @@ func ParseListTemplateVersionsResponse(rsp *http.Response) (*ListTemplateVersion
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9412,35 +9320,42 @@ func ParseDeleteTemplateVersionResponse(rsp *http.Response) (*DeleteTemplateVers
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest TemplateVersion
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9451,15 +9366,15 @@ func ParseDeleteTemplateVersionResponse(rsp *http.Response) (*DeleteTemplateVers
 	return response, nil
 }
 
-// ParseReadTemplateVersionResponse parses an HTTP response from a ReadTemplateVersionWithResponse call
-func ParseReadTemplateVersionResponse(rsp *http.Response) (*ReadTemplateVersionResponse, error) {
+// ParseGetTemplateVersionResponse parses an HTTP response from a GetTemplateVersionWithResponse call
+func ParseGetTemplateVersionResponse(rsp *http.Response) (*GetTemplateVersionResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadTemplateVersionResponse{
+	response := &GetTemplateVersionResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9473,28 +9388,35 @@ func ParseReadTemplateVersionResponse(rsp *http.Response) (*ReadTemplateVersionR
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9520,35 +9442,42 @@ func ParseDeleteFleetResponse(rsp *http.Response) (*DeleteFleetResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Fleet
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9559,15 +9488,15 @@ func ParseDeleteFleetResponse(rsp *http.Response) (*DeleteFleetResponse, error) 
 	return response, nil
 }
 
-// ParseReadFleetResponse parses an HTTP response from a ReadFleetWithResponse call
-func ParseReadFleetResponse(rsp *http.Response) (*ReadFleetResponse, error) {
+// ParseGetFleetResponse parses an HTTP response from a GetFleetWithResponse call
+func ParseGetFleetResponse(rsp *http.Response) (*GetFleetResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadFleetResponse{
+	response := &GetFleetResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9581,28 +9510,35 @@ func ParseReadFleetResponse(rsp *http.Response) (*ReadFleetResponse, error) {
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9635,42 +9571,49 @@ func ParsePatchFleetResponse(rsp *http.Response) (*PatchFleetResponse, error) {
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9710,42 +9653,49 @@ func ParseReplaceFleetResponse(rsp *http.Response) (*ReplaceFleetResponse, error
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9756,15 +9706,15 @@ func ParseReplaceFleetResponse(rsp *http.Response) (*ReplaceFleetResponse, error
 	return response, nil
 }
 
-// ParseReadFleetStatusResponse parses an HTTP response from a ReadFleetStatusWithResponse call
-func ParseReadFleetStatusResponse(rsp *http.Response) (*ReadFleetStatusResponse, error) {
+// ParseGetFleetStatusResponse parses an HTTP response from a GetFleetStatusWithResponse call
+func ParseGetFleetStatusResponse(rsp *http.Response) (*GetFleetStatusResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadFleetStatusResponse{
+	response := &GetFleetStatusResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9778,28 +9728,35 @@ func ParseReadFleetStatusResponse(rsp *http.Response) (*ReadFleetStatusResponse,
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9832,35 +9789,42 @@ func ParsePatchFleetStatusResponse(rsp *http.Response) (*PatchFleetStatusRespons
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9893,28 +9857,35 @@ func ParseReplaceFleetStatusResponse(rsp *http.Response) (*ReplaceFleetStatusRes
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9925,43 +9896,118 @@ func ParseReplaceFleetStatusResponse(rsp *http.Response) (*ReplaceFleetStatusRes
 	return response, nil
 }
 
-// ParseDeleteRepositoriesResponse parses an HTTP response from a DeleteRepositoriesWithResponse call
-func ParseDeleteRepositoriesResponse(rsp *http.Response) (*DeleteRepositoriesResponse, error) {
+// ParseListLabelsResponse parses an HTTP response from a ListLabelsWithResponse call
+func ParseListLabelsResponse(rsp *http.Response) (*ListLabelsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DeleteRepositoriesResponse{
+	response := &ListLabelsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Status
+		var dest LabelList
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListOrganizationsResponse parses an HTTP response from a ListOrganizationsWithResponse call
+func ParseListOrganizationsResponse(rsp *http.Response) (*ListOrganizationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListOrganizationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OrganizationList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -9994,28 +10040,35 @@ func ParseListRepositoriesResponse(rsp *http.Response) (*ListRepositoriesRespons
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10048,35 +10101,42 @@ func ParseCreateRepositoryResponse(rsp *http.Response) (*CreateRepositoryRespons
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10102,35 +10162,42 @@ func ParseDeleteRepositoryResponse(rsp *http.Response) (*DeleteRepositoryRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest Repository
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10141,15 +10208,15 @@ func ParseDeleteRepositoryResponse(rsp *http.Response) (*DeleteRepositoryRespons
 	return response, nil
 }
 
-// ParseReadRepositoryResponse parses an HTTP response from a ReadRepositoryWithResponse call
-func ParseReadRepositoryResponse(rsp *http.Response) (*ReadRepositoryResponse, error) {
+// ParseGetRepositoryResponse parses an HTTP response from a GetRepositoryWithResponse call
+func ParseGetRepositoryResponse(rsp *http.Response) (*GetRepositoryResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadRepositoryResponse{
+	response := &GetRepositoryResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -10163,28 +10230,35 @@ func ParseReadRepositoryResponse(rsp *http.Response) (*ReadRepositoryResponse, e
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10217,42 +10291,49 @@ func ParsePatchRepositoryResponse(rsp *http.Response) (*PatchRepositoryResponse,
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10292,89 +10373,49 @@ func ParseReplaceRepositoryResponse(rsp *http.Response) (*ReplaceRepositoryRespo
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteResourceSyncsResponse parses an HTTP response from a DeleteResourceSyncsWithResponse call
-func ParseDeleteResourceSyncsResponse(rsp *http.Response) (*DeleteResourceSyncsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteResourceSyncsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
+		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10385,15 +10426,15 @@ func ParseDeleteResourceSyncsResponse(rsp *http.Response) (*DeleteResourceSyncsR
 	return response, nil
 }
 
-// ParseListResourceSyncResponse parses an HTTP response from a ListResourceSyncWithResponse call
-func ParseListResourceSyncResponse(rsp *http.Response) (*ListResourceSyncResponse, error) {
+// ParseListResourceSyncsResponse parses an HTTP response from a ListResourceSyncsWithResponse call
+func ParseListResourceSyncsResponse(rsp *http.Response) (*ListResourceSyncsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ListResourceSyncResponse{
+	response := &ListResourceSyncsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -10407,28 +10448,35 @@ func ParseListResourceSyncResponse(rsp *http.Response) (*ListResourceSyncRespons
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10461,35 +10509,42 @@ func ParseCreateResourceSyncResponse(rsp *http.Response) (*CreateResourceSyncRes
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10515,35 +10570,42 @@ func ParseDeleteResourceSyncResponse(rsp *http.Response) (*DeleteResourceSyncRes
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ResourceSync
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10554,15 +10616,15 @@ func ParseDeleteResourceSyncResponse(rsp *http.Response) (*DeleteResourceSyncRes
 	return response, nil
 }
 
-// ParseReadResourceSyncResponse parses an HTTP response from a ReadResourceSyncWithResponse call
-func ParseReadResourceSyncResponse(rsp *http.Response) (*ReadResourceSyncResponse, error) {
+// ParseGetResourceSyncResponse parses an HTTP response from a GetResourceSyncWithResponse call
+func ParseGetResourceSyncResponse(rsp *http.Response) (*GetResourceSyncResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ReadResourceSyncResponse{
+	response := &GetResourceSyncResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -10576,28 +10638,35 @@ func ParseReadResourceSyncResponse(rsp *http.Response) (*ReadResourceSyncRespons
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10630,42 +10699,49 @@ func ParsePatchResourceSyncResponse(rsp *http.Response) (*PatchResourceSyncRespo
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10705,42 +10781,96 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest Error
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest Error
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetVersionResponse parses an HTTP response from a GetVersionWithResponse call
+func ParseGetVersionResponse(rsp *http.Response) (*GetVersionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetVersionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Version
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

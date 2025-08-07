@@ -3,11 +3,32 @@ global:
     registry: ""
     gitserver: ""
     prometheus: ""
+    jaegerUi: ""
+  imagePullPolicy: IfNotPresent
+  imagePullSecretName: ""
+  internalNamespace: ""
 registry:
-  image: docker.io/library/registry:2
+  image: quay.io/flightctl/e2eregistry:2
   route: true
   hostName: ""
 gitserver:
-  image: localhost/git-server:latest
+  image: quay.io/flightctl-tests/git-server:latest
 prometheus:
   image: quay.io/prometheus/prometheus:v2.54.1
+jaeger:
+  enabled: false
+  image:
+    image: jaegertracing/all-in-one
+    tag: "1.35"
+    pullPolicy: ""
+  storageType: memory
+  maxTraces: 50000
+  otlpEnabled: true
+  logLevel: info
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "512Mi"
+      cpu: "200m"

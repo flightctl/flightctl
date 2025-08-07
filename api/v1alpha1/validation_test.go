@@ -1,10 +1,12 @@
 package v1alpha1
 
 import (
+	"encoding/base64"
+	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/robfig/cron/v3"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,7 +116,7 @@ func TestValidateUpdateScheduleCron(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
 				At:       tt.schedule,
-				TimeZone: util.StrToPtr("America/New_York"),
+				TimeZone: lo.ToPtr("America/New_York"),
 			}
 
 			errs := schedule.Validate()
@@ -186,7 +188,7 @@ func TestValidateUpdateScheduleTimeZone(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
 				At:       "* * * * *",
-				TimeZone: util.StrToPtr(tt.timeZone),
+				TimeZone: lo.ToPtr(tt.timeZone),
 			}
 
 			errs := schedule.Validate()
@@ -258,6 +260,58 @@ func TestValidateGraceDuration(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+		})
+	}
+}
+
+func TestValidateScheduleAndGraceDuration(t *testing.T) {
+	tests := []struct {
+		name           string
+		cronExpression string
+		duration       string
+		errMsg         string
+	}{
+		{
+			name:           "invalid cron expression, valid duration",
+			cronExpression: "* * * * * *", // invalid expression, too many *s
+			duration:       "30m",
+			errMsg:         "cannot validate grace duration",
+		},
+		{
+			name:           "valid cron expression, invalid duration",
+			cronExpression: "0 * * * *", // every hr
+			duration:       "",
+			errMsg:         "invalid duration",
+		},
+		// basic case that is handled more in depth in the TestValidateGraceDuration cases
+		{
+			name:           "valid cron expression, valid duration",
+			cronExpression: "0 * * * *", // every hr
+			duration:       "30m",
+			errMsg:         "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			schedule := UpdateSchedule{
+				At:                 tt.cronExpression,
+				StartGraceDuration: lo.ToPtr(tt.duration),
+			}
+
+			errs := schedule.Validate()
+			if tt.errMsg != "" {
+				require.Condition(func() bool {
+					for _, err := range errs {
+						if strings.Contains(err.Error(), tt.errMsg) {
+							return true
+						}
+					}
+					return false
+				})
+				return
+			}
+			require.Empty(errs)
 		})
 	}
 }
@@ -376,4 +430,391 @@ func TestValidateParametersInString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateInlineApplicationProviderSpec(t *testing.T) {
+	plain := EncodingPlain
+	base64Enc := EncodingBase64
+	composeSpec := `version: '3'
+services:
+  app:
+    image: quay.io/flightctl-tests/alpine:v1`
+
+	composeInvalidSpecContainerName := `version: '3'
+services:
+  app:
+    container_name: app
+    image: quay.io/flightctl-tests/alpine:v1`
+
+	composeInvalidSpecContainerShortname := `version: '3'
+services:
+  app:
+    image: nginx:latest`
+
+	base64Content := base64.StdEncoding.EncodeToString([]byte(composeSpec))
+	tests := []struct {
+		name          string
+		spec          InlineApplicationProviderSpec
+		fleetTemplate bool
+		expectErr     bool
+	}{
+		{
+			name: "valid plain content",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{
+						Path:            "docker-compose.yaml",
+						Content:         lo.ToPtr(composeSpec),
+						ContentEncoding: &plain,
+					},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name: "duplicate path",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "docker-compose.yaml", Content: lo.ToPtr("abc"), ContentEncoding: &plain},
+					{Path: "docker-compose.yaml", Content: lo.ToPtr("def"), ContentEncoding: &plain},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid base64 content",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "podman-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: &base64Enc},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "valid base64 content",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "podman-compose.yml", Content: &base64Content, ContentEncoding: &base64Enc},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name: "unknown encoding",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: lo.ToPtr(EncodingType("unknown"))},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid compose path",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "invalid-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: &plain},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid use of container_name",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeInvalidSpecContainerName), ContentEncoding: &plain},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid container short name",
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeInvalidSpecContainerShortname), ContentEncoding: &plain},
+				},
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.spec.Validate(lo.ToPtr(AppTypeCompose), tt.fleetTemplate)
+			if tt.expectErr {
+				require.NotEmpty(t, errs, "expected errors but got none")
+			} else {
+				require.Empty(t, errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
+}
+
+func TestValidateAlertRules(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name             string
+		rules            []ResourceAlertRule
+		samplingInterval string
+		wantErrs         []error
+	}{
+		{
+			name: "valid increasing thresholds",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeInfo, Percentage: 10, Duration: "3s"},
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 20, Duration: "4s"},
+				{Severity: ResourceAlertSeverityTypeCritical, Percentage: 30, Duration: "3s"},
+			},
+			samplingInterval: "1s",
+			wantErrs:         nil,
+		},
+		{
+			name: "info equals warning",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeInfo, Percentage: 20, Duration: "4s"},
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 20, Duration: "3s"},
+			},
+			wantErrs:         []error{ErrInfoAlertLessThanWarn},
+			samplingInterval: "1s",
+		},
+		{
+			name: "warning greater than critical",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 50, Duration: "4s"},
+				{Severity: ResourceAlertSeverityTypeCritical, Percentage: 40, Duration: "3s"},
+			},
+			wantErrs:         []error{ErrWarnAlertLessThanCritical},
+			samplingInterval: "1s",
+		},
+		{
+			name: "info greater than critical",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeInfo, Percentage: 90, Duration: "3s"},
+				{Severity: ResourceAlertSeverityTypeCritical, Percentage: 70, Duration: "4s"},
+			},
+			wantErrs:         []error{ErrInfoAlertLessThanCritical},
+			samplingInterval: "1s",
+		},
+		{
+			name: "duplicate severity and percentage",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 10, Duration: "3s"},
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 10, Duration: "3s"},
+			},
+			wantErrs:         []error{ErrDuplicateAlertSeverity},
+			samplingInterval: "1s",
+		},
+		{
+			name: "duplicate severity",
+			rules: []ResourceAlertRule{
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 20, Duration: "3s"},
+				{Severity: ResourceAlertSeverityTypeWarning, Percentage: 10, Duration: "5s"},
+			},
+			wantErrs:         []error{ErrDuplicateAlertSeverity},
+			samplingInterval: "1s",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validateAlertRules(tt.rules, tt.samplingInterval)
+			if len(tt.wantErrs) > 0 {
+				require.Len(errs, len(tt.wantErrs), "expected %d errors but got %d", len(tt.wantErrs), len(errs))
+				for i, wantErr := range tt.wantErrs {
+					require.ErrorIs(errs[i], wantErr, "expected error at index %d to be %v, got: %v", i, wantErr, errs[i])
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
+}
+
+func TestValidateConfigs(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name    string
+		configs []ConfigProviderSpec
+		wantErr bool
+	}{
+		{
+			name:    "duplicate http paths",
+			configs: []ConfigProviderSpec{newHttpConfigProviderSpec("/dupe"), newHttpConfigProviderSpec("/dupe")},
+			wantErr: true,
+		},
+		{
+			name:    "duplicate inline paths",
+			configs: []ConfigProviderSpec{newInlineConfigProviderSpec([]string{"/dupe", "/dupe"})},
+			wantErr: true,
+		},
+		{
+			name:    "http vs inline same path",
+			configs: []ConfigProviderSpec{newHttpConfigProviderSpec("/dupe"), newInlineConfigProviderSpec([]string{"/dupe"})},
+			wantErr: true,
+		},
+		{
+			name:    "http vs multiple inline same path",
+			configs: []ConfigProviderSpec{newHttpConfigProviderSpec("/dupe"), newInlineConfigProviderSpec([]string{"/new", "/dupe"})},
+			wantErr: true,
+		},
+		{
+			name:    "all unique",
+			configs: []ConfigProviderSpec{newHttpConfigProviderSpec("/new"), newInlineConfigProviderSpec([]string{"/new2"})},
+			wantErr: false,
+		},
+		{
+			name:    "empty configs",
+			configs: []ConfigProviderSpec{},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validateConfigs(tt.configs, true)
+			if tt.wantErr {
+				require.NotEmpty(errs, "expected errors but got none")
+				return
+			}
+			require.Empty(errs, "expected no errors but got: %v", errs)
+		})
+	}
+}
+
+func newHttpConfigProviderSpec(path string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	spec := HttpConfigProviderSpec{
+		Name: "default-provider",
+		HttpRef: struct {
+			FilePath   string  `json:"filePath"`
+			Repository string  `json:"repository"`
+			Suffix     *string `json:"suffix,omitempty"`
+		}{
+			FilePath:   path,
+			Repository: "default-repo",
+			Suffix:     nil,
+		},
+	}
+	_ = provider.FromHttpConfigProviderSpec(spec)
+	return provider
+}
+
+func newInlineConfigProviderSpec(paths []string) ConfigProviderSpec {
+	var provider ConfigProviderSpec
+	var inlines []FileSpec
+
+	for _, path := range paths {
+		inlines = append(inlines, FileSpec{
+			Path: path,
+		})
+	}
+
+	spec := InlineConfigProviderSpec{
+		Name:   "default-inline-provider",
+		Inline: inlines,
+	}
+
+	_ = provider.FromInlineConfigProviderSpec(spec)
+	return provider
+}
+
+func TestValidateApplications(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name          string
+		apps          []ApplicationProviderSpec
+		fleetTemplate bool
+		wantErrs      []string
+	}{
+		{
+			name: "duplicate volume name in single application",
+			apps: []ApplicationProviderSpec{
+				newTestApplication(require, "app1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol1", "vol1"),
+			},
+			wantErrs: []string{"duplicate volume name for application"},
+		},
+		{
+			name: "duplicate application name",
+			apps: []ApplicationProviderSpec{
+				newTestApplication(require, "app1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol1"),
+				newTestApplication(require, "app1", "quay.io/app/image:2", "quay.io/vol/image:1", "vol2"),
+			},
+			wantErrs: []string{"duplicate application name"},
+		},
+		{
+			name: "duplicate volume name across multiple applications",
+			apps: []ApplicationProviderSpec{
+				newTestApplication(require, "app1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol1"),
+				newTestApplication(require, "app2", "quay.io/app/image:2", "quay.io/vol/image:1", "vol1"),
+			},
+		},
+		{
+			name: "invalid volume name",
+			apps: []ApplicationProviderSpec{
+				newTestApplication(require, "app1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol@1"),
+			},
+			wantErrs: []string{"spec.applications[app1].volumes[0].name: Invalid value"},
+		},
+
+		{
+			name: "invalid application name",
+			apps: []ApplicationProviderSpec{
+				newTestApplication(require, "app@1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol1"),
+			},
+			wantErrs: []string{"spec.applications[].name: Invalid value"},
+		},
+		{
+			name: "invalid application image",
+			apps: []ApplicationProviderSpec{
+				newTestApplication(require, "app1", "_invalid-app", "quay.io/vol/image:1", "vol1"),
+			},
+			wantErrs: []string{"spec.applications[app1].image: Invalid value"},
+		},
+		{
+			name: "invalid application volume image",
+			apps: []ApplicationProviderSpec{
+				newTestApplication(require, "app1", "quay.io/app/image:1", "_invalid-vol", "vol1"),
+			},
+			wantErrs: []string{"spec.applications[app1].volumes[0].image.reference"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotErrs := validateApplications(tt.apps, tt.fleetTemplate)
+			if len(tt.wantErrs) > 0 {
+				require.Len(gotErrs, len(tt.wantErrs), "expected %d errors but got %d", len(tt.wantErrs), len(gotErrs))
+				for i, wantErr := range tt.wantErrs {
+					require.Contains(gotErrs[i].Error(), wantErr, "expected error at index %d to contain %q, got: %v", i, wantErr, gotErrs[i])
+				}
+			} else {
+				require.Empty(gotErrs, "expected no errors but got: %v", gotErrs)
+			}
+		})
+	}
+}
+
+func newTestApplication(require *require.Assertions, name string, appImage, volImage string, volumeNames ...string) ApplicationProviderSpec {
+	app := ApplicationProviderSpec{
+		Name:    lo.ToPtr(name),
+		AppType: lo.ToPtr(AppTypeCompose),
+	}
+
+	var volumes []ApplicationVolume
+	for _, volName := range volumeNames {
+		imageVolumeProvider := ImageVolumeProviderSpec{
+			Image: ImageVolumeSource{
+				Reference:  volImage,
+				PullPolicy: lo.ToPtr(PullIfNotPresent), // pull policy is validated by openapi
+			},
+		}
+
+		volumeProvider := ApplicationVolume{Name: volName}
+		require.NoError(volumeProvider.FromImageVolumeProviderSpec(imageVolumeProvider))
+		volumes = append(volumes, volumeProvider)
+	}
+
+	provider := ImageApplicationProviderSpec{
+		Image:   appImage,
+		Volumes: &volumes,
+	}
+	require.NoError(app.FromImageApplicationProviderSpec(provider))
+
+	return app
 }

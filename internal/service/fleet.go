@@ -2,368 +2,203 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/go-openapi/swag"
 	"github.com/google/uuid"
 )
 
-func FleetFromReader(r io.Reader) (*api.Fleet, error) {
-	var fleet api.Fleet
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&fleet)
-	return &fleet, err
-}
-
-// (POST /api/v1/fleets)
-func (h *ServiceHandler) CreateFleet(ctx context.Context, request server.CreateFleetRequestObject) (server.CreateFleetResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "create")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.CreateFleet503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.CreateFleet403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) CreateFleet(ctx context.Context, fleet api.Fleet) (*api.Fleet, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
 	// don't set fields that are managed by the service
-	request.Body.Status = nil
-	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
-	if request.Body.Spec.Template.Metadata != nil {
-		common.NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
+	fleet.Status = nil
+	NilOutManagedObjectMetaProperties(&fleet.Metadata)
+	if fleet.Spec.Template.Metadata != nil {
+		NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
 	}
 
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.CreateFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	if errs := fleet.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Fleet().Create(ctx, orgId, request.Body, h.callbackManager.FleetUpdatedCallback)
-	switch {
-	case err == nil:
-		return server.CreateFleet201JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.CreateFleet400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrDuplicateName):
-		return server.CreateFleet409JSONResponse{Message: err.Error()}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().Create(ctx, orgId, &fleet, h.callbackManager.FleetUpdatedCallback, h.callbackFleetUpdated)
+	return result, StoreErrorToApiStatus(err, true, api.FleetKind, fleet.Metadata.Name)
 }
 
-// (GET /api/v1/fleets)
-func (h *ServiceHandler) ListFleets(ctx context.Context, request server.ListFleetsRequestObject) (server.ListFleetsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListFleets503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ListFleets403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) ListFleets(ctx context.Context, params api.ListFleetsParams) (*api.FleetList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	cont, err := store.ParseContinueString(request.Params.Continue)
-	if err != nil {
-		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
 
-	var fieldSelector *selector.FieldSelector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
-		}
-	}
-
-	var labelSelector *selector.LabelSelector
-	if request.Params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListFleets400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
-		}
-	}
-
-	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(request.Params.Limit)),
-		Continue:      cont,
-		FieldSelector: fieldSelector,
-		LabelSelector: labelSelector,
-	}
-	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	}
-	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListFleets400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
-	}
-
-	result, err := h.store.Fleet().List(ctx, orgId, listParams, store.WithDeviceCount(util.DefaultBoolIfNil(request.Params.AddDevicesCount, false)))
+	result, err := h.store.Fleet().List(ctx, orgId, *listParams, store.ListWithDevicesSummary(util.DefaultBoolIfNil(params.AddDevicesSummary, false)))
 	if err == nil {
-		return server.ListFleets200JSONResponse(*result), nil
+		return result, api.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListFleets400JSONResponse{Message: se.Error()}, nil
+		return nil, api.StatusBadRequest(se.Error())
 	default:
-		return nil, err
+		return nil, api.StatusInternalServerError(err.Error())
 	}
 }
 
-// (DELETE /api/v1/fleets)
-func (h *ServiceHandler) DeleteFleets(ctx context.Context, request server.DeleteFleetsRequestObject) (server.DeleteFleetsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteFleets503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteFleets403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) GetFleet(ctx context.Context, name string, params api.GetFleetParams) (*api.Fleet, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	err = h.store.Fleet().DeleteAll(ctx, orgId, h.callbackManager.AllFleetsDeletedCallback)
-	switch err {
-	case nil:
-		return server.DeleteFleets200JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().Get(ctx, orgId, name, store.GetWithDeviceSummary(util.DefaultBoolIfNil(params.AddDevicesSummary, false)))
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (GET /api/v1/fleets/{name})
-func (h *ServiceHandler) ReadFleet(ctx context.Context, request server.ReadFleetRequestObject) (server.ReadFleetResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadFleet503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadFleet403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
-
-	result, err := h.store.Fleet().Get(ctx, orgId, request.Name, store.WithSummary(util.DefaultBoolIfNil(request.Params.AddDevicesSummary, false)))
-	switch {
-	case err == nil:
-		return server.ReadFleet200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadFleet404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
-}
-
-// (PUT /api/v1/fleets/{name})
-func (h *ServiceHandler) ReplaceFleet(ctx context.Context, request server.ReplaceFleetRequestObject) (server.ReplaceFleetResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceFleet503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceFleet403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet api.Fleet) (*api.Fleet, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
 	// don't overwrite fields that are managed by the service
-	request.Body.Status = nil
-	common.NilOutManagedObjectMetaProperties(&request.Body.Metadata)
-	if request.Body.Spec.Template.Metadata != nil {
-		common.NilOutManagedObjectMetaProperties(request.Body.Spec.Template.Metadata)
-	}
-
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
-	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceFleet400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
-	}
-
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.FleetUpdatedCallback)
-	switch {
-	case err == nil:
-		if created {
-			return server.ReplaceFleet201JSONResponse(*result), nil
-		} else {
-			return server.ReplaceFleet200JSONResponse(*result), nil
+	isInternal := IsInternalRequest(ctx)
+	if !isInternal {
+		fleet.Status = nil
+		NilOutManagedObjectMetaProperties(&fleet.Metadata)
+		if fleet.Spec.Template.Metadata != nil {
+			NilOutManagedObjectMetaProperties(fleet.Spec.Template.Metadata)
 		}
-	case errors.Is(err, flterrors.ErrResourceIsNil):
-		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNameIsNil):
-		return server.ReplaceFleet400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceFleet404JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed), errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.ReplaceFleet409JSONResponse{Message: err.Error()}, nil
-	default:
-		return nil, err
 	}
+
+	if errs := fleet.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	if name != *fleet.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackManager.FleetUpdatedCallback, h.callbackFleetUpdated)
+	return result, StoreErrorToApiStatus(err, created, api.FleetKind, &name)
 }
 
-// (DELETE /api/v1/fleets/{name})
-func (h *ServiceHandler) DeleteFleet(ctx context.Context, request server.DeleteFleetRequestObject) (server.DeleteFleetResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteFleet503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteFleet403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) DeleteFleet(ctx context.Context, name string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
 
-	f, err := h.store.Fleet().Get(ctx, orgId, request.Name)
-	if err == flterrors.ErrResourceNotFound {
-		return server.DeleteFleet404JSONResponse{}, nil
+	f, err := h.store.Fleet().Get(ctx, orgId, name)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return api.StatusOK() // idempotent delete
+		}
+		return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 	}
 	if f.Metadata.Owner != nil {
 		// Can't delete via api
-		return server.DeleteFleet403JSONResponse{Message: "unauthorized to delete fleet because it is owned by another resource"}, nil
+		return api.StatusConflict("unauthorized to delete fleet because it is owned by another resource")
 	}
 
-	err = h.store.Fleet().Delete(ctx, orgId, request.Name, h.callbackManager.FleetUpdatedCallback)
-	switch {
-	case err == nil:
-		return server.DeleteFleet200JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteFleet404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	err = h.store.Fleet().Delete(ctx, orgId, name, h.callbackManager.FleetUpdatedCallback, h.callbackFleetDeleted)
+	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (GET /api/v1/fleets/{name}/status)
-func (h *ServiceHandler) ReadFleetStatus(ctx context.Context, request server.ReadFleetStatusRequestObject) (server.ReadFleetStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/status", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadFleetStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadFleetStatus403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) GetFleetStatus(ctx context.Context, name string) (*api.Fleet, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.Fleet().Get(ctx, orgId, request.Name)
-	switch {
-	case err == nil:
-		return server.ReadFleetStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadFleetStatus404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (PUT /api/v1/fleets/{name}/status)
-func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, request server.ReplaceFleetStatusRequestObject) (server.ReplaceFleetStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets/status", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceFleetStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceFleetStatus403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, name string, fleet api.Fleet) (*api.Fleet, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, request.Body)
-	switch {
-	case err == nil:
-		return server.ReplaceFleetStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceFleetStatus404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, &fleet)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (PATCH /api/v1/fleets/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchFleet(ctx context.Context, request server.PatchFleetRequestObject) (server.PatchFleetResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "fleets", "patch")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.PatchFleet503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.PatchFleet403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.PatchRequest) (*api.Fleet, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	currentObj, err := h.store.Fleet().Get(ctx, orgId, request.Name)
+	currentObj, err := h.store.Fleet().Get(ctx, orgId, name)
 	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
-		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.PatchFleet404JSONResponse{}, nil
-		default:
-			return nil, err
-		}
+		return nil, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 	}
 
 	newObj := &api.Fleet{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/fleets/"+request.Name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/fleets/"+name)
 	if err != nil {
-		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
+		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	if errs := newObj.Validate(); len(errs) > 0 {
-		return server.PatchFleet400JSONResponse{Message: errors.Join(errs...).Error()}, nil
-	}
-	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchFleet400JSONResponse{Message: "metadata.name is immutable"}, nil
-	}
-	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchFleet400JSONResponse{Message: "apiVersion is immutable"}, nil
-	}
-	if currentObj.Kind != newObj.Kind {
-		return server.PatchFleet400JSONResponse{Message: "kind is immutable"}, nil
-	}
-	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchFleet400JSONResponse{Message: "status is immutable"}, nil
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(uuid.UUID, *api.Fleet, *api.Fleet)
+	var updateCallback func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet)
 
 	if h.callbackManager != nil {
 		updateCallback = h.callbackManager.FleetUpdatedCallback
 	}
-	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback)
-
-	switch {
-	case err == nil:
-		return server.PatchFleet200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-		return server.PatchFleet400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.PatchFleet404JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.PatchFleet409JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback, h.callbackFleetUpdated)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-// (PATCH /api/v1/fleets/{name}/status)
-func (h *ServiceHandler) PatchFleetStatus(ctx context.Context, request server.PatchFleetStatusRequestObject) (server.PatchFleetStatusResponseObject, error) {
-	return nil, fmt.Errorf("not yet implemented")
+func (h *ServiceHandler) ListFleetRolloutDeviceSelection(ctx context.Context) (*api.FleetList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	result, err := h.store.Fleet().ListRolloutDeviceSelection(ctx, orgId)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, nil)
+}
+
+func (h *ServiceHandler) ListDisruptionBudgetFleets(ctx context.Context) (*api.FleetList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	result, err := h.store.Fleet().ListDisruptionBudgetFleets(ctx, orgId)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, nil)
+}
+
+func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, name string, conditions []api.Condition) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+
+	err := h.store.Fleet().UpdateConditions(ctx, orgId, name, conditions)
+	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
+}
+
+func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+
+	err := h.store.Fleet().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys, h.callbackFleetUpdated)
+	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
+}
+
+func (h *ServiceHandler) OverwriteFleetRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
+
+	err := h.store.Fleet().OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
+	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
+}
+
+func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+	result, err := h.store.Fleet().GetRepositoryRefs(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
+}
+
+// callbackFleetUpdated is the fleet-specific callback that handles fleet events
+func (h *ServiceHandler) callbackFleetUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleFleetUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackFleetDeleted is the fleet-specific callback that handles fleet deletion events
+func (h *ServiceHandler) callbackFleetDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

@@ -41,7 +41,7 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // AfterUpdate mocks base method.
-func (m *MockManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *MockManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AfterUpdate", ctx, current, desired)
 	ret0, _ := ret[0].(error)
@@ -55,7 +55,7 @@ func (mr *MockManagerMockRecorder) AfterUpdate(ctx, current, desired any) *gomoc
 }
 
 // Sync mocks base method.
-func (m *MockManager) Sync(ctx context.Context, current, desired *v1alpha1.RenderedDeviceSpec) error {
+func (m *MockManager) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Sync", ctx, current, desired)
 	ret0, _ := ret[0].(error)

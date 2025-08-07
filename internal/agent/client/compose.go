@@ -4,46 +4,106 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/util/validation"
-	"sigs.k8s.io/yaml"
+	"github.com/samber/lo"
 )
 
-const defaultPodmanTimeout = 2 * time.Minute
+const (
+	ComposeOverrideFilename      = "99-compose-flightctl-agent.override.yaml"
+	ComposeDockerProjectLabelKey = "com.docker.compose.project"
+	defaultPodmanTimeout         = 10 * time.Minute
+)
 
-type ComposeSpec struct {
-	Services map[string]ComposeService `json:"services"`
-}
+var (
+	BaseComposeFiles = []string{
+		"docker-compose.yaml",
+		"docker-compose.yml",
+		"podman-compose.yaml",
+		"podman-compose.yml",
+	}
 
-type ComposeService struct {
-	Image         string `json:"image"`
-	ContainerName string `json:"container_name"`
-}
+	OverrideComposeFiles = []string{
+		"docker-compose.override.yaml",
+		"docker-compose.override.yml",
+		"podman-compose.override.yaml",
+		"podman-compose.override.yml",
+	}
+)
 
 type Compose struct {
 	*Podman
 }
 
-// UpFromWorkDir runs `docker-compose up -d` or `podman-compose up -d` from the
-// given workDir. The last argument is a flag to prevent recreation of existing
-// containers.
+// UpFromWorkDir runs `podman compose up -d` from the given workDir using Compose file layering.
+//
+// It searches for Compose files in the following order:
+//  1. One base file (required), chosen from BaseComposeFiles.
+//  2. One standard override file (optional), chosen from OverrideComposeFiles.
+//  3. An optional flightctl override file (ComposeOverrideFilename) if present.
+//
+// The method builds the final compose command by layering the discovered files in order.
+// The noRecreate flag, if true, adds `--no-recreate` to prevent recreating existing containers.
 func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string, noRecreate bool) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{
-		"compose",
-		"-p",
-		projectName,
-		"up",
-		"-d",
+	args := []string{"compose", "-p", projectName}
+
+	// base compose file is required
+	baseFound := false
+	for _, file := range BaseComposeFiles {
+		path := filepath.Join(workDir, file)
+		found, err := p.readWriter.PathExists(path)
+		if err != nil {
+			return fmt.Errorf("checking base compose file %q existence: %w", path, err)
+		}
+		if found {
+			args = append(args, "-f", file)
+			baseFound = true
+			break
+		}
+	}
+	if !baseFound {
+		return fmt.Errorf("no base compose file found in: %s", workDir)
 	}
 
+	// check for override (optional)
+	for _, file := range OverrideComposeFiles {
+		path := filepath.Join(workDir, file)
+		found, err := p.readWriter.PathExists(path)
+		if err != nil {
+			return fmt.Errorf("checking override compose file %q existence: %w", path, err)
+		}
+		if found {
+			args = append(args, "-f", file)
+			break
+		}
+	}
+
+	// check for agent override file (optional)
+	flightctlPath := filepath.Join(workDir, ComposeOverrideFilename)
+	found, err := p.readWriter.PathExists(flightctlPath)
+	if err != nil {
+		return fmt.Errorf("checking flightctl override file %q existence: %w", flightctlPath, err)
+	}
+	if found {
+		args = append(args, "-f", ComposeOverrideFilename)
+	}
+
+	args = append(args, "up", "-d")
 	if noRecreate {
 		args = append(args, "--no-recreate")
 	}
@@ -52,6 +112,7 @@ func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string
 	if exitCode != 0 {
 		return fmt.Errorf("podman compose up: %w", errors.FromStderr(stderr, exitCode))
 	}
+
 	return nil
 }
 
@@ -112,38 +173,23 @@ func (p *Compose) Down(ctx context.Context, path string) error {
 }
 
 // ParseComposeSpecFromDir reads a compose spec from the given directory and will perform a merge of the base {docker,podman}-compose.yaml and -override.yaml files.
-func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*ComposeSpec, error) {
-	// check for docker-compose.yaml or podman-compose.yaml and override files
-	//
-	// Note: podman nor docker handle merge files from other packages for
-	// example podman-compose and docker-compose.override.yaml. for now we will
-	// do the same but I will leave this note here for further consideration.
-	baseFiles := []string{
-		"docker-compose.yaml",
-		"docker-compose.yml",
-		"podman-compose.yaml",
-		"podman-compose.yml",
+func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*common.ComposeSpec, error) {
+	spec := &common.ComposeSpec{
+		Services: make(map[string]common.ComposeService),
+		Volumes:  make(map[string]common.ComposeVolume),
 	}
-	overrideFiles := []string{
-		"docker-compose.override.yaml",
-		"docker-compose.override.yml",
-		"podman-compose.override.yaml",
-		"podman-compose.override.yml",
-	}
-
-	spec := &ComposeSpec{Services: make(map[string]ComposeService)}
 
 	// ensure base
-	found, err := readFirstExistingFile(baseFiles, dir, reader, spec)
+	found, err := readFirstExistingFile(BaseComposeFiles, dir, reader, spec)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
-		return nil, errors.ErrNoComposeFile
+		return nil, fmt.Errorf("%w found in: %s supported file names: %s", errors.ErrNoComposeFile, dir, strings.Join(BaseComposeFiles, ", "))
 	}
 
 	// merge override
-	_, err = readFirstExistingFile(overrideFiles, dir, reader, spec)
+	_, err = readFirstExistingFile(OverrideComposeFiles, dir, reader, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +201,64 @@ func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*ComposeSpec, er
 	return spec, nil
 }
 
-func readFirstExistingFile(files []string, dir string, reader fileio.Reader, spec *ComposeSpec) (bool, error) {
+// ParseComposeSpecFromSpec parses a Compose specification from a slice of inline application content,
+// as used in inline application providers.
+func ParseComposeFromSpec(contents []v1alpha1.ApplicationContent) (*common.ComposeSpec, error) {
+	spec := &common.ComposeSpec{
+		Services: make(map[string]common.ComposeService),
+		Volumes:  make(map[string]common.ComposeVolume),
+	}
+
+	var baseFound bool
+	for _, c := range contents {
+		filename := c.Path
+		if filename == "" {
+			continue
+		}
+
+		contentBytes, err := fileio.DecodeContent(lo.FromPtr(c.Content), c.ContentEncoding)
+		if err != nil {
+			return nil, fmt.Errorf("decoding content %q: %w", filename, err)
+		}
+
+		isBase := slices.Contains(BaseComposeFiles, filename)
+		isOverride := slices.Contains(OverrideComposeFiles, filename)
+
+		if !isBase && !isOverride {
+			continue
+		}
+
+		partial, err := common.ParseComposeSpec(contentBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing compose spec from %q: %w", filename, err)
+		}
+
+		// First match from BaseComposeFiles takes precedence
+		if isBase && !baseFound {
+			maps.Copy(spec.Services, partial.Services)
+			maps.Copy(spec.Volumes, partial.Volumes)
+			baseFound = true
+			continue
+		}
+
+		if isOverride && baseFound {
+			maps.Copy(spec.Services, partial.Services)
+			maps.Copy(spec.Volumes, partial.Volumes)
+		}
+	}
+
+	if !baseFound {
+		return nil, fmt.Errorf("%w: no base compose file found in inline spec (expected one of: %s)", errors.ErrNoComposeFile, strings.Join(BaseComposeFiles, ", "))
+	}
+
+	if len(spec.Services) == 0 {
+		return nil, errors.ErrNoComposeServices
+	}
+
+	return spec, nil
+}
+
+func readFirstExistingFile(files []string, dir string, reader fileio.Reader, spec *common.ComposeSpec) (bool, error) {
 	for _, filename := range files {
 		filePath := filepath.Join(dir, filename)
 
@@ -179,52 +282,49 @@ func readFirstExistingFile(files []string, dir string, reader fileio.Reader, spe
 }
 
 // mergeFileIntoSpec serializes the compose file at filePath and merges it into the spec.
-func mergeFileIntoSpec(filePath string, reader fileio.Reader, spec *ComposeSpec) error {
+func mergeFileIntoSpec(filePath string, reader fileio.Reader, spec *common.ComposeSpec) error {
 	content, err := reader.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("reading compose file %s: %w", filePath, err)
 	}
 
-	var partial ComposeSpec
-	if err := yaml.Unmarshal(content, &partial); err != nil {
-		return fmt.Errorf("unmarshaling compose YAML from %s: %w", filePath, err)
+	partial, err := common.ParseComposeSpec(content)
+	if err != nil {
+		return fmt.Errorf("parsing compose: %s: %w", filePath, err)
 	}
 
-	for name, svc := range partial.Services {
-		spec.Services[name] = svc
-	}
-	return nil
-}
+	// merge services
+	maps.Copy(spec.Services, partial.Services)
 
-// Verify validates the compose spec.
-func (c *ComposeSpec) Verify() error {
-	var errs []error
-	for name, service := range c.Services {
-		containerName := service.ContainerName
-		if service.ContainerName != "" {
-			errs = append(errs, fmt.Errorf("service %s has a hard coded container_name %s which is not supported", name, containerName))
-		}
-		image := service.Image
-		if image == "" {
-			errs = append(errs, fmt.Errorf("service %s is missing an image", name))
-		}
-		if err := validation.ValidateOciImageReference(&image, "services."+name+".image"); err != nil {
-			errs = append(errs, err...)
-		}
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
+	// merge volumes
+	maps.Copy(spec.Volumes, partial.Volumes)
 
 	return nil
 }
 
-// Images returns a map of service names to their images.
-func (c *ComposeSpec) Images() map[string]string {
-	images := make(map[string]string)
-	for name, service := range c.Services {
-		images[name] = service.Image
+// NewComposeID generates a deterministic, lowercase, DNS-compatible ID with a fixed-length hash suffix.
+func NewComposeID(input string) string {
+	const suffixLength = 6
+	id := SanitizePodmanLabel(input)
+	hashValue := crc32.ChecksumIEEE([]byte(id))
+	suffix := strconv.AppendUint(nil, uint64(hashValue), 10)
+	maxLength := validation.DNS1123MaxLength - suffixLength - 1
+	if len(id) > maxLength {
+		id = id[:maxLength]
 	}
-	return images
+
+	var builder strings.Builder
+	builder.Grow(len(id) + 1 + suffixLength)
+
+	builder.WriteString(id)
+	builder.WriteByte('-')
+	builder.WriteString(string(suffix[:suffixLength]))
+
+	return builder.String()
+}
+
+// ComposeVolumeName generates a unique Compose-compatible volume name
+// based on the application and volume names.
+func ComposeVolumeName(appName, volumeName string) string {
+	return NewComposeID(appName + "-" + volumeName)
 }

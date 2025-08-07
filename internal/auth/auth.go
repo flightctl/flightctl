@@ -26,7 +26,8 @@ const (
 )
 
 type AuthNMiddleware interface {
-	ValidateToken(ctx context.Context, token string) (bool, error)
+	GetAuthToken(r *http.Request) (string, error)
+	ValidateToken(ctx context.Context, token string) error
 	GetIdentity(ctx context.Context, token string) (*common.Identity, error)
 	GetAuthConfig() common.AuthConfig
 }
@@ -46,24 +47,20 @@ func GetAuthN() AuthNMiddleware {
 	return authN
 }
 
-func ParseAuthHeader(authHeader string) (string, bool) {
-	authToken := strings.Split(authHeader, "Bearer ")
-	if len(authToken) != 2 {
-		return "", false
-	}
-	return authToken[1], true
+type AuthType string
+
+const (
+	AuthTypeNil  AuthType = "nil"
+	AuthTypeK8s  AuthType = "k8s"
+	AuthTypeOIDC AuthType = "oidc"
+	AuthTypeAAP  AuthType = "aap"
+)
+
+func GetConfiguredAuthType() AuthType {
+	return configuredAuthType
 }
 
-func getAuthToken(r *http.Request) (string, bool) {
-	if _, isAuthDisabled := authN.(NilAuth); isAuthDisabled {
-		return "", true
-	}
-	authHeader := r.Header.Get(common.AuthHeader)
-	if authHeader == "" {
-		return "", false
-	}
-	return ParseAuthHeader(authHeader)
-}
+var configuredAuthType AuthType
 
 func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
@@ -87,7 +84,7 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	return nil
 }
 
-func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
+func getTlsConfig(cfg *config.Config) *tls.Config {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
 	}
@@ -96,72 +93,63 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
 		caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
 		tlsConfig.RootCAs = caCertPool
 	}
+	return tlsConfig
+}
+
+func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
 	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
 	authZ = NilAuth{}
 	var err error
-	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, tlsConfig)
+	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg))
 	if err != nil {
 		return fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}
 	return nil
 }
 
-func CreateAuthMiddleware(cfg *config.Config, log logrus.FieldLogger) (func(http.Handler) http.Handler, error) {
+func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) error {
+	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
+	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
+	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
+	authZ = NilAuth{}
+	authN = authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
+	return nil
+}
+
+func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
 		log.Warnln("Auth disabled")
+		configuredAuthType = AuthTypeNil
 		authZ = NilAuth{}
 		authN = authZ.(AuthNMiddleware)
 	} else if cfg.Auth != nil {
 		var err error
 		if cfg.Auth.K8s != nil {
+			configuredAuthType = AuthTypeK8s
 			err = initK8sAuth(cfg, log)
 		} else if cfg.Auth.OIDC != nil {
+			configuredAuthType = AuthTypeOIDC
 			err = initOIDCAuth(cfg, log)
+		} else if cfg.Auth.AAP != nil {
+			configuredAuthType = AuthTypeAAP
+			err = initAAPAuth(cfg, log)
 		}
 
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	if authN == nil {
-		return nil, errors.New("no authN provider defined")
+		return errors.New("no authN provider defined")
 	}
 	if authZ == nil {
-		return nil, errors.New("no authZ provider defined")
+		return errors.New("no authZ provider defined")
 	}
-
-	handler := func(next http.Handler) http.Handler {
-		fn := func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/v1/auth/config" || r.URL.Path == "/api/v1/auth/validate" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			authToken, ok := getAuthToken(r)
-			if !ok {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			valid, err := authN.ValidateToken(r.Context(), authToken)
-			if err != nil || !valid {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
-			identity, err := authN.GetIdentity(ctx, authToken)
-			if err != nil {
-				log.WithError(err).Error("failed to get identity")
-			} else {
-				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
-			}
-			next.ServeHTTP(w, r.WithContext(ctx))
-		}
-		return http.HandlerFunc(fn)
-	}
-	return handler, nil
+	return nil
 }
 
 type K8sToK8sAuth struct {

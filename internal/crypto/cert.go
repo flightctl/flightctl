@@ -1,165 +1,98 @@
 package crypto
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"errors"
 	"fmt"
-	"math/big"
+	"math"
 	"os"
 	"path/filepath"
-	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	oscrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-// Wraps openshift/library-go/pkg/crypto to use ECDSA and simplify the interface
-const ClientBootstrapCommonName = "client-enrollment"
-const ClientBootstrapCommonNamePrefix = "client-enrollment-"
-const AdminCommonName = "flightctl-admin"
-const DeviceCommonNamePrefix = "device:"
+type CertOption = func(*x509.Certificate) error
 
-func BootstrapCNFromName(name string) string {
-	return ClientBootstrapCommonNamePrefix + name
+type CABackend interface {
+	IssueRequestedCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, usage []x509.ExtKeyUsage, opts ...CertOption) (*x509.Certificate, error)
+	GetCABundleX509() []*x509.Certificate
 }
 
-func CNFromDeviceFingerprint(fingerprint string) (string, error) {
-	if len(fingerprint) < 16 {
-		return "", errors.New("device fingerprint must have 16 characters at least")
+type CAClient struct {
+	caBackend CABackend
+	Cfg       *ca.Config
+	signers   *signer.CASigners
+}
+
+func (caClient *CAClient) Config() *ca.Config {
+	return caClient.Cfg
+}
+
+// EnsureCA() tries to load or generate a CA and connect to it.
+// If the CA is successfully loaded or generated it returns a valid CA instance, a flag signifying
+// was it loaded or generated and a nil error.
+// In case of errors a non-nil error is returned.
+func EnsureCA(cfg *ca.Config) (*CAClient, bool, error) {
+	caBackend, fresh, err := ensureInternalCA(cfg)
+	if err != nil {
+		return nil, fresh, err
 	}
-	return DeviceCommonNamePrefix + fingerprint, nil
+	ca := &CAClient{
+		caBackend: caBackend,
+		Cfg:       cfg,
+	}
+
+	ca.signers = signer.NewCASigners(ca)
+	return ca, fresh, nil
+}
+
+func (caClient *CAClient) GetSigner(name string) signer.Signer {
+	return caClient.signers.GetSigner(name)
+}
+
+func (caClient *CAClient) PeerCertificateFromCtx(ctx context.Context) (*x509.Certificate, error) {
+	return signer.PeerCertificateFromCtx(ctx)
+}
+
+func (caClient *CAClient) PeerCertificateSignerFromCtx(ctx context.Context) signer.Signer {
+	peerCertificate, err := signer.PeerCertificateFromCtx(ctx)
+	if err != nil {
+		return nil
+	}
+
+	if name, err := signer.GetSignerNameExtension(peerCertificate); err == nil && name != "" {
+		return caClient.GetSigner(name)
+	}
+
+	return nil
+}
+
+func CertStorePath(fileName string, store string) string {
+	return filepath.Join(store, fileName)
 }
 
 type TLSCertificateConfig oscrypto.TLSCertificateConfig
 
-type CA struct {
-	Config *TLSCertificateConfig
-
-	SerialGenerator oscrypto.SerialGenerator
-}
-
-func EnsureCA(certFile, keyFile, serialFile, subjectName string, expireDays int) (*CA, bool, error) {
-	if ca, err := GetCA(certFile, keyFile, serialFile); err == nil {
-		return ca, false, err
-	}
-	ca, err := MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName, expireDays)
-	return ca, true, err
-}
-
-func GetCA(certFile, keyFile, serialFile string) (*CA, error) {
-	ca, err := oscrypto.GetCA(certFile, keyFile, serialFile)
+func (caClient *CAClient) EnsureServerCertificate(ctx context.Context, certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error) {
+	certConfig, err := GetServerCertificate(certFile, keyFile, hostnames)
 	if err != nil {
-		return nil, err
-	}
-	config := TLSCertificateConfig(*ca.Config)
-	return &CA{Config: &config, SerialGenerator: ca.SerialGenerator}, err
-}
-
-func MakeSelfSignedCA(certFile, keyFile, serialFile, subjectName string, expiryDays int) (*CA, error) {
-	caConfig, err := makeSelfSignedCAConfig(
-		pkix.Name{CommonName: subjectName},
-		time.Duration(expiryDays)*24*time.Hour,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if err = caConfig.WriteCertConfigFile(certFile, keyFile); err != nil {
-		return nil, err
-	}
-
-	var serialGenerator oscrypto.SerialGenerator
-	if len(serialFile) > 0 {
-		// create / overwrite the serial file with a zero padded hex value (ending in a newline to have a valid file)
-		if err := os.WriteFile(serialFile, []byte("00\n"), 0600); err != nil {
-			return nil, err
-		}
-		serialGenerator, err = oscrypto.NewSerialFileGenerator(serialFile)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		serialGenerator = &oscrypto.RandomSerialGenerator{}
-	}
-
-	config := TLSCertificateConfig(*caConfig)
-	return &CA{
-		SerialGenerator: serialGenerator,
-		Config:          &config,
-	}, nil
-}
-
-func makeSelfSignedCAConfig(subject pkix.Name, caLifetime time.Duration) (*oscrypto.TLSCertificateConfig, error) {
-	rootcaPublicKey, rootcaPrivateKey, publicKeyHash, err := NewKeyPairWithHash()
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	rootcaTemplate := &x509.Certificate{
-		Subject: subject,
-
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
-
-		NotBefore: now.Add(-1 * time.Second),
-		NotAfter:  now.Add(caLifetime),
-
-		SerialNumber: randomSerial(),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-
-		AuthorityKeyId: publicKeyHash,
-		SubjectKeyId:   publicKeyHash,
-	}
-	rootcaCert, err := signCertificate(rootcaTemplate, rootcaPublicKey, rootcaTemplate, rootcaPrivateKey)
-	if err != nil {
-		return nil, err
-	}
-	caConfig := &oscrypto.TLSCertificateConfig{
-		Certs: []*x509.Certificate{rootcaCert},
-		Key:   rootcaPrivateKey,
-	}
-	return caConfig, nil
-}
-
-func signCertificate(template *x509.Certificate, requestKey crypto.PublicKey, issuer *x509.Certificate, issuerKey crypto.PrivateKey) (*x509.Certificate, error) {
-	derBytes, err := x509.CreateCertificate(rand.Reader, template, issuer, requestKey, issuerKey)
-	if err != nil {
-		return nil, err
-	}
-	certs, err := x509.ParseCertificates(derBytes)
-	if err != nil {
-		return nil, err
-	}
-	if len(certs) != 1 {
-		return nil, errors.New("expected a single certificate")
-	}
-	return certs[0], nil
-}
-
-// func (ca *CA) EnsureSubCA(certFile, keyFile, serialFile, name string, expireDays int) (*CA, bool, error) {
-// 	if subCA, err := GetCA(certFile, keyFile, serialFile); err == nil {
-// 		return subCA, false, err
-// 	}
-// 	subCA, err := ca.MakeAndWriteSubCA(certFile, keyFile, serialFile, name, expireDays)
-// 	return subCA, true, err
-// }
-
-func (ca *CA) EnsureServerCertificate(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, bool, error) {
-	certConfig, err := GetServerCert(certFile, keyFile, hostnames)
-	if err != nil {
-		certConfig, err = ca.MakeAndWriteServerCert(certFile, keyFile, hostnames, expireDays)
+		certConfig, err = caClient.MakeAndWriteServerCertificate(ctx, certFile, keyFile, hostnames, expireDays)
 		return certConfig, true, err
 	}
 
 	return certConfig, false, nil
 }
 
-func GetServerCert(certFile, keyFile string, hostnames []string) (*TLSCertificateConfig, error) {
+func GetServerCertificate(certFile, keyFile string, hostnames []string) (*TLSCertificateConfig, error) {
 	internalServer, err := oscrypto.GetServerCert(certFile, keyFile, sets.NewString(hostnames...))
 	if err != nil {
 		return nil, err
@@ -168,8 +101,8 @@ func GetServerCert(certFile, keyFile string, hostnames []string) (*TLSCertificat
 	return &server, nil
 }
 
-func (ca *CA) MakeAndWriteServerCert(certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, error) {
-	server, err := ca.MakeServerCert(hostnames, expireDays)
+func (caClient *CAClient) MakeAndWriteServerCertificate(ctx context.Context, certFile, keyFile string, hostnames []string, expireDays int) (*TLSCertificateConfig, error) {
+	server, err := caClient.MakeServerCertificate(ctx, hostnames, expireDays)
 	if err != nil {
 		return nil, err
 	}
@@ -179,67 +112,47 @@ func (ca *CA) MakeAndWriteServerCert(certFile, keyFile string, hostnames []strin
 	return server, nil
 }
 
-type CertificateExtensionFunc func(*x509.Certificate) error
-
-func (ca *CA) MakeServerCert(hostnames []string, expiryDays int, fns ...CertificateExtensionFunc) (*TLSCertificateConfig, error) {
+func (caClient *CAClient) MakeServerCertificate(ctx context.Context, hostnames []string, expiryDays int) (*TLSCertificateConfig, error) {
 	if len(hostnames) < 1 {
 		return nil, fmt.Errorf("at least one hostname must be provided")
 	}
 
-	serverPublicKey, serverPrivateKey, publicKeyHash, _ := NewKeyPairWithHash()
+	_, serverPrivateKey, err := fccrypto.NewKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate server key pair: %w", err)
+	}
 
-	now := time.Now()
-	serverTemplate := &x509.Certificate{
+	serverTemplate := &x509.CertificateRequest{
 		Subject: pkix.Name{CommonName: hostnames[0]},
-
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
-
-		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expiryDays) * 24 * time.Hour),
-		SerialNumber: big.NewInt(1),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-
-		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
-		SubjectKeyId:   publicKeyHash,
 	}
 	serverTemplate.IPAddresses, serverTemplate.DNSNames = oscrypto.IPAddressesDNSNames(hostnames)
-	for _, fn := range fns {
-		if err := fn(serverTemplate); err != nil {
-			return nil, err
-		}
-	}
 
-	serverCrt, err := ca.signCertificate(serverTemplate, serverPublicKey)
+	raw, err := x509.CreateCertificateRequest(rand.Reader, serverTemplate, serverPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	csr, err := x509.ParseCertificateRequest(raw)
+	if err != nil {
+		return nil, err
+	}
+	serverCrt, err := caClient.IssueRequestedServerCertificateAsX509(ctx, csr, expiryDays*86400)
 	if err != nil {
 		return nil, err
 	}
 	server := &TLSCertificateConfig{
-		Certs: append([]*x509.Certificate{serverCrt}, ca.Config.Certs...),
+		Certs: append([]*x509.Certificate{serverCrt}, caClient.GetCABundleX509()...),
 		Key:   serverPrivateKey,
 	}
 	return server, nil
 }
 
-func (ca *CA) signCertificate(template *x509.Certificate, requestKey crypto.PublicKey) (*x509.Certificate, error) {
-	// Increment and persist serial
-	serial, err := ca.SerialGenerator.Next(template)
+func (caClient *CAClient) EnsureClientCertificate(ctx context.Context, certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
+	certConfig, err := caClient.MakeClientCertificate(ctx, certFile, keyFile, subjectName, expireDays)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	template.SerialNumber = big.NewInt(serial)
-	return signCertificate(template, requestKey, ca.Config.Certs[0], ca.Config.Key)
-}
-
-func (ca *CA) EnsureClientCertificate(certFile, keyFile string, subjectName string, expireDays int) (*TLSCertificateConfig, bool, error) {
-	certConfig, err := GetClientCertificate(certFile, keyFile, subjectName)
-	if err != nil {
-		certConfig, err = ca.MakeClientCertificate(certFile, keyFile, subjectName, expireDays)
-		return certConfig, true, err // true indicates we wrote the files.
-	}
-	return certConfig, false, nil
+	err = certConfig.WriteCertConfigFile(certFile, keyFile)
+	return certConfig, err == nil, err // true indicates we wrote the files.
 }
 
 func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCertificateConfig, error) {
@@ -257,66 +170,69 @@ func GetClientCertificate(certFile, keyFile string, subjectName string) (*TLSCer
 	return &client, nil
 }
 
-func (ca *CA) MakeClientCertificate(certFile, keyFile string, subject string, expiryDays int) (*TLSCertificateConfig, error) {
-	if err := os.MkdirAll(filepath.Dir(certFile), os.FileMode(0755)); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(keyFile), os.FileMode(0755)); err != nil {
-		return nil, err
-	}
-
-	clientPublicKey, clientPrivateKey, isNewKey, err := EnsureKey(keyFile)
+func (caClient *CAClient) MakeClientCertificate(ctx context.Context, certFile, keyFile string, subjectName string, expiryDays int) (*TLSCertificateConfig, error) {
+	_, clientPrivateKey, err := fccrypto.NewKeyPair()
 	if err != nil {
-		return nil, err
-	}
-	clientPublicKeyHash, err := HashPublicKey(clientPublicKey)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate client key pair: %w", err)
 	}
 
-	now := time.Now()
-	clientTemplate := &x509.Certificate{
-
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
-
-		NotBefore:    now.Add(-1 * time.Second),
-		NotAfter:     now.Add(time.Duration(expiryDays) * 24 * time.Hour),
-		SerialNumber: big.NewInt(1),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
-
-		AuthorityKeyId: ca.Config.Certs[0].SubjectKeyId,
-		SubjectKeyId:   clientPublicKeyHash,
+	if subjectName == "" {
+		subjectName = caClient.Cfg.ClientBootstrapCommonName
 	}
-	if subject != "" {
-		clientTemplate.Subject = pkix.Name{CommonName: subject}
-	}
-	clientCrt, err := ca.signCertificate(clientTemplate, clientPublicKey)
+
+	raw, err := fccrypto.MakeCSR(clientPrivateKey.(crypto.Signer), subjectName)
 	if err != nil {
 		return nil, err
 	}
 
-	certData, err := oscrypto.EncodeCertificates(clientCrt)
-	if err != nil {
+	seconds := expiryDays * 24 * 3600
+	if seconds > math.MaxInt32 {
+		return nil, fmt.Errorf("expiryDays too large: would overflow int32 seconds")
+	}
+	expiry := int32(seconds) // #nosec G115 -- safe: bounds already checked above
+
+	req := api.CertificateSigningRequest{
+		ApiVersion: api.CertificateSigningRequestAPIVersion,
+		Kind:       api.CertificateSigningRequestKind,
+		Metadata: api.ObjectMeta{
+			Name: &subjectName,
+		},
+		Spec: api.CertificateSigningRequestSpec{
+			Request:           raw,
+			SignerName:        caClient.Cfg.ClientBootstrapSignerName,
+			ExpirationSeconds: &expiry,
+		},
+	}
+
+	s := caClient.GetSigner(caClient.Cfg.ClientBootstrapSignerName)
+	if s == nil {
+		return nil, fmt.Errorf("signer %q not found", caClient.Cfg.ClientBootstrapSignerName)
+	}
+
+	if err := s.Verify(ctx, req); err != nil {
 		return nil, err
 	}
-	keyData, err := PEMEncodeKey(clientPrivateKey)
+
+	signedCert, err := s.Sign(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = os.WriteFile(certFile, certData, os.FileMode(0644)); err != nil {
+	block, err := fccrypto.GetPEMBlock(signedCert)
+	if err != nil {
 		return nil, err
 	}
-	if isNewKey {
-		if err = os.WriteFile(keyFile, keyData, os.FileMode(0600)); err != nil {
-			return nil, err
-		}
+
+	clientCrt, err := x509.ParseCertificates(block.Bytes)
+	if err != nil {
+		return nil, err
 	}
 
-	return GetTLSCertificateConfig(certFile, keyFile)
+	client := &TLSCertificateConfig{
+		Certs: append(clientCrt, caClient.GetCABundleX509()...),
+		Key:   clientPrivateKey,
+	}
+	return client, nil
 }
 
 func GetTLSCertificateConfig(certFile, keyFile string) (*TLSCertificateConfig, error) {
@@ -338,10 +254,80 @@ func (c *TLSCertificateConfig) GetPEMBytes() ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	keyBytes, err := PEMEncodeKey(c.Key)
+	keyBytes, err := fccrypto.PEMEncodeKey(c.Key)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return certBytes, keyBytes, nil
+}
+
+func (caClient *CAClient) IssueRequestedClientCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...CertOption) (*x509.Certificate, error) {
+	return caClient.caBackend.IssueRequestedCertificateAsX509(ctx, csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, opts...)
+}
+
+func (caClient *CAClient) IssueRequestedClientCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...CertOption) ([]byte, error) {
+	cert, err := caClient.IssueRequestedClientCertificateAsX509(ctx, csr, expirySeconds, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", flterrors.ErrSignCert, err)
+	}
+	certData, err := oscrypto.EncodeCertificates(cert)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", flterrors.ErrEncodeCert, err)
+	}
+
+	return certData, nil
+}
+
+func (caClient *CAClient) IssueRequestedServerCertificateAsX509(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...CertOption) (*x509.Certificate, error) {
+	return caClient.caBackend.IssueRequestedCertificateAsX509(ctx, csr, expirySeconds, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}, opts...)
+}
+func (caClient *CAClient) IssueRequestedServerCertificate(ctx context.Context, csr *x509.CertificateRequest, expirySeconds int, opts ...CertOption) ([]byte, error) {
+	cert, err := caClient.IssueRequestedServerCertificateAsX509(ctx, csr, expirySeconds, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", flterrors.ErrSignCert, err)
+	}
+	certData, err := oscrypto.EncodeCertificates(cert)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", flterrors.ErrEncodeCert, err)
+	}
+
+	return certData, nil
+}
+
+func (caClient *CAClient) GetCABundleX509() []*x509.Certificate {
+	return caClient.caBackend.GetCABundleX509()
+}
+
+func (caClient *CAClient) GetCABundle() ([]byte, error) {
+	certs := caClient.GetCABundleX509()
+	return oscrypto.EncodeCertificates(certs...)
+}
+
+// CanReadCertAndKey checks if both the certificate and key files exist and are readable.
+// Returns true if both files are accessible, false if neither exists, and an error if one is missing.
+func CanReadCertAndKey(certPath, keyPath string) (bool, error) {
+	certExists := isFileReadable(certPath)
+	keyExists := isFileReadable(keyPath)
+
+	switch {
+	case !certExists && !keyExists:
+		return false, nil
+	case !certExists:
+		return false, fmt.Errorf("certificate file missing or unreadable: \"%s\" (certificate and key must be provided as a pair)", certPath)
+	case !keyExists:
+		return false, fmt.Errorf("key file missing or unreadable: \"%s\" (certificate and key must be provided as a pair)", keyPath)
+	default:
+		return true, nil
+	}
+}
+
+// isFileReadable checks if the given file path exists and is readable.
+func isFileReadable(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return true
 }

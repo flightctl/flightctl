@@ -23,12 +23,13 @@ const (
 var _ Monitor[CPUUsage] = (*CPUMonitor)(nil)
 
 type CPUMonitor struct {
-	mu       sync.Mutex
-	alerts   map[v1alpha1.ResourceAlertSeverityType]*Alert
-	statPath string
+	mu     sync.Mutex
+	alerts map[v1alpha1.ResourceAlertSeverityType]*Alert
 
 	updateIntervalCh chan time.Duration
 	samplingInterval time.Duration
+	collector        Collector[CPUUsage]
+	prevUsage        *CPUUsage
 
 	log *log.PrefixLogger
 }
@@ -38,9 +39,9 @@ func NewCPUMonitor(
 ) *CPUMonitor {
 	return &CPUMonitor{
 		alerts:           make(map[v1alpha1.ResourceAlertSeverityType]*Alert),
-		statPath:         DefaultProcStatPath,
 		updateIntervalCh: make(chan time.Duration, 1),
 		samplingInterval: DefaultSamplingInterval,
+		collector:        newCPUCollector(DefaultProcStatPath),
 		log:              log,
 	}
 }
@@ -84,31 +85,11 @@ func (m *CPUMonitor) Alerts() []v1alpha1.ResourceAlertRule {
 	return firing
 }
 
-func (m *CPUMonitor) CollectUsage(ctx context.Context, usage *CPUUsage) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		file, err := os.Open(m.statPath)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			fields := strings.Fields(scanner.Text())
-			// cpu should be the first line which is the summary of all procs
-			if fields[0] == "cpu" {
-				// skip the first field which is "cpu"
-				return parseCPUStats(fields[1:], usage)
-			}
-		}
-		return fmt.Errorf("cpu stats not found in /proc/stat")
-	}
+func (m *CPUMonitor) collectUsage(ctx context.Context, usage *CPUUsage) error {
+	return m.collector.CollectUsage(ctx, usage)
 }
 
-func (m *CPUMonitor) sync(ctx context.Context, usage *CPUUsage) {
+func (m *CPUMonitor) sync(ctx context.Context, current *CPUUsage) {
 	if !m.hasAlertRules() {
 		m.log.Debug("Skipping CPU usage sync: no alert rules")
 		return
@@ -117,19 +98,36 @@ func (m *CPUMonitor) sync(ctx context.Context, usage *CPUUsage) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultCPUSyncTimeout)
 	defer cancel()
 
-	if err := m.CollectUsage(ctx, usage); err != nil {
+	if err := m.collectUsage(ctx, current); err != nil {
 		m.log.Errorf("Failed to collect CPU usage: %v", err)
+		return
 	}
 
-	m.ensureAlerts(usage.UsedPercent)
-}
-
-func (m *CPUMonitor) ensureAlerts(percentageUsed int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// init on first sync
+	if m.prevUsage == nil {
+		m.prevUsage = current
+		return
+	}
+
+	// calculate the delta between the current and previous CPU usage
+	deltaActive := (current.ActiveTime() - m.prevUsage.ActiveTime())
+	deltaTotal := (current.TotalTime() - m.prevUsage.TotalTime())
+
+	if deltaTotal > 0 {
+		current.UsedPercent = calculateCPUPercentage(deltaActive, deltaTotal)
+	} else {
+		m.log.Warnf("Invalid CPU usage delta: %f/%f", deltaActive, deltaTotal)
+		current.UsedPercent = 0
+	}
+
+	m.prevUsage = current
+
+	m.log.Tracef("CPU usage: %d%%", current.UsedPercent)
 	for _, alert := range m.alerts {
-		alert.Sync(percentageUsed)
+		alert.Sync(current.UsedPercent)
 	}
 }
 
@@ -193,10 +191,7 @@ func parseCPUStats(fields []string, cpuUsage *CPUUsage) error {
 	}
 
 	// total CPU time as the sum of user, system, and idle times
-	totalTime := cpuUsage.User + cpuUsage.Nice + cpuUsage.System + cpuUsage.Idle + cpuUsage.Iowait + cpuUsage.Irq + cpuUsage.Softirq + cpuUsage.Steal + cpuUsage.Guest + cpuUsage.GuestNice
-	activeTime := totalTime - cpuUsage.Idle - cpuUsage.Iowait
-
-	cpuUsage.UsedPercent = calculateCPUPercentage(activeTime, totalTime)
+	cpuUsage.UsedPercent = calculateCPUPercentage(cpuUsage.ActiveTime(), cpuUsage.TotalTime())
 	cpuUsage.lastCollectedAt = time.Now()
 
 	return nil
@@ -228,6 +223,47 @@ type CPUUsage struct {
 	err             error
 }
 
+func (u *CPUUsage) TotalTime() float64 {
+	return u.User + u.Nice + u.System + u.Idle + u.Iowait +
+		u.Irq + u.Softirq + u.Steal + u.Guest + u.GuestNice
+}
+
+func (u *CPUUsage) ActiveTime() float64 {
+	return u.TotalTime() - u.Idle - u.Iowait
+}
+
 func (u *CPUUsage) Error() error {
 	return u.err
+}
+
+type cpuCollector struct {
+	statPath string
+}
+
+func newCPUCollector(statPath string) Collector[CPUUsage] {
+	return &cpuCollector{statPath: statPath}
+}
+
+func (c *cpuCollector) CollectUsage(ctx context.Context, usage *CPUUsage) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		file, err := os.Open(c.statPath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			fields := strings.Fields(scanner.Text())
+			// cpu should be the first line which is the summary of all procs
+			if fields[0] == "cpu" {
+				// skip the first field which is "cpu"
+				return parseCPUStats(fields[1:], usage)
+			}
+		}
+		return fmt.Errorf("cpu stats not found in /proc/stat")
+	}
 }

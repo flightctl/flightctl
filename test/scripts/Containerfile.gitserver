@@ -14,6 +14,7 @@ RUN chown user:user /home/user/.ssh/authorized_keys && chmod 600 /home/user/.ssh
 RUN mkdir -p /home/user/repos && chown user:user /home/user/repos
 RUN mkdir /home/user/git-shell-commands
 COPY test/scripts/git-server-cmds/* /home/user/git-shell-commands/
+RUN chown -R user:user /home/user/
 USER user
 RUN git config --global init.defaultBranch main
 USER root

@@ -2,58 +2,171 @@ package service
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
-	"reflect"
+	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
-	"github.com/flightctl/flightctl/internal/util"
-	"github.com/go-openapi/swag"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
-const ClientCertExpiryDays = 365
+// getTPMCAPool loads the TPM CA certificates from configured paths
+func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
+	if len(h.tpmCAPaths) == 0 {
+		return nil
+	}
 
-func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.EnrollmentRequest, approval *v1alpha1.EnrollmentRequestApprovalStatus) error {
+	roots, err := tpm.LoadCAsFromPaths(h.tpmCAPaths)
+	if err != nil {
+		h.log.Warnf("Failed to load TPM CA certificates from configured paths: %v", err)
+		return nil
+	}
+
+	return roots
+}
+
+// handleTPMEnrollmentRequest checks if the enrollment request contains a TCG
+// CSR and if so, verifies it and stores the verification status in labels.
+// Returns true if this is a TCG CSR, false for standard CSRs.
+func (h *ServiceHandler) handleTPMEnrollmentRequest(er *api.EnrollmentRequest, name string) bool {
+	csrBytes := []byte(er.Spec.Csr)
+
+	if !tpm.IsTCGCSRFormat(csrBytes) {
+		// try to decode as base64 - it might be an encoded TCG CSR
+		decodedBytes, err := base64.StdEncoding.DecodeString(er.Spec.Csr)
+		if err == nil && tpm.IsTCGCSRFormat(decodedBytes) {
+			csrBytes = decodedBytes
+		}
+	}
+
+	if !tpm.IsTCGCSRFormat(csrBytes) {
+		// standard csr verification
+		return false
+	}
+
+	// perform verification and store results in labels
+	h.verifyAndLabelTPMEnrollment(er, csrBytes, name)
+	return true
+}
+
+// verifyAndLabelTPMEnrollment verifies a TCG CSR and stores the verification status in conditions.
+// This method always allows enrollment to proceed, storing any errors in conditions for admin review.
+func (h *ServiceHandler) verifyAndLabelTPMEnrollment(er *api.EnrollmentRequest, csrBytes []byte, name string) {
+	trustedRoots := h.getTPMCAPool()
+
+	// Ensure status exists
+	addStatusIfNeeded(er)
+
+	if err := tpm.VerifyTCGCSRChainOfTrustWithRoots(csrBytes, trustedRoots); err != nil {
+		// Store verification failure in condition
+		condition := api.Condition{
+			Type:    "TPMVerified",
+			Status:  api.ConditionStatusFalse,
+			Reason:  "TPMVerificationFailed",
+			Message: err.Error(),
+		}
+		api.SetStatusCondition(&er.Status.Conditions, condition)
+		h.log.Warnf("TPM verification failed for enrollment request %s: %v", name, err)
+	} else {
+		// Store verification success in condition
+		condition := api.Condition{
+			Type:    "TPMVerified",
+			Status:  api.ConditionStatusTrue,
+			Reason:  "TPMVerificationSucceeded",
+			Message: "TPM attestation chain of trust verified successfully",
+		}
+		api.SetStatusCondition(&er.Status.Conditions, condition)
+		h.log.Debugf("TPM verification passed for enrollment request %s", name)
+	}
+}
+
+func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
 
-	if enrollmentRequest.Metadata.Name == nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: enrollment request is missing metadata.name")
+	var certData []byte
+	var err error
+
+	csrBytes := []byte(enrollmentRequest.Spec.Csr)
+	if !tpm.IsTCGCSRFormat(csrBytes) {
+		// try to decode as base64 - it might be an encoded TCG CSR
+		decodedBytes, err := base64.StdEncoding.DecodeString(enrollmentRequest.Spec.Csr)
+		if err == nil && tpm.IsTCGCSRFormat(decodedBytes) {
+			// successfully decoded and it's a TCG CSR
+			csrBytes = decodedBytes
+		}
 	}
 
-	csr, err := crypto.ParseCSR([]byte(enrollmentRequest.Spec.Csr))
-	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: error parsing CSR: %w", err)
+	if tpm.IsTCGCSRFormat(csrBytes) {
+		parsed, err := tpm.ParseTCGCSR(csrBytes)
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: failed to parse TCG CSR: %w", err)
+		}
+
+		tpmData, err := tpm.ExtractTPMDataFromTCGCSR(parsed)
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: failed to extract TPM data: %w", err)
+		}
+
+		// for TCG CSR, we need to use the embedded standard X.509 CSR for signing
+		if len(tpmData.StandardCSR) == 0 {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: TCG CSR does not contain embedded X.509 CSR")
+		}
+
+		// temporarily replace the enrollment request CSR with the embedded standard CSR
+		originalCSR := enrollmentRequest.Spec.Csr
+		enrollmentRequest.Spec.Csr = string(tpmData.StandardCSR)
+
+		csr := enrollmentRequestToCSR(ca, enrollmentRequest)
+		signer := ca.GetSigner(csr.Spec.SignerName)
+		if signer == nil {
+			enrollmentRequest.Spec.Csr = originalCSR
+			return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
+		}
+
+		certData, err = signer.Sign(ctx, csr)
+
+		// restore original CSR
+		enrollmentRequest.Spec.Csr = originalCSR
+
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
+		}
+	} else {
+		// standard CSR signing flow
+		csr := enrollmentRequestToCSR(ca, enrollmentRequest)
+		signer := ca.GetSigner(csr.Spec.SignerName)
+		if signer == nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
+		}
+
+		certData, err = signer.Sign(ctx, csr)
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
+		}
 	}
 
-	csr.Subject.CommonName, err = crypto.CNFromDeviceFingerprint(*enrollmentRequest.Metadata.Name)
-	if err != nil {
-		return fmt.Errorf("approveAndSignEnrollmentRequest: error setting CN in CSR: %w", err)
+	// preserve existing conditions when approving
+	existingConditions := []api.Condition{}
+	if enrollmentRequest.Status != nil && enrollmentRequest.Status.Conditions != nil {
+		existingConditions = enrollmentRequest.Status.Conditions
 	}
 
-	if err := csr.CheckSignature(); err != nil {
-		return fmt.Errorf("failed to verify signature of CSR: %w", err)
-	}
-
-	expirySeconds := ClientCertExpiryDays * 24 * 60 * 60
-	certData, err := ca.IssueRequestedClientCertificate(csr, expirySeconds)
-	if err != nil {
-		return err
-	}
-	enrollmentRequest.Status = &v1alpha1.EnrollmentRequestStatus{
-		Certificate: util.StrToPtr(string(certData)),
-		Conditions:  []v1alpha1.Condition{},
+	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
+		Certificate: lo.ToPtr(string(certData)),
+		Conditions:  existingConditions,
 		Approval:    approval,
 	}
 
@@ -67,24 +180,104 @@ func approveAndSignEnrollmentRequest(ca *crypto.CA, enrollmentRequest *v1alpha1.
 		}
 	}
 
-	condition := v1alpha1.Condition{
-		Type:    v1alpha1.EnrollmentRequestApproved,
-		Status:  v1alpha1.ConditionStatusTrue,
+	condition := api.Condition{
+		Type:    api.ConditionTypeEnrollmentRequestApproved,
+		Status:  api.ConditionStatusTrue,
 		Reason:  "ManuallyApproved",
 		Message: "Approved by " + approval.ApprovedBy,
 	}
-	v1alpha1.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
+	api.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
 	return nil
 }
 
-func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
-	status := v1alpha1.NewDeviceStatus()
-	status.Lifecycle = v1alpha1.DeviceLifecycleStatus{Status: "Enrolled"}
-	apiResource := &v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
-			Name: enrollmentRequest.Metadata.Name,
+func addStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
+	if enrollmentRequest.Status == nil {
+		enrollmentRequest.Status = &api.EnrollmentRequestStatus{
+			Certificate: nil,
+			Conditions:  []api.Condition{},
+		}
+	}
+}
+
+func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
+	deviceStatus := api.NewDeviceStatus()
+	deviceStatus.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
+
+	// Check if TPM was verified during enrollment request creation
+	isTPMVerified := false
+	var tpmVerificationError string
+	if enrollmentRequest.Status != nil {
+		if condition := api.FindStatusCondition(enrollmentRequest.Status.Conditions, "TPMVerified"); condition != nil {
+			isTPMVerified = (condition.Status == api.ConditionStatusTrue)
+			if !isTPMVerified {
+				tpmVerificationError = condition.Message
+			}
+		}
+	}
+
+	// always set device integrity status based on TPM verification result
+	now := time.Now()
+	if isTPMVerified {
+		deviceStatus.Integrity = api.DeviceIntegrityStatus{
+			Status:       api.DeviceIntegrityStatusVerified,
+			Info:         lo.ToPtr("All integrity checks completed successfully"),
+			LastVerified: &now,
+			DeviceIdentity: &api.DeviceIntegrityCheckStatus{
+				Status: api.DeviceIntegrityCheckStatusVerified,
+				Info:   lo.ToPtr("Device identity verified through certificate chain"),
+			},
+			Tpm: &api.DeviceIntegrityCheckStatus{
+				Status: api.DeviceIntegrityCheckStatusVerified,
+				Info:   lo.ToPtr("TPM attestation chain of trust verified"),
+			},
+		}
+	} else {
+		// Check if this was a TCG CSR enrollment attempt that failed verification
+		csrBytes := []byte(enrollmentRequest.Spec.Csr)
+
+		if !tpm.IsTCGCSRFormat(csrBytes) {
+			decodedBytes, err := base64.StdEncoding.DecodeString(enrollmentRequest.Spec.Csr)
+			if err == nil && tpm.IsTCGCSRFormat(decodedBytes) {
+				csrBytes = decodedBytes
+			}
+		}
+
+		if tpm.IsTCGCSRFormat(csrBytes) {
+			tpmErrorMsg := "TPM attestation verification failed"
+			deviceIdentityMsg := "Device identity verification failed"
+
+			if tpmVerificationError != "" {
+				if strings.Contains(tpmVerificationError, "TPM CA certificates not configured") {
+					tpmErrorMsg = "TPM CA certificates not configured - cannot verify chain"
+					deviceIdentityMsg = "Cannot verify identity - TPM CA certificates not configured"
+				} else {
+					tpmErrorMsg = fmt.Sprintf("TPM verification failed: %s", tpmVerificationError)
+					deviceIdentityMsg = fmt.Sprintf("Identity verification failed: %s", tpmVerificationError)
+				}
+			}
+
+			deviceStatus.Integrity = api.DeviceIntegrityStatus{
+				Status:       api.DeviceIntegrityStatusFailed,
+				Info:         lo.ToPtr("Integrity verification failed"),
+				LastVerified: &now,
+				DeviceIdentity: &api.DeviceIntegrityCheckStatus{
+					Status: api.DeviceIntegrityCheckStatusFailed,
+					Info:   lo.ToPtr(deviceIdentityMsg),
+				},
+				Tpm: &api.DeviceIntegrityCheckStatus{
+					Status: api.DeviceIntegrityCheckStatusFailed,
+					Info:   lo.ToPtr(tpmErrorMsg),
+				},
+			}
+		}
+	}
+
+	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
+	apiResource := &api.Device{
+		Metadata: api.ObjectMeta{
+			Name: &name,
 		},
-		Status: &status,
+		Status: &deviceStatus,
 	}
 	if errs := apiResource.Validate(); len(errs) > 0 {
 		return fmt.Errorf("failed validating new device: %w", errors.Join(errs...))
@@ -92,302 +285,199 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback)
+	common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
+
+	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback, h.callbackDeviceUpdated)
 	return err
 }
 
-// (POST /api/v1/enrollmentrequests)
-func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, request server.CreateEnrollmentRequestRequestObject) (server.CreateEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "create")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.CreateEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	// don't set fields that are managed by the service
+	er.Status = nil
+
+	if errs := er.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if !allowed {
-		return server.CreateEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
+
+	// Check and handle TPM-based enrollment requests
+	if !h.handleTPMEnrollmentRequest(&er, *er.Metadata.Name) {
+		csr := enrollmentRequestToCSR(h.ca, &er)
+		signer := h.ca.GetSigner(csr.Spec.SignerName)
+		if signer == nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+		}
+
+		if err := signer.Verify(ctx, csr); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 	}
-	return common.CreateEnrollmentRequest(ctx, h.store, request)
+
+	addStatusIfNeeded(&er)
+
+	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
+	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
 }
 
-// (GET /api/v1/enrollmentrequests)
-func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, request server.ListEnrollmentRequestsRequestObject) (server.ListEnrollmentRequestsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "list")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ListEnrollmentRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ListEnrollmentRequests403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.ListEnrollmentRequestsParams) (*api.EnrollmentRequestList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	cont, err := store.ParseContinueString(request.Params.Continue)
-	if err != nil {
-		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse continue parameter: %v", err)}, nil
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != api.StatusOK() {
+		return nil, status
 	}
 
-	var fieldSelector *selector.FieldSelector
-	if request.Params.FieldSelector != nil {
-		if fieldSelector, err = selector.NewFieldSelector(*request.Params.FieldSelector); err != nil {
-			return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse field selector: %v", err)}, nil
-		}
-	}
-
-	var labelSelector *selector.LabelSelector
-	if request.Params.LabelSelector != nil {
-		if labelSelector, err = selector.NewLabelSelector(*request.Params.LabelSelector); err != nil {
-			return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("failed to parse label selector: %v", err)}, nil
-		}
-	}
-
-	listParams := store.ListParams{
-		Limit:         int(swag.Int32Value(request.Params.Limit)),
-		Continue:      cont,
-		FieldSelector: fieldSelector,
-		LabelSelector: labelSelector,
-	}
-	if listParams.Limit == 0 {
-		listParams.Limit = store.MaxRecordsPerListRequest
-	}
-	if listParams.Limit > store.MaxRecordsPerListRequest {
-		return server.ListEnrollmentRequests400JSONResponse{Message: fmt.Sprintf("limit cannot exceed %d", store.MaxRecordsPerListRequest)}, nil
-	}
-
-	result, err := h.store.EnrollmentRequest().List(ctx, orgId, listParams)
+	result, err := h.store.EnrollmentRequest().List(ctx, orgId, *listParams)
 	if err == nil {
-		return server.ListEnrollmentRequests200JSONResponse(*result), nil
+		return result, api.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return server.ListEnrollmentRequests400JSONResponse{Message: se.Error()}, nil
+		return nil, api.StatusBadRequest(se.Error())
 	default:
-		return nil, err
+		return nil, api.StatusInternalServerError(err.Error())
 	}
 }
 
-// (DELETE /api/v1/enrollmentrequests)
-func (h *ServiceHandler) DeleteEnrollmentRequests(ctx context.Context, request server.DeleteEnrollmentRequestsRequestObject) (server.DeleteEnrollmentRequestsResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "deletecollection")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteEnrollmentRequests503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteEnrollmentRequests403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	err = h.store.EnrollmentRequest().DeleteAll(ctx, orgId)
-	switch err {
-	case nil:
-		return server.DeleteEnrollmentRequests200JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (GET /api/v1/enrollmentrequests/{name})
-func (h *ServiceHandler) ReadEnrollmentRequest(ctx context.Context, request server.ReadEnrollmentRequestRequestObject) (server.ReadEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "get")
+func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	// don't set fields that are managed by the service
+	er.Status = nil
+	NilOutManagedObjectMetaProperties(&er.Metadata)
+
+	if errs := er.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	err := h.allowCreationOrUpdate(ctx, orgId, name)
 	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
+		return nil, api.StatusBadRequest(err.Error())
 	}
-	if !allowed {
-		return server.ReadEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
-	return common.ReadEnrollmentRequest(ctx, h.store, request)
-}
-
-// (PUT /api/v1/enrollmentrequests/{name})
-func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, request server.ReplaceEnrollmentRequestRequestObject) (server.ReplaceEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
-
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ReplaceEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
-	}
-	if request.Name != *request.Body.Metadata.Name {
-		return server.ReplaceEnrollmentRequest400JSONResponse{Message: "resource name specified in metadata does not match name in path"}, nil
+	if name != *er.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
-		return nil, err
-	}
-
-	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, request.Body)
-	switch {
-	case err == nil:
-		if created {
-			return server.ReplaceEnrollmentRequest201JSONResponse(*result), nil
-		} else {
-			return server.ReplaceEnrollmentRequest200JSONResponse(*result), nil
+	// Check and handle TPM-based enrollment requests
+	if !h.handleTPMEnrollmentRequest(&er, name) {
+		// standard CSR verification flow
+		csr := enrollmentRequestToCSR(h.ca, &er)
+		signer := h.ca.GetSigner(csr.Spec.SignerName)
+		if signer == nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
 		}
-	case errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.ReplaceEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceEnrollmentRequest404JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict):
-		return server.ReplaceEnrollmentRequest409JSONResponse{}, nil
-	default:
-		return nil, err
+
+		if err := signer.Verify(ctx, csr); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 	}
+
+	addStatusIfNeeded(&er)
+
+	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
+	return result, StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
 }
 
-// (PATCH /api/v1/enrollmentrequests/{name})
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, request server.PatchEnrollmentRequestRequestObject) (server.PatchEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "patch")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.PatchEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.PatchEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string, patch api.PatchRequest) (*api.EnrollmentRequest, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	currentObj, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
+	currentObj, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
 	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil):
-			return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-		case errors.Is(err, flterrors.ErrResourceNotFound):
-			return server.PatchEnrollmentRequest404JSONResponse{}, nil
-		default:
-			return nil, err
-		}
+		return nil, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 	}
 
-	newObj := &v1alpha1.EnrollmentRequest{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, *request.Body, "/api/v1/enrollmentrequests/"+request.Name)
+	newObj := &api.EnrollmentRequest{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/enrollmentrequests/"+name)
 	if err != nil {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
+		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	if errs := newObj.Validate(); len(errs) > 0 {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	if newObj.Metadata.Name == nil || *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: "metadata.name is immutable"}, nil
-	}
-	if currentObj.ApiVersion != newObj.ApiVersion {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: "apiVersion is immutable"}, nil
-	}
-	if currentObj.Kind != newObj.Kind {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: "kind is immutable"}, nil
-	}
-	if !reflect.DeepEqual(currentObj.Status, newObj.Status) {
-		return server.PatchEnrollmentRequest400JSONResponse{Message: "status is immutable"}, nil
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
+	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj)
-	switch {
-	case err == nil:
-		return server.PatchEnrollmentRequest200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceIsNil), errors.Is(err, flterrors.ErrResourceNameIsNil), errors.Is(err, flterrors.ErrIllegalResourceVersionFormat):
-		return server.PatchEnrollmentRequest400JSONResponse{Message: err.Error()}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.PatchEnrollmentRequest404JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrNoRowsUpdated), errors.Is(err, flterrors.ErrResourceVersionConflict), errors.Is(err, flterrors.ErrUpdatingResourceWithOwnerNotAllowed):
-		return server.PatchEnrollmentRequest409JSONResponse{}, nil
-	default:
-		return nil, err
+	// Check and handle TPM-based enrollment requests
+	if !h.handleTPMEnrollmentRequest(newObj, name) {
+		// Standard CSR verification flow
+		csr := enrollmentRequestToCSR(h.ca, newObj)
+		signer := h.ca.GetSigner(csr.Spec.SignerName)
+		if signer == nil {
+			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+		}
+
+		if err := signer.Verify(ctx, csr); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 	}
+
+	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj, h.callbackEnrollmentRequestUpdated)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (DELETE /api/v1/enrollmentrequests/{name})
-func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, request server.DeleteEnrollmentRequestRequestObject) (server.DeleteEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests", "delete")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.DeleteEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.DeleteEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
+	orgId := getOrgIdFromContext(ctx)
 
-	err = h.store.EnrollmentRequest().Delete(ctx, orgId, request.Name)
-	switch {
-	case err == nil:
-		return server.DeleteEnrollmentRequest200JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.DeleteEnrollmentRequest404JSONResponse{}, nil
-	default:
-		return nil, err
+	exists, err := h.deviceExists(ctx, name)
+	if err != nil {
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
+
+	if exists {
+		return api.StatusConflict(fmt.Sprintf("cannot delete ER %q: device exists", name))
+	}
+
+	err = h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
+	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (GET /api/v1/enrollmentrequests/{name}/status)
-func (h *ServiceHandler) ReadEnrollmentRequestStatus(ctx context.Context, request server.ReadEnrollmentRequestStatusRequestObject) (server.ReadEnrollmentRequestStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/status", "get")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReadEnrollmentRequestStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReadEnrollmentRequestStatus403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) GetEnrollmentRequestStatus(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch {
-	case err == nil:
-		return server.ReadEnrollmentRequestStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReadEnrollmentRequestStatus404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
-// (POST /api/v1/enrollmentrequests/{name}/approval)
-func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request server.ApproveEnrollmentRequestRequestObject) (server.ApproveEnrollmentRequestResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/approval", "post")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ApproveEnrollmentRequest503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ApproveEnrollmentRequest403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
+func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name string, approval api.EnrollmentRequestApproval) (*api.EnrollmentRequestApprovalStatus, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
 
-	if errs := request.Body.Validate(); len(errs) > 0 {
-		return server.ApproveEnrollmentRequest400JSONResponse{Message: errors.Join(errs...).Error()}, nil
+	if errs := approval.Validate(); len(errs) > 0 {
+		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, request.Name)
-	switch {
-	default:
-		return nil, err
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
-	case err == nil:
+	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 	}
+
+	approvalStatusToReturn := enrollmentReq.Status.Approval
 
 	// if the enrollment request was already approved we should not try to approve it one more time
-	if request.Body.Approved {
-		if v1alpha1.IsStatusConditionTrue(enrollmentReq.Status.Conditions, v1alpha1.EnrollmentRequestApproved) {
-			return server.ApproveEnrollmentRequest400JSONResponse{Message: "Enrollment request is already approved"}, nil
+	if approval.Approved {
+		if api.IsStatusConditionTrue(enrollmentReq.Status.Conditions, api.ConditionTypeEnrollmentRequestApproved) {
+			return nil, api.StatusBadRequest("Enrollment request is already approved")
 		}
 
 		identity, err := authcommon.GetIdentity(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve user identity while approving enrollment request: %w", err)
+			status := api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
+			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+			return nil, status
 		}
 
 		approvedBy := "unknown"
@@ -395,61 +485,89 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, request s
 			approvedBy = identity.Username
 		}
 
-		approvalStatus := v1alpha1.EnrollmentRequestApprovalStatus{
-			Approved:   request.Body.Approved,
-			Labels:     request.Body.Labels,
+		approvalStatus := api.EnrollmentRequestApprovalStatus{
+			Approved:   approval.Approved,
+			Labels:     approval.Labels,
 			ApprovedAt: time.Now(),
 			ApprovedBy: approvedBy,
 		}
+		approvalStatusToReturn = &approvalStatus
 
-		if err := approveAndSignEnrollmentRequest(h.ca, enrollmentReq, &approvalStatus); err != nil {
-			return server.ApproveEnrollmentRequest400JSONResponse{Message: fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error())}, nil
+		err = approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus)
+		if err != nil {
+			status := api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
+			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+			return nil, status
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			return nil, fmt.Errorf("error creating device from enrollment request: %v", err.Error())
+			status := api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
+			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+			return nil, status
 		}
 	}
-	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq)
-	switch {
-	case err == nil:
-		return server.ApproveEnrollmentRequest200JSONResponse{}, nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ApproveEnrollmentRequest404JSONResponse{}, nil
-	default:
-		return nil, err
+
+	// Update the enrollment request status using the specific approval callback
+	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq, h.callbackEnrollmentRequestApproved)
+	return approvalStatusToReturn, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+}
+
+func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	addStatusIfNeeded(&er)
+
+	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
+	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+}
+
+func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
+	device, err := h.store.Device().Get(ctx, orgId, name)
+	if errors.Is(err, flterrors.ErrResourceNotFound) {
+		return nil // Device not found: allow to create or update
+	}
+	if device != nil {
+		return flterrors.ErrDuplicateName // Duplicate name: creation blocked
+	}
+	return err
+}
+
+// deviceExists checks if a device with the given name exists in the store.
+// Error is returned if there is an error other than ErrResourceNotFound.
+func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, error) {
+	dev, err := h.store.Device().Get(ctx, store.NullOrgId, name)
+	if errors.Is(err, flterrors.ErrResourceNotFound) {
+		return false, nil
+	}
+	return dev != nil, err
+}
+
+func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {
+	return api.CertificateSigningRequest{
+		ApiVersion: "v1alpha1",
+		Kind:       "CertificateSigningRequest",
+		Metadata: api.ObjectMeta{
+			Name: enrollmentRequest.Metadata.Name,
+		},
+		Spec: api.CertificateSigningRequestSpec{
+			Request:    []byte(enrollmentRequest.Spec.Csr),
+			SignerName: ca.Cfg.DeviceEnrollmentSignerName,
+		},
 	}
 }
 
-// (PUT /api/v1/enrollmentrequests/{name}/status)
-func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, request server.ReplaceEnrollmentRequestStatusRequestObject) (server.ReplaceEnrollmentRequestStatusResponseObject, error) {
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, "enrollmentrequests/status", "update")
-	if err != nil {
-		h.log.WithError(err).Error("failed to check authorization permission")
-		return server.ReplaceEnrollmentRequestStatus503JSONResponse{Message: AuthorizationServerUnavailable}, nil
-	}
-	if !allowed {
-		return server.ReplaceEnrollmentRequestStatus403JSONResponse{Message: Forbidden}, nil
-	}
-	orgId := store.NullOrgId
-
-	if err := common.ValidateAndCompleteEnrollmentRequest(request.Body); err != nil {
-		return nil, err
-	}
-
-	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, request.Body)
-	switch {
-	case err == nil:
-		return server.ReplaceEnrollmentRequestStatus200JSONResponse(*result), nil
-	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return server.ReplaceEnrollmentRequestStatus404JSONResponse{}, nil
-	default:
-		return nil, err
-	}
+// callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
+func (h *ServiceHandler) callbackEnrollmentRequestUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
-// (PATCH /api/v1/enrollmentrequests/{name}/status)
-func (h *ServiceHandler) PatchEnrollmentRequestStatus(ctx context.Context, request server.PatchEnrollmentRequestStatusRequestObject) (server.PatchEnrollmentRequestStatusResponseObject, error) {
-	return nil, fmt.Errorf("not yet implemented")
+// callbackEnrollmentRequestDeleted is the enrollment request-specific callback that handles enrollment request deletion events
+func (h *ServiceHandler) callbackEnrollmentRequestDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// callbackEnrollmentRequestApproved is the enrollment request-specific callback that handles enrollment request approval events
+func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleEnrollmentRequestApprovedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

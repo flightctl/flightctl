@@ -40,7 +40,23 @@ NAME                                                  APPROVAL  APPROVER  APPROV
 
 Once approved, the device will get issued its initial management certificate and get registered to the device inventory and is now ready to be managed.
 
-## Viewing the Device Inventory and Device Details
+## Viewing and Customizing the Device System Information
+
+Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. Fields can optionally be promoted to labels during the enrollment process, this must be done manually or through external automation. Promoting fields to labels enables powerful grouping and querying capabilities, such as filtering devices by region or OS version. You can also define your own fields in `status.systemInfo.customInfo`, allowing the agent to collect user-defined metadata through custom commands.
+
+### Considerations for System Information
+
+Here are key considerations when using this feature:
+
+* **What’s Collected**: By default, the agent collects basic system information such as hostname, kernel version, OS distribution, product identifiers, and default network interface details. Additional fields such as BIOS data, GPU info, memory, and CPU details can be enabled through configuration. See [configuring agent](configuring-agent.md) for a full list of supported fields and how to customize collection.
+
+* **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [configuring agent](configuring-agent.md) for example usage.
+
+* **Collection Timing**: System info is collected during process bootstrap and then cached. It refreshes only if the agent restarts or receives a reload signal (SIGHUP). This avoids unnecessary overhead during regular status updates.
+
+* **Reboot Awareness**: The agent tracks boot time and boot ID, allowing Flight Control to detect whether the device has rebooted. This is useful for update coordination and lifecycle monitoring.
+
+* **Partial Data**: Not all fields may be available on every device or on every process start. Collection is best-effort missing values errors or timeouts will result in empty values.
 
 ### Viewing using the Web UI
 
@@ -68,7 +84,7 @@ flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yam
 The output will look similar to this:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   name: 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
@@ -122,7 +138,15 @@ Labels must follow certain rules to be valid (in fact, these are the same as for
 * Keys and value must each be 63 characters or less. Value may be omitted.
 * Keys and values may consist of alphanumeric characters (`a-z`, `A-Z`, `0-9`). They may also contain dashes (`-`), underscores (`_`), dots (`.`), but not as the first or last character.
 
-Once devices are labeled, you can select a subset of devices by writing a "label selector", which is a comma-separated list of labels devices must have to be selected, for example `site=factory-berlin,device-type=autonomous-forklift`).
+Once devices are labeled, you can select a subset of devices by writing a "label selector". Label selectors can select based on equality, inequality, or set operators:
+
+| Example label selector                    | Devices it selects                                                                                   |
+|-------------------------------------------|------------------------------------------------------------------------------------------------------|
+| `site=factory-berlin`                     | All devices with a label key `site` and a label value `factory-berlin`.                              |
+| `site!=factory-berlin`                    | All devices with a label key `site` and not a label value `factory-berlin`.                          |
+| `site in (factory-berlin,factory-madrid)` | All devices with a label key `site` and a label value of either `factory-berlin` or `factory-madrid` |
+
+You can specify multiple label selectors in a comma-separated list, for example `site=factory-berlin,device-type=autonomous-forklift`, to have a device selected only if all selectors in the list match.
 
 There are multiple ways when and how to apply labels to devices:
 
@@ -166,7 +190,7 @@ flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yam
 Next, use your preferred editor to edit `my_device.yaml`, for example:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   labels:
@@ -210,7 +234,7 @@ During the process, the agent sends status updates to the service. You can monit
 To update a device using the CLI, get the device's current resource manifest, edit it to specify the new OS name and version target, then apply the updated resource.
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   name: some_device_name
@@ -220,6 +244,30 @@ spec:
     image: quay.io/flightctl/rhel:9.5
 [...]
 ```
+
+### Using Image Pull Secrets
+
+If your device relies on containers from a private repository, [authentication credentials](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#configuring-container-pull-secrets_managing-users-groups-ssh-key-and-secrets-in-image-mode-for-rhel) (pull secrets) must be placed in the appropriate system paths.
+
+* **OS Image:** Uses `/etc/ostree/auth.json`
+* **Container Images:** Uses the system default for Podman, `/root/.config/containers/auth.json`
+
+#### Auth File Format
+
+The authentication file should follow this format:
+
+```json
+{
+  "auths": {
+    "registry.example.com": {
+      "auth": "base64-encoded-credentials"
+    }
+  }
+}
+```
+
+> [!NOTE]
+Authentication must exist on the device before it can be consumed.
 
 ## Managing OS Configuration
 
@@ -253,9 +301,11 @@ The Git Config Provider takes the following parameters:
 | Repository | The name of a Repository resource defined in Flight Control. |
 | TargetRevision | The branch, tag, or commit of the repository to checkout. |
 | Path | The subdirectory of the repository that contains the configuration. |
-| MountPath | (Optional) The directory in the device's file system to write the configuration to. Defaults to the file system root `/`. |
 
 The Repository resource definition tells Flight Control the Git repository to connect to and which protocol and access credentials to use. It needs to be set up once (see Setting Up Repositories) and can then be used to configure multiple devices or fleets.
+
+The subdirectory of the repository (pointed to by Path) will be mounted to the root of the device. When specifying a Path, make sure the directories in it already exist with writable access on the system (the application cannot write to the root).  
+Using non-existent or read-only directories may result in errors due to insufficient permissions or read-only file systems.
 
 #### Example
 
@@ -286,7 +336,6 @@ You can now reference this Repository when you configure devices. For example, t
 | Repository | site-settings |
 | TargetRevision | production |
 | Path | /factory-a |
-| MountPath | (leave empty to use the default `/` root directory) |
 
 ### Getting Secrets from a Kubernetes Cluster
 
@@ -338,7 +387,7 @@ The Inline Config Provider takes a list of file specifications, whereby each fil
 To implement the example from [Getting Configuration from a Git Repository](managing-devices.md#getting-configuration-from-a-git-repository), first, create a file `site-settings-repo.yaml` that contains the following definition for a Repository resource named `site-settings`:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Repository
 metadata:
   name: site-settings
@@ -369,7 +418,7 @@ site-settings  git   https://github.com/flightctl/flightctl-demos  True
 To apply the configuration for `factory-a` to a device, you would update the device's specification as follows:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   name: some_device_name
@@ -391,21 +440,26 @@ You can deploy, update, or undeploy applications on a device by updating the lis
 
 The following table shows the application runtimes and formats supported by Flight Control:
 
-| Runtime | Descriptor Format | Package Format | Package Repository | Note |
-| ------- | ----------------- | -------------- | ------------------ | ---- |
-| Podman | [podman-compose](https://github.com/containers/podman-compose) | (name TBD) | OCI registry | requires `podman-compose` installed on device |
-| Podman | [podman-compose](https://github.com/containers/podman-compose) | (unpackaged) | git or inline | requires `podman-compose` installed on device |
-| Podman | [Quadlet](https://docs.podman.io/en/stable/markdown/podman-systemd.unit.5.html) | (name TBD) | OCI registry | |
-| Podman | [Quadlet](https://docs.podman.io/en/stable/markdown/podman-systemd.unit.5.html) | (unpackaged) | git or inline | |
-| MicroShift | Kubernetes manifests from [Helm templates](https://helm.sh/docs/helm/helm_template/) | Helm Chart | OCI registry | requires `helm` installed on device |
-| MicroShift | Kubernetes manifests from [kustomize](https://kustomize.io/) | (unpackaged) | git or inline | |
+### Runtime: **Podman**
+
+| Specification      | Format                        | Source / Delivery                  |
+| ------------------ | ----------------------------- | ---------------------------------- |
+| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose)) | OCI image         | OCI registry                       |
+| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose)) | Unpackaged inline | Inline in device specification     |
+
+> [!NOTE]
+> Requires `podman-compose` to be installed on the device.
+
+> [!TIP]
+> Short image names (e.g., `nginx`) are not supported. Use fully qualified references like `docker.io/nginx` to avoid ambiguity.
 
 To deploy an application to a device, create a new entry in the "applications" section of the device's specification, specifying the following parameters:
 
 | Parameter | Description |
 | --------- | ----------- |
-| Name | A user-defined name for the application. This will be used when the web UI and CLI list applications. |
-| Image | A reference to an application package in an OCI registry. |
+| Name    | A user-defined name for the application. This will be used when the web UI and CLI list applications. |
+| Image   | A reference to an application package in an OCI registry. |
+| AppType | The application format type. Currently supported type: `compose`. |
 | EnvVars | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
 
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
@@ -426,7 +480,7 @@ For each application in the "applications" section of the device's specification
 To deploy an application package from an OCI registry, specify it in the device's `spec.applications[]` as follows:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   name: some_device_name
@@ -435,53 +489,6 @@ spec:
   applications:
   - name: wordpress
     image: quay.io/flightctl-demos/wordpress-app:latest
-    envVars:
-      WORDPRESS_DB_HOST: "mysql"
-      WORDPRESS_DB_USER: "user"
-      WORDPRESS_DB_PASSWORD: "password"
-[...]
-```
-
-To deploy an unpackaged application from a Git repository, specify it in the device's `spec.applications[]` as follows:
-
-```yaml
-apiVersion: v1alpha1
-kind: Device
-metadata:
-  name: some_device_name
-spec:
-[...]
-  applications:
-  - name: wordpress
-    git:
-      url: https://github.com/flightctl/flightctl-demos.git
-      revision: v1.0
-      path: /wordpress
-    envVars:
-      WORDPRESS_DB_HOST: "mysql"
-      WORDPRESS_DB_USER: "user"
-      WORDPRESS_DB_PASSWORD: "password"
-[...]
-```
-
-To deploy an unpackaged application inline with the device specification, specify it in the device's `spec.applications[]` as follows:
-
-```yaml
-apiVersion: v1alpha1
-kind: Device
-metadata:
-  name: some_device_name
-spec:
-[...]
-  applications:
-  - name: wordpress
-    inline:
-      podman-compose.yaml: |
-        version: “3.7"
-        services:
-          wordpress:
-            image: “wordpress:latest”
-        [...]
     envVars:
       WORDPRESS_DB_HOST: "mysql"
       WORDPRESS_DB_USER: "user"
@@ -505,6 +512,119 @@ LABEL appType="compose"
 
 ```
 
+### Specifying Applications Inline in the Device Spec
+
+Application manifests are specified inline in a device's specification, so building an OCI Registry Application Package is not required.
+
+The Inline Application Provider accepts a list of application content with the following parameters:
+
+| Parameter | Description |
+| --------- | ----------- |
+| Path | The relative path to the file on the device. Note that any existing file will be overwritten. |
+| Content (Optional) | The plain text (UTF-8) or base64-encoded content of the file. |
+| ContentEncoding | How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain". |
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: Device
+metadata:
+  name: some_device_name
+spec:
+[...]
+  applications:
+    - name: my-app
+      appType: compose
+      inline:
+        - content: |
+            version: "3.8"
+            services:
+              service1:
+                image:  quay.io/flightctl-tests/alpine:v1
+                command: ["sleep", "infinity"]
+          path: podman-compose.yaml
+[...]
+```
+
+> [!NOTE]
+> Inline compose applications can have at most two paths. The first should be named `podman-compose.yaml`, and the second (override) must be named `podman-compose.override.yaml`.
+
+### Adding Application Volumes
+
+> [!NOTE]
+> This feature requires the Flight Control Agent to run with **Podman version 5.5 or higher**.
+
+Applications can declare persistent data volumes that are populated from OCI artifacts. This allows delivering large datasets (such as ML models or static assets) as part of the application deployment.
+
+Volumes are declared under each application in the `volumes` field. These volumes are mounted into the application containers via the Compose `volumes` section.
+
+#### Specifying Volumes
+
+Each volume definition includes:
+
+| Field | Description |
+| ----- | ----------- |
+| `name` | Logical volume name. Must match the volume name referenced in the Compose file. |
+| `image.reference` | Fully qualified OCI artifact reference containing the volume contents. |
+| `image.pullPolicy` | (Optional) Defines pull behavior: `Always`, `IfNotPresent`, or `Never`. Defaults to `IfNotPresent` if not specified. |
+
+> [!IMPORTANT]
+> In the Compose file, volumes must be declared as `external: true` to allow the agent to handle preparation and mounting.
+
+#### Example Inline Application with Volume
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: Device
+metadata:
+  name: some_device_name
+[...]
+spec:
+  applications:
+    - name: my-inline
+      appType: compose
+      inline:
+        - path: docker-compose.yaml
+          content: |
+            version: "3.8"
+            services:
+              service1:
+                image: quay.io/flightctl-tests/alpine:v1
+                command: ["sleep", "infinity"]
+                volumes:
+                  - my-data:/data
+            volumes:
+              my-data:
+                external: true
+      volumes:
+        - name: my-data
+          image:
+            reference: quay.io/flightctl-tests/models/gpt2
+            pullPolicy: IfNotPresent
+```
+
+#### OCI Artifact Requirements
+
+Volume images must follow the OCI artifact specification:
+
+* Published as OCI images (media type: `application/vnd.oci.image.manifest.v1+json`).
+* Contain one or more layers representing the volume file contents.
+* Hosted on any OCI-compatible registry accessible by the device.
+
+> [!TIP]
+> If the artifact contains more than one layer, the mount path should be an already existing
+> directory, into which the layers will each be copied as a separate file using the name specified
+> in the layer's `org.opencontainers.image.title` field. For single layer archives if the mount path
+> does not exist as a directory the single layer will be extracted as a file at that path, otherwise
+> it will be placed into the existing directory using the file name in the name field for the layer.
+
+#### Device Requirements
+
+The following are required on the device to support application volumes:
+
+* Podman **5.5 or newer** installed.
+* `podman-compose` installed.
+* OCI registry authentication (if needed) must be configured prior to deployment.
+
 ## Using Device Lifecycle Hooks
 
 You can use device lifecycle hooks to make the agent run user-defined commands at specific points in the device's lifecycle. For example, you can add a shell script to your OS images that backs up your application data and then specify that this script shall be run and complete successfully before the agent can start updating the system.
@@ -515,7 +635,7 @@ The following device lifecycle hooks are supported:
 | -------------- | ----------- |
 | `beforeUpdating` | This hook is called after the agent completed preparing for the update and before actually making changes to the system. If an action in this hook returns with failure, the agent aborts the update. |
 | `afterUpdating` | This hook is called after the agent has written the update to disk. If an action in this hook returns with failure,the agent will abort and roll back the update. |
-| `beforeRebooting` | This hook is called before the system reboots. The agent will block the reboot until running the action has completed or timed out. If any action in this hook returns with failure, the agent will abort and roll back the update. |
+| `beforeRebooting` | This hook is called before the agent reboots the device. The agent will block the reboot until running the action has completed or timed out. If any action in this hook returns with failure, the agent will abort and roll back the update. |
 | `afterRebooting` | This hook is called when the agent first starts after a reboot. If any action in this hook returns with failure, the agent will report this but continue starting up. |
 
 Refer to the [Device API status reference](device-api-statuses.md) a state diagram defining when each device lifecycle hook is called by the agent.
@@ -533,11 +653,21 @@ A run action takes the following parameters:
 
 | Parameter | Description |
 | --------- | ----------- |
-| Run | The absolute path to the command to run, followed by any flags or arguments.<br/><br/>Example: `/usr/bin/nmcli connection reload`.<br/><br/>Note that the command is not executed in a shell, so you cannot use shell variables like `$PATH` or `$HOME` or chain commands (`\|` or `;`). However, it is possible to start a shell yourself if necessary by specifying the shell as command to run.<br/><br/>Example: `/usr/bin/bash -c 'echo $SHELL $HOME $USER'` |
+| Run | The absolute path to the command to run, followed by any flags or arguments.<br/><br/>Example: `/usr/bin/nmcli connection reload`.<br/><br/>Note that the command is not executed in a shell, so you cannot use shell variables like `$FOO_PATH` or chain commands (`\|` or `;`). However, it is possible to start a shell yourself if necessary by specifying the shell as command to run.<br/><br/>Example: `/usr/bin/bash -c 'echo foo'` |
 | EnvVars | (Optional) A list of key/value-pairs to set as environment variables for the command. |
 | WorkDir | (Optional) The directory the command will be run from. |
-| Timeout | (Optional) The maximum duration allowed for the action to complete. The duration must be be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours. |
+| Timeout | (Optional) The maximum duration allowed for the action to complete. The duration must be be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours.<br/><br/>Default: 10s |
 | If | (Optional) A list of conditions that must be true for the action to be run (see below). If not provided, actions will run unconditionally. |
+
+> [!NOTE]
+> When using a shell with `run`, the executed environment does not inherit the system environment, any required environment variables must be provided explicitly via the `envVars` field in the API.
+>
+>```sh
+>- run: /usr/bin/bash -c "until [ -f $KUBECONFIG ]; do sleep 1; done"
+>   timeout: 5m
+>   envVars:
+>     KUBECONFIG: "/var/lib/microshift/resources/kubeadmin/kubeconfig"
+>```
 
 By default, actions are performed every time the hook is triggered. However, for the `afterUpdating` hook you can use the `If` parameter to add conditions that must be true for an action to be performed, otherwise the action will be skipped.
 
@@ -546,17 +676,17 @@ In particular, to only run an action if a given file or directory has changed du
 | Parameter | Description |
 | --------- | ----------- |
 | Path | An absolute path to a file or directory that must have changed during the update as condition for the action to be performed. Paths must be specified using forward slashes (`/`) and if the path is to a directory it must terminate with a forward slash `/`.<br/></br>If you specify a path to a file, the file must have changed to satisfy the condition.</br>If you specify a path to a directory, a file in that directory or any of its subdirectories must have changed to satisfy the condition.|
-| On | A list of file operations (`created`, `updated`, `removed`) to further limit the kind of changes to the specified path as condition for the action to be performed. |
+| Op | A list of file operations (`created`, `updated`, `removed`) to further limit the kind of changes to the specified path as condition for the action to be performed. |
 
 If you have specified a "path condition" for an action in the `afterUpdating` hook, you have the following variables that you can include in arguments to your command and that will be replaced with the absolute path(s) to the changed files:
 
 | Variable | Description |
 | -------- | ----------- |
-| `{{ Path }}` | The absolute path to the file or directory specified in the path condition. |
-| `{{ Files }}` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
-| `{{ CreatedFiles }}` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
-| `{{ UpdatedFiles }}` | A space-separated list of absolute paths of the files that were updated during the update and are covered by the path condition. |
-| `{{ RemovedFiles }}` | A space-separated list of absolute paths of the files that were removed during the update and are covered by the path condition. |
+| `${ Path }` | The absolute path to the file or directory specified in the path condition. |
+| `${ Files }` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `${ CreatedFiles }` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `${ UpdatedFiles }` | A space-separated list of absolute paths of the files that were updated during the update and are covered by the path condition. |
+| `${ RemovedFiles }` | A space-separated list of absolute paths of the files that were removed during the update and are covered by the path condition. |
 
 The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml`:
 
@@ -599,7 +729,7 @@ To monitor resource utilization, add resource monitors in the `resources:` secti
 For example, to monitor disk utilization on the filesystem associated with the path /applications, which can trigger a warning alert if the average utilization exceeds 75% for more than 30 minutes and a critical alert if it exceeds 90% for over 10 minutes with a sampling interval of 5 seconds.
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   name: some_device_name
@@ -621,20 +751,130 @@ spec:
 [...]
 ```
 
-## Accessing Devices Remotely (experimental)
+## Accessing Devices Remotely
 
-For troubleshooting an edge device, a user can be authorized to remotely connect to that device's console through the agent. This does not require an SSH connection and so works even if that device is on a private network (behind a NAT), has a dynamic IP address, or has its SSH service disabled.
+For troubleshooting an edge device, a user with the appropriate authorization (`get` permission on the `devices/console` resource) can remotely connect to the device's console through the agent. This does not require an SSH connection and so works even if that device is on a private network (behind a NAT), has a dynamic IP address, or has its SSH service disabled.
 
 ### Accessing Devices on the Web UI
 
 ### Accessing Devices on the CLI
 
-To connect, use the `flightctl console` command specifying the device's name, and the agent will establish the console connection the next time it calls home (pull mode) or instantaneously (push mode):
+To connect, use the `flightctl console` command specifying the device's name, and the agent will establish the console connection the next time it calls home:
 
 ```console
-flightctl console <some_device_name>
+flightctl console device/<some_device_name>
 ```
 
-To disconnect, enter "exit" on the console. To force-disconnect, press `<ctrl>+b` three times.
+To disconnect, enter "exit" on the console. To force-disconnect, press newline followed by `~.` (tilde period).
+
+The console can be used to run commands on the device, for example to check the status of the flightctl-agent service:
+
+```console
+flightctl console device/<some_device_name> -- systemctl status flightctl-agent
+```
+
+The console can be used to download a file from the device to your local machine, for example to download the systemd journal log:
+
+```console
+flightctl console device/<some_device_name> -- journalctl -o short-precise --no-pager > journal.log
+```
 
 ## Decommissioning Devices
+
+Decommissioning a device is the proper way to unenroll it and permanently remove it from Flight Control management. When a user requests the decommissioning of a device, the Flight Control service signals to the Flight Control agent to run a decommissioning process. This process includes erasing the agent's management certificate and key and with it the device's Flight Control identity. This is an action that cannot be undone. Decommissioning should be performed before deleting a device.
+
+To decommission a device:
+
+```console
+flightctl decommission devices/<some_device_name>
+```
+
+You can see that the decommissioning request was properly received by the Flight Control service when it includes a decommissioning target in its device specification and its lifecycle status (`status.lifecycle.status`) moves to Decommissioning:
+
+```console
+$ flightctl get devices/<some_device_name> -o yaml
+
+...
+spec:
+  decommissioning:
+    target: Unenroll
+...
+status:
+  ...
+  lifecycle:
+    status: Decommissioning
+...
+```
+
+Once the device receives the decommissioning request from the server, it will acknowledge the request with a decommissioning `Condition` that can also be seen in the device info:
+
+```console
+$ flightctl get devices/<some_device_name> -o yaml
+
+...
+status:
+...
+  conditions:
+  ...
+    - lastTransitionTime: "2025-03-05T20:40:48.443917332Z"
+    message: The device has completed decommissioning and will wipe its management
+      certificate
+    reason: Completed
+    status: "True"
+    type: DeviceDecommissioning
+
+```
+
+When the device has completed its decommissioning steps, the `status.lifecycle.status` field will show the value `Decommissioned`. At this point, it is safe to delete the device with:
+
+```console
+flightctl delete devices/<some_device_name>
+```
+
+## Scheduling Updates and Downloads
+
+The Flight Control agent supports time-based scheduling for update and download operations using cron style expressions. This allows you to restrict system modifications to defined maintenance windows or operational periods.
+
+Each device can define two independent schedules in the `updatePolicy` section of the `DeviceSpec`:
+
+* **`downloadSchedule`**: Defines when the device is allowed to download update artifacts such as OS image layers.
+* **`updateSchedule`**: Defines when the device is allowed to apply updates.
+
+Each schedule supports:
+
+| Parameter              | Description                                                                 |
+|------------------------|-----------------------------------------------------------------------------|
+| `at`                   | A [cron expression](https://man7.org/linux/man-pages/man5/crontab.5.html) specifying valid run times. |
+| `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device’s local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `startGraceDuration`   | (Optional) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
+
+The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](device-api-statuses.md#device-api-statuses).
+
+>[!TIP]
+> Use [crontab guru](https://crontab.guru/) to create and test cron expressions interactively.
+
+### Examples
+
+```yaml
+updatePolicy:
+  downloadSchedule:
+    at: "0 2 * * *"               # every day at 2:00 AM
+    timeZone: "America/New_York"
+    startGraceDuration: "30m"     # allow downloads until 2:30 AM
+  updateSchedule:
+    at: "0 4 * * 1"               # every Monday at 4:00 AM
+    timeZone: "America/New_York"
+    startGraceDuration: "1h"      # allow update until 5:00 AM
+```
+
+```yaml
+updatePolicy:
+  updateSchedule:
+    at: "0 5 14 5 *"              # May 15th at 5:00 AM
+    timeZone: "America/New_York"
+    startGraceDuration: "2h"      # allow update until 7:00 AM
+```
+
+> [!NOTE]
+> It’s best practice to define a `startGraceDuration` to allow for potential delays in agent execution. Without it, the update window may be missed.
+> Once an update begins within the allowed window, there is no enforced timeout the update may continue running beyond the grace period.

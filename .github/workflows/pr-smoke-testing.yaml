@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - 'release-*'
   pull_request:
 
 permissions:
@@ -35,19 +36,15 @@ jobs:
       - name: Create cluster
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: make cluster
-      
+
       - name: Deploy
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: make deploy
+        run: DISABLE_FIPS="true" make deploy
 
       - name: Check
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: |
           kubectl get pods --all-namespaces
-
-      - name: Make the cmdline tool
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: make build
 
       - name: Apply device
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
@@ -68,6 +65,10 @@ jobs:
       - name: Apply resourcesync
         if: ${{ steps.filter.outputs.notdocs == 'true' }}
         run: bin/flightctl apply -f examples/resourcesync.yaml
+
+      - name: Build the simulator
+        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        run: DISABLE_FIPS="true" make build-devicesimulator
 
       - name: Simulator run
         if: ${{ steps.filter.outputs.notdocs == 'true' }}

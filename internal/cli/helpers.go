@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/org"
 )
 
 const (
@@ -14,34 +15,40 @@ const (
 )
 
 const (
+	CertificateSigningRequestKind = "certificatesigningrequest"
 	DeviceKind                    = "device"
 	EnrollmentRequestKind         = "enrollmentrequest"
+	EventKind                     = "event"
 	FleetKind                     = "fleet"
+	OrganizationKind              = "organization"
 	RepositoryKind                = "repository"
 	ResourceSyncKind              = "resourcesync"
 	TemplateVersionKind           = "templateversion"
-	CertificateSigningRequestKind = "certificatesigningrequest"
 )
 
 var (
 	pluralKinds = map[string]string{
+		CertificateSigningRequestKind: "certificatesigningrequests",
 		DeviceKind:                    "devices",
 		EnrollmentRequestKind:         "enrollmentrequests",
+		EventKind:                     "events",
 		FleetKind:                     "fleets",
+		OrganizationKind:              "organizations",
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
 		TemplateVersionKind:           "templateversions",
-		CertificateSigningRequestKind: "certificatesigningrequests",
 	}
 
 	shortnameKinds = map[string]string{
+		CertificateSigningRequestKind: "csr",
 		DeviceKind:                    "dev",
 		EnrollmentRequestKind:         "er",
+		EventKind:                     "ev",
 		FleetKind:                     "flt",
+		OrganizationKind:              "org",
 		RepositoryKind:                "repo",
 		ResourceSyncKind:              "rs",
 		TemplateVersionKind:           "tv",
-		CertificateSigningRequestKind: "csr",
 	}
 )
 
@@ -89,12 +96,19 @@ func fullname(kind string) string {
 
 func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCode int) error {
 	if statusCode != expectedStatusCode {
-		var responseError api.Error
+		var responseError api.Status
 		err := json.Unmarshal(responseBody, &responseError)
 		if err != nil {
-			return err
+			return fmt.Errorf("%d %s", statusCode, string(responseBody))
 		}
 		return fmt.Errorf("%d %s", statusCode, responseError.Message)
+	}
+	return nil
+}
+
+func validateOrganizationID(orgID string) error {
+	if _, err := org.Parse(orgID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -140,8 +154,4 @@ func responseField[T any](response interface{}, name string) (T, error) {
 	}
 
 	return fieldValue, nil
-}
-
-func strIsEmpty(str string) bool {
-	return len(str) == 0
 }

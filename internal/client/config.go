@@ -6,23 +6,26 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/reqid"
-	"github.com/go-chi/chi/middleware"
+	"github.com/go-chi/chi/v5/middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	certutil "k8s.io/client-go/util/cert"
-	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/yaml"
 )
 
@@ -31,10 +34,11 @@ const (
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
 
-// Config holds the information needed to connect to a FlightCtl API server
+// Config holds the information needed to connect to a Flight Control API server
 type Config struct {
-	Service  Service  `json:"service"`
-	AuthInfo AuthInfo `json:"authentication"`
+	Service      Service  `json:"service"`
+	AuthInfo     AuthInfo `json:"authentication"`
+	Organization string   `json:"organization,omitempty"`
 
 	// baseDir is used to resolve relative paths
 	// If baseDir is empty, the current working directory is used.
@@ -43,10 +47,10 @@ type Config struct {
 	testRootDir string `json:"-"`
 }
 
-// Service contains information how to connect to and authenticate the FlightCtl API server.
+// Service contains information how to connect to and authenticate the Flight Control API server.
 type Service struct {
-	// Server is the URL of the FlightCtl API server (the part before /api/v1/...).
-	Server string `json:"server"`
+	// Server is the URL of the Flight Control API server (the part before /api/v1/...).
+	Server string `json:"server,omitempty"`
 	// TLSServerName is passed to the server for SNI and is used in the client to check server certificates against.
 	// If TLSServerName is empty, the hostname used to contact the server is used.
 	// +optional
@@ -58,7 +62,7 @@ type Service struct {
 	InsecureSkipVerify       bool   `json:"insecureSkipVerify,omitempty"`
 }
 
-// AuthInfo contains information for authenticating FlightCtl API clients.
+// AuthInfo contains information for authenticating Flight Control API clients.
 type AuthInfo struct {
 	// ClientCertificate is the path to a client cert file for TLS.
 	// +optional
@@ -75,6 +79,16 @@ type AuthInfo struct {
 	// Bearer token for authentication
 	// +optional
 	Token string `json:"token,omitempty"`
+	// The authentication provider (i.e. k8s, OIDC)
+	// +optional
+	AuthProvider *AuthProviderConfig `json:"auth-provider,omitempty"`
+}
+
+type AuthProviderConfig struct {
+	// Name is the name of the authentication provider
+	Name string `json:"name"`
+	// Config is a map of authentication provider-specific configuration
+	Config map[string]string `json:"config,omitempty"`
 }
 
 func (c *Config) Equal(c2 *Config) bool {
@@ -111,15 +125,26 @@ func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
 		bytes.Equal(a.ClientKeyData, a2.ClientKeyData)
 }
 
+func (a *AuthProviderConfig) Equal(a2 *AuthProviderConfig) bool {
+	if a == a2 {
+		return true
+	}
+	if a == nil || a2 == nil {
+		return false
+	}
+	return a.Name == a2.Name && maps.Equal(a.Config, a2.Config)
+}
+
 func (c *Config) DeepCopy() *Config {
 	if c == nil {
 		return nil
 	}
 	return &Config{
-		Service:     *c.Service.DeepCopy(),
-		AuthInfo:    *c.AuthInfo.DeepCopy(),
-		baseDir:     c.baseDir,
-		testRootDir: c.testRootDir,
+		Service:      *c.Service.DeepCopy(),
+		AuthInfo:     *c.AuthInfo.DeepCopy(),
+		Organization: c.Organization,
+		baseDir:      c.baseDir,
+		testRootDir:  c.testRootDir,
 	}
 }
 
@@ -139,6 +164,16 @@ func (a *AuthInfo) DeepCopy() *AuthInfo {
 	a2 := *a
 	a2.ClientCertificateData = bytes.Clone(a.ClientCertificateData)
 	a2.ClientKeyData = bytes.Clone(a.ClientKeyData)
+	a2.AuthProvider = a.AuthProvider.DeepCopy()
+	return &a2
+}
+
+func (a *AuthProviderConfig) DeepCopy() *AuthProviderConfig {
+	if a == nil {
+		return nil
+	}
+	a2 := *a
+	a2.Config = maps.Clone(a.Config)
 	return &a2
 }
 
@@ -169,21 +204,55 @@ func NewDefault() *Config {
 	return c
 }
 
-// NewFromConfig returns a new FlightCtl API client from the given config.
-func NewFromConfig(config *Config) (*client.ClientWithResponses, error) {
+// WithQueryParam returns a ClientOption that appends a request editor which
+// sets (or overrides) the given query parameter. If value is empty, the editor
+// is a no-op so callers can pass it unconditionally.
+func WithQueryParam(key, value string) client.ClientOption {
+	return client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if value == "" {
+			return nil
+		}
+		q := req.URL.Query()
+		q.Set(key, value)
+		req.URL.RawQuery = q.Encode()
+		return nil
+	})
+}
+
+// WithOrganization sets the organization ID in the request query parameters.
+func WithOrganization(orgID string) client.ClientOption {
+	return WithQueryParam("org_id", orgID)
+}
+
+// NewFromConfig returns a new Flight Control API client from the given config.
+func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
 
 	httpClient, err := NewHTTPClientFromConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
 	}
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
-		req.Header.Set(middleware.RequestIDHeader, reqid.GetReqID())
-		if config.AuthInfo.Token != "" {
-			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", config.AuthInfo.Token))
+		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+		accessToken := GetAccessToken(config, configFilePath)
+		if accessToken != "" {
+			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
 		}
 		return nil
 	})
-	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
+	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
+	defaultOpts = append(defaultOpts, opts...)
+	return client.NewClientWithResponses(config.Service.Server, defaultOpts...)
+}
+
+// NewFromConfigFile returns a new Flight Control API client using the config
+// read from the given file. Additional client options may be supplied and will
+// be appended after the defaults.
+func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
+	config, err := ParseConfigFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return NewFromConfig(config, filename, opts...)
 }
 
 // NewHTTPClientFromConfig returns a new HTTP Client from the given config.
@@ -298,7 +367,13 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
 	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
-	client, err := grpc.NewClient(grpcEndpoint, grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)))
+	client, err := grpc.NewClient(grpcEndpoint,
+		grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second, // Send keepalive ping every 30s
+			Timeout:             10 * time.Second, // Wait 10s for server response
+			PermitWithoutStream: true,             // Send even if no active RPCs
+		}))
 
 	if err != nil {
 		return nil, fmt.Errorf("NewGRPCClientFromConfig: creating gRPC client: %w", err)
@@ -309,9 +384,14 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 	return router, nil
 }
 
-// DefaultFlightctlClientConfigPath returns the default path to the FlightCtl client config file.
-func DefaultFlightctlClientConfigPath() string {
-	return filepath.Join(homedir.HomeDir(), ".config", "flightctl", "client.yaml")
+// DefaultFlightctlClientConfigPath returns the default path to the Flight Control client config file.
+func DefaultFlightctlClientConfigPath() (string, error) {
+	baseDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(baseDir, "flightctl", "client.yaml"), nil
 }
 
 func ParseConfigFile(filename string) (*Config, error) {
@@ -330,16 +410,7 @@ func ParseConfigFile(filename string) (*Config, error) {
 	return config, config.Flatten()
 }
 
-// NewFromConfigFile returns a new FlightCtl API client using the config read from the given file.
-func NewFromConfigFile(filename string) (*client.ClientWithResponses, error) {
-	config, err := ParseConfigFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	return NewFromConfig(config)
-}
-
-// NewFromConfigFile returns a new FlightCtl API client using the config read from the given file.
+// NewFromConfigFile returns a new Flight Control API client using the config read from the given file.
 func NewGrpcClientFromConfigFile(filename string, endpoint string) (grpc_v1.RouterServiceClient, error) {
 	contents, err := os.ReadFile(filename)
 	if err != nil {
@@ -360,11 +431,7 @@ func NewGrpcClientFromConfigFile(filename string, endpoint string) (grpc_v1.Rout
 }
 
 // WriteConfig writes a client config file using the given parameters.
-func WriteConfig(filename string, server string, tlsServerName string, ca *crypto.TLSCertificateConfig, client *crypto.TLSCertificateConfig) error {
-	caCertPEM, _, err := ca.GetPEMBytes()
-	if err != nil {
-		return fmt.Errorf("PEM-encoding CA certs: %w", err)
-	}
+func WriteConfig(filename string, server string, tlsServerName string, caCertPEM []byte, client *crypto.TLSCertificateConfig) error {
 
 	config := NewDefault()
 	config.Service = Service{
@@ -392,7 +459,7 @@ func (c *Config) Persist(filename string) error {
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
-	directory := filename[:strings.LastIndex(filename, "/")]
+	directory := filepath.Dir(filename)
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return fmt.Errorf("writing config: %w", err)
 	}
@@ -406,6 +473,7 @@ func (c *Config) Validate() error {
 	validationErrors := make([]error, 0)
 	validationErrors = append(validationErrors, validateService(c.Service, c.baseDir, c.testRootDir)...)
 	validationErrors = append(validationErrors, validateAuthInfo(c.AuthInfo, c.baseDir, c.testRootDir)...)
+	validationErrors = append(validationErrors, validateOrganization(c.Organization, c.baseDir, c.testRootDir)...)
 	if len(validationErrors) > 0 {
 		return fmt.Errorf("invalid configuration: %v", utilerrors.NewAggregate(validationErrors).Error())
 	}
@@ -474,6 +542,17 @@ func validateAuthInfo(authInfo AuthInfo, baseDir string, testRootDir string) []e
 				defer clientKeyFile.Close()
 			}
 		}
+	}
+	return validationErrors
+}
+
+func validateOrganization(organization string, baseDir string, testRootDir string) []error {
+	validationErrors := make([]error, 0)
+	if organization == "" {
+		return validationErrors
+	}
+	if _, err := org.Parse(organization); err != nil {
+		validationErrors = append(validationErrors, err)
 	}
 	return validationErrors
 }

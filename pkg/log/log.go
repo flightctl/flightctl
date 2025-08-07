@@ -119,3 +119,16 @@ func trimCallerLevels(path string, levels int) string {
 	// path is already shorter than levels
 	return path
 }
+
+// Truncate truncates a string to the given limit or first newline and adds "..." at the end
+func Truncate(msg string, limit int) string {
+	truncIdx := strings.Index(msg, "\n")
+	if truncIdx == -1 || truncIdx > limit {
+		if len(msg) > limit {
+			truncIdx = limit
+		} else {
+			return msg
+		}
+	}
+	return msg[:truncIdx] + "..."
+}

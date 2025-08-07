@@ -1,0 +1,3 @@
+log-level: warning
+spec-fetch-interval: 0m2s
+status-update-interval: 0m2s

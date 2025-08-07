@@ -3,22 +3,18 @@ package middleware
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
-
-type contextKey string
-
-const TLSCommonNameContextKey contextKey = "tls-cn"
 
 func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string, cfg *config.Config) *http.Server {
 	return &http.Server{
@@ -53,7 +49,7 @@ func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, ad
 			return ctx
 		}
 		peerCertificate := cs.PeerCertificates[0]
-		return context.WithValue(ctx, TLSCommonNameContextKey, peerCertificate.Subject.CommonName)
+		return context.WithValue(ctx, consts.TLSPeerCertificateCtxKey, peerCertificate)
 	}
 	return server
 }
@@ -82,22 +78,4 @@ func ValidateClientTlsCert(ctx context.Context) (context.Context, error) {
 		return ctx, status.Error(codes.Unauthenticated, "failed to verify client certificate")
 	}
 	return ctx, nil
-}
-
-// RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
-func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if len(r.URL.String()) > maxURLLength {
-				http.Error(w, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength), http.StatusRequestURITooLong)
-				return
-			}
-			if len(r.Header) > maxNumHeaders {
-				http.Error(w, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders), http.StatusRequestEntityTooLarge)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
 }

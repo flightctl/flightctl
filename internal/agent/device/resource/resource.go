@@ -10,8 +10,8 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 type MonitorType string
@@ -36,8 +36,11 @@ type Manager interface {
 type Monitor[T any] interface {
 	Run(ctx context.Context)
 	Update(monitor *v1alpha1.ResourceMonitor) (bool, error)
-	CollectUsage(ctx context.Context, usage *T) error
 	Alerts() []v1alpha1.ResourceAlertRule
+}
+
+type Collector[T any] interface {
+	CollectUsage(ctx context.Context, usage *T) error
 }
 
 type ResourceManager struct {
@@ -138,7 +141,7 @@ func (m *ResourceManager) ResetAlertDefaults() error {
 }
 
 // Status returns the device status based on the resource monitors and for the device summary.
-func (m *ResourceManager) Status(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func (m *ResourceManager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
 	alerts := m.Alerts()
 
 	hasCriticalOrErrorResource := false
@@ -193,10 +196,10 @@ func (m *ResourceManager) Status(ctx context.Context, status *v1alpha1.DeviceSta
 	// ensure status proper reflects in the device summary
 	if hasCriticalOrErrorResource {
 		status.Summary.Status = v1alpha1.DeviceSummaryStatusError
-		status.Summary.Info = util.StrToPtr(fmt.Sprintf("Critical resource alert: %s", strings.Join(criticalResourceTypes, ", ")))
+		status.Summary.Info = lo.ToPtr(fmt.Sprintf("Critical resource alert: %s", strings.Join(criticalResourceTypes, ", ")))
 	} else if hasDegradedResource {
 		status.Summary.Status = v1alpha1.DeviceSummaryStatusDegraded
-		status.Summary.Info = util.StrToPtr(fmt.Sprintf("Degraded resource alert: %s", strings.Join(degradedResourceTypes, ", ")))
+		status.Summary.Info = lo.ToPtr(fmt.Sprintf("Degraded resource alert: %s", strings.Join(degradedResourceTypes, ", ")))
 	} else {
 		status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
 		status.Summary.Info = nil

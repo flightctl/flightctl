@@ -22,7 +22,7 @@ spec:
       containers:
         - name: flightctl-api
           image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
-          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.api.image.pullPolicy }}
           env:
             - name: HOME
               value: "/root"
@@ -34,16 +34,22 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
-                  key: masterPassword
+                  name: flightctl-db-app-secret
+                  key: userPassword
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-secret
-                  key: masterUser
+                  name: flightctl-db-app-secret
+                  key: user
             {{- if eq .Values.global.auth.type "none" }}
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
+            {{- end }}
+            {{- if .Values.api.env }}
+            {{- range $key, $value := .Values.api.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
             {{- end }}
           ports:
             - containerPort: 3443

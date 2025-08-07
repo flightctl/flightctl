@@ -1,18 +1,22 @@
 [Unit]
 Description=PostgreSQL Database for Flightctl
+PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-db
-Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=demouser POSTGRESQL_PASSWORD=demopass POSTGRESQL_MASTER_USER=admin POSTGRESQL_MASTER_PASSWORD=adminpass PGPASSWORD=adminpass
-Image=quay.io/sclorg/postgresql-12-c8s:latest
+Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=flightctl_app POSTGRESQL_MASTER_USER=admin
+Image=quay.io/sclorg/postgresql-16-c9s:20250214
 Network=flightctl.network
-PublishPort=5432:5432
-Volume=flightctl-db:/var/lib/pgsql/data
+Volume=flightctl-db:/var/lib/pgsql/data:Z
+Secret=flightctl-postgresql-password,type=env,target=PGPASSWORD
+Secret=flightctl-postgresql-master-password,type=env,target=POSTGRESQL_MASTER_PASSWORD
+Secret=flightctl-postgresql-user-password,type=env,target=POSTGRESQL_PASSWORD
+Volume=/usr/share/flightctl/flightctl-db/enable-superuser.sh:/usr/share/container-scripts/postgresql/start/enable-superuser.sh
 
 [Service]
+ExecStartPre=/usr/share/flightctl/init_host.sh
 Restart=always
 RestartSec=30
-Slice=flightctl.slice
 
 [Install]
-WantedBy=flightctl.slice
+WantedBy=flightctl.target
