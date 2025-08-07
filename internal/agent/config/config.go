@@ -58,8 +58,8 @@ const (
 	EnrollmentKeyFile = "client-enrollment.key"
 	// DefaultTPMDevicePath is the default TPM device path
 	DefaultTPMDevicePath = "/dev/tpm0"
-	// DefaultTPMKeyBlobFile is the default filename for TPM key blob persistence
-	DefaultTPMKeyBlobFile = "tpm-blob.yaml"
+	// DefaultTPMKeyFile is the default filename for TPM key persistence
+	DefaultTPMKeyFile = "tpm-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
@@ -78,7 +78,7 @@ type Config struct {
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
 
 	// TPM holds all TPM-related configuration
-	TPM
+	TPM TPM `json:"tpm,omitempty"`
 
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
@@ -121,14 +121,14 @@ type Config struct {
 }
 
 type TPM struct {
-	// Enabled indicates whether the agent should use an available TPM for auth
-	Enabled bool `json:"tpm-auth-enabled,omitempty"`
-	// Path is the path to the TPM device
-	Path string `json:"tpm-path,omitempty"`
-	// PersistencePath specifies the file path for TPM key blob persistence
-	PersistencePath string `json:"tpm-persistence-path,omitempty"`
-	// EnableOwnership indicates whether we will assume ownership of the TPM's Owner Hierarchy
-	EnableOwnership bool `json:"tpm-enable-ownership,omitempty"`
+	// Enabled indicates whether to use TPM for device identity.
+	Enabled bool `json:"enabled,omitempty"`
+	// DevicePath is the path to the TPM device.
+	DevicePath string `json:"device-path,omitempty"`
+	// Auth indicates whether the TPM owner hierarchy will be set by password.
+	AuthEnabled bool `json:"auth-enabled,omitempty"`
+	// StorageFilePath specifies the file path for TPM key storage.
+	StorageFilePath string `json:"storage-file-path,omitempty"`
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included
@@ -162,9 +162,9 @@ func NewDefault() *Config {
 		PullRetrySteps:       DefaultPullRetrySteps,
 		TPM: TPM{
 			Enabled:         false,
-			Path:            DefaultTPMDevicePath,
-			PersistencePath: filepath.Join(DefaultDataDir, DefaultTPMKeyBlobFile),
-			EnableOwnership: false,
+			AuthEnabled:     false,
+			DevicePath:      DefaultTPMDevicePath,
+			StorageFilePath: filepath.Join(DefaultDataDir, DefaultTPMKeyFile),
 		},
 	}
 
@@ -245,6 +245,10 @@ func (cfg *Config) Validate() error {
 	}
 	if err := cfg.validateSyncIntervals(); err != nil {
 		return err
+	}
+
+	if cfg.TPM.AuthEnabled && !cfg.TPM.Enabled {
+		return fmt.Errorf("cannot enable TPM password authentication when TPM device identity is disabled")
 	}
 
 	requiredFields := []struct {
@@ -359,9 +363,9 @@ func mergeConfigs(base, override *Config) {
 
 	// tpm
 	overrideIfNotEmpty(&base.TPM.Enabled, override.TPM.Enabled)
-	overrideIfNotEmpty(&base.TPM.Path, override.TPM.Path)
-	overrideIfNotEmpty(&base.TPM.PersistencePath, override.TPM.PersistencePath)
-	overrideIfNotEmpty(&base.TPM.EnableOwnership, override.TPM.EnableOwnership)
+	overrideIfNotEmpty(&base.TPM.AuthEnabled, override.TPM.AuthEnabled)
+	overrideIfNotEmpty(&base.TPM.DevicePath, override.TPM.DevicePath)
+	overrideIfNotEmpty(&base.TPM.StorageFilePath, override.TPM.StorageFilePath)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
