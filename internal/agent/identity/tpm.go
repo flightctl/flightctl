@@ -116,11 +116,17 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	if configCopy.Service.CertificateAuthorityData != nil {
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
-		tlsConfig.RootCAs = caCertPool
+	caPool, err := x509.SystemCertPool()
+	if err != nil {
+		caPool = x509.NewCertPool()
 	}
+	if configCopy.Service.CertificateAuthorityData != nil {
+		caPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
+	}
+	if configCopy.Service.ServerCertificateAuthorityData != nil {
+		caPool.AppendCertsFromPEM(configCopy.Service.ServerCertificateAuthorityData)
+	}
+	tlsConfig.RootCAs = caPool
 
 	if configCopy.Service.TLSServerName != "" {
 		tlsConfig.ServerName = configCopy.Service.TLSServerName
@@ -165,11 +171,17 @@ func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.Rout
 		InsecureSkipVerify: configCopy.Service.InsecureSkipVerify, //nolint:gosec
 	}
 
-	if configCopy.Service.CertificateAuthorityData != nil {
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
-		tlsConfig.RootCAs = caCertPool
+	caPool, err := x509.SystemCertPool()
+	if err != nil {
+		caPool = x509.NewCertPool()
 	}
+	if configCopy.Service.CertificateAuthorityData != nil {
+		caPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
+	}
+	if configCopy.Service.ServerCertificateAuthorityData != nil {
+		caPool.AppendCertsFromPEM(configCopy.Service.ServerCertificateAuthorityData)
+	}
+	tlsConfig.RootCAs = caPool
 
 	if configCopy.Service.TLSServerName != "" {
 		tlsConfig.ServerName = configCopy.Service.TLSServerName

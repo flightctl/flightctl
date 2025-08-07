@@ -4665,8 +4665,11 @@ components:
       description: EnrollmentServiceService contains information about connecting to a Flight Control enrollment service.
       properties:
         certificate-authority-data:
-          type: string
-          description: CertificateAuthorityData contains PEM-encoded certificate authority certificates.
+                  type: string
+                  description: CertificateAuthorityData contains PEM-encoded certificate authority certificates.
+                server-certificate-authority-data:
+                  type: string
+                  description: ServerCertificateAuthorityData contains PEM-encoded server certificate authority certificates.
         server:
           type: string
           description: Server is the address of the Flight Control enrollment service (https://hostname:port).
