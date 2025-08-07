@@ -22,11 +22,7 @@ var _ = Describe("CLI decommission test", func() {
 	var (
 		harness  *e2e.Harness
 		deviceId string
-<<<<<<< HEAD
-		ctx      context.Context
-=======
 		ctx      = context.Background()
->>>>>>> 033ce283 (EDM-799:Decommission test CLI)
 	)
 
 	BeforeEach(func() {
