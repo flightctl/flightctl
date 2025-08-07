@@ -38,7 +38,7 @@ data:
           - flightctl-api
           - flightctl-api.{{ .Release.Namespace }}
           - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
-        {{ if .Values.api.rateLimit }}
+        {{ if and .Values.api.rateLimit (not (empty .Values.api.rateLimit)) }}
         rateLimit:
             requests: {{ .Values.api.rateLimit.requests }}
             window: {{ .Values.api.rateLimit.window }}
