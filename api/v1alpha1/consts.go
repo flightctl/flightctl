@@ -132,4 +132,9 @@ const (
 	RolloutSuspendedReason = "Suspended"
 	// Rollout is pending on user approval
 	RolloutWaitingReason = "Waiting"
+
+	// The name of the preliminary batch
+	PreliminaryBatchName = "preliminary batch"
+	// The name of the final implicit batch
+	FinalImplicitBatchName = "final implicit batch"
 )

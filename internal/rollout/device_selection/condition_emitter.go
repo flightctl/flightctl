@@ -54,7 +54,7 @@ func (c *conditionEmitter) active(ctx context.Context) error {
 	))
 }
 
-func (c *conditionEmitter) suspended(ctx context.Context, threshold int, completionReport CompletionReport) error {
+func (c *conditionEmitter) suspended(ctx context.Context, threshold int, completionReport api.RolloutBatchCompletionReport) error {
 	return c.save(ctx, c.create(
 		api.ConditionStatusFalse,
 		api.RolloutSuspendedReason,
