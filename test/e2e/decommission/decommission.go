@@ -1,6 +1,7 @@
 package decommission_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -21,10 +22,11 @@ var _ = Describe("CLI decommission test", func() {
 	var (
 		harness  *e2e.Harness
 		deviceId string
+		ctx      context.Context
 	)
 
 	BeforeEach(func() {
-		harness = e2e.NewTestHarness()
+		harness = e2e.NewTestHarness(ctx)
 		deviceId = harness.StartVMAndEnroll()
 	})
 
