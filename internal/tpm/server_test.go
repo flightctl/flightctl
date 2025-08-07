@@ -1,12 +1,23 @@
 package tpm
 
 import (
+	"crypto"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/base64"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// mockTestSigner is a mock signer for testing
+type mockTestSigner struct{}
+
+func (m *mockTestSigner) Public() crypto.PublicKey { return nil }
+func (m *mockTestSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	return []byte("mock-signature"), nil
+}
 
 // TestIsTCGCSRFormat tests the TCG-CSR format detection
 func TestIsTCGCSRFormat(t *testing.T) {
@@ -187,7 +198,7 @@ func TestParseTCGCSR_InvalidData(t *testing.T) {
 func TestExtractTPMDataFromTCGCSR(t *testing.T) {
 	// Test with nil input
 	t.Run("Nil input", func(t *testing.T) {
-		_, err := ExtractTPMDataFromTCGCSR(nil)
+		_, err := extractTPMDataFromTCGCSR(nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid parsed TCG-CSR data")
 	})
@@ -197,7 +208,7 @@ func TestExtractTPMDataFromTCGCSR(t *testing.T) {
 		parsed := &ParsedTCGCSR{
 			IsValid: true,
 		}
-		_, err := ExtractTPMDataFromTCGCSR(parsed)
+		_, err := extractTPMDataFromTCGCSR(parsed)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid parsed TCG-CSR data")
 	})
@@ -208,7 +219,7 @@ func TestExtractTPMDataFromTCGCSR(t *testing.T) {
 			IsValid:     true,
 			CSRContents: &ParsedTCGContent{},
 		}
-		_, err := ExtractTPMDataFromTCGCSR(parsed)
+		_, err := extractTPMDataFromTCGCSR(parsed)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid parsed TCG-CSR data")
 	})
@@ -237,30 +248,13 @@ func TestExtractTPMDataFromTCGCSR(t *testing.T) {
 			},
 		}
 
-		data, err := ExtractTPMDataFromTCGCSR(parsed)
+		data, err := extractTPMDataFromTCGCSR(parsed)
 		require.NoError(t, err)
 		require.NotNil(t, data)
 		require.Equal(t, testEKCert, data.EKCertificate)
 		require.Equal(t, testLAKPubKey, data.LAKPublicKey)
 		require.Equal(t, testProductModel, data.ProductModel)
 		require.Equal(t, testProductSerial, data.ProductSerial)
-	})
-}
-
-// TestVerifyStandardCSR tests standard X.509 CSR verification
-func TestVerifyStandardCSR(t *testing.T) {
-	// Test with invalid CSR data
-	t.Run("Invalid CSR data", func(t *testing.T) {
-		invalidCSR := []byte("not-a-csr")
-		err := VerifyStandardCSR(invalidCSR)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to parse X.509 CSR")
-	})
-
-	// Test with empty data
-	t.Run("Empty data", func(t *testing.T) {
-		err := VerifyStandardCSR([]byte{})
-		require.Error(t, err)
 	})
 }
 
@@ -287,30 +281,31 @@ func createMinimalTCGCSR(t *testing.T) []byte {
 	return data
 }
 
+// createTCGCSRWithEmbeddedCSR creates a TCG CSR with an optional embedded standard CSR for testing
+func createTCGCSRWithEmbeddedCSR(t *testing.T, embeddedCSR []byte) []byte {
+	// Use a mock signer for testing
+	signer := &mockTestSigner{}
+
+	tcgCSR, err := BuildTCGCSRIDevID(
+		embeddedCSR,
+		"test-model",
+		"test-serial",
+		nil, // ekCert
+		nil, // attestationPub
+		nil, // signingPub
+		nil, // signingCertifyInfo
+		nil, // signingCertifySignature
+		signer,
+	)
+	require.NoError(t, err)
+	return tcgCSR
+}
+
 // TestCreateMinimalTCGCSR tests our helper function
 func TestCreateMinimalTCGCSR(t *testing.T) {
 	data := createMinimalTCGCSR(t)
 	require.True(t, IsTCGCSRFormat(data))
 	require.True(t, len(data) >= 12)
-}
-
-// TestVerifyEnrollmentCSR tests the main CSR verification function
-func TestVerifyEnrollmentCSR(t *testing.T) {
-	t.Run("Non-TCG CSR falls back to standard verification", func(t *testing.T) {
-		// This should fail standard CSR verification
-		err := VerifyEnrollmentCSR([]byte("not-a-csr"))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to parse X.509 CSR")
-	})
-
-	t.Run("TCG CSR format triggers TCG verification", func(t *testing.T) {
-		// Create minimal TCG-CSR that passes format detection but fails parsing
-		tcgData := []byte{0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0x20}
-		err := VerifyEnrollmentCSR(tcgData)
-		// Should attempt TCG verification and fail during parsing
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to parse TCG-CSR")
-	})
 }
 
 // TestVerifyTCGCSRChainOfTrust tests TCG-CSR chain of trust verification
@@ -359,7 +354,7 @@ func TestStripSANExtensionOIDs(t *testing.T) {
 	}
 
 	// Strip SAN extensions
-	StripSANExtensionOIDs(cert)
+	stripSANExtensionOIDs(cert)
 
 	// Verify SAN extension was removed
 	require.Len(t, cert.UnhandledCriticalExtensions, 2)
@@ -380,7 +375,7 @@ func TestStripSANExtensionOIDs_NoSANExtension(t *testing.T) {
 	}
 
 	originalLen := len(cert.UnhandledCriticalExtensions)
-	StripSANExtensionOIDs(cert)
+	stripSANExtensionOIDs(cert)
 
 	// Should remain unchanged
 	require.Len(t, cert.UnhandledCriticalExtensions, originalLen)
@@ -392,7 +387,7 @@ func TestStripSANExtensionOIDs_EmptyExtensions(t *testing.T) {
 		UnhandledCriticalExtensions: []asn1.ObjectIdentifier{},
 	}
 
-	StripSANExtensionOIDs(cert)
+	stripSANExtensionOIDs(cert)
 
 	// Should remain empty
 	require.Len(t, cert.UnhandledCriticalExtensions, 0)
@@ -408,9 +403,60 @@ func TestStripSANExtensionOIDs_MultipleSANExtensions(t *testing.T) {
 		},
 	}
 
-	StripSANExtensionOIDs(cert)
+	stripSANExtensionOIDs(cert)
 
 	// Should have only the non-SAN extension
 	require.Len(t, cert.UnhandledCriticalExtensions, 1)
 	require.True(t, cert.UnhandledCriticalExtensions[0].Equal([]int{1, 2, 3, 4}))
+}
+
+// TestNormalizeEnrollmentCSR tests the NormalizeEnrollmentCSR function
+func TestNormalizeEnrollmentCSR(t *testing.T) {
+	t.Run("Standard CSR returns unchanged", func(t *testing.T) {
+		standardCSR := "-----BEGIN CERTIFICATE REQUEST-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\n-----END CERTIFICATE REQUEST-----"
+
+		result, isTPM, err := NormalizeEnrollmentCSR(standardCSR)
+		require.NoError(t, err)
+		require.False(t, isTPM)
+		require.Equal(t, []byte(standardCSR), result)
+	})
+
+	t.Run("TCG CSR with embedded standard CSR", func(t *testing.T) {
+		// Create a minimal TCG CSR with embedded standard CSR
+		embeddedCSR := []byte("embedded-standard-csr-data")
+		tcgCSR := createTCGCSRWithEmbeddedCSR(t, embeddedCSR)
+		tcgCSRBase64 := base64.StdEncoding.EncodeToString(tcgCSR)
+
+		result, isTPM, err := NormalizeEnrollmentCSR(tcgCSRBase64)
+		require.NoError(t, err)
+		require.True(t, isTPM)
+		require.Equal(t, embeddedCSR, result)
+	})
+
+	t.Run("TCG CSR without embedded standard CSR", func(t *testing.T) {
+		// Create a minimal TCG CSR without embedded standard CSR
+		tcgCSR := createTCGCSRWithEmbeddedCSR(t, nil)
+		tcgCSRBase64 := base64.StdEncoding.EncodeToString(tcgCSR)
+
+		_, isTPM, err := NormalizeEnrollmentCSR(tcgCSRBase64)
+		require.Error(t, err)
+		require.True(t, isTPM)
+		require.Contains(t, err.Error(), "invalid X.509 data parsed from TCG CSR")
+	})
+
+	t.Run("Invalid TCG CSR data", func(t *testing.T) {
+		// Create invalid TCG CSR data - has valid header but truncated content
+		invalidData := []byte{
+			0x01, 0x00, 0x01, 0x00, // Valid TCG version header
+			0x00, 0x00, 0x00, 0x10, // Content size (16 bytes)
+			0x00, 0x00, 0x00, 0x00, // Signature size (0 bytes)
+			// Missing actual content - this will cause parsing to fail
+		}
+		invalidDataBase64 := base64.StdEncoding.EncodeToString(invalidData)
+
+		_, isTPM, err := NormalizeEnrollmentCSR(invalidDataBase64)
+		require.Error(t, err)
+		require.True(t, isTPM)
+		require.Contains(t, err.Error(), "failed to parse TCG CSR")
+	})
 }
