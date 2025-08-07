@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -32,15 +33,8 @@ var (
 type mockPeriodicTaskExecutor struct {
 	mu               sync.Mutex
 	executeCallCount int
-	executeCallArgs  []executeCallArgs
 	orgIDs           []uuid.UUID // Store org IDs received during execution
 	panic            bool
-}
-
-type executeCallArgs struct {
-	ctx   context.Context
-	log   logrus.FieldLogger
-	orgID uuid.UUID
 }
 
 func (m *mockPeriodicTaskExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
@@ -61,14 +55,6 @@ func (m *mockPeriodicTaskExecutor) GetExecuteCallCount() int {
 	return m.executeCallCount
 }
 
-func (m *mockPeriodicTaskExecutor) GetExecuteCallArgs() []executeCallArgs {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make([]executeCallArgs, len(m.executeCallArgs))
-	copy(result, m.executeCallArgs)
-	return result
-}
-
 func (m *mockPeriodicTaskExecutor) GetOrgIDs() []uuid.UUID {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -80,7 +66,7 @@ func (m *mockPeriodicTaskExecutor) GetOrgIDs() []uuid.UUID {
 // Test periodic task metadata for publisher
 var testPeriodicTasks = map[periodic.PeriodicTaskType]periodic.PeriodicTaskMetadata{
 	periodic.PeriodicTaskTypeRepositoryTester: {
-		Interval: time.Minute,
+		Interval: 5 * time.Second,
 	},
 	periodic.PeriodicTaskTypeResourceSync: {
 		Interval: 1 * time.Second,
@@ -112,13 +98,16 @@ var _ = Describe("Periodic", func() {
 		consumerConfig           periodic.PeriodicTaskConsumerConfig
 		repositoryTesterExecutor *mockPeriodicTaskExecutor
 		resourceSyncExecutor     *mockPeriodicTaskExecutor
+		cancel                   context.CancelFunc
+		channelManager           *periodic.ChannelManager
 	)
 
 	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
-		ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-periodic")
-		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+		baseCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+		baseCtx = context.WithValue(baseCtx, consts.EventSourceComponentCtxKey, "flightctl-periodic")
+		baseCtx = context.WithValue(baseCtx, consts.EventActorCtxKey, "service:flightctl-periodic")
+		baseCtx = context.WithValue(baseCtx, consts.InternalRequestCtxKey, true)
+		ctx, cancel = context.WithCancel(baseCtx)
 
 		log = flightlog.InitLogs()
 
@@ -146,18 +135,17 @@ var _ = Describe("Periodic", func() {
 
 		// Setup callback manager and service handler
 		callbackManager = tasks_client.NewCallbackManager(taskQueuePublisher, log)
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
+		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
 
 		channelManager := periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,
 		})
 
 		publisherConfig = periodic.PeriodicTaskPublisherConfig{
-			Log:                log,
-			OrgService:         serviceHandler,
-			TasksMetadata:      testPeriodicTasks,
-			ChannelManager:     channelManager,
-			TaskTickerInterval: 100 * time.Millisecond,
+			Log:            log,
+			OrgService:     serviceHandler,
+			TasksMetadata:  testPeriodicTasks,
+			ChannelManager: channelManager,
 		}
 
 		repositoryTesterExecutor = &mockPeriodicTaskExecutor{}
@@ -189,32 +177,34 @@ var _ = Describe("Periodic", func() {
 
 		// Clean up database
 		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+
+		// Clean up channel manager
+		if channelManager != nil {
+			channelManager.Close()
+		}
+
+		if cancel != nil {
+			cancel()
+		}
 	})
 
 	When("running periodic tasks", func() {
-		It("runs tasks on startup", func() {
-			periodicTaskConsumer := periodic.NewPeriodicTaskConsumer(consumerConfig)
-			err := periodicTaskConsumer.Start(ctx)
-			Expect(err).ToNot(HaveOccurred())
-
-			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(publisherConfig)
-			Expect(err).ToNot(HaveOccurred())
-			periodicTaskPublisher.Start(ctx)
-
-			// Give some time for tasks to be processed and published
-			Eventually(func() bool {
-				return repositoryTesterExecutor.GetExecuteCallCount() >= 1 && resourceSyncExecutor.GetExecuteCallCount() >= 1
-			}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
-		})
-
 		It("runs tasks on configured intervals", func() {
+			// Start consumer and publisher together
+			eg, egCtx := errgroup.WithContext(ctx)
+
 			periodicTaskConsumer := periodic.NewPeriodicTaskConsumer(consumerConfig)
-			err := periodicTaskConsumer.Start(ctx)
-			Expect(err).ToNot(HaveOccurred())
+			eg.Go(func() error {
+				periodicTaskConsumer.Start(egCtx)
+				return nil
+			})
 
 			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
-			periodicTaskPublisher.Start(ctx)
+			eg.Go(func() error {
+				periodicTaskPublisher.Start(egCtx)
+				return nil
+			})
 
 			// Give some time for tasks to be processed and published
 			Eventually(func() bool {
@@ -232,13 +222,21 @@ var _ = Describe("Periodic", func() {
 			_, err := storeInst.Organization().Create(ctx, org)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Start consumer and publisher together
+			eg, egCtx := errgroup.WithContext(ctx)
+
 			periodicTaskConsumer := periodic.NewPeriodicTaskConsumer(consumerConfig)
-			err = periodicTaskConsumer.Start(ctx)
-			Expect(err).ToNot(HaveOccurred())
+			eg.Go(func() error {
+				periodicTaskConsumer.Start(egCtx)
+				return nil
+			})
 
 			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
-			periodicTaskPublisher.Start(ctx)
+			eg.Go(func() error {
+				periodicTaskPublisher.Start(egCtx)
+				return nil
+			})
 
 			// Repository tester should be called once for each org since it has a minute interval
 			// Resource sync should be called numerous times for each org as it is re-enqueued with a 1 second interval

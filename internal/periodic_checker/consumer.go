@@ -81,7 +81,11 @@ func (c *PeriodicTaskConsumer) runConsumer(ctx context.Context, consumerID int) 
 		case <-ctx.Done():
 			c.log.Infof("Consumer %d stopped", consumerID)
 			return
-		case taskRef := <-c.channelManager.Tasks():
+		case taskRef, ok := <-c.channelManager.Tasks():
+			if !ok {
+				c.log.Infof("Task channel closed – consumer %d stopping", consumerID)
+				return
+			}
 			c.processTask(ctx, taskRef)
 		}
 	}
@@ -100,6 +104,4 @@ func (c *PeriodicTaskConsumer) Start(ctx context.Context) {
 	c.log.Info("Context cancelled, stopping periodic task consumers...")
 	c.wg.Wait()
 	c.log.Info("All periodic task consumers stopped")
-
-	return
 }

@@ -51,9 +51,10 @@ func (cm *ChannelManager) PublishTask(ctx context.Context, taskRef PeriodicTaskR
 	case cm.taskChannel <- taskRef:
 		cm.log.Debugf("Published task %s for organization %s", taskRef.Type, taskRef.OrgID)
 		return nil
-	case <-ctx.Done():
-		cm.log.Info("Context cancelled while publishing task")
-		return ctx.Err()
+	default:
+		// Channel is full, fail immediately
+		cm.log.Debugf("Failed to publish task %s for organization %s: channel is full", taskRef.Type, taskRef.OrgID)
+		return errors.New("channel is full")
 	}
 }
 

@@ -51,7 +51,7 @@ func TestChannelManager_PublishTask_ClosedChannel(t *testing.T) {
 	require.Contains(t, err.Error(), "channel manager is closed")
 }
 
-func TestChannelManager_PublishTask_ContextCancelled(t *testing.T) {
+func TestChannelManager_PublishTask_ChannelFull(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
@@ -79,5 +79,5 @@ func TestChannelManager_PublishTask_ContextCancelled(t *testing.T) {
 
 	err = cm.PublishTask(ctx, taskRef)
 	require.Error(t, err)
-	require.Equal(t, context.Canceled, err)
+	require.Contains(t, err.Error(), "channel is full")
 }
