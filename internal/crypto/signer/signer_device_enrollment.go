@@ -55,8 +55,10 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) 
 		return nil, fmt.Errorf("request is missing metadata.name")
 	}
 
+  // Parse the CSR (for TCG CSRs, the service layer provides the embedded standard CSR)
 	x509CSR := request.X509()
 	supplied, err := CNFromDeviceFingerprint(cfg, x509CSR.Subject.CommonName)
+
 	if err != nil {
 		return nil, fmt.Errorf("invalid CN supplied in CSR: %w", err)
 	}

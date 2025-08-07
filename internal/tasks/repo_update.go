@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	servicecommon "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/sirupsen/logrus"
 )
@@ -57,6 +58,7 @@ func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) erro
 
 	for _, fleet := range fleets.Items {
 		t.callbackManager.FleetSourceUpdated(ctx, t.resourceRef.OrgID, *fleet.Metadata.Name)
+		t.serviceHandler.CreateEvent(ctx, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.FleetKind, *fleet.Metadata.Name, t.resourceRef.Name))
 	}
 
 	devices, status := t.serviceHandler.GetRepositoryDeviceReferences(ctx, t.resourceRef.Name)
@@ -66,6 +68,7 @@ func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) erro
 
 	for _, device := range devices.Items {
 		t.callbackManager.DeviceSourceUpdated(ctx, t.resourceRef.OrgID, *device.Metadata.Name)
+		t.serviceHandler.CreateEvent(ctx, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.DeviceKind, *device.Metadata.Name, t.resourceRef.Name))
 	}
 
 	return nil

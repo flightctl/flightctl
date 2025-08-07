@@ -267,11 +267,11 @@ func (b *batchSequenceSelector) batchName(currentBatch int) string {
 	printableBatchNum := currentBatch + 1
 	switch {
 	case currentBatch == -1:
-		return "preliminary batch"
+		return api.PreliminaryBatchName
 	case currentBatch >= 0 && currentBatch < len(lo.FromPtr(b.Sequence)):
 		return fmt.Sprintf("batch %d", printableBatchNum)
 	case currentBatch == len(lo.FromPtr(b.Sequence)):
-		return "final implicit batch"
+		return api.FinalImplicitBatchName
 	default:
 		return fmt.Sprintf("unexpected batch %d", printableBatchNum)
 	}
@@ -387,8 +387,8 @@ func (b *batchSelection) getSuccessThreshold() (int, error) {
 	return ret, nil
 }
 
-func (b *batchSelection) getLastCompletionReport() (CompletionReport, bool, error) {
-	var report CompletionReport
+func (b *batchSelection) getLastCompletionReport() (api.RolloutBatchCompletionReport, bool, error) {
+	var report api.RolloutBatchCompletionReport
 	completionReportStr, exists := b.fleet.GetAnnotation(api.FleetAnnotationLastBatchCompletionReport)
 	if !exists {
 		return report, false, nil
@@ -477,17 +477,8 @@ func (b *batchSelection) IsComplete(ctx context.Context) (bool, error) {
 	return total == complete, nil
 }
 
-type CompletionReport struct {
-	BatchName         string `json:"batchName"`
-	SuccessPercentage int64  `json:"successPercentage"`
-	Total             int64  `json:"total"`
-	Successful        int64  `json:"successful"`
-	Failed            int64  `json:"failed"`
-	TimedOut          int64  `json:"timedOut"`
-}
-
-func (b *batchSelection) completionReport(counts []api.DeviceCompletionCount) CompletionReport {
-	ret := CompletionReport{
+func (b *batchSelection) completionReport(counts []api.DeviceCompletionCount) api.RolloutBatchCompletionReport {
+	ret := api.RolloutBatchCompletionReport{
 		BatchName: b.batchName,
 	}
 

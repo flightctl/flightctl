@@ -96,7 +96,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
 
 	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
+		service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
 
 	httpAPIHandler, err := s.prepareHTTPHandler(serviceHandler)
 	if err != nil {

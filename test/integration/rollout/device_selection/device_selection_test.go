@@ -343,7 +343,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		callbackManager := tasks_client.NewCallbackManager(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
+		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
 	})
 	AfterEach(func() {
 		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
@@ -541,7 +541,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 				val, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationLastBatchCompletionReport)
 				Expect(exists).To(Equal(selected != nil && selected.length > 0))
 				if exists {
-					var report device_selection.CompletionReport
+					var report api.RolloutBatchCompletionReport
 					Expect(json.Unmarshal([]byte(val), &report)).ToNot(HaveOccurred())
 					Expect(report.SuccessPercentage).To(Equal(int64(expectedSuccessPercentage)))
 				}

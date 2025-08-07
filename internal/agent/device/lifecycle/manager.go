@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -328,6 +330,15 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 }
 
 func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1alpha1.DeviceStatus) error {
+	var csrString string
+	if tpm.IsTCGCSRFormat(b.enrollmentCSR) {
+		// TCG CSR is binary data, must be base64 encoded
+		b.log.Debugf("Detected TCG CSR format, base64 encoding before transmission")
+		csrString = base64.StdEncoding.EncodeToString(b.enrollmentCSR)
+	} else {
+		csrString = string(b.enrollmentCSR)
+	}
+
 	req := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "EnrollmentRequest",
@@ -335,7 +346,7 @@ func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			Name: &b.deviceName,
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
-			Csr:          string(b.enrollmentCSR),
+			Csr:          csrString,
 			DeviceStatus: deviceStatus,
 			Labels:       &b.defaultLabels,
 		},
