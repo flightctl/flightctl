@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
@@ -348,8 +349,8 @@ func (p *TCGCSRParser) readBytes(length int) ([]byte, error) {
 	return data, nil
 }
 
-// ExtractTPMDataFromTCGCSR extracts TPM attestation data from parsed TCG-CSR
-func ExtractTPMDataFromTCGCSR(parsed *ParsedTCGCSR) (*TPMAttestationData, error) {
+// extractTPMDataFromTCGCSR extracts TPM attestation data from parsed TCG-CSR
+func extractTPMDataFromTCGCSR(parsed *ParsedTCGCSR) (*TPMAttestationData, error) {
 	if parsed == nil || parsed.CSRContents == nil || parsed.CSRContents.Payload == nil {
 		return nil, fmt.Errorf("invalid parsed TCG-CSR data")
 	}
@@ -382,33 +383,6 @@ type TPMAttestationData struct {
 	ProductModel           string
 	ProductSerial          string
 	StandardCSR            []byte // Embedded standard X.509 CSR if available
-}
-
-// VerifyEnrollmentCSR verifies either a standard X.509 CSR or a TCG-CSR-IDEVID with chain of trust
-func VerifyEnrollmentCSR(csrData []byte) error {
-	// First, detect what type of CSR this is
-	if IsTCGCSRFormat(csrData) {
-		return VerifyTCGCSRChainOfTrust(csrData)
-	}
-
-	// For standard X.509 CSRs, just parse and validate basic structure
-	return VerifyStandardCSR(csrData)
-}
-
-// VerifyStandardCSR verifies a standard X.509 CSR
-func VerifyStandardCSR(csrData []byte) error {
-	// Try to parse as PEM first
-	block, _ := pem.Decode(csrData)
-	if block != nil && block.Type == "CERTIFICATE REQUEST" {
-		csrData = block.Bytes
-	}
-
-	_, err := x509.ParseCertificateRequest(csrData)
-	if err != nil {
-		return fmt.Errorf("failed to parse X.509 CSR: %w", err)
-	}
-
-	return nil
 }
 
 // VerifyTCGCSRChainOfTrust verifies the complete chain of trust in a TCG-CSR-IDEVID
@@ -614,7 +588,7 @@ func verifyTPM2CertifySignature(certifyInfo, signature []byte, signingPublicKey 
 	}
 }
 
-// StripSANExtensionOIDs removes the SAN Extension OID from the specified
+// stripSANExtensionOIDs removes the SAN Extension OID from the specified
 // cert. This method may re-assign the remaining extensions out of order.
 //
 // This is necessary because the EKCert may contain additional data
@@ -622,7 +596,7 @@ func verifyTPM2CertifySignature(certifyInfo, signature []byte, signingPublicKey 
 // critical. This causes the Verify() to reject the cert because not all data
 // within a critical extension has been handled. We mark this as OK here by
 // stripping the SAN Extension OID out of UnhandledCriticalExtensions.
-func StripSANExtensionOIDs(cert *x509.Certificate) {
+func stripSANExtensionOIDs(cert *x509.Certificate) {
 	sanExtensionOID := []int{2, 5, 29, 17}
 
 	for i := 0; i < len(cert.UnhandledCriticalExtensions); i++ {
@@ -657,7 +631,7 @@ func verifyEKCertificateChain(ekCert *x509.Certificate, trustedRoots *x509.CertP
 	}
 
 	// strip SAN Extension OIDs for TPM certificates
-	StripSANExtensionOIDs(ekCert)
+	stripSANExtensionOIDs(ekCert)
 
 	opts := x509.VerifyOptions{
 		Roots:     trustedRoots,
@@ -712,4 +686,46 @@ func LoadCAsFromPaths(paths []string) (*x509.CertPool, error) {
 	}
 
 	return rootPool, nil
+}
+
+// ParseTCGCSRBytes returns the decoded TCG-formatted CSR bytes if valid, or false if not.
+func ParseTCGCSRBytes(raw string) ([]byte, bool) {
+	csrBytes := []byte(raw)
+
+	if IsTCGCSRFormat(csrBytes) {
+		return csrBytes, true
+	}
+
+	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && IsTCGCSRFormat(decoded) {
+		return decoded, true
+	}
+
+	return nil, false
+}
+
+// NormalizeEnrollmentCSR extracts the embedded standard X.509 CSR from a TCG CSR if present.
+func NormalizeEnrollmentCSR(csrString string) ([]byte, bool, error) {
+	// Check if this is a TCG CSR
+	csrBytes, isTPM := ParseTCGCSRBytes(csrString)
+	if !isTPM {
+		// standard CSR - return as-is
+		return []byte(csrString), false, nil
+	}
+
+	parsed, err := ParseTCGCSR(csrBytes)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to parse TCG CSR: %w", err)
+	}
+
+	// extract TPM data including the embedded standard CSR
+	tpmData, err := extractTPMDataFromTCGCSR(parsed)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to extract TPM data: %w", err)
+	}
+
+	if len(tpmData.StandardCSR) == 0 {
+		return nil, true, fmt.Errorf("invalid X.509 data parsed from TCG CSR")
+	}
+
+	return tpmData.StandardCSR, true, nil
 }
