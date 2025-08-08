@@ -64,6 +64,33 @@ The Flight Control API server needs TPM manufacturer CA certificates to validate
 
 ### Obtaining TPM CA Certificates
 
+If direct access to the device is possible, required certs can be discovered by first obtaining the Endorsement Key cert
+and then following the Authority Information Access (AIA) chain. Well known TPM NVRAM index handles are [defined by the TCG](https://trustedcomputinggroup.org/wp-content/uploads/TCG_IWG_EKCredentialProfile_v2p4_r3.pdf).
+
+#### Example: Starting from a device
+
+Note: access to the TPM typically requires root privileges.
+Note: [TPM tools](https://tpm2-tools.readthedocs.io/en/latest/INSTALL/) must be installed. These are available via `dnf` also.
+
+```bash
+sudo tpm2_nvread 0x01c00002 -o rsa_ek_cert.der
+sudo openssl x509 -inform DER -in rsa_ek_cert.der -text -noout 
+```
+
+`0x01c00002` is the well-known address of the RSA EK Cert.
+
+Expected output:
+
+```bash
+...elided
+       X509v3 extensions:
+            ...elided
+            Authority Information Access: 
+                CA Issuers - URI:http://sw-center.st.com/STSAFE/stsafetpmrsaint10.crt
+```
+
+The intermediate cert can be downloaded as described in the following example, and used to find the root cert in the AIA chain.
+
 #### Example: Infineon TPM CA Certificates
 
 ```bash
