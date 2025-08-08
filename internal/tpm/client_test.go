@@ -41,9 +41,9 @@ func TestNewClient(t *testing.T) {
 			name: "successful TPM discovery with default path",
 			config: &agent_config.Config{
 				TPM: agent_config.TPM{
-					Path:            "",
-					PersistencePath: "tpm-persistence",
-					EnableOwnership: false,
+					DevicePath:      "",
+					StorageFilePath: "tpm-persistence",
+					AuthEnabled:     false,
 				},
 			},
 			setupFiles: func(t *testing.T, rw fileio.ReadWriter) {
@@ -60,9 +60,9 @@ func TestNewClient(t *testing.T) {
 			name: "successful TPM discovery with specific path",
 			config: &agent_config.Config{
 				TPM: agent_config.TPM{
-					Path:            "/dev/tpm0",
-					PersistencePath: "tpm-persistence",
-					EnableOwnership: false,
+					DevicePath:      "/dev/tpm0",
+					StorageFilePath: "tpm-persistence",
+					AuthEnabled:     false,
 				},
 			},
 			setupFiles: func(t *testing.T, rw fileio.ReadWriter) {
@@ -79,9 +79,9 @@ func TestNewClient(t *testing.T) {
 			name: "no TPM devices found",
 			config: &agent_config.Config{
 				TPM: agent_config.TPM{
-					Path:            "",
-					PersistencePath: "tpm-persistence",
-					EnableOwnership: false,
+					DevicePath:      "",
+					StorageFilePath: "tpm-persistence",
+					AuthEnabled:     false,
 				},
 			},
 			setupFiles: func(t *testing.T, rw fileio.ReadWriter) {
@@ -95,9 +95,9 @@ func TestNewClient(t *testing.T) {
 			name: "TPM version validation fails",
 			config: &agent_config.Config{
 				TPM: agent_config.TPM{
-					Path:            "",
-					PersistencePath: "tpm-persistence",
-					EnableOwnership: false,
+					DevicePath:      "",
+					StorageFilePath: "tpm-persistence",
+					AuthEnabled:     false,
 				},
 			},
 			setupFiles: func(t *testing.T, rw fileio.ReadWriter) {
@@ -112,9 +112,9 @@ func TestNewClient(t *testing.T) {
 			name: "device does not exist",
 			config: &agent_config.Config{
 				TPM: agent_config.TPM{
-					Path:            "",
-					PersistencePath: "tpm-persistence",
-					EnableOwnership: false,
+					DevicePath:      "",
+					StorageFilePath: "tpm-persistence",
+					AuthEnabled:     false,
 				},
 			},
 			setupFiles: func(t *testing.T, rw fileio.ReadWriter) {
@@ -139,7 +139,7 @@ func TestNewClient(t *testing.T) {
 			}
 
 			// Note: We test the discovery logic since NewClient tries to open a real TPM connection
-			_, err := discoverAndValidateTPM(rw, logger, tc.config.TPM.Path)
+			_, err := discoverAndValidateTPM(rw, logger, tc.config.TPM.DevicePath)
 
 			if tc.expectError {
 				require.Error(t, err)
@@ -877,9 +877,9 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			c, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
 					Enabled:         true,
-					Path:            agent_config.DefaultTPMDevicePath,
-					PersistencePath: agent_config.DefaultTPMKeyBlobFile,
-					EnableOwnership: tc.enableOwnership,
+					DevicePath:      agent_config.DefaultTPMDevicePath,
+					StorageFilePath: agent_config.DefaultTPMKeyFile,
+					AuthEnabled:     tc.enableOwnership,
 				},
 			}, "test-model", "test-serial")
 			require.NoError(err)
@@ -899,9 +899,9 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			c2, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
 					Enabled:         true,
-					Path:            agent_config.DefaultTPMDevicePath,
-					PersistencePath: agent_config.DefaultTPMKeyBlobFile,
-					EnableOwnership: tc.enableOwnership,
+					DevicePath:      agent_config.DefaultTPMDevicePath,
+					StorageFilePath: agent_config.DefaultTPMKeyFile,
+					AuthEnabled:     tc.enableOwnership,
 				},
 			}, "test-model", "test-serial")
 			require.NoError(err)
@@ -919,9 +919,9 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			c3, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
 					Enabled:         true,
-					Path:            agent_config.DefaultTPMDevicePath,
-					PersistencePath: agent_config.DefaultTPMKeyBlobFile,
-					EnableOwnership: tc.enableOwnership,
+					DevicePath:      agent_config.DefaultTPMDevicePath,
+					StorageFilePath: agent_config.DefaultTPMKeyFile,
+					AuthEnabled:     tc.enableOwnership,
 				},
 			}, "test-model", "test-serial")
 			require.NoError(err)
