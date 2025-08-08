@@ -34,8 +34,13 @@ func convertUpdateDetails(updates *api.ResourceUpdatedDetails) *api.EventDetails
 // Helper functions for standardized event message formatting
 
 // formatResourceActionMessage creates a standardized message for resource actions
-func formatResourceActionMessage(resourceKind api.ResourceKind, action string) string {
-	return fmt.Sprintf("%s was %s successfully.", resourceKind, action)
+func formatResourceActionMessage(resourceKind api.ResourceKind, action string, details *string) string {
+	s := fmt.Sprintf("%s was %s successfully", resourceKind, action)
+	if details != nil {
+		s += fmt.Sprintf(" (%s)", *details)
+	}
+	s += "."
+	return s
 }
 
 // formatResourceActionFailedTemplate creates a template for failed resource actions
@@ -73,7 +78,7 @@ func getBaseEvent(ctx context.Context, resourceEvent resourceEvent) *api.Event {
 
 // GetResourceCreatedOrUpdatedSuccessEvent creates an event for successful resource creation or update
 func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, updates *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
-	if !created && updates != nil && len(updates.UpdatedFields) == 0 {
+	if !created && (updates == nil || len(updates.UpdatedFields) == 0) {
 		return nil
 	}
 
@@ -89,15 +94,18 @@ func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, 
 			resourceKind: resourceKind,
 			resourceName: resourceName,
 			reason:       api.EventReasonResourceCreated,
-			message:      formatResourceActionMessage(resourceKind, "created"),
+			message:      formatResourceActionMessage(resourceKind, "created", nil),
 			details:      details,
 		})
 	} else {
+		updatedFieldsStr := strings.Join(lo.Map(updates.UpdatedFields, func(item api.ResourceUpdatedDetailsUpdatedFields, _ int) string {
+			return string(item)
+		}), ", ")
 		event = getBaseEvent(ctx, resourceEvent{
 			resourceKind: resourceKind,
 			resourceName: resourceName,
 			reason:       api.EventReasonResourceUpdated,
-			message:      formatResourceActionMessage(resourceKind, "updated"),
+			message:      formatResourceActionMessage(resourceKind, "updated", &updatedFieldsStr),
 			details:      details,
 		})
 	}
@@ -118,6 +126,11 @@ func GetDeviceEventFromUpdateDetails(ctx context.Context, resourceName string, u
 
 // GetResourceCreatedOrUpdatedFailureEvent creates an event for failed resource creation or update
 func GetResourceCreatedOrUpdatedFailureEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, status api.Status, updatedDetails *api.ResourceUpdatedDetails) *api.Event {
+	// Ignore 4XX status codes
+	if status.Code >= 400 && status.Code < 500 {
+		return nil
+	}
+
 	if created {
 		return getBaseEvent(ctx, resourceEvent{
 			resourceKind: resourceKind,
@@ -154,7 +167,7 @@ func GetResourceDeletedSuccessEvent(ctx context.Context, resourceKind api.Resour
 		resourceKind: resourceKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceDeleted,
-		message:      formatResourceActionMessage(resourceKind, "deleted"),
+		message:      formatResourceActionMessage(resourceKind, "deleted", nil),
 		details:      nil,
 	})
 }
@@ -165,7 +178,7 @@ func GetEnrollmentRequestApprovedEvent(ctx context.Context, resourceName string,
 		resourceKind: api.EnrollmentRequestKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonEnrollmentRequestApproved,
-		message:      formatResourceActionMessage(api.EnrollmentRequestKind, "approved"),
+		message:      formatResourceActionMessage(api.EnrollmentRequestKind, "approved", nil),
 		details:      nil,
 	})
 }
@@ -187,7 +200,7 @@ func GetDeviceDecommissionedSuccessEvent(ctx context.Context, _ bool, _ api.Reso
 		resourceKind: api.DeviceKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonDeviceDecommissioned,
-		message:      formatResourceActionMessage(api.DeviceKind, "decommissioned"),
+		message:      formatResourceActionMessage(api.DeviceKind, "decommissioned", nil),
 		details:      convertUpdateDetails(update),
 	})
 }
@@ -209,6 +222,7 @@ func GetDeviceMultipleOwnersDetectedEvent(ctx context.Context, deviceName string
 
 	details := api.EventDetails{}
 	detailsStruct := api.DeviceMultipleOwnersDetectedDetails{
+		DetailType:     api.DeviceMultipleOwnersDetected,
 		MatchingFleets: matchingFleets,
 	}
 	if err := details.FromDeviceMultipleOwnersDetectedDetails(detailsStruct); err != nil {
@@ -231,6 +245,7 @@ func GetDeviceMultipleOwnersResolvedEvent(ctx context.Context, deviceName string
 
 	details := api.EventDetails{}
 	detailsStruct := api.DeviceMultipleOwnersResolvedDetails{
+		DetailType:             api.DeviceMultipleOwnersResolved,
 		ResolutionType:         resolutionType,
 		AssignedOwner:          assignedOwner,
 		PreviousMatchingFleets: &previousMatchingFleets,
@@ -273,12 +288,37 @@ func GetDeviceSpecInvalidEvent(ctx context.Context, deviceName string, message s
 	})
 }
 
+// GetFleetSpecValidEvent creates an event for fleet spec becoming valid
+func GetFleetSpecValidEvent(ctx context.Context, fleetName string) *api.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.FleetKind,
+		resourceName: fleetName,
+		reason:       api.EventReasonFleetValid,
+		message:      "Fleet specification is valid.",
+		details:      nil,
+	})
+}
+
+// GetFleetSpecInvalidEvent creates an event for fleet spec becoming invalid
+func GetFleetSpecInvalidEvent(ctx context.Context, fleetName string, message string) *api.Event {
+	msg := fmt.Sprintf("Fleet specification is invalid: %s.", message)
+
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.FleetKind,
+		resourceName: fleetName,
+		reason:       api.EventReasonFleetInvalid,
+		message:      msg,
+		details:      nil,
+	})
+}
+
 // GetInternalTaskFailedEvent creates an event for internal task failures
 func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, taskType string, errorMessage string, retryCount *int, taskParameters map[string]string, log logrus.FieldLogger) *api.Event {
 	message := formatInternalTaskFailedMessage(resourceKind, taskType, errorMessage)
 
 	details := api.EventDetails{}
 	detailsStruct := api.InternalTaskFailedDetails{
+		DetailType:     api.InternalTaskFailed,
 		TaskType:       taskType,
 		ErrorMessage:   errorMessage,
 		RetryCount:     retryCount,
@@ -304,7 +344,7 @@ func GetResourceSyncCommitDetectedEvent(ctx context.Context, resourceName string
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncCommitDetected,
-		message:      fmt.Sprintf("New commit detected: %s", commitHash),
+		message:      fmt.Sprintf("New commit detected: %s.", commitHash),
 		details:      nil,
 	})
 }
@@ -314,7 +354,7 @@ func GetResourceSyncAccessibleEvent(ctx context.Context, resourceName string) *a
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncAccessible,
-		message:      "Repository is accessible",
+		message:      "Repository is accessible.",
 		details:      nil,
 	})
 }
@@ -324,7 +364,7 @@ func GetResourceSyncInaccessibleEvent(ctx context.Context, resourceName string, 
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncInaccessible,
-		message:      fmt.Sprintf("Repository is inaccessible: %s", errorMessage),
+		message:      fmt.Sprintf("Repository is inaccessible: %s.", errorMessage),
 		details:      nil,
 	})
 }
@@ -334,7 +374,7 @@ func GetResourceSyncParsedEvent(ctx context.Context, resourceName string) *api.E
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncParsed,
-		message:      "Resources parsed successfully",
+		message:      "Resources parsed successfully.",
 		details:      nil,
 	})
 }
@@ -354,7 +394,7 @@ func GetResourceSyncSyncedEvent(ctx context.Context, resourceName string) *api.E
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncSynced,
-		message:      "Resources synced successfully",
+		message:      "Resources synced successfully.",
 		details:      nil,
 	})
 }
@@ -364,7 +404,7 @@ func GetResourceSyncSyncFailedEvent(ctx context.Context, resourceName string, er
 		resourceKind: api.ResourceSyncKind,
 		resourceName: resourceName,
 		reason:       api.EventReasonResourceSyncSyncFailed,
-		message:      fmt.Sprintf("Resource sync failed: %s", errorMessage),
+		message:      fmt.Sprintf("Resource sync failed: %s.", errorMessage),
 		details:      nil,
 	})
 }
@@ -375,30 +415,46 @@ func GetFleetRolloutNewEvent(ctx context.Context, name string) *api.Event {
 		resourceKind: api.FleetKind,
 		resourceName: name,
 		reason:       api.EventReasonFleetRolloutCreated,
-		message:      "Fleet rollout created",
+		message:      "Fleet rollout created.",
 		details:      nil,
 	})
 }
 
-// GetFleetRolloutCompletedEvent creates an event for fleet rollout completion
-func GetFleetRolloutCompletedEvent(ctx context.Context, name string) *api.Event {
+// GetFleetRolloutBatchCompletedEvent creates an event for fleet rollout completion
+func GetFleetRolloutBatchCompletedEvent(ctx context.Context, name string, deployingTemplateVersion string, report *api.RolloutBatchCompletionReport) *api.Event {
+	details := api.FleetRolloutBatchCompletedDetails{
+		DetailType:        api.FleetRolloutBatchCompleted,
+		TemplateVersion:   deployingTemplateVersion,
+		Batch:             report.BatchName,
+		SuccessPercentage: report.SuccessPercentage,
+		Total:             report.Total,
+		Successful:        report.Successful,
+		Failed:            report.Failed,
+		TimedOut:          report.TimedOut,
+	}
+	eventDetails := api.EventDetails{}
+	if err := eventDetails.FromFleetRolloutBatchCompletedDetails(details); err != nil {
+		// If serialization fails, return nil rather than panicking
+		return nil
+	}
 	return getBaseEvent(ctx, resourceEvent{
 		resourceKind: api.FleetKind,
 		resourceName: name,
 		reason:       api.EventReasonFleetRolloutBatchCompleted,
-		message:      "Fleet rollout batch completed",
-		details:      nil,
+		message:      fmt.Sprintf("Fleet rollout batch %s completed with %d%% success rate.", report.BatchName, report.SuccessPercentage),
+		details:      &eventDetails,
 	})
 }
 
 // GetFleetRolloutStartedEvent creates an event for fleet rollout start
-func GetFleetRolloutStartedEvent(ctx context.Context, templateVersionName string, fleetName string, immediateRollout bool) *api.Event {
-	rolloutType := "batched"
+func GetFleetRolloutStartedEvent(ctx context.Context, templateVersionName string, fleetName string, immediateRollout bool, policyRemoved bool) *api.Event {
+	rolloutType := api.Batched
 	if immediateRollout {
-		rolloutType = "immediate"
+		rolloutType = "None"
 	}
 	details := api.FleetRolloutStartedDetails{
-		IsImmediate:     api.FleetRolloutStartedDetailsIsImmediate(rolloutType),
+		DetailType:      api.FleetRolloutStarted,
+		RolloutStrategy: rolloutType,
 		TemplateVersion: templateVersionName,
 	}
 	eventDetails := api.EventDetails{}
@@ -406,11 +462,99 @@ func GetFleetRolloutStartedEvent(ctx context.Context, templateVersionName string
 		// If serialization fails, return nil rather than panicking
 		return nil
 	}
+
+	message := "Fleet rollout started."
+	if policyRemoved {
+		message = "Fleet rollout started due to policy removal."
+	}
+
 	return getBaseEvent(ctx, resourceEvent{
 		resourceKind: api.FleetKind,
 		resourceName: fleetName,
 		reason:       api.EventReasonFleetRolloutStarted,
-		message:      "template created with rollout device selection",
+		message:      message,
+		details:      &eventDetails,
+	})
+}
+
+// GetFleetRolloutDeviceSelectedEvent creates an event for fleet rollout device selection
+func GetFleetRolloutDeviceSelectedEvent(ctx context.Context, deviceName string, fleetName string, templateVersion string) *api.Event {
+	details := api.FleetRolloutDeviceSelectedDetails{
+		DetailType:      api.FleetRolloutDeviceSelected,
+		FleetName:       fleetName,
+		TemplateVersion: templateVersion,
+	}
+	eventDetails := api.EventDetails{}
+	if err := eventDetails.FromFleetRolloutDeviceSelectedDetails(details); err != nil {
+		// If serialization fails, return nil rather than panicking
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.DeviceKind,
+		resourceName: deviceName,
+		reason:       api.EventReasonFleetRolloutDeviceSelected,
+		message:      fmt.Sprintf("Device was selected for update while rolling out fleet %s with template version %s.", fleetName, templateVersion),
+		details:      &eventDetails,
+	})
+}
+
+// GetFleetRolloutBatchDispatchedEvent creates an event for fleet rollout batch dispatch
+func GetFleetRolloutBatchDispatchedEvent(ctx context.Context, fleetName string, templateVersion string, batch string) *api.Event {
+	details := api.FleetRolloutBatchDispatchedDetails{
+		DetailType:      api.FleetRolloutBatchDispatched,
+		TemplateVersion: templateVersion,
+		Batch:           batch,
+	}
+	eventDetails := api.EventDetails{}
+	if err := eventDetails.FromFleetRolloutBatchDispatchedDetails(details); err != nil {
+		// If serialization fails, return nil rather than panicking
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.FleetKind,
+		resourceName: fleetName,
+		reason:       api.EventReasonFleetRolloutBatchDispatched,
+		message:      "Fleet rollout batch dispatched.",
+		details:      &eventDetails,
+	})
+}
+
+// GetFleetRolloutCompletedEvent creates an event for fleet rollout completion
+func GetFleetRolloutCompletedEvent(ctx context.Context, name string, templateVersion string) *api.Event {
+	details := api.FleetRolloutCompletedDetails{
+		DetailType:      api.FleetRolloutCompleted,
+		TemplateVersion: templateVersion,
+	}
+	eventDetails := api.EventDetails{}
+	if err := eventDetails.FromFleetRolloutCompletedDetails(details); err != nil {
+		// If serialization fails, return nil rather than panicking
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.FleetKind,
+		resourceName: name,
+		reason:       api.EventReasonFleetRolloutCompleted,
+		message:      "Fleet rollout completed.",
+		details:      &eventDetails,
+	})
+}
+
+// GetFleetRolloutFailedEvent creates an event for fleet rollout failure
+func GetFleetRolloutFailedEvent(ctx context.Context, name string, deployingTemplateVersion string, message string) *api.Event {
+	details := api.FleetRolloutFailedDetails{
+		DetailType:      api.FleetRolloutFailed,
+		TemplateVersion: deployingTemplateVersion,
+	}
+	eventDetails := api.EventDetails{}
+	if err := eventDetails.FromFleetRolloutFailedDetails(details); err != nil {
+		// If serialization fails, return nil rather than panicking
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.FleetKind,
+		resourceName: name,
+		reason:       api.EventReasonFleetRolloutFailed,
+		message:      message,
 		details:      &eventDetails,
 	})
 }
@@ -421,7 +565,7 @@ func GetRepositoryAccessibleEvent(ctx context.Context, name string) *api.Event {
 		resourceKind: api.RepositoryKind,
 		resourceName: name,
 		reason:       api.EventReasonRepositoryAccessible,
-		message:      "Repository is accessible",
+		message:      "Repository is accessible.",
 		details:      nil,
 	})
 }
@@ -432,7 +576,27 @@ func GetRepositoryInaccessibleEvent(ctx context.Context, name string, errorMessa
 		resourceKind: api.RepositoryKind,
 		resourceName: name,
 		reason:       api.EventReasonRepositoryInaccessible,
-		message:      fmt.Sprintf("Repository is inaccessible: %s", errorMessage),
+		message:      fmt.Sprintf("Repository is inaccessible: %s.", errorMessage),
 		details:      nil,
+	})
+}
+
+// GetReferencedRepositoryUpdatedEvent creates an event for a referenced repository being updated
+func GetReferencedRepositoryUpdatedEvent(ctx context.Context, kind api.ResourceKind, name, repositoryName string) *api.Event {
+	details := api.ReferencedRepositoryUpdatedDetails{
+		DetailType: api.ReferencedRepositoryUpdated,
+		Repository: repositoryName,
+	}
+	eventDetails := api.EventDetails{}
+	if err := eventDetails.FromReferencedRepositoryUpdatedDetails(details); err != nil {
+		// If serialization fails, return nil rather than panicking
+		return nil
+	}
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: kind,
+		resourceName: name,
+		reason:       api.EventReasonReferencedRepositoryUpdated,
+		message:      fmt.Sprintf("Referenced repository %s updated.", repositoryName),
+		details:      &eventDetails,
 	})
 }

@@ -5534,6 +5534,7 @@ components:
             - DeviceContentUpToDate
             - DeviceContentOutOfDate
             - DeviceContentUpdating
+            - DeviceUpdateFailed
             - EnrollmentRequestApproved
             - EnrollmentRequestApprovalFailed
             - DeviceMultipleOwnersDetected
@@ -5543,8 +5544,15 @@ components:
             - InternalTaskFailed
             - RepositoryAccessible
             - RepositoryInaccessible
-            - FleetRolloutStarted
+            - ReferencedRepositoryUpdated
+            - FleetValid
+            - FleetInvalid
             - FleetRolloutCreated
+            - FleetRolloutStarted
+            - FleetRolloutFailed
+            - FleetRolloutCompleted
+            - FleetRolloutBatchDispatched
+            - FleetRolloutDeviceSelected
             - FleetRolloutBatchCompleted
             - ResourceSyncCommitDetected
             - ResourceSyncAccessible
@@ -5627,7 +5635,13 @@ components:
           DeviceMultipleOwnersResolved: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
           InternalTaskFailed: "#/components/schemas/InternalTaskFailedDetails"
           ResourceSyncCompleted: "#/components/schemas/ResourceSyncCompletedDetails"
+          ReferencedRepositoryUpdated: "#/components/schemas/ReferencedRepositoryUpdatedDetails"
           FleetRolloutStarted: "#/components/schemas/FleetRolloutStartedDetails"
+          FleetRolloutFailed: "#/components/schemas/FleetRolloutFailedDetails"
+          FleetRolloutCompleted: "#/components/schemas/FleetRolloutCompletedDetails"
+          FleetRolloutBatchDispatched: "#/components/schemas/FleetRolloutBatchDispatchedDetails"
+          FleetRolloutBatchCompleted: "#/components/schemas/FleetRolloutBatchCompletedDetails"
+          FleetRolloutDeviceSelected: "#/components/schemas/FleetRolloutDeviceSelectedDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
@@ -5635,7 +5649,13 @@ components:
         - $ref: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
         - $ref: "#/components/schemas/InternalTaskFailedDetails"
         - $ref: "#/components/schemas/ResourceSyncCompletedDetails"
+        - $ref: "#/components/schemas/ReferencedRepositoryUpdatedDetails"
         - $ref: "#/components/schemas/FleetRolloutStartedDetails"
+        - $ref: "#/components/schemas/FleetRolloutFailedDetails"
+        - $ref: "#/components/schemas/FleetRolloutCompletedDetails"
+        - $ref: "#/components/schemas/FleetRolloutBatchDispatchedDetails"
+        - $ref: "#/components/schemas/FleetRolloutBatchCompletedDetails"
+        - $ref: "#/components/schemas/FleetRolloutDeviceSelectedDetails"
     ResourceUpdatedDetails:
       type: object
       required:
@@ -5650,7 +5670,7 @@ components:
           type: array
           items:
             type: string
-            enum: [owner, labels, spec]
+            enum: [owner, labels, spec, spec.selector, spec.template]
           description: List of fields that were updated in the resource.
         previousOwner:
           type: string
@@ -5766,7 +5786,7 @@ components:
       required:
         - detailType
         - templateVersion
-        - isImmediate
+        - rolloutStrategy
       properties:
         detailType:
           type: string
@@ -5775,10 +5795,125 @@ components:
         templateVersion:
           type: string
           description: The name of the TemplateVersion that is rolling out.
-        isImmediate:
+        rolloutStrategy:
           type: string
-          enum: [batched, immediate]
+          enum: [None, Batched]
           description: Rollout strategy type.
+    FleetRolloutDeviceSelectedDetails:
+      type: object
+      required:
+        - detailType
+        - fleetName
+        - templateVersion
+      properties:
+        detailType:
+          type: string
+          enum: [FleetRolloutDeviceSelected]
+          description: The type of detail for discriminator purposes.
+        fleetName:
+          type: string
+          description: The name of the fleet that the device is being selected for.
+        templateVersion:
+          type: string
+          description: The name of the TemplateVersion that the device is being selected to render.
+    FleetRolloutFailedDetails:
+      type: object
+      required:
+        - detailType
+        - templateVersion
+      properties:
+        detailType:
+          type: string
+          enum: [FleetRolloutFailed]
+          description: The type of detail for discriminator purposes.
+        templateVersion:
+          type: string
+          description: The name of the TemplateVersion that this fleet rollout failed for.
+    FleetRolloutCompletedDetails:
+      type: object
+      required:
+        - detailType
+        - templateVersion
+      properties:
+        detailType:
+          type: string
+          enum: [FleetRolloutCompleted]
+          description: The type of detail for discriminator purposes.
+        templateVersion:
+          type: string
+          description: The name of the TemplateVersion that this fleet rollout is completed for.
+    FleetRolloutBatchDispatchedDetails:
+      type: object
+      required:
+        - detailType
+        - templateVersion
+        - batch
+      properties:
+        detailType:
+          type: string
+          enum: [FleetRolloutBatchDispatched]
+          description: The type of detail for discriminator purposes.
+        templateVersion:
+          type: string
+          description: The name of the TemplateVersion that this batch is rolling out to.
+        batch:
+          type: string
+          description: The batch within the fleet rollout.
+    FleetRolloutBatchCompletedDetails:
+      type: object
+      required:
+        - detailType
+        - templateVersion
+        - batch
+        - successPercentage
+        - total
+        - successful
+        - failed
+        - timedOut
+      properties:
+        detailType:
+          type: string
+          enum: [FleetRolloutBatchCompleted]
+          description: The type of detail for discriminator purposes.
+        templateVersion:
+          type: string
+          description: The name of the TemplateVersion that this batch is rolling out to.
+        batch:
+          type: string
+          description: The batch within the fleet rollout.
+        successPercentage:
+          type: integer
+          format: int64
+          description: The success percentage of the batch.
+        total:
+          type: integer
+          format: int64
+          description: The total number of devices in the batch.
+        successful:
+          type: integer
+          format: int64
+          description: The number of successful devices in the batch.
+        failed:
+          type: integer
+          format: int64
+          description: The number of failed devices in the batch.
+        timedOut:
+          type: integer
+          format: int64
+          description: The number of timed out devices in the batch.
+    ReferencedRepositoryUpdatedDetails:
+      type: object
+      required:
+        - detailType
+        - repository
+      properties:
+        detailType:
+          type: string
+          enum: [ReferencedRepositoryUpdated]
+          description: The type of detail for discriminator purposes.
+        repository:
+          type: string
+          description: The name of the repository that was updated.
     Organization:
       type: object
       required:

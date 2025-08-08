@@ -169,7 +169,7 @@ func (h *ServiceHandler) ListDisruptionBudgetFleets(ctx context.Context) (*api.F
 func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, name string, conditions []api.Condition) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	err := h.store.Fleet().UpdateConditions(ctx, orgId, name, conditions)
+	err := h.store.Fleet().UpdateConditions(ctx, orgId, name, conditions, h.callbackFleetUpdated)
 	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 

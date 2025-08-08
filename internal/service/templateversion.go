@@ -107,7 +107,7 @@ func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, fleet str
 
 // callbackTemplateVersionUpdated is the template version-specific callback that handles template version events
 func (h *ServiceHandler) callbackTemplateVersionUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.HandleTemplateVersionUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackTemplateVersionDeleted is the template version-specific callback that handles template version deletion events

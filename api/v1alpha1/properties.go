@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -138,15 +139,31 @@ func (f *Fleet) IsRolloutNew(oldFleet *Fleet) bool {
 	return !existsOldFleet && existsNewFleet
 }
 
-// IsRolloutCompleted returns true if the fleet rollout is completed (last batch completion report annotation exists on newFleet but not on oldFleet).
-func (f *Fleet) IsRolloutCompleted(oldFleet *Fleet) bool {
+// IsRolloutBatchCompleted returns true if the fleet rollout batch is completed, and the completion report.
+func (f *Fleet) IsRolloutBatchCompleted(oldFleet *Fleet) (bool, *RolloutBatchCompletionReport) {
 	if f == nil {
-		return false
+		return false, nil
 	}
 	var existsOldFleet bool
+	var oldReport string
+
 	if oldFleet != nil {
-		_, existsOldFleet = oldFleet.GetAnnotation(FleetAnnotationLastBatchCompletionReport)
+		oldReport, existsOldFleet = oldFleet.GetAnnotation(FleetAnnotationLastBatchCompletionReport)
 	}
-	_, existsNewFleet := f.GetAnnotation(FleetAnnotationLastBatchCompletionReport)
-	return !existsOldFleet && existsNewFleet
+
+	newReport, existsNewFleet := f.GetAnnotation(FleetAnnotationLastBatchCompletionReport)
+	if !existsNewFleet {
+		return false, nil
+	}
+
+	if existsOldFleet && oldReport == newReport {
+		return false, nil
+	}
+
+	report := RolloutBatchCompletionReport{}
+	if err := json.Unmarshal([]byte(newReport), &report); err != nil {
+		return false, nil
+	}
+
+	return true, &report
 }
