@@ -443,9 +443,40 @@ var _ = Describe("cli operation", func() {
 
 			By("Reapplying resources (updates)")
 			for _, r := range resources {
-				_, err := harness.ManageResource(util.ApplyAction, r.yamlPath)
+				// Read the YAML file and add a test-update label
+				yamlPath := util.GetTestExamplesYamlPath(r.yamlPath)
+				yamlData, err := os.ReadFile(yamlPath)
 				Expect(err).ToNot(HaveOccurred())
 
+				// Parse YAML and add test-update label
+				var resource map[string]interface{}
+				err = yaml.Unmarshal(yamlData, &resource)
+				Expect(err).ToNot(HaveOccurred())
+
+				// Ensure metadata exists
+				if resource["metadata"] == nil {
+					resource["metadata"] = make(map[string]interface{})
+				}
+				metadata := resource["metadata"].(map[string]interface{})
+
+				// Ensure labels exist
+				if metadata["labels"] == nil {
+					metadata["labels"] = make(map[string]interface{})
+				}
+				labels := metadata["labels"].(map[string]interface{})
+
+				// Add test-update label
+				labels["test-update"] = "true"
+
+				// Marshal back to YAML
+				modifiedYaml, err := yaml.Marshal(&resource)
+				Expect(err).ToNot(HaveOccurred())
+				yamlStr := string(modifiedYaml)
+
+				_, err = harness.CLIWithStdin(yamlStr, "apply", "-f", "-")
+				Expect(err).ToNot(HaveOccurred())
+
+				// Update resource names for verification
 				switch r.resourceType {
 				case util.DeviceResource:
 					device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
@@ -457,14 +488,12 @@ var _ = Describe("cli operation", func() {
 					repo := harness.GetRepositoryByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
 					repoName = *repo.Metadata.Name
 				case util.ErResource:
-					out, err := harness.CLI(util.ApplyAction, util.ForceFlag, util.GetTestExamplesYamlPath(r.yamlPath))
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
 					er = harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
 				}
 			}
 
 			By("Verifying updated events")
+			// Check for all resources since we made changes to all of them
 			updatedEvents, err := verifyEventsByReason(harness, resources, deviceName, fleetName, repoName, er, "ResourceUpdated")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(updatedEvents)).To(BeZero(), fmt.Sprintf("Missing updated events for: %v", updatedEvents))
@@ -714,7 +743,7 @@ var _ = Describe("cli login", func() {
 
 // formatResourceEvent formats the event's message and returns it as a string
 func formatResourceEvent(resource, name, action string) string {
-	return fmt.Sprintf("%s\\s+%s\\s+Normal\\s+%s\\s+was\\s+%s\\s+successfully", resource, name, resource, action)
+	return fmt.Sprintf("%s\\s+%s\\s+Normal\\s+%s\\s+was\\s+%s\\s+successfully(\\s+\\([^)]+\\))?", resource, name, resource, action)
 }
 
 // DeleteWithoutNameTestParams defines the parameters for delete-without-name tests.

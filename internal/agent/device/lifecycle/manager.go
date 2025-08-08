@@ -157,7 +157,7 @@ func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error
 		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateStarted),
-		Message: "The device has started decommissioning",
+		Message: "Device started decommissioning",
 	})
 	if updateErr != nil {
 		m.log.Warnf("Failed setting status: %v", updateErr)
@@ -171,7 +171,7 @@ func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) err
 		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateComplete),
-		Message: "The device has completed decommissioning and will wipe its management certificate",
+		Message: "Device completed decommissioning and will wipe its management certificate",
 	})
 	if updateErr != nil {
 		m.log.Warnf("Failed setting status: %v", updateErr)
@@ -185,7 +185,7 @@ func (m *LifecycleManager) updateWithErrorCondition(ctx context.Context, errs []
 		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateError),
-		Message: fmt.Sprintf("The device has encountered one or more errors during decommissioning: %v", errors.Join(errs...)),
+		Message: fmt.Sprintf("Device encountered one or more errors during decommissioning: %v", errors.Join(errs...)),
 	})
 	if updateErr != nil {
 		m.log.Warnf("Failed setting status: %v", updateErr)

@@ -244,7 +244,7 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.D
 		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.UpdateStateRollingBack),
-		Message: "The device is rolling back to the previous renderedVersion: " + current.Version(),
+		Message: "Device is rolling back to the previous renderedVersion: " + current.Version(),
 	})
 	if updateErr != nil {
 		a.log.Warnf("Failed setting status: %v", updateErr)
@@ -323,7 +323,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 			Type:    v1alpha1.ConditionTypeDeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStatePreparing),
-			Message: fmt.Sprintf("The device is preparing an update to renderedVersion: %s", desired.Version()),
+			Message: fmt.Sprintf("Device is preparing an update to renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
@@ -359,7 +359,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 			Type:    v1alpha1.ConditionTypeDeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStateReadyToUpdate),
-			Message: fmt.Sprintf("The device is ready to apply update to renderedVersion: %s", desired.Version()),
+			Message: fmt.Sprintf("Device is ready to apply update to renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
@@ -375,7 +375,7 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Devic
 			Type:    v1alpha1.ConditionTypeDeviceUpdating,
 			Status:  v1alpha1.ConditionStatusTrue,
 			Reason:  string(v1alpha1.UpdateStateApplyingUpdate),
-			Message: fmt.Sprintf("The device is applying renderedVersion: %s", desired.Version()),
+			Message: fmt.Sprintf("Device is applying renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
 			a.log.Warnf("Failed setting status: %v", updateErr)
