@@ -521,6 +521,21 @@ func (p *Podman) Version(ctx context.Context) (*PodmanVersion, error) {
 	return &PodmanVersion{Major: major, Minor: minor}, nil
 }
 
+// GetImageCopyTmpDir returns the image copy tmp dir exposed by the podman info API.
+func (p *Podman) GetImageCopyTmpDir(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"info", "--format", "{{.Store.ImageCopyTmpDir}}"}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("get image copy tmpdir: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	tmpDir := strings.TrimSpace(stdout)
+	return tmpDir, nil
+}
+
 func IsPodmanRootless() bool {
 	return os.Geteuid() != 0
 }

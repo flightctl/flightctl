@@ -3,6 +3,8 @@ package dependency
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -11,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -65,6 +68,7 @@ type OCICollector interface {
 type prefetchManager struct {
 	log          *log.PrefixLogger
 	podmanClient *client.Podman
+	readWriter   fileio.ReadWriter
 	// pullTimeout is the duration that each target will wait unless it
 	// encounters an error
 	pullTimeout time.Duration
@@ -73,6 +77,7 @@ type prefetchManager struct {
 	tasks      map[string]*prefetchTask
 	queue      chan string
 	collectors []OCICollector
+	tmpDir     string // cached podman tmpdir
 }
 
 type prefetchTask struct {
@@ -88,11 +93,13 @@ type prefetchTask struct {
 func NewPrefetchManager(
 	log *log.PrefixLogger,
 	podmanClient *client.Podman,
+	readWriter fileio.ReadWriter,
 	pullTimeout util.Duration,
 ) *prefetchManager {
 	return &prefetchManager{
 		log:          log,
 		podmanClient: podmanClient,
+		readWriter:   readWriter,
 		pullTimeout:  time.Duration(pullTimeout),
 		tasks:        make(map[string]*prefetchTask),
 		queue:        make(chan string, maxQueueSize),
@@ -102,6 +109,12 @@ func NewPrefetchManager(
 func (m *prefetchManager) Run(ctx context.Context) {
 	m.log.Debug("Prefetch manager started")
 	defer m.log.Debug("Prefetch manager stopped")
+
+	if tmpDir, err := m.podmanClient.GetImageCopyTmpDir(ctx); err != nil {
+		m.log.Warnf("failed to cache tmpdir: %v", err)
+	} else {
+		m.tmpDir = tmpDir
+	}
 
 	go m.worker(ctx)
 
@@ -199,6 +212,9 @@ func (m *prefetchManager) processTarget(ctx context.Context, target string) {
 	task.cancelFn = cancel
 	m.mu.Unlock()
 
+	// these operations are intentionally serial.  consider whether the
+	// networking and disk I/O overhead of async pulls would be worth changing
+	// before we do.
 	for {
 		if ctx.Err() != nil {
 			m.setResult(target, fmt.Errorf("pulling oci target %s: %w", target, ctx.Err()))
@@ -207,7 +223,13 @@ func (m *prefetchManager) processTarget(ctx context.Context, target string) {
 		}
 		if err := m.pull(ctx, target, task); err != nil {
 			if errors.IsRetryable(err) {
-				m.log.Debugf("Retryable error during prefetch: %v; retrying after %s", err, queueNextItemAfter)
+				// cleanup file system from partial layer pulls
+				if err := m.cleanupPartialLayers(ctx); err != nil {
+					m.log.Warnf("cleanup failed: %v", err)
+				} else {
+					m.log.Debug("cleanup completed successfully")
+				}
+
 				select {
 				case <-time.After(queueNextItemAfter):
 					continue
@@ -227,22 +249,17 @@ func (m *prefetchManager) processTarget(ctx context.Context, target string) {
 
 func (m *prefetchManager) pull(ctx context.Context, target string, task *prefetchTask) error {
 	ociType := task.ociType
+
+	var err error
 	switch ociType {
 	case OCITypeImage:
-		_, err := m.podmanClient.Pull(ctx, target, task.clientOps...)
-		if err != nil {
-			return err
-		}
-		return nil
+		_, err = m.podmanClient.Pull(ctx, target, task.clientOps...)
 	case OCITypeArtifact:
-		_, err := m.podmanClient.PullArtifact(ctx, target, task.clientOps...)
-		if err != nil {
-			return err
-		}
-		return nil
+		_, err = m.podmanClient.PullArtifact(ctx, target, task.clientOps...)
 	default:
 		return fmt.Errorf("invalid oci type %s", ociType)
 	}
+	return err
 }
 
 func (m *prefetchManager) setResult(image string, err error) {
@@ -387,6 +404,63 @@ func (m *prefetchManager) Cleanup() {
 			return
 		}
 	}
+}
+
+func (m *prefetchManager) cleanupPartialLayers(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	m.mu.Lock()
+	tmpDir := m.tmpDir
+	m.mu.Unlock()
+
+	if tmpDir == "" {
+		var err error
+		tmpDir, err = m.podmanClient.GetImageCopyTmpDir(ctx)
+		if err != nil {
+			m.log.Warnf("Failed to get image copy tmpdir: %v", err)
+			return nil
+		}
+		m.tmpDir = tmpDir
+	}
+
+	if tmpDir == "" {
+		m.log.Warn("Image copy tmpdir is empty, skipping cleanup")
+		return nil
+	}
+
+	entries, err := m.readWriter.ReadDir(tmpDir)
+	if err != nil {
+		return fmt.Errorf("reading tmp directory %s: %w", tmpDir, err)
+	}
+
+	const prefix = "container_images_storage"
+	var dirs []fs.DirEntry
+
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) {
+			dirs = append(dirs, entry)
+		}
+	}
+
+	if len(dirs) == 0 {
+		return nil
+	}
+
+	var removed int
+	for _, entry := range dirs {
+		dirPath := filepath.Join(tmpDir, entry.Name())
+		if err := m.readWriter.RemoveAll(dirPath); err != nil {
+			m.log.Warnf("Failed to remove %s: %v", entry.Name(), err)
+			continue
+		}
+		removed++
+	}
+
+	if removed > 0 {
+		m.log.Infof("Cleaned up %d dangling OCI layer directories", removed)
+	}
+
+	return nil
 }
 
 func (m *prefetchManager) StatusMessage(ctx context.Context) string {

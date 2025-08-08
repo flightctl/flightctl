@@ -198,7 +198,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, a.config.PullTimeout)
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
 
 	// create status manager
 	statusManager := status.NewManager(
