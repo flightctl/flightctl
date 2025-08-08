@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
@@ -34,11 +37,17 @@ const (
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 )
 
+// HTTPClientOption is a functional option for configuring HTTP client behavior.
+type HTTPClientOption func(*http.Client) error
+
 // Config holds the information needed to connect to a Flight Control API server
 type Config struct {
 	Service      Service  `json:"service"`
 	AuthInfo     AuthInfo `json:"authentication"`
 	Organization string   `json:"organization,omitempty"`
+
+	// HTTPOptions contains HTTP client configuration options
+	HTTPOptions []HTTPClientOption `json:"-"`
 
 	// baseDir is used to resolve relative paths
 	// If baseDir is empty, the current working directory is used.
@@ -143,6 +152,7 @@ func (c *Config) DeepCopy() *Config {
 		Service:      *c.Service.DeepCopy(),
 		AuthInfo:     *c.AuthInfo.DeepCopy(),
 		Organization: c.Organization,
+		HTTPOptions:  slices.Clone(c.HTTPOptions),
 		baseDir:      c.baseDir,
 		testRootDir:  c.testRootDir,
 	}
@@ -192,6 +202,11 @@ func (c *Config) GetClientCertificatePath() string {
 
 func (c *Config) SetBaseDir(baseDir string) {
 	c.baseDir = baseDir
+}
+
+// AddHTTPOptions adds HTTP client options to the config
+func (c *Config) AddHTTPOptions(opts ...HTTPClientOption) {
+	c.HTTPOptions = append(c.HTTPOptions, opts...)
 }
 
 func NewDefault() *Config {
@@ -282,6 +297,13 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 			TLSClientConfig: tlsConfig,
 		},
 	}
+
+	for _, opt := range config.HTTPOptions {
+		if err = opt(httpClient); err != nil {
+			return nil, fmt.Errorf("NewHTTPClientFromConfig: applying HTTP option: %w", err)
+		}
+	}
+
 	return httpClient, nil
 }
 
@@ -598,4 +620,67 @@ func resolvePath(path string, baseDir string) string {
 		}
 	}
 	return path
+}
+
+func resolveTransport(client *http.Client) (*http.Transport, error) {
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("transport is an unknown type: %T", client.Transport)
+	}
+
+	return transport.Clone(), nil
+}
+
+// WithDialer configures the HTTP client to use the specified dialer.
+func WithDialer(dialer *net.Dialer) HTTPClientOption {
+	return func(client *http.Client) error {
+		transport, err := resolveTransport(client)
+		if err != nil {
+			return fmt.Errorf("WithDialer: %w", err)
+		}
+		transport.DialContext = dialer.DialContext
+		client.Transport = transport
+		return nil
+	}
+}
+
+// WithMaxIdleConnsPerHost configures the HTTP client to use the specified number of IdleConnsPerHost
+// Also increases the MaxIdleConns configuration if the current setting is less than new configuration
+// for IdleConnsPerHost
+func WithMaxIdleConnsPerHost(conns int) HTTPClientOption {
+	return func(client *http.Client) error {
+		transport, err := resolveTransport(client)
+		if err != nil {
+			return fmt.Errorf("WithMaxIdleConnsPerHost: %w", err)
+		}
+		transport.MaxIdleConnsPerHost = conns
+		if transport.MaxIdleConns < conns {
+			transport.MaxIdleConns = conns
+		}
+		client.Transport = transport
+		return nil
+	}
+}
+
+// WithCachedTransport caches the first transport it sees and replaces all future invocations with this transport.
+// The purpose of this option is to reuse connection pools across areas that may be hard to wire together.
+func WithCachedTransport() HTTPClientOption {
+	var mux sync.Mutex
+	var cached *http.Transport
+	return func(client *http.Client) error {
+		mux.Lock()
+		defer mux.Unlock()
+		if cached == nil {
+			transport, err := resolveTransport(client)
+			if err != nil {
+				return fmt.Errorf("WithCachedTransport: %w", err)
+			}
+			cached = transport
+		}
+		if _, ok := client.Transport.(*http.Transport); !ok {
+			return fmt.Errorf("WithCachedTransport: transport is an unknown type: %T", client.Transport)
+		}
+		client.Transport = cached
+		return nil
+	}
 }
