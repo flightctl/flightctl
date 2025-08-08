@@ -533,7 +533,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 			}
 
-			err := storeInst.Fleet().UpdateConditions(ctx, orgId, "myfleet-1", conditions)
+			err := storeInst.Fleet().UpdateConditions(ctx, orgId, "myfleet-1", conditions, nil)
 			Expect(err).ToNot(HaveOccurred())
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())

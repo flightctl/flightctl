@@ -9,6 +9,19 @@ data:
   config.yaml: |-
     service:
       certStore: "/app/certs"
+      {{ if and .Values.api.rateLimit (not (empty .Values.api.rateLimit)) }}
+      rateLimit:
+          requests: {{ .Values.api.rateLimit.requests }}
+          window: {{ .Values.api.rateLimit.window }}
+          authRequests: {{ .Values.api.rateLimit.authRequests }}
+          authWindow: {{ .Values.api.rateLimit.authWindow }}
+          {{- if .Values.api.rateLimit.trustedProxies }}
+          trustedProxies:
+          {{- range .Values.api.rateLimit.trustedProxies }}
+              - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+      {{ end }}
     ca:
       internalConfig:
         certStore: "/tmp/ca-certs"

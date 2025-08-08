@@ -211,7 +211,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
 						Status: api.ApplicationsSummaryStatusHealthy,
-						Info:   lo.ToPtr("All application workloads are healthy."),
+						Info:   lo.ToPtr("Device's application workloads are healthy."),
 					},
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
@@ -257,7 +257,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			appHealthyEvent := findEventByReason(finalEvents, api.EventReasonDeviceApplicationHealthy)
 			Expect(appHealthyEvent).ToNot(BeNil(), "DeviceApplicationHealthy event should be generated when transitioning from Unknown to Healthy")
 			Expect(appHealthyEvent.Type).To(Equal(api.Normal))
-			Expect(appHealthyEvent.Message).To(ContainSubstring("All application workloads are healthy"))
+			Expect(appHealthyEvent.Message).To(ContainSubstring("Device's application workloads are healthy"))
 		})
 	})
 
@@ -390,7 +390,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Applications: []api.DeviceApplicationStatus{},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
 						Status: api.ApplicationsSummaryStatusHealthy,
-						Info:   lo.ToPtr("No application workloads are defined."),
+						Info:   lo.ToPtr("Device has no application workloads defined."),
 					},
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusDegraded, // This should be set by the service for warnings
@@ -465,15 +465,15 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					LastSeen: time.Now().Add(-10 * time.Minute), // More than 5 minutes ago to trigger disconnected state
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusUnknown,
-						Info:   lo.ToPtr("The device is disconnected (last seen more than 5m0s)."),
+						Info:   lo.ToPtr("Device is disconnected (last seen more than 5m0s)."),
 					},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
 						Status: api.ApplicationsSummaryStatusUnknown,
-						Info:   lo.ToPtr("The device is disconnected (last seen more than 5m0s)."),
+						Info:   lo.ToPtr("Device is disconnected (last seen more than 5m0s)."),
 					},
 					Updated: api.DeviceUpdatedStatus{
 						Status: api.DeviceUpdatedStatusUnknown,
-						Info:   lo.ToPtr("The device is disconnected (last seen more than 5m0s)."),
+						Info:   lo.ToPtr("Device is disconnected (last seen more than 5m0s)."),
 					},
 					Lifecycle: api.DeviceLifecycleStatus{
 						Status: api.DeviceLifecycleStatusUnknown,
@@ -522,11 +522,11 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					LastSeen: time.Now(),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
-						Info:   lo.ToPtr("All system resources are healthy."),
+						Info:   lo.ToPtr("Device's application workloads are healthy."),
 					},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
 						Status: api.ApplicationsSummaryStatusHealthy,
-						Info:   lo.ToPtr("No application workloads are defined."),
+						Info:   lo.ToPtr("Device has no application workloads defined."),
 					},
 					Updated: api.DeviceUpdatedStatus{
 						Status: api.DeviceUpdatedStatusUpToDate,
@@ -574,7 +574,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			connectedEvent = findEventByReason(finalEvents, api.EventReasonDeviceConnected)
 			Expect(connectedEvent).ToNot(BeNil(), "DeviceConnected event should be generated when transitioning from Unknown to Online")
 			Expect(connectedEvent.Type).To(Equal(api.Normal))
-			Expect(connectedEvent.Message).To(ContainSubstring("All system resources are healthy"))
+			Expect(connectedEvent.Message).To(ContainSubstring("Device's system resources are healthy"))
 		})
 	})
 })

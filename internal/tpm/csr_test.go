@@ -75,7 +75,7 @@ func TestBuildTCGCSRIDevID(t *testing.T) {
 	require.True(t, parsed.IsValid)
 
 	// Test data extraction
-	tpmData, err := ExtractTPMDataFromTCGCSR(parsed)
+	tpmData, err := extractTPMDataFromTCGCSR(parsed)
 	require.NoError(t, err)
 
 	// Verify extracted data matches input
