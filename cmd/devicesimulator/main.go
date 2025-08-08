@@ -285,8 +285,8 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		cfg.SpecFetchInterval = agentConfigTemplate.SpecFetchInterval
 		cfg.StatusUpdateInterval = agentConfigTemplate.StatusUpdateInterval
 		cfg.TPM.Enabled = agentConfigTemplate.TPM.Enabled
-		cfg.TPM.Path = agentConfigTemplate.TPM.Path
-		cfg.TPM.PersistencePath = agentConfigTemplate.TPM.PersistencePath
+		cfg.TPM.DevicePath = agentConfigTemplate.TPM.DevicePath
+		cfg.TPM.StorageFilePath = agentConfigTemplate.TPM.StorageFilePath
 		cfg.LogPrefix = agentName
 
 		// create managementService config

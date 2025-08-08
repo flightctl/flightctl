@@ -36,40 +36,14 @@ func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
 	return roots
 }
 
-// handleTPMEnrollmentRequest checks if the enrollment request contains a TCG
-// CSR and if so, verifies it and stores the verification status in labels.
-// Returns true if this is a TCG CSR, false for standard CSRs.
-func (h *ServiceHandler) handleTPMEnrollmentRequest(er *api.EnrollmentRequest, name string) bool {
-	csrBytes := []byte(er.Spec.Csr)
-
-	if !tpm.IsTCGCSRFormat(csrBytes) {
-		// try to decode as base64 - it might be an encoded TCG CSR
-		decodedBytes, err := base64.StdEncoding.DecodeString(er.Spec.Csr)
-		if err == nil && tpm.IsTCGCSRFormat(decodedBytes) {
-			csrBytes = decodedBytes
-		}
+func (h *ServiceHandler) verifyTPMEnrollmentRequest(er *api.EnrollmentRequest, name string) error {
+	csrBytes, isTPM := tpm.ParseTCGCSRBytes(er.Spec.Csr)
+	if !isTPM {
+		return fmt.Errorf("failed to parse TCG CSR")
 	}
 
-	if !tpm.IsTCGCSRFormat(csrBytes) {
-		// standard csr verification
-		return false
-	}
-
-	// perform verification and store results in labels
-	h.verifyAndLabelTPMEnrollment(er, csrBytes, name)
-	return true
-}
-
-// verifyAndLabelTPMEnrollment verifies a TCG CSR and stores the verification status in conditions.
-// This method always allows enrollment to proceed, storing any errors in conditions for admin review.
-func (h *ServiceHandler) verifyAndLabelTPMEnrollment(er *api.EnrollmentRequest, csrBytes []byte, name string) {
 	trustedRoots := h.getTPMCAPool()
-
-	// Ensure status exists
-	addStatusIfNeeded(er)
-
 	if err := tpm.VerifyTCGCSRChainOfTrustWithRoots(csrBytes, trustedRoots); err != nil {
-		// Store verification failure in condition
 		condition := api.Condition{
 			Type:    "TPMVerified",
 			Status:  api.ConditionStatusFalse,
@@ -79,16 +53,16 @@ func (h *ServiceHandler) verifyAndLabelTPMEnrollment(er *api.EnrollmentRequest, 
 		api.SetStatusCondition(&er.Status.Conditions, condition)
 		h.log.Warnf("TPM verification failed for enrollment request %s: %v", name, err)
 	} else {
-		// Store verification success in condition
 		condition := api.Condition{
 			Type:    "TPMVerified",
 			Status:  api.ConditionStatusTrue,
 			Reason:  "TPMVerificationSucceeded",
-			Message: "TPM attestation chain of trust verified successfully",
+			Message: "TPM chain of trust verified successfully",
 		}
 		api.SetStatusCondition(&er.Status.Conditions, condition)
 		h.log.Debugf("TPM verification passed for enrollment request %s", name)
 	}
+	return nil
 }
 
 func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
@@ -96,66 +70,17 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
 
-	var certData []byte
-	var err error
-
-	csrBytes := []byte(enrollmentRequest.Spec.Csr)
-	if !tpm.IsTCGCSRFormat(csrBytes) {
-		// try to decode as base64 - it might be an encoded TCG CSR
-		decodedBytes, err := base64.StdEncoding.DecodeString(enrollmentRequest.Spec.Csr)
-		if err == nil && tpm.IsTCGCSRFormat(decodedBytes) {
-			// successfully decoded and it's a TCG CSR
-			csrBytes = decodedBytes
-		}
+	csr, _, err := enrollmentRequestToCSR(ca, enrollmentRequest)
+	if err != nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
-
-	if tpm.IsTCGCSRFormat(csrBytes) {
-		parsed, err := tpm.ParseTCGCSR(csrBytes)
-		if err != nil {
-			return fmt.Errorf("approveAndSignEnrollmentRequest: failed to parse TCG CSR: %w", err)
-		}
-
-		tpmData, err := tpm.ExtractTPMDataFromTCGCSR(parsed)
-		if err != nil {
-			return fmt.Errorf("approveAndSignEnrollmentRequest: failed to extract TPM data: %w", err)
-		}
-
-		// for TCG CSR, we need to use the embedded standard X.509 CSR for signing
-		if len(tpmData.StandardCSR) == 0 {
-			return fmt.Errorf("approveAndSignEnrollmentRequest: TCG CSR does not contain embedded X.509 CSR")
-		}
-
-		// temporarily replace the enrollment request CSR with the embedded standard CSR
-		originalCSR := enrollmentRequest.Spec.Csr
-		enrollmentRequest.Spec.Csr = string(tpmData.StandardCSR)
-
-		csr := enrollmentRequestToCSR(ca, enrollmentRequest)
-		signer := ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			enrollmentRequest.Spec.Csr = originalCSR
-			return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
-		}
-
-		certData, err = signer.Sign(ctx, csr)
-
-		// restore original CSR
-		enrollmentRequest.Spec.Csr = originalCSR
-
-		if err != nil {
-			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
-		}
-	} else {
-		// standard CSR signing flow
-		csr := enrollmentRequestToCSR(ca, enrollmentRequest)
-		signer := ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
-		}
-
-		certData, err = signer.Sign(ctx, csr)
-		if err != nil {
-			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
-		}
+	signer := ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
+	}
+	certData, err := signer.Sign(ctx, csr)
+	if err != nil {
+		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
 
 	// preserve existing conditions when approving
@@ -228,7 +153,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 			},
 			Tpm: &api.DeviceIntegrityCheckStatus{
 				Status: api.DeviceIntegrityCheckStatusVerified,
-				Info:   lo.ToPtr("TPM attestation chain of trust verified"),
+				Info:   lo.ToPtr("TPM chain of trust verified"),
 			},
 		}
 	} else {
@@ -296,25 +221,28 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 
 	// don't set fields that are managed by the service
 	er.Status = nil
+	addStatusIfNeeded(&er)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	// Check and handle TPM-based enrollment requests
-	if !h.handleTPMEnrollmentRequest(&er, *er.Metadata.Name) {
-		csr := enrollmentRequestToCSR(h.ca, &er)
-		signer := h.ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
-		}
-
-		if err := signer.Verify(ctx, csr); err != nil {
+	csr, isTPM, err := enrollmentRequestToCSR(h.ca, &er)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+	}
+	if err := signer.Verify(ctx, csr); err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+	if isTPM {
+		if err := h.verifyTPMEnrollmentRequest(&er, *er.Metadata.Name); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
-
-	addStatusIfNeeded(&er)
 
 	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
@@ -355,6 +283,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 
 	// don't set fields that are managed by the service
 	er.Status = nil
+	addStatusIfNeeded(&er)
 	NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
@@ -368,21 +297,22 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	// Check and handle TPM-based enrollment requests
-	if !h.handleTPMEnrollmentRequest(&er, name) {
-		// standard CSR verification flow
-		csr := enrollmentRequestToCSR(h.ca, &er)
-		signer := h.ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
-		}
-
-		if err := signer.Verify(ctx, csr); err != nil {
+	csr, isTPM, err := enrollmentRequestToCSR(h.ca, &er)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+	}
+	if err := signer.Verify(ctx, csr); err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+	if isTPM {
+		if err := h.verifyTPMEnrollmentRequest(&er, name); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
-
-	addStatusIfNeeded(&er)
 
 	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
@@ -413,16 +343,19 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	// Check and handle TPM-based enrollment requests
-	if !h.handleTPMEnrollmentRequest(newObj, name) {
-		// Standard CSR verification flow
-		csr := enrollmentRequestToCSR(h.ca, newObj)
-		signer := h.ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
-		}
-
-		if err := signer.Verify(ctx, csr); err != nil {
+	csr, isTPM, err := enrollmentRequestToCSR(h.ca, newObj)
+	if err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+	signer := h.ca.GetSigner(csr.Spec.SignerName)
+	if signer == nil {
+		return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+	}
+	if err := signer.Verify(ctx, csr); err != nil {
+		return nil, api.StatusBadRequest(err.Error())
+	}
+	if isTPM {
+		if err := h.verifyTPMEnrollmentRequest(newObj, name); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
@@ -543,7 +476,12 @@ func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, e
 	return dev != nil, err
 }
 
-func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {
+func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) (api.CertificateSigningRequest, bool, error) {
+	csrData, isTPM, err := tpm.NormalizeEnrollmentCSR(enrollmentRequest.Spec.Csr)
+	if err != nil {
+		return api.CertificateSigningRequest{}, false, fmt.Errorf("failed to normalize CSR: %w", err)
+	}
+
 	return api.CertificateSigningRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "CertificateSigningRequest",
@@ -551,10 +489,10 @@ func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.Enrollme
 			Name: enrollmentRequest.Metadata.Name,
 		},
 		Spec: api.CertificateSigningRequestSpec{
-			Request:    []byte(enrollmentRequest.Spec.Csr),
+			Request:    csrData,
 			SignerName: ca.Cfg.DeviceEnrollmentSignerName,
 		},
-	}
+	}, isTPM, nil
 }
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
