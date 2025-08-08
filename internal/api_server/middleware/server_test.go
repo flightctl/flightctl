@@ -184,7 +184,7 @@ func makeNoSubjectClientCertificate(ctx context.Context, ca *crypto.CAClient, ex
 		return nil, err
 	}
 
-	clientCrt, err := ca.IssueRequestedClientCertificateAsX509(ctx, csr, expiryDays*24*3600)
+	clientCrt, err := ca.IssueRequestedClientCertificate(ctx, csr, expiryDays*24*3600)
 	if err != nil {
 		return nil, err
 	}

@@ -11,7 +11,9 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
@@ -97,7 +99,6 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 	}
 
 	var certData []byte
-	var err error
 
 	csrBytes := []byte(enrollmentRequest.Spec.Csr)
 	if !tpm.IsTCGCSRFormat(csrBytes) {
@@ -129,30 +130,27 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		originalCSR := enrollmentRequest.Spec.Csr
 		enrollmentRequest.Spec.Csr = string(tpmData.StandardCSR)
 
-		csr := enrollmentRequestToCSR(ca, enrollmentRequest)
-		signer := ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			enrollmentRequest.Spec.Csr = originalCSR
-			return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
+		request, err := newSignRequestFromEnrollment(ca.Cfg, enrollmentRequest)
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 		}
 
-		certData, err = signer.Sign(ctx, csr)
+		certData, err = signer.SignAsPEM(ctx, ca, request)
+		if err != nil {
+			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
+		}
 
 		// restore original CSR
 		enrollmentRequest.Spec.Csr = originalCSR
 
+	} else {
+		// standard CSR signing flow
+		request, err := newSignRequestFromEnrollment(ca.Cfg, enrollmentRequest)
 		if err != nil {
 			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 		}
-	} else {
-		// standard CSR signing flow
-		csr := enrollmentRequestToCSR(ca, enrollmentRequest)
-		signer := ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			return fmt.Errorf("approveAndSignEnrollmentRequest: signer %q not found", csr.Spec.SignerName)
-		}
 
-		certData, err = signer.Sign(ctx, csr)
+		certData, err = signer.SignAsPEM(ctx, ca, request)
 		if err != nil {
 			return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 		}
@@ -301,15 +299,13 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	// Check and handle TPM-based enrollment requests
 	if !h.handleTPMEnrollmentRequest(&er, *er.Metadata.Name) {
-		csr := enrollmentRequestToCSR(h.ca, &er)
-		signer := h.ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+		request, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
+		if err != nil {
+			return nil, api.StatusBadRequest(err.Error())
 		}
 
-		if err := signer.Verify(ctx, csr); err != nil {
+		if err := signer.Verify(ctx, h.ca, request); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
@@ -371,13 +367,12 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 	// Check and handle TPM-based enrollment requests
 	if !h.handleTPMEnrollmentRequest(&er, name) {
 		// standard CSR verification flow
-		csr := enrollmentRequestToCSR(h.ca, &er)
-		signer := h.ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+		request, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
+		if err != nil {
+			return nil, api.StatusBadRequest(err.Error())
 		}
 
-		if err := signer.Verify(ctx, csr); err != nil {
+		if err := signer.Verify(ctx, h.ca, request); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
@@ -416,13 +411,12 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 	// Check and handle TPM-based enrollment requests
 	if !h.handleTPMEnrollmentRequest(newObj, name) {
 		// Standard CSR verification flow
-		csr := enrollmentRequestToCSR(h.ca, newObj)
-		signer := h.ca.GetSigner(csr.Spec.SignerName)
-		if signer == nil {
-			return nil, api.StatusBadRequest(fmt.Sprintf("signer %q not found", csr.Spec.SignerName))
+		request, err := newSignRequestFromEnrollment(h.ca.Cfg, newObj)
+		if err != nil {
+			return nil, api.StatusBadRequest(err.Error())
 		}
 
-		if err := signer.Verify(ctx, csr); err != nil {
+		if err := signer.Verify(ctx, h.ca, request); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
@@ -522,6 +516,20 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
 
+func newSignRequestFromEnrollment(cfg *ca.Config, er *api.EnrollmentRequest) (signer.SignRequest, error) {
+	var opts []signer.SignRequestOption
+	if er.Status != nil && er.Status.Certificate != nil {
+		certBytes := []byte(*er.Status.Certificate)
+		opts = append(opts, signer.WithIssuedCertificateBytes(certBytes))
+	}
+
+	if er.Metadata.Name != nil {
+		opts = append(opts, signer.WithResourceName(*er.Metadata.Name))
+	}
+
+	return signer.NewSignRequestFromBytes(cfg.DeviceEnrollmentSignerName, []byte(er.Spec.Csr), opts...)
+}
+
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
 	device, err := h.store.Device().Get(ctx, orgId, name)
 	if errors.Is(err, flterrors.ErrResourceNotFound) {
@@ -541,20 +549,6 @@ func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, e
 		return false, nil
 	}
 	return dev != nil, err
-}
-
-func enrollmentRequestToCSR(ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest) api.CertificateSigningRequest {
-	return api.CertificateSigningRequest{
-		ApiVersion: "v1alpha1",
-		Kind:       "CertificateSigningRequest",
-		Metadata: api.ObjectMeta{
-			Name: enrollmentRequest.Metadata.Name,
-		},
-		Spec: api.CertificateSigningRequestSpec{
-			Request:    []byte(enrollmentRequest.Spec.Csr),
-			SignerName: ca.Cfg.DeviceEnrollmentSignerName,
-		},
-	}
 }
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events

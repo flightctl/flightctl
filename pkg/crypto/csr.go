@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
+	"errors"
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -102,4 +103,11 @@ func GetExtensionValueFromCSR(csr *x509.CertificateRequest, oid asn1.ObjectIdent
 		}
 	}
 	return nil, flterrors.ErrExtensionNotFound
+}
+
+func ValidateX509CSR(c *x509.CertificateRequest) error {
+	if err := c.CheckSignature(); err != nil {
+		return errors.Join(flterrors.ErrCSRInvalid, err)
+	}
+	return nil
 }

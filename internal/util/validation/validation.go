@@ -332,7 +332,7 @@ func ValidateCSR(csr []byte) []error {
 		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
 		return asErrors(errs)
 	}
-	if err := c.CheckSignature(); err != nil {
+	if err := fccrypto.ValidateX509CSR(c); err != nil {
 		errs = append(errs, field.Invalid(fieldPathFor("spec.request"), csr, err.Error()))
 		return asErrors(errs)
 	}
