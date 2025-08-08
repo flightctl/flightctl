@@ -1,13 +1,9 @@
 package selectors
 
 import (
-	"context"
 	"fmt"
-	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -24,10 +20,6 @@ const (
 	failedToParse   = "failed to parse"
 	DefaultTimeout  = "120s"
 	RetryInterval   = "1s"
-)
-
-var (
-	suiteCtx context.Context
 )
 
 // FieldSelectorTestParams defines the parameters for field selector tests, including arguments, expected match status, and expected output.
@@ -49,83 +41,90 @@ func EntryCase(desc string, args []string, shouldMatch bool, expected string) te
 	}
 }
 
-func TestFieldSelectors(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Field Selectors E2E Suite")
-}
-
-var _ = BeforeSuite(func() {
-	suiteCtx = testutil.InitSuiteTracerForGinkgo("Field Selectors E2E Suite")
-})
-
-var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
+var _ = Describe("Field Selectors in Flight Control", func() {
 	var (
-		harness       *e2e.Harness
 		deviceInfo    v1alpha1.Device
 		deviceBInfo   v1alpha1.Device
 		deviceAName   string
 		deviceBName   string
 		DeviceARegion string
+		fleetName     string
+		tempFiles     []string // Track temporary files for cleanup
 	)
 
 	BeforeEach(func() {
 		_ = testutil.StartSpecTracerForGinkgo(suiteCtx)
-	})
 
-	// Setup for the suite
-	BeforeAll(func() {
-		harness = e2e.NewTestHarness(suiteCtx)
-		login.LoginToAPIWithToken(harness)
-		logrus.Infof("Harness Created")
+		// Generate unique test ID for this test
+		testID := harness.GetTestIDFromContext()
+
+		// Create unique YAML files for this test
+		uniqueDeviceAYAML, err := testutil.CreateUniqueYAMLFile(deviceAYAMLPath, testID)
+		Expect(err).ToNot(HaveOccurred())
+		tempFiles = append(tempFiles, uniqueDeviceAYAML)
+
+		uniqueDeviceBYAML, err := testutil.CreateUniqueYAMLFile(deviceBYAMLPath, testID)
+		Expect(err).ToNot(HaveOccurred())
+		tempFiles = append(tempFiles, uniqueDeviceBYAML)
+
+		uniqueFleetYAML, err := testutil.CreateUniqueYAMLFile(fleetYAMLPath, testID)
+		Expect(err).ToNot(HaveOccurred())
+		tempFiles = append(tempFiles, uniqueFleetYAML)
+
+		By("Listing devices")
+		out, err := harness.RunGetDevices()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(ContainSubstring("NAME"))
+
+		By("create a complete fleet")
+		//_, _ = harness.ManageResource("delete", "fleet")
+		out, err = harness.ManageResource("apply", uniqueFleetYAML)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(MatchRegexp(resourceCreated))
+
+		// Get fleet name from the unique YAML
+		fleetInfo := harness.GetFleetByYaml(uniqueFleetYAML)
+		fleetName = *fleetInfo.Metadata.Name
+
+		By("Get device info from the yaml")
+		deviceInfo = harness.GetDeviceByYaml(uniqueDeviceAYAML)
+		deviceAName = *deviceInfo.Metadata.Name
+		DeviceARegion = (*deviceInfo.Metadata.Labels)["region"]
+		deviceBInfo = harness.GetDeviceByYaml(uniqueDeviceBYAML)
+		deviceBName = *deviceBInfo.Metadata.Name
+		Expect(deviceAName).ToNot(BeEmpty())
+		Expect(deviceBName).ToNot(BeEmpty())
+
+		_, _ = harness.ManageResource("delete", "device")
+		out, err = harness.ManageResource("apply", uniqueDeviceAYAML)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(MatchRegexp(resourceCreated))
+		out, err = harness.ManageResource("apply", uniqueDeviceBYAML)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(MatchRegexp(resourceCreated))
+
+		logrus.Infof("Device Created: %s", deviceAName)
+		logrus.Infof("Device Created: %s", deviceBName)
+
+		Eventually(func() error {
+			out, err = harness.CLI("get", "device")
+			return err
+		}, DefaultTimeout, RetryInterval).Should(BeNil(), "Timeout waiting for fleet to be ready")
+		Expect(out).To(ContainSubstring("defaultDevice"))
 	})
 
 	AfterEach(func() {
-		harness.Cleanup(false)
+		// Clean up temporary YAML files
+		testutil.CleanupTempYAMLFiles(tempFiles)
+		tempFiles = nil
 	})
 
-	AfterAll(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
-	})
-
-	Context("Basic Functionality Tests", func() {
+	Context("Basic Functionality Tests", Serial, func() {
 		It("We can list devices and create resources", Label("77917", "sanity"), func() {
-			By("Listing devices")
-			out, err := harness.RunGetDevices()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring("NAME"))
-
-			By("create a complete fleet")
-			_, _ = harness.ManageResource("delete", "fleet")
-			out, err = harness.ManageResource("apply", fleetYAMLPath)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(resourceCreated))
-
-			By("Get device info from the yaml")
-			deviceInfo = harness.GetDeviceByYaml(testutil.GetTestExamplesYamlPath(deviceAYAMLPath))
-			deviceAName = *deviceInfo.Metadata.Name
-			DeviceARegion = (*deviceInfo.Metadata.Labels)["region"]
-			deviceBInfo = harness.GetDeviceByYaml(testutil.GetTestExamplesYamlPath(deviceBYAMLPath))
-			deviceBName = *deviceBInfo.Metadata.Name
+			// Test that devices were created successfully
 			Expect(deviceAName).ToNot(BeEmpty())
 			Expect(deviceBName).ToNot(BeEmpty())
-
-			_, _ = harness.ManageResource("delete", "device")
-			out, err = harness.ManageResource("apply", deviceAYAMLPath)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(resourceCreated))
-			out, err = harness.ManageResource("apply", deviceBYAMLPath)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(resourceCreated))
-
-			logrus.Infof("Device Created: %s", deviceAName)
-			logrus.Infof("Device Created: %s", deviceBName)
-
-			Eventually(func() error {
-				out, err = harness.CLI("get", "device")
-				return err
-			}, DefaultTimeout, RetryInterval).Should(BeNil(), "Timeout waiting for fleet to be ready")
-			Expect(out).To(ContainSubstring("defaultDevice"))
+			Expect(DeviceARegion).ToNot(BeEmpty())
 		})
 
 		It("Field selector filters", Label("77947", "sanity"), func() {
@@ -134,7 +133,7 @@ var _ = Describe("Field Selectors in Flight Control", Ordered, func() {
 				EntryCase("filters devices by name", []string{"--field-selector", fmt.Sprintf("metadata.name=%s", deviceAName)}, true, deviceAName),
 				EntryCase("filters devices by alias", []string{"--field-selector", fmt.Sprintf("metadata.alias=%s", (*deviceInfo.Metadata.Labels)["alias"])}, true, deviceAName),
 				EntryCase("filters devices by nameOrAlias", []string{"--field-selector", fmt.Sprintf("metadata.nameOrAlias=%s", (*deviceInfo.Metadata.Labels)["alias"])}, true, deviceAName),
-				EntryCase("filters devices by owner", []string{"--field-selector", "metadata.owner=Fleet/default", "-owide"}, true, ""),
+				EntryCase("filters devices by owner", []string{"--field-selector", fmt.Sprintf("metadata.owner=Fleet/%s", fleetName), "-owide"}, true, ""),
 				EntryCase("filters devices by creation timestamp", []string{"--field-selector", fmt.Sprintf("metadata.creationTimestamp>=%s,metadata.creationTimestamp<%s", start, end), "-owide"}, true, deviceAName),
 			)
 			testutil.RunTable(tests, func(params FieldSelectorTestParams) {

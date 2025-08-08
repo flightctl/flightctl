@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
@@ -61,6 +62,9 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 			Labels: &map[string]string{},
 		},
 	}
+
+	// Add test label to fleet metadata
+	h.addTestLabelToResource(&testFleet.Metadata)
 
 	switch spec := fleetSpecOrSelector.(type) {
 	case v1alpha1.FleetSpec:
@@ -131,38 +135,38 @@ func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 	Eventually(func() int {
 		response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
 		if err != nil {
-			logrus.Debugf("failed to get fleet with response: %s", err)
+			fmt.Println(GinkgoWriter, "failed to get fleet with response: %s", err)
 			return -2
 		}
 		if response == nil {
-			logrus.Debugf("fleet response is nil")
+			fmt.Println(GinkgoWriter, "fleet response is nil")
 			return -2
 		}
 		fleet := response.JSON200
 		if fleet == nil {
-			logrus.Debugf("fleet is nil")
+			fmt.Println(GinkgoWriter, "fleet is nil")
 			return -2
 		}
 
 		annotations := fleet.Metadata.Annotations
 		if annotations == nil {
-			logrus.Debugf("annotations are nil")
+			fmt.Println(GinkgoWriter, "annotations are nil")
 			return -2
 		}
 
 		batchNumberStr, ok := (*annotations)[v1alpha1.FleetAnnotationBatchNumber]
 		if !ok {
-			logrus.Debugf("batch number not found in annotations - available annotations: %v", *annotations)
+			fmt.Println(GinkgoWriter, "batch number not found in annotations - available annotations: %v", *annotations)
 			return -2
 		}
 
 		batchNumberInt, err := strconv.Atoi(batchNumberStr)
 		if err != nil {
-			logrus.Debugf("failed to convert batch number to int: %s", err)
+			fmt.Println(GinkgoWriter, "failed to convert batch number to int: %s", err)
 			return -2
 		}
 
-		logrus.Debugf("Current batch number: %d, waiting for  %d", batchNumberInt, batchNumber)
+		fmt.Println(GinkgoWriter, "Current batch number: %d, waiting for  %d", batchNumberInt, batchNumber)
 
 		return batchNumberInt
 	}, LONGTIMEOUT, POLLINGLONG).Should(Equal(batchNumber))

@@ -17,19 +17,18 @@ import (
 var _ = Describe("Agent System Info", func() {
 	var (
 		ctx      context.Context
-		harness  *e2e.Harness
 		deviceId string
 	)
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
+		harness.SetTestContext(ctx)
 		login.LoginToAPIWithToken(harness)
 		deviceId = harness.StartVMAndEnroll()
 	})
 
 	AfterEach(func() {
-		harness.Cleanup(false)
+		// No need to cleanup here as it's handled by the suite
 	})
 
 	It("should show default system infos in the systemInfo status after enrollment and update it", Label("81787", "sanity"), func() {

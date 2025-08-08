@@ -1,0 +1,3 @@
+# Enable BuildKit for this project
+export DOCKER_BUILDKIT=1
+export BUILDKIT_PROGRESS=plain 

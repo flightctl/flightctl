@@ -3,10 +3,11 @@ package rollout_test
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -20,14 +21,24 @@ var _ = Describe("Rollout Policies", func() {
 
 	BeforeEach(func() {
 		// Initialize the test context
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = testCtx
+		testID := harness.GetTestIDFromContext()
+		fmt.Println(GinkgoWriter, "Test ID:", testID)
 		tc = setupTestContext(ctx)
+
 	})
 
 	AfterEach(func() {
-		// Cleanup the test context
-		err := tc.cleanup()
-		Expect(err).ToNot(HaveOccurred(), "Failed to clean up test context")
+		for i, harness := range tc.harnesses {
+			if harness != nil {
+				fmt.Println(GinkgoWriter, "Cleaning up harness for rollout worker", i)
+				harness.CleanUpAllTestResources()
+				harness.Cleanup(true)
+			}
+		}
+		tc.harnesses = nil
+		tc.deviceIDs = nil
+
 	})
 
 	Context("Multi Device Selection", Label("79648"), func() {
@@ -58,11 +69,13 @@ var _ = Describe("Rollout Policies", func() {
 				{labelSite: siteParis},
 			}
 
-			err := tc.setupFleetAndDevices(4, labelsList)
+			err := tc.setupFleetAndDevices(ctx, 4, labelsList)
 			Expect(err).ToNot(HaveOccurred())
+			fmt.Println(GinkgoWriter, "Fleet and devices setup completed")
 
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
+			time.Sleep(30 * time.Second)
 
 			//Update fleet with template
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq1, lo.ToPtr(api.Percentage("50%")), deviceSpec))
@@ -110,7 +123,7 @@ var _ = Describe("Rollout Policies", func() {
 				{labelSite: siteMadrid, labelFunction: functionWeb},
 			}
 
-			err := tc.setupFleetAndDevices(3, labelsList)
+			err := tc.setupFleetAndDevices(ctx, 3, labelsList)
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec, err := tc.createDeviceSpec()
@@ -193,7 +206,7 @@ var _ = Describe("Rollout Policies", func() {
 				{labelSite: siteParis},
 			}
 
-			err := tc.setupFleetAndDevices(2, labelsList)
+			err := tc.setupFleetAndDevices(ctx, 2, labelsList)
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec, err := tc.createDeviceSpec()
@@ -289,7 +302,7 @@ var _ = Describe("Rollout Policies", func() {
 				{labelSite: siteParis},
 			}
 
-			err := tc.setupFleetAndDevices(2, labelsList)
+			err := tc.setupFleetAndDevices(ctx, 2, labelsList)
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec, err := tc.createDeviceSpec()
@@ -322,6 +335,7 @@ var _ = Describe("Rollout Policies", func() {
 
 			err = tc.verifyAllDevicesUpdated(2)
 			Expect(err).ToNot(HaveOccurred())
+
 		})
 	})
 
@@ -362,7 +376,8 @@ var _ = Describe("Rollout Policies", func() {
 				{labelSite: siteRome},
 			}
 
-			err := tc.setupFleetAndDevices(3, labelsList)
+			err := tc.setupFleetAndDevices(ctx, 3, labelsList)
+
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec, err := tc.createDeviceSpec()
@@ -415,6 +430,7 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(selectedDevices)).To(Equal(1))
 			Expect((*selectedDevices[0].Metadata.Labels)[labelSite]).To(Equal(siteParis))
+
 		})
 	})
 })
@@ -496,6 +512,7 @@ func createDisruptionBudget(maxUnavailable, minAvailable int, groupBy []string) 
 // TestContext encapsulates common test setup and configuration
 type TestContext struct {
 	harness           *e2e.Harness
+	harnesses         []*e2e.Harness
 	deviceIDs         []string
 	applicationSpec   api.ApplicationProviderSpec
 	applicationConfig api.ImageApplicationProviderSpec
@@ -503,7 +520,6 @@ type TestContext struct {
 }
 
 func setupTestContext(ctx context.Context) *TestContext {
-	harness := e2e.NewTestHarness(ctx)
 	extIP := harness.RegistryEndpoint()
 	sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
 
@@ -526,29 +542,57 @@ func setupTestContext(ctx context.Context) *TestContext {
 	}
 }
 
-func (tc *TestContext) setupFleetAndDevices(numDevices int, labelsList []map[string]string) error {
+func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices int, labelsList []map[string]string) error {
+
 	err := tc.harness.CreateOrUpdateTestFleet(fleetName, testFleetSelector, api.DeviceSpec{})
 	if err != nil {
 		return err
 	}
+	// Create multiple devices using the resources package
+	tc.deviceIDs = make([]string, numDevices)
+	tc.harnesses = make([]*e2e.Harness, numDevices)
 
-	tc.deviceIDs, err = tc.harness.StartMultipleVMAndEnroll(numDevices)
-	if err != nil {
-		return err
+	// Use goroutines to set up devices concurrently
+	var wg sync.WaitGroup
+	errChan := make(chan error, numDevices)
+
+	for i := 0; i < numDevices; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer GinkgoRecover()
+			defer wg.Done()
+			testID := tc.harness.GetTestIDFromContext()
+			fmt.Println(GinkgoWriter, "Test ID:", testID)
+
+			vmHarness, err := e2e.NewTestHarnessWithVMPool(context, 1000+index)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// Set the test context to inherit the same test ID as the main harness
+			vmHarness.SetTestContext(tc.harness.GetTestContext())
+			testID = vmHarness.GetTestIDFromContext()
+			fmt.Println(GinkgoWriter, "Test ID:", testID)
+			tc.harnesses[index] = vmHarness
+			labels := labelsList[index]
+			labels["fleet"] = fleetName
+			deviceID, _ := vmHarness.EnrollAndWaitForOnlineStatus(labels)
+			tc.deviceIDs[index] = deviceID
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+		}(i)
 	}
 
-	newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
-	if err != nil {
-		return err
-	}
+	// Wait for all goroutines to complete
+	wg.Wait()
+	close(errChan)
 
-	err = tc.harness.SetLabelsForDevicesByIndex(tc.deviceIDs, labelsList, fleetName)
-	if err != nil {
-		return err
-	}
-
-	for _, deviceID := range tc.deviceIDs {
-		err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
+	// Check for any errors
+	for err := range errChan {
 		if err != nil {
 			return err
 		}
@@ -597,9 +641,4 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 	}
 
 	return nil
-}
-
-func (tc *TestContext) cleanup() error {
-	tc.harness.Cleanup(true)
-	return tc.harness.CleanUpAllResources()
 }
