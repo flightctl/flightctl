@@ -21,6 +21,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `system-info-custom` | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. See [Custom system info collectors](#custom-system-info-collectors). Default: `[]` |
 | `system-info-timeout` | `Duration` | | The timeout for collecting system info. Default: `2m` |
 | `log-level` | `string` | | The level of logging: "panic", "fatal", "error", "warn"/"warning", "info", "debug", or "trace". Default: `info` |
+| `tpm` | `TPM` | | TPM configuration for hardware-based device identity. See [TPM Configuration](#tpm-configuration). Default: TPM disabled |
 
 `Duration` values are strings of an integer value with appended unit of time ('s' for seconds, 'm' for minutes, or 'h' for hours). Examples: `30s`, `10m`, `24h`
 
@@ -135,6 +136,117 @@ status:
       fips: disabled
 ```
 
+## TPM Configuration
+
+The Trusted Platform Module (TPM) configuration allows the agent to use hardware-based device identity and authentication. When enabled, the agent uses the TPM 2.0 module to generate and protect cryptographic keys, providing a hardware root-of-trust for device authentication.
+
+### TPM Configuration Parameters
+
+The `tpm` configuration object accepts the following parameters:
+
+| Parameter | Type | Required | Description |
+| --------- | ---- | :------: | ----------- |
+| `enabled` | `boolean` | | Enable TPM device identity. When true, the agent uses TPM for key generation and protection. Default: `false` |
+| `device-path` | `string` | | Path to the TPM device. If not specified, the agent auto-discovers available TPM devices, preferring resource manager devices (`/dev/tpmrm*`) over direct devices. Default: auto-discovery |
+| `auth-enabled` | `boolean` | | Enable TPM owner hierarchy password authentication. Should only be used in ephemeral development/test environments. Default: `false` |
+| `storage-file-path` | `string` | | File path for TPM key handle persistence. Default: `/var/lib/flightctl/tpm-blob.yaml` |
+
+### Example TPM Configuration
+
+```yaml
+# /etc/flightctl/config.yaml
+[...]
+tpm:
+  enabled: true
+  device-path: /dev/tpm0
+  auth-enabled: false
+  storage-file-path: /var/lib/flightctl/tpm-blob.yaml
+
+spec-fetch-interval: 60s
+status-update-interval: 60s
+```
+
+### TPM Auto-Discovery
+
+When `device-path` is not specified or is empty, the agent automatically discovers TPM devices by:
+
+1. Scanning `/sys/class/tpm/` for available TPM devices
+2. Validating TPM version (must be 2.0)
+3. Preferring resource manager devices (`/dev/tpmrm*`) over direct devices (`/dev/tpm*`)
+4. Using the first valid TPM 2.0 device found
+
+### TPM Requirements
+
+* **Hardware**: TPM 2.0 compliant module (TPM 1.2 is not supported)
+* **Kernel**: Linux kernel with TPM 2.0 support
+* **Permissions**: Agent must have read/write access to TPM device
+* **CA Certificates**: TPM manufacturer CA certificates must be installed on the Flight Control service
+
+For detailed information about TPM authentication architecture and certificate requirements, see [TPM Device Authentication](tpm-authentication.md).
+
+### TPM Troubleshooting
+
+#### TPM Not Detected
+
+If the agent cannot detect the TPM device:
+
+```bash
+# Check if TPM device exists
+ls -la /dev/tpm* /dev/tpmrm*
+
+# Verify TPM version (should output: 2)
+cat /sys/class/tpm/tpm0/tpm_version_major
+
+# Check device permissions
+ls -l /dev/tpm0
+# Agent user should have read/write access
+```
+
+#### TPM Initialization Errors
+
+Check agent logs for TPM-related errors:
+
+```bash
+# View agent logs
+journalctl -u flightctl-agent -f
+
+# Filter for TPM messages
+journalctl -u flightctl-agent | grep -i tpm
+```
+
+Enable debug logging for detailed TPM information:
+
+```yaml
+# /etc/flightctl/config.yaml
+log-level: debug  # or trace for maximum detail
+```
+
+#### TPM Owner Password
+
+If the TPM requires owner hierarchy authentication:
+
+```yaml
+tpm:
+  enabled: true
+  auth-enabled: true  # Generates random password for TPM ownership
+```
+
+> [!WARNING]
+> Setting `auth-enabled: true` generates a random password for TPM ownership that is stored in the storage file. This password survives reboots, but if the storage file is lost, the ability to use the ownership hierarchy is lost and a `tpm2_clear` command must be issued to reset the TPM. Only use this in ephemeral development environments.
+
+#### Enrollment Failures
+
+If enrollment fails with TPM-related errors:
+
+1. Check that TPM CA certificates are installed on the server (see [TPM Device Authentication](tpm-authentication.md#configuring-tpm-ca-certificates-in-flight-control-service))
+
+2. Verify the agent can generate CSR:
+
+   ```bash
+   sudo flightctl-agent --log-level=trace
+   # Look for CSR generation messages
+   ```
+
 ## flightctl-agent system-info
 
 You can run this command on a device to inspect the full system information collected by the agent:
@@ -143,7 +255,7 @@ You can run this command on a device to inspect the full system information coll
 flightctl-agent system-info
 ```
 
-It prints a JSON summary of the device’s hardware and OS, including:
+It prints a JSON summary of the device's hardware and OS, including:
 
 * Architecture, OS, kernel, hostname
 * CPU, memory, disks, network interfaces
