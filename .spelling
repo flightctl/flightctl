@@ -180,6 +180,9 @@ ConfigMap
 STMicroelectronics
 Nuvoton
 UEFI
+AIA
+NVRAM
+RSA
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
