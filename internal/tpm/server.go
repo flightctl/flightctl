@@ -10,8 +10,11 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
 	"math/big"
+	"net/http"
 	"os"
 	"time"
 
@@ -613,6 +616,95 @@ func stripSANExtensionOIDs(cert *x509.Certificate) {
 	}
 }
 
+// fetchIntermediateCertificates fetches intermediate certificates from AIA extension URLs
+// returns a pool containing all certs that were successfully downloaded and parsed as well as
+// errors indicating which certs failed to be fetched.
+func fetchIntermediateCertificates(ekCert *x509.Certificate) (*x509.CertPool, error) {
+	intermediateCerts := x509.NewCertPool()
+	if ekCert == nil {
+		return intermediateCerts, fmt.Errorf("no EK certificate provided")
+	}
+
+	if len(ekCert.IssuingCertificateURL) == 0 {
+		return intermediateCerts, nil
+	}
+
+	// we're not doing anything with the Transport property, so it'll use the DefaultTransport and
+	// we don't have to worry about connection pooling here.
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	var fetchErrors []error
+	successCount := 0
+
+	for _, url := range ekCert.IssuingCertificateURL {
+		if url == "" {
+			continue
+		}
+
+		cert, err := fetchCertificateFromURL(client, url)
+		if err != nil {
+			fetchErrors = append(fetchErrors, fmt.Errorf("%s: %w", url, err))
+		} else if cert != nil {
+			intermediateCerts.AddCert(cert)
+			successCount++
+		}
+	}
+
+	if successCount == 0 && len(fetchErrors) > 0 {
+		return intermediateCerts, fmt.Errorf("failed to fetch any intermediate certificates: %w", errors.Join(fetchErrors...))
+	}
+
+	if len(fetchErrors) > 0 {
+		return intermediateCerts, fmt.Errorf("some intermediate certificate fetches failed (fetched %d): %w", successCount, errors.Join(fetchErrors...))
+	}
+
+	return intermediateCerts, nil
+}
+
+// fetchCertificateFromURL downloads and parses a certificate from the given URL
+func fetchCertificateFromURL(client *http.Client, url string) (*x509.Certificate, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// accept a wide range of status codes on the off chance someone doesn't return an OK
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: status code: %d : %w", resp.StatusCode, err)
+	}
+
+	certData := buf.Bytes()
+	if len(certData) == 0 {
+		return nil, fmt.Errorf("empty response body: status code: %d", resp.StatusCode)
+	}
+
+	// Try PEM format first
+	if block, _ := pem.Decode(certData); block != nil {
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse PEM certificate: %w", err)
+		}
+		return cert, nil
+	}
+
+	// Try DER format
+	cert, err := x509.ParseCertificate(certData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse DER certificate: %w", err)
+	}
+
+	return cert, nil
+}
+
 // verifyEKCertificateChain verifies that the EK certificate chains to a trusted root CA
 func verifyEKCertificateChain(ekCert *x509.Certificate, trustedRoots *x509.CertPool) error {
 	if ekCert == nil {
@@ -633,14 +725,24 @@ func verifyEKCertificateChain(ekCert *x509.Certificate, trustedRoots *x509.CertP
 	// strip SAN Extension OIDs for TPM certificates
 	stripSANExtensionOIDs(ekCert)
 
+	// attempt to fetch intermediate certificates from AIA extension
+	interCerts, fetchErr := fetchIntermediateCertificates(ekCert)
+
 	opts := x509.VerifyOptions{
-		Roots:     trustedRoots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		Roots:         trustedRoots,
+		Intermediates: interCerts,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 
 	_, err := ekCert.Verify(opts)
 	if err != nil {
-		return fmt.Errorf("chain validation failed: %w", err)
+		err := fmt.Errorf("chain validation failed: %w", err)
+		if fetchErr != nil {
+			// If we had intermediate cert fetch failures and chain validation fails,
+			// include both errors for better debugging
+			return fmt.Errorf("%w: fetching intermediate certs %w", err, fetchErr)
+		}
+		return err
 	}
 
 	return nil

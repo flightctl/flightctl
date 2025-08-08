@@ -8,6 +8,9 @@ import (
 	"io"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/google/go-tpm/tpmutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -459,4 +462,83 @@ func TestNormalizeEnrollmentCSR(t *testing.T) {
 		require.True(t, isTPM)
 		require.Contains(t, err.Error(), "failed to parse TCG CSR")
 	})
+}
+
+// TestFetchIntermediateCertificates tests the intermediate certificate fetching functionality
+func TestFetchIntermediateCertificates(t *testing.T) {
+	t.Run("Certificate with no AIA URLs", func(t *testing.T) {
+		cert := &x509.Certificate{
+			IssuingCertificateURL: nil,
+		}
+
+		intermediates, err := fetchIntermediateCertificates(cert)
+		require.NoError(t, err)
+		require.NotNil(t, intermediates)
+	})
+
+	t.Run("Certificate with empty AIA URLs", func(t *testing.T) {
+		cert := &x509.Certificate{
+			IssuingCertificateURL: []string{},
+		}
+
+		intermediates, err := fetchIntermediateCertificates(cert)
+		require.NoError(t, err)
+		require.NotNil(t, intermediates)
+	})
+
+	t.Run("Nil certificate", func(t *testing.T) {
+		_, err := fetchIntermediateCertificates(nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no EK certificate provided")
+	})
+}
+
+func TestFetchIntermediateCertificates_Integration(t *testing.T) {
+	t.Skip("Integration test requires root access to TPM device and makes an http call to a remote server")
+	rw := fileio.NewReadWriter()
+	l := log.NewPrefixLogger("test")
+	tpmPath, err := discoverAndValidateTPM(rw, l, "")
+	require.NoError(t, err)
+
+	// open the TPM connection
+	conn, err := tpmutil.OpenTPM(tpmPath)
+	defer conn.Close()
+	require.NoError(t, err)
+
+	session := tpmSession{conn: conn, log: l}
+
+	// Get EK certificate from TPM using direct session access
+	ekCertBytes, err := session.GetEndorsementKeyCert()
+	require.NoError(t, err)
+	require.NotEmpty(t, ekCertBytes, "TPM should have an EK certificate")
+
+	// Parse the EK certificate
+	ekCert, err := x509.ParseCertificate(ekCertBytes)
+	require.NoError(t, err)
+	require.NotNil(t, ekCert)
+
+	t.Logf("Found EK certificate: Subject=%s, Issuer=%s", ekCert.Subject.String(), ekCert.Issuer.String())
+	t.Logf("AIA URLs: %v", ekCert.IssuingCertificateURL)
+
+	// Call fetchIntermediateCertificates with the real EK cert
+	intermediateCerts, err := fetchIntermediateCertificates(ekCert)
+
+	// Assert we get a cert pool back (even if empty)
+	require.NotNil(t, intermediateCerts)
+
+	// If there are AIA URLs, we should either succeed or get a descriptive error
+	if len(ekCert.IssuingCertificateURL) > 0 {
+		if err != nil {
+			t.Logf("Intermediate certificate fetch had errors (this is OK): %v", err)
+			// Ensure error mentions the URL(s) that failed
+			for _, url := range ekCert.IssuingCertificateURL {
+				require.Contains(t, err.Error(), url)
+			}
+		} else {
+			t.Logf("Successfully fetched intermediate certificates")
+		}
+	} else {
+		t.Logf("No AIA URLs found in EK certificate")
+		require.NoError(t, err)
+	}
 }
