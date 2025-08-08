@@ -147,7 +147,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	if tpmClient != nil {
 		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
-		shutdownManager.Register("tpm-client", tpmClient.Close)
+		shutdownManager.Register("tpmClient", tpmClient.Close)
 	}
 
 	reloadManager := reload.NewManager(a.configFile, a.log)
