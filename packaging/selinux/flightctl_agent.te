@@ -206,8 +206,8 @@ allow flightctl_agent_t container_ro_file_t:dir { open read getattr search write
 allow flightctl_agent_t container_ro_file_t:file { open read getattr write };
 
 # Container runtime storage access
-allow flightctl_agent_t container_var_run_t:dir { read write search };
-allow flightctl_agent_t container_var_run_t:file { read open getattr };
+allow flightctl_agent_t container_var_run_t:dir { read getattr write search remove_name rmdir };
+allow flightctl_agent_t container_var_run_t:file { read open getattr unlink };
 
 # CGroup access for container management
 allow flightctl_agent_t cgroup_t:dir search;
