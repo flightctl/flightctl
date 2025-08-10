@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -59,6 +60,12 @@ type Service struct {
 	CertificateAuthority string `json:"certificate-authority,omitempty"`
 	// CertificateAuthorityData contains PEM-encoded certificate authority certificates. Overrides CertificateAuthority
 	CertificateAuthorityData []byte `json:"certificate-authority-data,omitempty"`
+	// ServerCertificateAuthority is the path to a cert file for the server certificate authority.
+	// +optional
+	ServerCertificateAuthority string `json:"server-certificate-authority,omitempty"`
+	// ServerCertificateAuthorityData contains PEM-encoded certificate authority certificates. Overrides ServerCertificateAuthority.
+	// +optional
+	ServerCertificateAuthorityData []byte `json:"server-certificate-authority-data,omitempty"`
 	InsecureSkipVerify       bool   `json:"insecureSkipVerify,omitempty"`
 }
 
@@ -110,7 +117,9 @@ func (s *Service) Equal(s2 *Service) bool {
 	}
 	return s.Server == s2.Server && s.TLSServerName == s2.TLSServerName &&
 		s.CertificateAuthority == s2.CertificateAuthority &&
-		bytes.Equal(s.CertificateAuthorityData, s2.CertificateAuthorityData)
+		bytes.Equal(s.CertificateAuthorityData, s2.CertificateAuthorityData) &&
+		s.ServerCertificateAuthority == s2.ServerCertificateAuthority &&
+		bytes.Equal(s.ServerCertificateAuthorityData, s2.ServerCertificateAuthorityData)
 }
 
 func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
@@ -154,6 +163,7 @@ func (s *Service) DeepCopy() *Service {
 	}
 	s2 := *s
 	s2.CertificateAuthorityData = bytes.Clone(s.CertificateAuthorityData)
+	s2.ServerCertificateAuthorityData = bytes.Clone(s.ServerCertificateAuthorityData)
 	return &s2
 }
 
@@ -302,13 +312,26 @@ func CreateTLSConfigFromConfig(config *Config) (*tls.Config, error) {
 }
 
 func addServiceCAToTLSConfig(tlsConfig *tls.Config, config *Config) error {
-	if len(config.Service.CertificateAuthorityData) > 0 {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
-		if err != nil {
-			return err
-		}
-		tlsConfig.RootCAs = caPool
+	// The crypto/tls package will use the system's root CA pool if RootCAs is nil.
+	// We want to start with the system's pool and add our own CAs.
+	caPool, err := x509.SystemCertPool()
+	if err != nil {
+		// It's not guaranteed that a system cert pool is available.
+		// Fallback to an empty pool.
+		caPool = x509.NewCertPool()
 	}
+
+	if len(config.Service.CertificateAuthorityData) > 0 {
+		if !caPool.AppendCertsFromPEM(config.Service.CertificateAuthorityData) {
+			return fmt.Errorf("failed to append client CA to root CAs")
+		}
+	}
+	if len(config.Service.ServerCertificateAuthorityData) > 0 {
+		if !caPool.AppendCertsFromPEM(config.Service.ServerCertificateAuthorityData) {
+			return fmt.Errorf("failed to append server CA to root CAs")
+		}
+	}
+	tlsConfig.RootCAs = caPool
 	return nil
 }
 
@@ -507,6 +530,18 @@ func validateService(service Service, baseDir string, testRootDir string) []erro
 			defer clientCertCA.Close()
 		}
 	}
+	// Make sure server CA data and server CA file aren't both specified
+	if len(service.ServerCertificateAuthority) != 0 && len(service.ServerCertificateAuthorityData) != 0 {
+		validationErrors = append(validationErrors, fmt.Errorf("server-certificate-authority-data and server-certificate-authority are both specified. server-certificate-authority-data will override"))
+	}
+	if len(service.ServerCertificateAuthority) != 0 {
+		serverCertCA, err := os.Open(filepath.Join(testRootDir, resolvePath(service.ServerCertificateAuthority, baseDir)))
+		if err != nil {
+			validationErrors = append(validationErrors, fmt.Errorf("unable to read server-certificate-authority %v due to %w", service.ServerCertificateAuthority, err))
+		} else {
+			defer serverCertCA.Close()
+		}
+	}
 	return validationErrors
 }
 
@@ -560,6 +595,9 @@ func validateOrganization(organization string, baseDir string, testRootDir strin
 // Reads the contents of all referenced files and embeds them in the config.
 func (c *Config) Flatten() error {
 	if err := flatten(&c.Service.CertificateAuthority, &c.Service.CertificateAuthorityData, c.baseDir, c.testRootDir); err != nil {
+		return err
+	}
+	if err := flatten(&c.Service.ServerCertificateAuthority, &c.Service.ServerCertificateAuthorityData, c.baseDir, c.testRootDir); err != nil {
 		return err
 	}
 	if err := flatten(&c.AuthInfo.ClientCertificate, &c.AuthInfo.ClientCertificateData, c.baseDir, c.testRootDir); err != nil {
