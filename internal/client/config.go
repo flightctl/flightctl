@@ -268,6 +268,9 @@ func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.Cl
 // NewHTTPClientFromConfig returns a new HTTP Client from the given config.
 func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	config = config.DeepCopy()
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
 	if err := config.Flatten(); err != nil {
 		return nil, err
 	}
@@ -353,6 +356,9 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 	}
 
 	config = config.DeepCopy()
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
 	if err := config.Flatten(); err != nil {
 		return nil, err
 	}
@@ -519,10 +525,10 @@ func validateService(service Service, baseDir string, testRootDir string) []erro
 	}
 	// Make sure CA data and CA file aren't both specified
 	if len(service.CertificateAuthority) != 0 && len(service.CertificateAuthorityData) != 0 {
-		validationErrors = append(validationErrors, fmt.Errorf("certificate-authority-data and certificate-authority are both specified. certificate-authority-data will override"))
+		validationErrors = append(validationErrors, fmt.Errorf("certificate-authority-data and certificate-authority cannot both be specified"))
 	}
 	if len(service.ServerCertificateAuthority) != 0 && len(service.ServerCertificateAuthorityData) != 0 {
-		validationErrors = append(validationErrors, fmt.Errorf("server-certificate-authority-data and server-certificate-authority are both specified. server-certificate-authority-data will override"))
+		validationErrors = append(validationErrors, fmt.Errorf("server-certificate-authority-data and server-certificate-authority cannot both be specified"))
 	}
 	if len(service.CertificateAuthority) != 0 {
 		clientCertCA, err := os.Open(filepath.Join(testRootDir, resolvePath(service.CertificateAuthority, baseDir)))
@@ -548,11 +554,11 @@ func validateAuthInfo(authInfo AuthInfo, baseDir string, testRootDir string) []e
 	if len(authInfo.ClientCertificate) != 0 || len(authInfo.ClientCertificateData) != 0 {
 		// Make sure cert data and file aren't both specified
 		if len(authInfo.ClientCertificate) != 0 && len(authInfo.ClientCertificateData) != 0 {
-			validationErrors = append(validationErrors, fmt.Errorf("client-cert-data and client-cert are both specified. client-cert-data will override"))
+			validationErrors = append(validationErrors, fmt.Errorf("client-certificate-data and client-certificate cannot both be specified"))
 		}
 		// Make sure key data and file aren't both specified
 		if len(authInfo.ClientKey) != 0 && len(authInfo.ClientKeyData) != 0 {
-			validationErrors = append(validationErrors, fmt.Errorf("client-key-data and client-key are both specified; client-key-data will override"))
+			validationErrors = append(validationErrors, fmt.Errorf("client-key-data and client-key cannot both be specified"))
 		}
 		// Make sure a key is specified
 		if len(authInfo.ClientKey) == 0 && len(authInfo.ClientKeyData) == 0 {
@@ -562,7 +568,7 @@ func validateAuthInfo(authInfo AuthInfo, baseDir string, testRootDir string) []e
 		if len(authInfo.ClientCertificate) != 0 {
 			clientCertFile, err := os.Open(filepath.Join(testRootDir, resolvePath(authInfo.ClientCertificate, baseDir)))
 			if err != nil {
-				validationErrors = append(validationErrors, fmt.Errorf("unable to read client-cert %v due to %w", authInfo.ClientCertificate, err))
+				validationErrors = append(validationErrors, fmt.Errorf("unable to read client-certificate %v due to %w", authInfo.ClientCertificate, err))
 			} else {
 				defer clientCertFile.Close()
 			}
