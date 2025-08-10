@@ -17,9 +17,9 @@ Monitors system resource usage on the Flight Control server.
 
 **Metrics:**
 
-- `flightctl_system_cpu_usage`: CPU utilization percentage
-- `flightctl_system_memory_usage`: Memory consumption statistics  
-- `flightctl_system_disk_io`: Disk I/O operations and performance
+- `flightctl_cpu_utilization`: CPU utilization percentage
+- `flightctl_memory_utilization`: Memory consumption statistics  
+- `flightctl_disk_utilization`: Disk I/O operations and performance
 
 **Configuration:****
 

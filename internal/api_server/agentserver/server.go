@@ -44,7 +44,6 @@ type AgentServer struct {
 	tlsConfig      *tls.Config
 	grpcServer     *AgentGrpcServer
 	orgResolver    *org.Resolver
-	httpCollector  *metrics.HTTPCollector
 }
 
 // New returns a new instance of a flightctl server.
@@ -68,7 +67,6 @@ func New(
 		tlsConfig:      tlsConfig,
 		grpcServer:     NewAgentGrpcServer(log, cfg),
 		orgResolver:    resolver,
-		httpCollector:  httpCollector,
 	}
 }
 

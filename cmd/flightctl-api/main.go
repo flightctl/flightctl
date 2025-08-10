@@ -171,34 +171,41 @@ func main() {
 	}()
 
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
-		go func() {
-			var collectors []metrics.NamedCollector
-			if cfg.Metrics.DeviceCollector != nil && cfg.Metrics.DeviceCollector.Enabled {
-				collectors = append(collectors, domain.NewDeviceCollector(ctx, store, log, cfg))
+		var collectors []metrics.NamedCollector
+		if cfg.Metrics.DeviceCollector != nil && cfg.Metrics.DeviceCollector.Enabled {
+			collectors = append(collectors, domain.NewDeviceCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.FleetCollector != nil && cfg.Metrics.FleetCollector.Enabled {
+			collectors = append(collectors, domain.NewFleetCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.RepositoryCollector != nil && cfg.Metrics.RepositoryCollector.Enabled {
+			collectors = append(collectors, domain.NewRepositoryCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.ResourceSyncCollector != nil && cfg.Metrics.ResourceSyncCollector.Enabled {
+			collectors = append(collectors, domain.NewResourceSyncCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
+			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+				collectors = append(collectors, systemMetricsCollector)
+				defer func() {
+					if err := systemMetricsCollector.Shutdown(); err != nil {
+						log.Errorf("Failed to shutdown system metrics collector: %v", err)
+					}
+				}()
 			}
-			if cfg.Metrics.FleetCollector != nil && cfg.Metrics.FleetCollector.Enabled {
-				collectors = append(collectors, domain.NewFleetCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.HttpCollector != nil && cfg.Metrics.HttpCollector.Enabled {
+			if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", log); httpMetricsCollector != nil {
+				collectors = append(collectors, httpMetricsCollector)
+				defer func() {
+					if err := httpMetricsCollector.Shutdown(); err != nil {
+						log.Errorf("Failed to shutdown HTTP metrics collector: %v", err)
+					}
+				}()
 			}
-			if cfg.Metrics.RepositoryCollector != nil && cfg.Metrics.RepositoryCollector.Enabled {
-				collectors = append(collectors, domain.NewRepositoryCollector(ctx, store, log, cfg))
-			}
-			if cfg.Metrics.ResourceSyncCollector != nil && cfg.Metrics.ResourceSyncCollector.Enabled {
-				collectors = append(collectors, domain.NewResourceSyncCollector(ctx, store, log, cfg))
-			}
-			if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
-				collectors = append(collectors, metrics.NewSystemCollector(ctx, cfg))
-			}
-			if cfg.Metrics.HttpCollector != nil && cfg.Metrics.HttpCollector.Enabled {
-				if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", log); httpMetricsCollector != nil {
-					collectors = append(collectors, httpMetricsCollector)
-					defer func() {
-						if err := httpMetricsCollector.Shutdown(); err != nil {
-							log.Errorf("Failed to shutdown HTTP metrics collector: %v", err)
-						}
-					}()
-				}
-			}
+		}
 
+		go func() {
 			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
 			if err := metricsServer.Run(ctx); err != nil {
 				log.Fatalf("Error running server: %s", err)

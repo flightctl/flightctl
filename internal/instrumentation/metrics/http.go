@@ -28,7 +28,7 @@ type HTTPMetricsCollector struct {
 // NewHTTPMetricsCollector creates a new HTTPMetricsCollector that integrates OpenTelemetry
 // HTTP metrics with Prometheus. It initializes the OpenTelemetry meter provider and
 // creates a Prometheus exporter for metrics collection.
-func NewHTTPMetricsCollector(ctx context.Context, cfg *config.Config, serviceName string, log logrus.FieldLogger) *HTTPMetricsCollector {
+func NewHTTPMetricsCollector(ctx context.Context, _ *config.Config, serviceName string, log logrus.FieldLogger) *HTTPMetricsCollector {
 	c, cancel := context.WithCancel(ctx)
 
 	// Create a dedicated registry for OpenTelemetry metrics
@@ -56,8 +56,12 @@ func NewHTTPMetricsCollector(ctx context.Context, cfg *config.Config, serviceNam
 		metric.WithReader(exporter),
 	)
 
-	// Set the global meter provider
-	otel.SetMeterProvider(mp)
+	// Only set global meter provider if not already set
+	if _, ok := otel.GetMeterProvider().(*metric.MeterProvider); !ok {
+		otel.SetMeterProvider(mp)
+	} else {
+		log.Warn("Global meter provider already set, using existing provider")
+	}
 
 	collector := &HTTPMetricsCollector{
 		exporter:      exporter,

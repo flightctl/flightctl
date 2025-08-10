@@ -23,7 +23,7 @@ type FleetCollector struct {
 	cfg            *config.Config
 }
 
-// NewFleetCollector creates a FleetCollector. If tickerInterval is 0, defaults to 30s.
+// NewFleetCollector creates a FleetCollector.
 func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *FleetCollector {
 	interval := cfg.Metrics.FleetCollector.TickerInterval
 
@@ -98,6 +98,9 @@ func (c *FleetCollector) updateFleetMetrics() {
 	c.totalFleetsGauge.Reset()
 	for _, result := range statusCounts {
 		orgIdLabel := result.OrgID
+		if orgIdLabel == "" {
+			orgIdLabel = "unknown"
+		}
 		status := result.Status
 		if status == "" {
 			status = "none"

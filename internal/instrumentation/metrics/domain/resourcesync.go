@@ -23,8 +23,8 @@ type ResourceSyncCollector struct {
 	cfg            *config.Config
 }
 
-// NewResourceSyncCollector creates a ResourceSyncCollector. If tickerInterval is 0, defaults to 30s.
-func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config, tickerInterval ...time.Duration) *ResourceSyncCollector {
+// NewResourceSyncCollector creates a ResourceSyncCollector.
+func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *ResourceSyncCollector {
 	interval := cfg.Metrics.ResourceSyncCollector.TickerInterval
 
 	collector := &ResourceSyncCollector{

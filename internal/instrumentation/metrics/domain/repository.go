@@ -23,7 +23,7 @@ type RepositoryCollector struct {
 	cfg            *config.Config
 }
 
-// NewRepositoryCollector creates a RepositoryCollector. If tickerInterval is 0, defaults to 30s.
+// NewRepositoryCollector creates a RepositoryCollector.
 func NewRepositoryCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *RepositoryCollector {
 	interval := cfg.Metrics.RepositoryCollector.TickerInterval
 

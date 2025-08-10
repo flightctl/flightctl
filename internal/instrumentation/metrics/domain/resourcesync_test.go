@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -84,7 +85,11 @@ func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
 	defer cancel()
 
 	config := config.NewDefault()
-	collector := NewResourceSyncCollector(ctx, mockStore, log, config, 1*time.Millisecond)
+	if config.Metrics == nil || config.Metrics.ResourceSyncCollector == nil {
+		t.Fatal("expected default ResourceSyncCollector config to be initialized")
+	}
+	config.Metrics.ResourceSyncCollector.TickerInterval = util.Duration(1 * time.Millisecond)
+	collector := NewResourceSyncCollector(ctx, mockStore, log, config)
 	time.Sleep(5 * time.Millisecond)
 
 	ch := make(chan prometheus.Metric, 100)

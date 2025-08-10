@@ -94,7 +94,7 @@ func (m *MockFleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgI
 	return nil
 }
 
-func (m *MockFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+func (m *MockFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, eventCallback store.EventCallback) error {
 	return nil
 }
 
@@ -228,7 +228,7 @@ func TestFleetCollector(t *testing.T) {
 	t.Logf("Collected %d metrics", len(metrics))
 }
 
-func TestFleetCollectorWithVersionFilter(t *testing.T) {
+func TestFleetCollectorWithOrgFilter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

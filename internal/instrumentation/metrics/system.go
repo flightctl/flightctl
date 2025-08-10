@@ -149,3 +149,10 @@ func (c *SystemCollector) sampleDisk() {
 		}
 	}
 }
+
+func (c *SystemCollector) Shutdown() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	return nil
+}

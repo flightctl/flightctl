@@ -57,7 +57,6 @@ type Server struct {
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
 	orgResolver        *org.Resolver
-	httpCollector      *metrics.HTTPCollector
 }
 
 // New returns a new instance of a flightctl server.

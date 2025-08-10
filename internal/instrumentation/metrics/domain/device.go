@@ -30,7 +30,7 @@ type DeviceCollector struct {
 	cfg            *config.Config
 }
 
-// NewDeviceCollector creates a DeviceCollector. If tickerInterval is 0, defaults to 30s.
+// NewDeviceCollector creates a DeviceCollector.
 func NewDeviceCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *DeviceCollector {
 	interval := cfg.Metrics.DeviceCollector.TickerInterval
 
@@ -109,14 +109,6 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 	// Use bypass span check for metrics collection to avoid tracing context errors
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Reset all metrics
-	c.devicesSummaryGauge.Reset()
-	c.devicesApplicationGauge.Reset()
-	c.devicesUpdateGauge.Reset()
-
 	// Update summary status metrics
 	summaryResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
@@ -143,6 +135,14 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 		c.log.WithError(err).Error("Failed to get device application status counts")
 		return
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Reset all metrics
+	c.devicesSummaryGauge.Reset()
+	c.devicesApplicationGauge.Reset()
+	c.devicesUpdateGauge.Reset()
 
 	// Update application metrics with actual status values
 	for _, r := range applicationResults {
