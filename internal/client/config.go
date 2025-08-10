@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -59,6 +60,12 @@ type Service struct {
 	CertificateAuthority string `json:"certificate-authority,omitempty"`
 	// CertificateAuthorityData contains PEM-encoded certificate authority certificates. Overrides CertificateAuthority
 	CertificateAuthorityData []byte `json:"certificate-authority-data,omitempty"`
+	// ServerCertificateAuthority is the path to a cert file for the certificate authority for server communication.
+	// +optional
+	ServerCertificateAuthority string `json:"server-certificate-authority,omitempty"`
+	// ServerCertificateAuthorityData contains PEM-encoded certificate authority certificates for server communication. Overrides ServerCertificateAuthority
+	// +optional
+	ServerCertificateAuthorityData []byte `json:"server-certificate-authority-data,omitempty"`
 	InsecureSkipVerify       bool   `json:"insecureSkipVerify,omitempty"`
 }
 
@@ -110,7 +117,9 @@ func (s *Service) Equal(s2 *Service) bool {
 	}
 	return s.Server == s2.Server && s.TLSServerName == s2.TLSServerName &&
 		s.CertificateAuthority == s2.CertificateAuthority &&
-		bytes.Equal(s.CertificateAuthorityData, s2.CertificateAuthorityData)
+		bytes.Equal(s.CertificateAuthorityData, s2.CertificateAuthorityData) &&
+		s.ServerCertificateAuthority == s2.ServerCertificateAuthority &&
+		bytes.Equal(s.ServerCertificateAuthorityData, s2.ServerCertificateAuthorityData)
 }
 
 func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
@@ -154,6 +163,7 @@ func (s *Service) DeepCopy() *Service {
 	}
 	s2 := *s
 	s2.CertificateAuthorityData = bytes.Clone(s.CertificateAuthorityData)
+	s2.ServerCertificateAuthorityData = bytes.Clone(s.ServerCertificateAuthorityData)
 	return &s2
 }
 
@@ -302,12 +312,24 @@ func CreateTLSConfigFromConfig(config *Config) (*tls.Config, error) {
 }
 
 func addServiceCAToTLSConfig(tlsConfig *tls.Config, config *Config) error {
-	if len(config.Service.CertificateAuthorityData) > 0 {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+	// If server CA data is present, use it
+	if len(config.Service.ServerCertificateAuthorityData) > 0 {
+		caPool, err := certutil.NewPoolFromBytes(config.Service.ServerCertificateAuthorityData)
 		if err != nil {
 			return err
 		}
 		tlsConfig.RootCAs = caPool
+	}
+
+	// If service CA data is present, add it to the pool.
+	// This is for cases where the server cert is issued by the same CA as the client certs.
+	if len(config.Service.CertificateAuthorityData) > 0 {
+		if tlsConfig.RootCAs == nil {
+			tlsConfig.RootCAs = x509.NewCertPool()
+		}
+		if !tlsConfig.RootCAs.AppendCertsFromPEM(config.Service.CertificateAuthorityData) {
+			return fmt.Errorf("failed to append CA certificates")
+		}
 	}
 	return nil
 }
@@ -499,12 +521,23 @@ func validateService(service Service, baseDir string, testRootDir string) []erro
 	if len(service.CertificateAuthority) != 0 && len(service.CertificateAuthorityData) != 0 {
 		validationErrors = append(validationErrors, fmt.Errorf("certificate-authority-data and certificate-authority are both specified. certificate-authority-data will override"))
 	}
+	if len(service.ServerCertificateAuthority) != 0 && len(service.ServerCertificateAuthorityData) != 0 {
+		validationErrors = append(validationErrors, fmt.Errorf("server-certificate-authority-data and server-certificate-authority are both specified. server-certificate-authority-data will override"))
+	}
 	if len(service.CertificateAuthority) != 0 {
 		clientCertCA, err := os.Open(filepath.Join(testRootDir, resolvePath(service.CertificateAuthority, baseDir)))
 		if err != nil {
 			validationErrors = append(validationErrors, fmt.Errorf("unable to read certificate-authority %v due to %w", service.CertificateAuthority, err))
 		} else {
 			defer clientCertCA.Close()
+		}
+	}
+	if len(service.ServerCertificateAuthority) != 0 {
+		serverCertCA, err := os.Open(filepath.Join(testRootDir, resolvePath(service.ServerCertificateAuthority, baseDir)))
+		if err != nil {
+			validationErrors = append(validationErrors, fmt.Errorf("unable to read server-certificate-authority %v due to %w", service.ServerCertificateAuthority, err))
+		} else {
+			defer serverCertCA.Close()
 		}
 	}
 	return validationErrors
@@ -560,6 +593,9 @@ func validateOrganization(organization string, baseDir string, testRootDir strin
 // Reads the contents of all referenced files and embeds them in the config.
 func (c *Config) Flatten() error {
 	if err := flatten(&c.Service.CertificateAuthority, &c.Service.CertificateAuthorityData, c.baseDir, c.testRootDir); err != nil {
+		return err
+	}
+	if err := flatten(&c.Service.ServerCertificateAuthority, &c.Service.ServerCertificateAuthorityData, c.baseDir, c.testRootDir); err != nil {
 		return err
 	}
 	if err := flatten(&c.AuthInfo.ClientCertificate, &c.AuthInfo.ClientCertificateData, c.baseDir, c.testRootDir); err != nil {
