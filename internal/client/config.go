@@ -56,9 +56,17 @@ type Service struct {
 	// +optional
 	TLSServerName string `json:"tls-server-name,omitempty"`
 	// CertificateAuthority is the path to a cert file for the certificate authority.
+	//
+	// Deprecated: use ServerCertificateAuthority instead.
 	CertificateAuthority string `json:"certificate-authority,omitempty"`
 	// CertificateAuthorityData contains PEM-encoded certificate authority certificates. Overrides CertificateAuthority
+	//
+	// Deprecated: use ServerCertificateAuthorityData instead.
 	CertificateAuthorityData []byte `json:"certificate-authority-data,omitempty"`
+	// ServerCertificateAuthority is the path to a cert file for the certificate authority for server communication.
+	ServerCertificateAuthority string `json:"server-certificate-authority,omitempty"`
+	// ServerCertificateAuthorityData contains PEM-encoded certificate authority certificates for server communication. Overrides ServerCertificateAuthority
+	ServerCertificateAuthorityData []byte `json:"server-certificate-authority-data,omitempty"`
 	InsecureSkipVerify       bool   `json:"insecureSkipVerify,omitempty"`
 }
 
@@ -110,7 +118,9 @@ func (s *Service) Equal(s2 *Service) bool {
 	}
 	return s.Server == s2.Server && s.TLSServerName == s2.TLSServerName &&
 		s.CertificateAuthority == s2.CertificateAuthority &&
-		bytes.Equal(s.CertificateAuthorityData, s2.CertificateAuthorityData)
+		bytes.Equal(s.CertificateAuthorityData, s2.CertificateAuthorityData) &&
+		s.ServerCertificateAuthority == s2.ServerCertificateAuthority &&
+		bytes.Equal(s.ServerCertificateAuthorityData, s2.ServerCertificateAuthorityData)
 }
 
 func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
@@ -154,6 +164,7 @@ func (s *Service) DeepCopy() *Service {
 	}
 	s2 := *s
 	s2.CertificateAuthorityData = bytes.Clone(s.CertificateAuthorityData)
+	s2.ServerCertificateAuthorityData = bytes.Clone(s.ServerCertificateAuthorityData)
 	return &s2
 }
 
@@ -302,8 +313,15 @@ func CreateTLSConfigFromConfig(config *Config) (*tls.Config, error) {
 }
 
 func addServiceCAToTLSConfig(tlsConfig *tls.Config, config *Config) error {
-	if len(config.Service.CertificateAuthorityData) > 0 {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+	var caData []byte
+	if len(config.Service.ServerCertificateAuthorityData) > 0 {
+		caData = config.Service.ServerCertificateAuthorityData
+	} else if len(config.Service.CertificateAuthorityData) > 0 {
+		caData = config.Service.CertificateAuthorityData
+	}
+
+	if len(caData) > 0 {
+		caPool, err := certutil.NewPoolFromBytes(caData)
 		if err != nil {
 			return err
 		}
@@ -335,40 +353,24 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 		return nil, err
 	}
 
-	tlsConfig := tls.Config{
-		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: config.Service.InsecureSkipVerify, //nolint:gosec
-	}
-
-	if string(config.Service.CertificateAuthorityData) != "" {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
-		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
-		}
-		tlsConfig.RootCAs = caPool
+	tlsConfig, err := CreateTLSConfigFromConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("NewGRPCClientFromConfig: creating TLS config: %w", err)
 	}
 
 	u, err := url.Parse(grpcEndpoint)
 	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing CA certs: %w", err)
+		return nil, fmt.Errorf("NewGRPCClientFromConfig: parsing endpoint: %w", err)
 	}
-	tlsServerName := u.Hostname()
-	tlsConfig.ServerName = tlsServerName
+	tlsConfig.ServerName = u.Hostname()
 
-	if len(config.AuthInfo.ClientCertificateData) > 0 {
-		clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
-		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing client cert and key: %w", err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{clientCert}
-	}
 	// our transport is http, but the grpc library has special encoding for the endpoint
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "http://")
 	grpcEndpoint = strings.TrimPrefix(grpcEndpoint, "https://")
 	grpcEndpoint = strings.TrimSuffix(grpcEndpoint, "/")
 
 	client, err := grpc.NewClient(grpcEndpoint,
-		grpc.WithTransportCredentials(credentials.NewTLS(&tlsConfig)),
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second, // Send keepalive ping every 30s
 			Timeout:             10 * time.Second, // Wait 10s for server response
@@ -431,13 +433,12 @@ func NewGrpcClientFromConfigFile(filename string, endpoint string) (grpc_v1.Rout
 }
 
 // WriteConfig writes a client config file using the given parameters.
-func WriteConfig(filename string, server string, tlsServerName string, caCertPEM []byte, client *crypto.TLSCertificateConfig) error {
+func WriteConfig(filename string, server string, caCertPEM []byte, client *crypto.TLSCertificateConfig) error {
 
 	config := NewDefault()
 	config.Service = Service{
-		Server:                   server,
-		TLSServerName:            tlsServerName,
-		CertificateAuthorityData: caCertPEM,
+		Server:                         server,
+		ServerCertificateAuthorityData: caCertPEM,
 	}
 
 	if client != nil {
@@ -507,6 +508,18 @@ func validateService(service Service, baseDir string, testRootDir string) []erro
 			defer clientCertCA.Close()
 		}
 	}
+	// Make sure CA data and CA file aren't both specified
+	if len(service.ServerCertificateAuthority) != 0 && len(service.ServerCertificateAuthorityData) != 0 {
+		validationErrors = append(validationErrors, fmt.Errorf("server-certificate-authority-data and server-certificate-authority are both specified. server-certificate-authority-data will override"))
+	}
+	if len(service.ServerCertificateAuthority) != 0 {
+		clientCertCA, err := os.Open(filepath.Join(testRootDir, resolvePath(service.ServerCertificateAuthority, baseDir)))
+		if err != nil {
+			validationErrors = append(validationErrors, fmt.Errorf("unable to read server-certificate-authority %v due to %w", service.ServerCertificateAuthority, err))
+		} else {
+			defer clientCertCA.Close()
+		}
+	}
 	return validationErrors
 }
 
@@ -560,6 +573,9 @@ func validateOrganization(organization string, baseDir string, testRootDir strin
 // Reads the contents of all referenced files and embeds them in the config.
 func (c *Config) Flatten() error {
 	if err := flatten(&c.Service.CertificateAuthority, &c.Service.CertificateAuthorityData, c.baseDir, c.testRootDir); err != nil {
+		return err
+	}
+	if err := flatten(&c.Service.ServerCertificateAuthority, &c.Service.ServerCertificateAuthorityData, c.baseDir, c.testRootDir); err != nil {
 		return err
 	}
 	if err := flatten(&c.AuthInfo.ClientCertificate, &c.AuthInfo.ClientCertificateData, c.baseDir, c.testRootDir); err != nil {
