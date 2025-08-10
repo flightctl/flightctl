@@ -77,7 +77,7 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
 
-  certData, err = signer.SignAsPEM(ctx, ca, request)
+	certData, err := signer.SignAsPEM(ctx, ca, request)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
@@ -300,7 +300,7 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 		return nil, api.StatusBadRequest(err.Error())
 	}
 	if isTPM {
-		if err := h.verifyTPMEnrollmentRequest(&er, *er.Metadata.Name); err != nil {
+		if err := h.verifyTPMEnrollmentRequest(&er, name); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
@@ -333,8 +333,8 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
-  
-	request, isTPM, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
+
+	request, isTPM, err := newSignRequestFromEnrollment(h.ca.Cfg, newObj)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
@@ -342,7 +342,7 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 		return nil, api.StatusBadRequest(err.Error())
 	}
 	if isTPM {
-		if err := h.verifyTPMEnrollmentRequest(&er, *er.Metadata.Name); err != nil {
+		if err := h.verifyTPMEnrollmentRequest(newObj, name); err != nil {
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
@@ -443,11 +443,11 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, nam
 }
 
 func newSignRequestFromEnrollment(cfg *ca.Config, er *api.EnrollmentRequest) (signer.SignRequest, bool, error) {
-  csrData, isTPM, err := tpm.NormalizeEnrollmentCSR(enrollmentRequest.Spec.Csr)
-  if err != nil {
+	csrData, isTPM, err := tpm.NormalizeEnrollmentCSR(er.Spec.Csr)
+	if err != nil {
 		return nil, false, fmt.Errorf("failed to normalize CSR: %w", err)
 	}
-  
+
 	var opts []signer.SignRequestOption
 	if er.Status != nil && er.Status.Certificate != nil {
 		certBytes := []byte(*er.Status.Certificate)
@@ -457,14 +457,14 @@ func newSignRequestFromEnrollment(cfg *ca.Config, er *api.EnrollmentRequest) (si
 	if er.Metadata.Name != nil {
 		opts = append(opts, signer.WithResourceName(*er.Metadata.Name))
 	}
-  
-  request, err := signer.NewSignRequestFromBytes(cfg.DeviceEnrollmentSignerName, csrData, opts...)
-  
-  if err != nil {
-    return nil, isTPM, err
-  }
 
-	return request, isTMP, nil
+	request, err := signer.NewSignRequestFromBytes(cfg.DeviceEnrollmentSignerName, csrData, opts...)
+
+	if err != nil {
+		return nil, isTPM, err
+	}
+
+	return request, isTPM, nil
 }
 
 func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.UUID, name string) error {
