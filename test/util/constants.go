@@ -74,6 +74,7 @@ const E2E_NAMESPACE = "flightctl-e2e"
 const E2E_REGISTRY_NAME = "registry"
 const KIND = "KIND"
 const OCP = "OCP"
+const FLIGHTCTL_AGENT_SERVICE = "flightctl-agent"
 
 // Define a type for messages.
 type Message string
