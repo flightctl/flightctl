@@ -9,6 +9,11 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const (
+	POLLING = 1
+	TIMEOUT = 5
+)
+
 var (
 	suiteCtx context.Context
 )
