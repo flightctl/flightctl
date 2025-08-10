@@ -33,7 +33,7 @@ type Fleet interface {
 	ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
-	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
+	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, eventCallback EventCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
@@ -404,7 +404,7 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 	return ErrorFromGormError(result.Error)
 }
 
-func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
+func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, eventCallback EventCallback) (bool, error) {
 	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -417,6 +417,11 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	if existingRecord.Status.Data.Conditions == nil {
 		existingRecord.Status.Data.Conditions = []api.Condition{}
 	}
+
+	// Make a full copy of the existing conditions
+	existingConditions := make([]api.Condition, len(existingRecord.Status.Data.Conditions))
+	copy(existingConditions, existingRecord.Status.Data.Conditions)
+
 	changed := false
 	for _, condition := range conditions {
 		changed = api.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
@@ -436,12 +441,17 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
 	}
+
+	oldFleet, _ := existingRecord.ToApiResource()
+	oldFleet.Status.Conditions = existingConditions
+	newFleet, _ := existingRecord.ToApiResource()
+	s.callEventCallback(ctx, eventCallback, orgId, name, oldFleet, newFleet, false, err)
 	return false, nil
 }
 
-func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, eventCallback EventCallback) error {
 	return retryUpdate(func() (bool, error) {
-		return s.updateConditions(ctx, orgId, name, conditions)
+		return s.updateConditions(ctx, orgId, name, conditions, eventCallback)
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,16 +44,6 @@ func (h *EventHandler) CreateEvent(ctx context.Context, event *api.Event) {
 //////////////////////////////////////////////////////
 //                    Common Events               //
 //////////////////////////////////////////////////////
-
-// HandleGenericResourceUpdatedEvents handles generic resource update event emission logic
-func (h *EventHandler) HandleGenericResourceUpdatedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
-	} else {
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, nil, nil))
-	}
-}
 
 // HandleGenericResourceDeletedEvents handles generic resource deletion event emission logic
 func (h *EventHandler) HandleGenericResourceDeletedEvents(ctx context.Context, resourceKind api.ResourceKind, _ uuid.UUID, name string, _, _ interface{}, created bool, err error) {
@@ -95,7 +86,7 @@ func (h *EventHandler) HandleDeviceUpdatedEvents(ctx context.Context, resourceKi
 	if created {
 		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, api.DeviceKind, name, nil, h.log))
 	} else {
-		updateDetails := h.computeDeviceResourceUpdatedDetails(oldDevice, newDevice)
+		updateDetails := h.computeResourceUpdatedDetails(oldDevice.Metadata, newDevice.Metadata)
 		// Generate ResourceUpdated event if there are spec changes or status changes
 		if updateDetails != nil {
 			h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, api.DeviceKind, name, updateDetails, h.log))
@@ -111,46 +102,6 @@ func (h *EventHandler) HandleDeviceDecommissionEvents(ctx context.Context, _ api
 	} else {
 		h.CreateEvent(ctx, common.GetDeviceDecommissionedSuccessEvent(ctx, created, api.DeviceKind, name, nil, nil))
 	}
-}
-
-// computeDeviceResourceUpdatedDetails determines which fields were updated by comparing old and new resources
-func (h *EventHandler) computeDeviceResourceUpdatedDetails(oldDevice, newDevice *api.Device) *api.ResourceUpdatedDetails {
-	if oldDevice == nil || newDevice == nil {
-		return nil
-	}
-
-	updateDetails := &api.ResourceUpdatedDetails{
-		UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{},
-	}
-
-	// Check if spec changed
-	if oldDevice.Metadata.Generation != nil && newDevice.Metadata.Generation != nil &&
-		*oldDevice.Metadata.Generation != *newDevice.Metadata.Generation {
-		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Spec)
-	}
-
-	// Check if labels changed
-	if !reflect.DeepEqual(oldDevice.Metadata.Labels, newDevice.Metadata.Labels) {
-		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Labels)
-	}
-
-	// Check if owner changed
-	if !util.StringsAreEqual(oldDevice.Metadata.Owner, newDevice.Metadata.Owner) {
-		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Owner)
-		if oldDevice.Metadata.Owner != nil {
-			updateDetails.PreviousOwner = oldDevice.Metadata.Owner
-		}
-		if newDevice.Metadata.Owner != nil {
-			updateDetails.NewOwner = newDevice.Metadata.Owner
-		}
-	}
-
-	// Only return details if there were actual updates
-	if len(updateDetails.UpdatedFields) == 0 {
-		return nil
-	}
-
-	return updateDetails
 }
 
 //////////////////////////////////////////////////////
@@ -174,6 +125,7 @@ func (h *EventHandler) HandleFleetUpdatedEvents(ctx context.Context, resourceKin
 	if oldFleet, newFleet, ok = castResources[api.Fleet](oldResource, newResource); !ok {
 		return
 	}
+
 	if err != nil {
 		status := StoreErrorToApiStatus(err, created, api.FleetKind, &name)
 		event = common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, api.FleetKind, name, status, nil)
@@ -181,13 +133,33 @@ func (h *EventHandler) HandleFleetUpdatedEvents(ctx context.Context, resourceKin
 		// Compute ResourceUpdatedDetails at service level
 		var updateDetails *api.ResourceUpdatedDetails
 		if !created && oldFleet != nil && newFleet != nil {
-			updateDetails = h.computeFleetResourceUpdatedDetails(oldFleet, newFleet)
+			updateDetails = h.computeResourceUpdatedDetails(oldFleet.Metadata, newFleet.Metadata)
+			// Check if spec.template or spec.selector changed - if so, remove spec from updateDetails and add spec.template or spec.selector
+			if updateDetails != nil && lo.Contains(updateDetails.UpdatedFields, api.Spec) {
+				removeSpec := false
+				if !reflect.DeepEqual(oldFleet.Spec.Template, newFleet.Spec.Template) {
+					updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.SpecTemplate)
+					removeSpec = true
+				}
+				if !reflect.DeepEqual(oldFleet.Spec.Selector, newFleet.Spec.Selector) {
+					updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.SpecSelector)
+					removeSpec = true
+				}
+				if removeSpec {
+					updateDetails.UpdatedFields = lo.Filter(updateDetails.UpdatedFields, func(field api.ResourceUpdatedDetailsUpdatedFields, _ int) bool {
+						return field != api.Spec
+					})
+				}
+			}
 		}
 		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.FleetKind, name, updateDetails, nil)
 	}
 
 	// Emit a created/updated event (if nil, no event is emitted)
 	h.CreateEvent(ctx, event)
+
+	// Emit fleet validation events if applicable
+	h.emitFleetValidEvents(ctx, name, oldFleet, newFleet)
 
 	deployingTemplateVersion, exists := newFleet.GetAnnotation(api.FleetAnnotationDeployingTemplateVersion)
 	if !exists {
@@ -196,7 +168,8 @@ func (h *EventHandler) HandleFleetUpdatedEvents(ctx context.Context, resourceKin
 
 	// Emit fleet rollout events if applicable
 	h.emitFleetRolloutNewEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
-	h.emitFleetRolloutCompletionEvents(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
+	h.emitFleetRolloutBatchCompletedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
+	h.emitFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
 	h.emitFleetRolloutFailedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
 }
 
@@ -207,68 +180,93 @@ func (h *EventHandler) emitFleetRolloutNewEvent(ctx context.Context, name string
 	h.CreateEvent(ctx, common.GetFleetRolloutNewEvent(ctx, name))
 }
 
-func (h *EventHandler) emitFleetRolloutCompletionEvents(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+func (h *EventHandler) emitFleetRolloutBatchCompletedEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
 	batchCompleted, report := newFleet.IsRolloutBatchCompleted(oldFleet)
 	if !batchCompleted {
 		return
 	}
 	h.CreateEvent(ctx, common.GetFleetRolloutBatchCompletedEvent(ctx, name, deployingTemplateVersion, report))
+
 	if report.BatchName == api.FinalImplicitBatchName {
 		h.CreateEvent(ctx, common.GetFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion))
 	}
 }
 
+func (h *EventHandler) emitFleetValidEvents(ctx context.Context, name string, oldFleet, newFleet *api.Fleet) {
+	if newFleet.Status == nil {
+		return
+	}
+
+	// Get old and new conditions
+	var oldConditions []api.Condition
+	if oldFleet != nil && oldFleet.Status != nil {
+		oldConditions = oldFleet.Status.Conditions
+	}
+	newConditions := newFleet.Status.Conditions
+
+	oldCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeFleetValid)
+	newCondition := api.FindStatusCondition(newConditions, api.ConditionTypeFleetValid)
+
+	if newCondition == nil {
+		return
+	}
+
+	// Check if the condition has changed
+	if !hasConditionChanged(oldCondition, newCondition) {
+		return
+	}
+
+	// Emit events based on the condition status
+	if newCondition.Status == api.ConditionStatusTrue {
+		h.CreateEvent(ctx, common.GetFleetSpecValidEvent(ctx, name))
+	} else {
+		// Fleet became invalid
+		message := "Unknown"
+		if newCondition.Message != "" {
+			message = newCondition.Message
+		}
+		h.CreateEvent(ctx, common.GetFleetSpecInvalidEvent(ctx, name, message))
+	}
+}
+
+func (h *EventHandler) emitFleetRolloutCompletedEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+	if newFleet.Status == nil {
+		return
+	}
+	newCondition := api.FindStatusCondition(newFleet.Status.Conditions, api.ConditionTypeFleetRolloutInProgress)
+	if newCondition == nil || newCondition.Reason != api.RolloutInactiveReason {
+		return
+	}
+	var oldConditions []api.Condition
+	if oldFleet != nil && oldFleet.Status != nil {
+		oldConditions = oldFleet.Status.Conditions
+	}
+	oldCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeFleetRolloutInProgress)
+	if oldCondition != nil && oldCondition.Reason == api.RolloutInactiveReason {
+		return
+	}
+
+	h.CreateEvent(ctx, common.GetFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion))
+}
+
 func (h *EventHandler) emitFleetRolloutFailedEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+	if newFleet.Status == nil {
+		return
+	}
 	newCondition := api.FindStatusCondition(newFleet.Status.Conditions, api.ConditionTypeFleetRolloutInProgress)
 	if newCondition == nil || newCondition.Reason != api.RolloutSuspendedReason {
 		return
 	}
-	oldCondition := api.FindStatusCondition(oldFleet.Status.Conditions, api.ConditionTypeFleetRolloutInProgress)
+	var oldConditions []api.Condition
+	if oldFleet != nil && oldFleet.Status != nil {
+		oldConditions = oldFleet.Status.Conditions
+	}
+	oldCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeFleetRolloutInProgress)
 	if oldCondition != nil && oldCondition.Reason == api.RolloutSuspendedReason {
 		return
 	}
 
 	h.CreateEvent(ctx, common.GetFleetRolloutFailedEvent(ctx, name, deployingTemplateVersion, newCondition.Message))
-}
-
-// computeFleetResourceUpdatedDetails determines which fields were updated by comparing old and new fleet resources
-func (h *EventHandler) computeFleetResourceUpdatedDetails(oldFleet, newFleet *api.Fleet) *api.ResourceUpdatedDetails {
-	if oldFleet == nil || newFleet == nil {
-		return nil
-	}
-
-	updateDetails := &api.ResourceUpdatedDetails{
-		UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{},
-	}
-
-	// Check if spec changed
-	if oldFleet.Metadata.Generation != nil && newFleet.Metadata.Generation != nil &&
-		*oldFleet.Metadata.Generation != *newFleet.Metadata.Generation {
-		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Spec)
-	}
-
-	// Check if labels changed
-	if !reflect.DeepEqual(oldFleet.Metadata.Labels, newFleet.Metadata.Labels) {
-		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Labels)
-	}
-
-	// Check if owner changed
-	if !util.StringsAreEqual(oldFleet.Metadata.Owner, newFleet.Metadata.Owner) {
-		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Owner)
-		if oldFleet.Metadata.Owner != nil {
-			updateDetails.PreviousOwner = oldFleet.Metadata.Owner
-		}
-		if newFleet.Metadata.Owner != nil {
-			updateDetails.NewOwner = newFleet.Metadata.Owner
-		}
-	}
-
-	// Only return details if there were actual updates
-	if len(updateDetails.UpdatedFields) == 0 {
-		return nil
-	}
-
-	return updateDetails
 }
 
 //////////////////////////////////////////////////////
@@ -319,14 +317,37 @@ func (h *EventHandler) HandleRepositoryUpdatedEvents(ctx context.Context, resour
 			}
 		}
 
+		updateDetails := h.computeResourceUpdatedDetails(oldRepository.Metadata, newRepository.Metadata)
+
 		// Also emit the standard update event
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.RepositoryKind, name, nil, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.RepositoryKind, name, updateDetails, h.log))
 	}
 }
 
 //////////////////////////////////////////////////////
 //               EnrollmentRequest Events           //
 //////////////////////////////////////////////////////
+
+// HandleEnrollmentRequestUpdatedEvents handles enrollment request update event emission logic
+func (h *EventHandler) HandleEnrollmentRequestUpdatedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	if err != nil {
+		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+	} else {
+		// Compute ResourceUpdatedDetails for updates
+		var updateDetails *api.ResourceUpdatedDetails
+		if !created {
+			var (
+				oldEnrollmentRequest, newEnrollmentRequest *api.EnrollmentRequest
+				ok                                         bool
+			)
+			if oldEnrollmentRequest, newEnrollmentRequest, ok = castResources[api.EnrollmentRequest](oldResource, newResource); ok && oldEnrollmentRequest != nil && newEnrollmentRequest != nil {
+				updateDetails = h.computeResourceUpdatedDetails(oldEnrollmentRequest.Metadata, newEnrollmentRequest.Metadata)
+			}
+		}
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log))
+	}
+}
 
 // HandleEnrollmentRequestApprovedEvents handles enrollment request approval event emission logic
 func (h *EventHandler) HandleEnrollmentRequestApprovedEvents(ctx context.Context, resourceKind api.ResourceKind, _ uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
@@ -364,7 +385,7 @@ func (h *EventHandler) HandleResourceSyncUpdatedEvents(ctx context.Context, reso
 	if created {
 		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, nil, h.log))
 	} else if oldResourceSync != nil && newResourceSync != nil {
-		updateDetails := h.computeResourceSyncResourceUpdatedDetails(oldResourceSync, newResourceSync)
+		updateDetails := h.computeResourceUpdatedDetails(oldResourceSync.Metadata, newResourceSync.Metadata)
 		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log))
 	}
 
@@ -372,28 +393,54 @@ func (h *EventHandler) HandleResourceSyncUpdatedEvents(ctx context.Context, reso
 	h.emitResourceSyncConditionEvents(ctx, name, oldResourceSync, newResourceSync)
 }
 
-func (h *EventHandler) computeResourceSyncResourceUpdatedDetails(oldResourceSync, newResourceSync *api.ResourceSync) *api.ResourceUpdatedDetails {
-	if oldResourceSync == nil || newResourceSync == nil {
-		return nil
+//////////////////////////////////////////////////////
+//            CertificateSigningRequest Events      //
+//////////////////////////////////////////////////////
+
+// HandleCertificateSigningRequestUpdatedEvents handles certificate signing request update event emission logic
+func (h *EventHandler) HandleCertificateSigningRequestUpdatedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	if err != nil {
+		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+	} else {
+		// Compute ResourceUpdatedDetails for updates
+		var updateDetails *api.ResourceUpdatedDetails
+		if !created {
+			var (
+				oldCSR, newCSR *api.CertificateSigningRequest
+				ok             bool
+			)
+			if oldCSR, newCSR, ok = castResources[api.CertificateSigningRequest](oldResource, newResource); ok && oldCSR != nil && newCSR != nil {
+				updateDetails = h.computeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
+			}
+		}
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log))
 	}
+}
 
-	updateDetails := &api.ResourceUpdatedDetails{
-		UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{},
+//////////////////////////////////////////////////////
+//                TemplateVersion Events            //
+//////////////////////////////////////////////////////
+
+// HandleTemplateVersionUpdatedEvents handles template version update event emission logic
+func (h *EventHandler) HandleTemplateVersionUpdatedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	if err != nil {
+		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+	} else {
+		// Compute ResourceUpdatedDetails for updates
+		var updateDetails *api.ResourceUpdatedDetails
+		if !created {
+			var (
+				oldTemplateVersion, newTemplateVersion *api.TemplateVersion
+				ok                                     bool
+			)
+			if oldTemplateVersion, newTemplateVersion, ok = castResources[api.TemplateVersion](oldResource, newResource); ok && oldTemplateVersion != nil && newTemplateVersion != nil {
+				updateDetails = h.computeResourceUpdatedDetails(oldTemplateVersion.Metadata, newTemplateVersion.Metadata)
+			}
+		}
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log))
 	}
-
-	// Check if spec changed
-	if oldResourceSync.Metadata.Generation != nil && newResourceSync.Metadata.Generation != nil &&
-		*oldResourceSync.Metadata.Generation != *newResourceSync.Metadata.Generation {
-		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Spec)
-	}
-
-	// Note: Status changes are not tracked in ResourceUpdatedDetails
-
-	if len(updateDetails.UpdatedFields) == 0 {
-		return nil
-	}
-
-	return updateDetails
 }
 
 func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, name string, oldResourceSync, newResourceSync *api.ResourceSync) {
@@ -471,6 +518,42 @@ func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, name
 //////////////////////////////////////////////////////
 //                    Helper Functions              //
 //////////////////////////////////////////////////////
+
+// computeResourceUpdatedDetails determines which fields were updated by comparing old and new ObjectMeta
+func (h *EventHandler) computeResourceUpdatedDetails(oldMetadata, newMetadata api.ObjectMeta) *api.ResourceUpdatedDetails {
+	updateDetails := &api.ResourceUpdatedDetails{
+		UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{},
+	}
+
+	// Check if spec changed (Generation field)
+	if oldMetadata.Generation != nil && newMetadata.Generation != nil &&
+		*oldMetadata.Generation != *newMetadata.Generation {
+		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Spec)
+	}
+
+	// Check if labels changed
+	if !reflect.DeepEqual(oldMetadata.Labels, newMetadata.Labels) {
+		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Labels)
+	}
+
+	// Check if owner changed
+	if !util.StringsAreEqual(oldMetadata.Owner, newMetadata.Owner) {
+		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, api.Owner)
+		if oldMetadata.Owner != nil {
+			updateDetails.PreviousOwner = oldMetadata.Owner
+		}
+		if newMetadata.Owner != nil {
+			updateDetails.NewOwner = newMetadata.Owner
+		}
+	}
+
+	// Only return details if there were actual updates
+	if len(updateDetails.UpdatedFields) == 0 {
+		return nil
+	}
+
+	return updateDetails
+}
 
 // castResources safely casts both old and new interface{} resources to the specified type T
 // Returns ok=true only if both resources are either nil or successfully cast to *T

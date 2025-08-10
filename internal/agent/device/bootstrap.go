@@ -273,7 +273,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.UpdateStateRollingBack),
-		Message: fmt.Sprintf("The device is rolling back to template version: %s", b.specManager.RenderedVersion(spec.Desired)),
+		Message: fmt.Sprintf("Device is rolling back to template version: %s", b.specManager.RenderedVersion(spec.Desired)),
 	})
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)
