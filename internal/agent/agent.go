@@ -142,14 +142,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	if tpmClient != nil {
-		a.log.Info("Experimental features enabled: registering TPM info collection functions")
-		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
-		systemInfoManager.RegisterCollector(ctx, "attestation", tpmClient.AttestationCollector)
-	}
-
 	// create shutdown manager
 	shutdownManager := shutdown.NewManager(a.log, gracefulShutdownTimeout, cancel)
+
+	if tpmClient != nil {
+		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
+		shutdownManager.Register("tpmClient", tpmClient.Close)
+	}
 
 	reloadManager := reload.NewManager(a.configFile, a.log)
 
@@ -199,7 +198,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, a.config.PullTimeout)
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -340,8 +339,7 @@ func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
 
 func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
 	if !a.config.TPM.Enabled {
-		a.log.Info("TPM auth is disabled. Skipping TPM setup.")
-
+		a.log.Info("TPM device identity is disabled. Skipping TPM setup.")
 		return nil, nil
 	}
 

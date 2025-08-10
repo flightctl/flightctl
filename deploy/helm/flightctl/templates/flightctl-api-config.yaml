@@ -38,7 +38,7 @@ data:
           - flightctl-api
           - flightctl-api.{{ .Release.Namespace }}
           - flightctl-api.{{ .Release.Namespace }}.svc.cluster.local
-        {{ if .Values.api.rateLimit }}
+        {{ if and .Values.api.rateLimit (not (empty .Values.api.rateLimit)) }}
         rateLimit:
             requests: {{ .Values.api.rateLimit.requests }}
             window: {{ .Values.api.rateLimit.window }}
@@ -73,11 +73,28 @@ data:
             externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         {{- end }}
     {{ end }}
-    {{ if .Values.prometheus.enabled }}
-    prometheus:
+    {{ if .Values.global.metrics.enabled }}
+    metrics:
+        enabled: true
         address: ":15690"
-        sloMax: 4.0
-        apiLatencyBins: [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1]
+        systemCollector:
+            enabled: true
+            tickerInterval: 5s
+        httpCollector:
+            enabled: true
+        deviceCollector:
+            enabled: true
+            tickerInterval: 30s
+            groupByFleet: true
+        fleetCollector:
+            enabled: true
+            tickerInterval: 30s
+        repositoryCollector:
+            enabled: true
+            tickerInterval: 30s
+        resourceSyncCollector:
+            enabled: true
+            tickerInterval: 30s
     {{ end }}
     {{ if .Values.global.tracing.enabled }}
     tracing:

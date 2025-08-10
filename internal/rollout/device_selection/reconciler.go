@@ -6,8 +6,10 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -33,6 +35,26 @@ func NewReconciler(serviceHandler service.Service, callbackManager tasks_client.
 	}
 }
 
+func (r *reconciler) emitFleetRolloutStartedEventDueToPolicyRemoval(ctx context.Context, orgId uuid.UUID, fleet api.Fleet, annotations map[string]string) {
+	fleetName := lo.FromPtr(fleet.Metadata.Name)
+	templateVersionName, exists := annotations[api.FleetAnnotationTemplateVersion]
+	if !exists {
+		templateVersionName = "unknown"
+		r.log.Warnf("%v/%s: Active rollout detected but no template version found, using 'unknown'", orgId, fleetName)
+	}
+	r.serviceHandler.CreateEvent(ctx, common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, true, true))
+}
+
+func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, fleet api.Fleet, templateVersionName string) {
+	fleetName := lo.FromPtr(fleet.Metadata.Name)
+	batchNumberStr, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationBatchNumber)
+	if exists {
+		r.serviceHandler.CreateEvent(ctx, common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr))
+	} else {
+		r.log.Warnf("%v/%s: No batch number found for FleetRolloutBatchDispatched event", store.NullOrgId, fleetName)
+	}
+}
+
 func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet api.Fleet) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 
@@ -54,6 +76,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 
 			// Send the entire fleet for rollout
 			r.callbackManager.FleetRolloutSelectionUpdated(ctx, orgId, fleetName)
+			r.emitFleetRolloutStartedEventDueToPolicyRemoval(ctx, orgId, fleet, annotations)
 		}
 		return
 	}
@@ -125,6 +148,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 			}
 			// Send the current batch to be rolled out.
 			r.callbackManager.FleetRolloutSelectionUpdated(ctx, orgId, fleetName)
+			r.emitFleetRolloutBatchDispatchedEvent(ctx, fleet, templateVersionName)
 		}
 
 		// Is the current batch complete

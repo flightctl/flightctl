@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 )
 
@@ -45,6 +46,10 @@ func HashPublicKey(key crypto.PublicKey) ([]byte, error) {
 		return hashECDSAKey(&key), nil
 	case *ecdsa.PublicKey:
 		return hashECDSAKey(key), nil
+	case rsa.PublicKey:
+		return hashRSAKey(&key), nil
+	case *rsa.PublicKey:
+		return hashRSAKey(key), nil
 	case *crypto.PublicKey:
 		return HashPublicKey(*key)
 	case *crypto.PrivateKey:
@@ -62,6 +67,12 @@ func hashECDSAKey(publicKey *ecdsa.PublicKey) []byte {
 	hash := sha256.New()
 	hash.Write(publicKey.X.Bytes())
 	hash.Write(publicKey.Y.Bytes())
+	return hash.Sum(nil)
+}
+
+func hashRSAKey(publicKey *rsa.PublicKey) []byte {
+	hash := sha256.New()
+	hash.Write(publicKey.N.Bytes()) // Modulus
 	return hash.Sum(nil)
 }
 
@@ -247,5 +258,5 @@ func GetExtensionValue(cert *x509.Certificate, oid asn1.ObjectIdentifier) (strin
 		}
 	}
 
-	return "", fmt.Errorf("extension with OID %v not found", oid)
+	return "", flterrors.ErrExtensionNotFound
 }

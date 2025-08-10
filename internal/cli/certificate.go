@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -24,8 +25,8 @@ import (
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
@@ -171,7 +172,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		}
 	}
 
-	c, err := client.NewFromConfigFile(o.ConfigFilePath)
+	c, err := o.BuildClient()
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -248,7 +249,8 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apiclient.ClientWithResponses, priv crypto.PrivateKey) (string, error) {
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		csrName := createUniqueName(o.Name)
-		csrResourceJSON, err := createCsr(o, csrName, priv)
+		csrOrg := o.GetEffectiveOrganization()
+		csrResourceJSON, err := createCsr(o, csrName, csrOrg, priv)
 		if err != nil {
 			return "", fmt.Errorf("creating CSR resource: %w", err)
 		}
@@ -279,7 +281,7 @@ func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apicli
 	return "", fmt.Errorf("submitting CSR failed after %d attempts, giving up", maxAttempts)
 }
 
-func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]byte, error) {
+func createCsr(o *CertificateOptions, name string, organization string, priv crypto.PrivateKey) ([]byte, error) {
 	days, err := strconv.Atoi(strings.TrimSuffix(o.Expiration, "d"))
 	if err != nil {
 		return nil, err
@@ -297,6 +299,18 @@ func createCsr(o *CertificateOptions, name string, priv crypto.PrivateKey) ([]by
 		Subject: pkix.Name{
 			CommonName: name,
 		},
+	}
+
+	if organization != "" {
+		encoded, err := asn1.Marshal(organization)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling org ID extension: %w", err)
+		}
+		template.ExtraExtensions = append(template.ExtraExtensions, pkix.Extension{
+			Id:       signer.OIDOrgID,
+			Critical: false,
+			Value:    encoded,
+		})
 	}
 
 	csrInner, err := x509.CreateCertificateRequest(rand.Reader, template, priv)

@@ -8,7 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
@@ -31,15 +32,15 @@ type redisProvider struct {
 	mu      sync.Mutex
 }
 
-func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password string) (Provider, error) {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/queues", "RedisProvider")
+func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password config.SecureString) (Provider, error) {
+	ctx, span := tracing.StartSpan(ctx, "flightctl/queues", "RedisProvider")
 	defer span.End()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	client := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", hostname, port),
-		Password: password,
+		Password: password.Value(),
 		DB:       0,
 	})
 
@@ -159,7 +160,7 @@ func (r *redisQueue) Consume(ctx context.Context, handler ConsumeHandler) error 
 }
 
 func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) error {
-	ctx, parentSpan := instrumentation.StartSpan(ctx, "flightctl/queues", r.name)
+	ctx, parentSpan := tracing.StartSpan(ctx, "flightctl/queues", r.name)
 	defer parentSpan.End()
 
 	msgs, err := r.client.XRead(ctx, &redis.XReadArgs{
@@ -191,7 +192,7 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 			requestID := reqid.NextRequestID()
 
 			// Start span for handler logic
-			receivedCtx, handlerSpan := instrumentation.StartSpan(
+			receivedCtx, handlerSpan := tracing.StartSpan(
 				receivedCtx, "flightctl/queues", r.name, trace.WithLinks(
 					trace.LinkFromContext(ctx, attribute.String("request.id", requestID))))
 

@@ -164,7 +164,13 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(stdout1.String()).NotTo(ContainSubstring("sleep infinity"))
 
 			logrus.Info("Went back to base image and checked that there is no application now👌")
+
+			By("The agent executable should have the proper SELinux domain after the upgrade")
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "ls", "-Z", "/usr/bin/flightctl-agent"}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
 		})
+
 		It("Should resolve to the latest version when multiple updates are applied", Label("77672"), func() {
 			initialVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())

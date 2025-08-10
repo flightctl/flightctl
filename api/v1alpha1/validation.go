@@ -36,13 +36,13 @@ type Validator interface {
 	Validate() []error
 }
 
-func (r Device) Validate() []error {
+func (d Device) Validate() []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
-	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
-	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-	if r.Spec != nil {
-		allErrs = append(allErrs, r.Spec.Validate(false)...)
+	allErrs = append(allErrs, validation.ValidateResourceName(d.Metadata.Name)...)
+	allErrs = append(allErrs, validation.ValidateLabels(d.Metadata.Labels)...)
+	allErrs = append(allErrs, validation.ValidateAnnotations(d.Metadata.Annotations)...)
+	if d.Spec != nil {
+		allErrs = append(allErrs, d.Spec.Validate(false)...)
 	}
 
 	return allErrs
@@ -408,7 +408,8 @@ func (r EnrollmentRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(r.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
-	allErrs = append(allErrs, validation.ValidateCSR([]byte(r.Spec.Csr))...)
+	allErrs = append(allErrs, validation.ValidateCSRWithTCGSupport([]byte(r.Spec.Csr))...)
+
 	return allErrs
 }
 

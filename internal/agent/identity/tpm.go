@@ -16,7 +16,6 @@ import (
 	agent_client "github.com/flightctl/flightctl/internal/api/client/agent"
 	base_client "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
-	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -45,8 +44,13 @@ func newTPMProvider(
 }
 
 func (t *tpmProvider) Initialize(ctx context.Context) error {
+	publicKey := t.client.Public()
+	if publicKey == nil {
+		return fmt.Errorf("failed to get public key from TPM")
+	}
+
 	var err error
-	t.deviceName, err = generateDeviceName(t.client.Public())
+	t.deviceName, err = generateDeviceName(publicKey)
 	if err != nil {
 		return err
 	}
@@ -62,8 +66,9 @@ func (t *tpmProvider) GetDeviceName() (string, error) {
 }
 
 func (t *tpmProvider) GenerateCSR(deviceName string) ([]byte, error) {
-	signer := t.client.GetSigner()
-	return fccrypto.MakeCSR(signer, deviceName)
+	// Use default qualifying data (nonce) for attestation freshness
+	qualifyingData := make([]byte, 8)
+	return t.client.MakeCSR(deviceName, qualifyingData)
 }
 
 func (t *tpmProvider) StoreCertificate(certPEM []byte) error {

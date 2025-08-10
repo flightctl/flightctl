@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -155,7 +157,7 @@ func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error
 		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateStarted),
-		Message: "The device has started decommissioning",
+		Message: "Device started decommissioning",
 	})
 	if updateErr != nil {
 		m.log.Warnf("Failed setting status: %v", updateErr)
@@ -169,7 +171,7 @@ func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) err
 		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateComplete),
-		Message: "The device has completed decommissioning and will wipe its management certificate",
+		Message: "Device completed decommissioning and will wipe its management certificate",
 	})
 	if updateErr != nil {
 		m.log.Warnf("Failed setting status: %v", updateErr)
@@ -183,7 +185,7 @@ func (m *LifecycleManager) updateWithErrorCondition(ctx context.Context, errs []
 		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
 		Status:  v1alpha1.ConditionStatusTrue,
 		Reason:  string(v1alpha1.DecommissionStateError),
-		Message: fmt.Sprintf("The device has encountered one or more errors during decommissioning: %v", errors.Join(errs...)),
+		Message: fmt.Sprintf("Device encountered one or more errors during decommissioning: %v", errors.Join(errs...)),
 	})
 	if updateErr != nil {
 		m.log.Warnf("Failed setting status: %v", updateErr)
@@ -328,6 +330,15 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 }
 
 func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1alpha1.DeviceStatus) error {
+	var csrString string
+	if tpm.IsTCGCSRFormat(b.enrollmentCSR) {
+		// TCG CSR is binary data, must be base64 encoded
+		b.log.Debugf("Detected TCG CSR format, base64 encoding before transmission")
+		csrString = base64.StdEncoding.EncodeToString(b.enrollmentCSR)
+	} else {
+		csrString = string(b.enrollmentCSR)
+	}
+
 	req := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "EnrollmentRequest",
@@ -335,7 +346,7 @@ func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			Name: &b.deviceName,
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
-			Csr:          string(b.enrollmentCSR),
+			Csr:          csrString,
 			DeviceStatus: deviceStatus,
 			Labels:       &b.defaultLabels,
 		},

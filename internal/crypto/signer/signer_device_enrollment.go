@@ -2,10 +2,8 @@ package signer
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
-
-	api "github.com/flightctl/flightctl/api/v1alpha1"
-	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 )
 
 const signerDeviceEnrollmentExpiryDays int32 = 365
@@ -28,7 +26,7 @@ func (s *SignerDeviceEnrollment) Name() string {
 	return s.name
 }
 
-func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request api.CertificateSigningRequest) error {
+func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request SignRequest) error {
 	cfg := s.ca.Config()
 
 	// Check if the client presented a peer certificate during the mTLS handshake.
@@ -50,24 +48,22 @@ func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request api.Certifi
 	return nil
 }
 
-func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request api.CertificateSigningRequest) ([]byte, error) {
+func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 	cfg := s.ca.Config()
 
-	if request.Metadata.Name == nil {
+	if request.ResourceName() == nil {
 		return nil, fmt.Errorf("request is missing metadata.name")
 	}
 
-	csr, err := fccrypto.ParseCSR(request.Spec.Request)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing CSR: %w", err)
-	}
+	// Parse the CSR (for TCG CSRs, the service layer provides the embedded standard CSR)
+	x509CSR := request.X509()
+	supplied, err := CNFromDeviceFingerprint(cfg, x509CSR.Subject.CommonName)
 
-	supplied, err := CNFromDeviceFingerprint(cfg, csr.Subject.CommonName)
 	if err != nil {
 		return nil, fmt.Errorf("invalid CN supplied in CSR: %w", err)
 	}
 
-	desired, err := CNFromDeviceFingerprint(cfg, *request.Metadata.Name)
+	desired, err := CNFromDeviceFingerprint(cfg, *request.ResourceName())
 	if err != nil {
 		return nil, fmt.Errorf("error setting CN in CSR: %w", err)
 	}
@@ -75,18 +71,19 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request api.Certifica
 	if desired != supplied {
 		return nil, fmt.Errorf("attempt to supply a fake CN, possible identity theft, csr: %s, metadata %s", supplied, desired)
 	}
-	csr.Subject.CommonName = desired
+
+	x509CSR.Subject.CommonName = desired
 
 	expirySeconds := signerDeviceEnrollmentExpiryDays * 24 * 60 * 60
-	if request.Spec.ExpirationSeconds != nil && *request.Spec.ExpirationSeconds < expirySeconds {
-		expirySeconds = *request.Spec.ExpirationSeconds
+	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
+		expirySeconds = *request.ExpirationSeconds()
 	}
 
 	return s.ca.IssueRequestedClientCertificate(
 		ctx,
-		csr,
+		&x509CSR,
 		int(expirySeconds),
 		WithExtension(OIDOrgID, NullOrgId.String()),
-		WithExtension(OIDDeviceFingerprint, csr.Subject.CommonName),
+		WithExtension(OIDDeviceFingerprint, x509CSR.Subject.CommonName),
 	)
 }

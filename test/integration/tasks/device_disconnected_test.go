@@ -52,7 +52,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "")
+		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
 		disconnectedTask = tasks.NewDeviceDisconnected(log, serviceHandler)
 	})
 
@@ -131,7 +131,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusUnknown))
 				Expect(device.Status.Summary.Info).ToNot(BeNil())
-				Expect(*device.Status.Summary.Info).To(ContainSubstring("The device is disconnected"))
+				Expect(*device.Status.Summary.Info).To(ContainSubstring("Device is disconnected"))
 				Expect(device.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusUnknown))
 			}
 		})

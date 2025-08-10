@@ -116,7 +116,7 @@ func TestEventDeviceReplaced(t *testing.T) {
 	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
 		{Reason: api.EventReasonResourceCreated, Details: "Fleet was created successfully."},
 		{Reason: api.EventReasonDeviceContentOutOfDate, Details: "Device has not yet been scheduled for update to the fleet's latest spec."},
-		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully."},
+		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully (owner)."},
 	}...)
 	fleet := prepareFleet(newOwner1)
 	_, retStatus = serviceHandler.CreateFleet(ctx, fleet)
@@ -131,7 +131,7 @@ func TestEventDeviceReplaced(t *testing.T) {
 
 	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
 		{Reason: api.EventReasonResourceCreated, Details: "Fleet was created successfully."},
-		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully."},
+		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully (owner)."},
 	}...)
 	fleet = prepareFleet(newOwner2)
 	_, retStatus = serviceHandler.CreateFleet(ctx, fleet)
@@ -163,8 +163,8 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 
 	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
-		{Reason: api.EventReasonDeviceConnected, Details: "All system resources are healthy."},
-		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "No application workloads are defined."},
+		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
 	}...)
 	device, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, *device)
 	require.Equal(statusSuccessCode, retStatus.Code)
@@ -204,6 +204,21 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	events, err := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(events.Items))
+}
+
+func TestEventHandler_HandleDeviceUpdatedEmptyOldDevice(t *testing.T) {
+	serviceHandler := serviceHandler()
+
+	ctx := context.Background()
+
+	device := prepareDevice(uuid.New(), "foo")
+	device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
+	oldDevice := &api.Device{}
+	serviceHandler.EventHandler.HandleDeviceUpdatedEvents(ctx, api.DeviceKind, uuid.New(), "foo", oldDevice, device, false, nil)
+
+	events, err := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(events.Items))
 }
 
 func TestEventDevicePatchDeviceStatus(t *testing.T) {
@@ -284,8 +299,8 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 
 	// Device I-am-alive
 	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
-		{Reason: api.EventReasonDeviceConnected, Details: "All system resources are healthy."},
-		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "No application workloads are defined."},
+		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
 	}...)
 	device.Status.LastSeen = time.Now()
 	device, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
@@ -322,8 +337,8 @@ func TestEventDeviceUpdated(t *testing.T) {
 	compareEvents(expectedEvents, events.Items, require)
 
 	expectedEvents = append(expectedEvents, []devicecommon.ResourceUpdate{
-		{Reason: api.EventReasonDeviceConnected, Details: "All system resources are healthy."},
-		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "No application workloads are defined."},
+		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
 	}...)
 	device.Status.Resources = api.DeviceResourceStatus{
 		Cpu:    api.DeviceResourceStatusHealthy,
@@ -342,6 +357,145 @@ func TestEventDeviceUpdated(t *testing.T) {
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
+}
+
+// =============================== FLEET ====================================
+
+func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+	handler := serviceHandler()
+	fleetName := "test-fleet"
+
+	// Test case 1: Fleet becomes valid
+	t.Run("FleetBecomesValid", func(t *testing.T) {
+		oldFleet := &api.Fleet{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Status: &api.FleetStatus{
+				Conditions: []api.Condition{
+					{
+						Type:    api.ConditionTypeFleetValid,
+						Status:  api.ConditionStatusFalse,
+						Reason:  string(api.EventReasonFleetInvalid),
+						Message: "Invalid configuration",
+					},
+				},
+			},
+		}
+
+		newFleet := &api.Fleet{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Status: &api.FleetStatus{
+				Conditions: []api.Condition{
+					{
+						Type:    api.ConditionTypeFleetValid,
+						Status:  api.ConditionStatusTrue,
+						Reason:  string(api.EventReasonFleetValid),
+						Message: "",
+					},
+				},
+			},
+		}
+
+		handler.emitFleetValidEvents(ctx, fleetName, oldFleet, newFleet)
+
+		// Verify that a valid event was created
+		events := *handler.store.(*TestStore).events.events
+		require.Len(events, 1)
+		event := events[0]
+		require.Equal(api.FleetKind, event.InvolvedObject.Kind)
+		require.Equal(fleetName, event.InvolvedObject.Name)
+		require.Equal(api.EventReasonFleetValid, event.Reason)
+		require.Equal(api.Normal, event.Type)
+		require.Equal("Fleet specification is valid.", event.Message)
+	})
+
+	// Test case 2: Fleet becomes invalid
+	t.Run("FleetBecomesInvalid", func(t *testing.T) {
+		*handler.store.(*TestStore).events.events = nil // Clear previous events
+
+		oldFleet := &api.Fleet{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Status: &api.FleetStatus{
+				Conditions: []api.Condition{
+					{
+						Type:    api.ConditionTypeFleetValid,
+						Status:  api.ConditionStatusTrue,
+						Reason:  string(api.EventReasonFleetValid),
+						Message: "",
+					},
+				},
+			},
+		}
+
+		newFleet := &api.Fleet{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Status: &api.FleetStatus{
+				Conditions: []api.Condition{
+					{
+						Type:    api.ConditionTypeFleetValid,
+						Status:  api.ConditionStatusFalse,
+						Reason:  string(api.EventReasonFleetInvalid),
+						Message: "Invalid configuration",
+					},
+				},
+			},
+		}
+
+		handler.emitFleetValidEvents(ctx, fleetName, oldFleet, newFleet)
+
+		// Verify that an invalid event was created
+		events := *handler.store.(*TestStore).events.events
+		require.Len(events, 1)
+		event := events[0]
+		require.Equal(api.FleetKind, event.InvolvedObject.Kind)
+		require.Equal(fleetName, event.InvolvedObject.Name)
+		require.Equal(api.EventReasonFleetInvalid, event.Reason)
+		require.Equal(api.Warning, event.Type)
+		require.Equal("Fleet specification is invalid: Invalid configuration.", event.Message)
+	})
+
+	// Test case 3: No condition change
+	t.Run("NoConditionChange", func(t *testing.T) {
+		*handler.store.(*TestStore).events.events = nil // Clear previous events
+
+		fleet := &api.Fleet{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Status: &api.FleetStatus{
+				Conditions: []api.Condition{
+					{
+						Type:    api.ConditionTypeFleetValid,
+						Status:  api.ConditionStatusTrue,
+						Reason:  string(api.EventReasonFleetValid),
+						Message: "",
+					},
+				},
+			},
+		}
+
+		handler.emitFleetValidEvents(ctx, fleetName, fleet, fleet)
+
+		// Verify that no event was created
+		events := *handler.store.(*TestStore).events.events
+		require.Len(events, 0)
+	})
+
+	// Test case 4: Fleet with no status
+	t.Run("FleetWithNoStatus", func(t *testing.T) {
+		*handler.store.(*TestStore).events.events = nil // Clear previous events
+
+		fleet := &api.Fleet{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Status:   nil,
+		}
+
+		handler.emitFleetValidEvents(ctx, fleetName, fleet, fleet)
+
+		// Verify that no event was created
+		events := *handler.store.(*TestStore).events.events
+		require.Len(events, 0)
+	})
 }
 
 // =============================== ENROLLMENT REQUEST ========================
@@ -629,7 +783,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 		require.Equal(resourceName, event.InvolvedObject.Name)
 		require.Equal(api.EventReasonResourceUpdated, event.Reason)
 		require.Equal(api.Normal, event.Type)
-		require.Equal("Device was updated successfully.", event.Message)
+		require.Equal("Device was updated successfully (owner).", event.Message)
 		require.NotNil(event.Metadata.Name)
 		require.NotNil(event.Details)
 
@@ -638,6 +792,21 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 		require.NoError(err)
 		require.Equal(updateDetails.NewOwner, detailsStruct.NewOwner)
 		require.Equal(updateDetails.PreviousOwner, detailsStruct.PreviousOwner)
+	})
+
+	t.Run("UpdatedWithNilDetails", func(t *testing.T) {
+		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, nil, logger)
+
+		require.Nil(event)
+	})
+
+	t.Run("UpdatedWithEmptyDetails", func(t *testing.T) {
+		emptyUpdateDetails := &api.ResourceUpdatedDetails{
+			UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{},
+		}
+		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, emptyUpdateDetails, logger)
+
+		require.Nil(event)
 	})
 
 	t.Run("CreatedFailed", func(t *testing.T) {
@@ -711,4 +880,114 @@ func TestGetBaseEvent(t *testing.T) {
 	require.Equal(api.EventReasonResourceCreated, event.Reason)
 	require.Equal("Test message", event.Message)
 	require.Equal(api.Normal, event.Type)
+}
+
+func TestComputeResourceUpdatedDetails(t *testing.T) {
+	require := require.New(t)
+	logger := logrus.New()
+	handler := NewEventHandler(nil, logger)
+
+	t.Run("DeviceWithSpecChange", func(t *testing.T) {
+		oldDevice := &api.Device{
+			Metadata: api.ObjectMeta{
+				Name:       lo.ToPtr("test-device"),
+				Generation: lo.ToPtr(int64(1)),
+				Labels:     lo.ToPtr(map[string]string{"env": "prod"}),
+				Owner:      lo.ToPtr("fleet1"),
+			},
+		}
+		newDevice := &api.Device{
+			Metadata: api.ObjectMeta{
+				Name:       lo.ToPtr("test-device"),
+				Generation: lo.ToPtr(int64(2)),
+				Labels:     lo.ToPtr(map[string]string{"env": "prod"}),
+				Owner:      lo.ToPtr("fleet1"),
+			},
+		}
+
+		updateDetails := handler.computeResourceUpdatedDetails(oldDevice.Metadata, newDevice.Metadata)
+		require.NotNil(updateDetails)
+		require.Contains(updateDetails.UpdatedFields, api.Spec)
+		require.Len(updateDetails.UpdatedFields, 1)
+	})
+
+	t.Run("FleetWithLabelsChange", func(t *testing.T) {
+		oldFleet := &api.Fleet{
+			Metadata: api.ObjectMeta{
+				Name:       lo.ToPtr("test-fleet"),
+				Generation: lo.ToPtr(int64(1)),
+				Labels:     lo.ToPtr(map[string]string{"env": "prod"}),
+				Owner:      lo.ToPtr("user1"),
+			},
+		}
+		newFleet := &api.Fleet{
+			Metadata: api.ObjectMeta{
+				Name:       lo.ToPtr("test-fleet"),
+				Generation: lo.ToPtr(int64(1)),
+				Labels:     lo.ToPtr(map[string]string{"env": "dev"}),
+				Owner:      lo.ToPtr("user1"),
+			},
+		}
+
+		updateDetails := handler.computeResourceUpdatedDetails(oldFleet.Metadata, newFleet.Metadata)
+		require.NotNil(updateDetails)
+		require.Contains(updateDetails.UpdatedFields, api.Labels)
+		require.Len(updateDetails.UpdatedFields, 1)
+	})
+
+	t.Run("RepositoryWithOwnerChange", func(t *testing.T) {
+		oldRepo := &api.Repository{
+			Metadata: api.ObjectMeta{
+				Name:       lo.ToPtr("test-repo"),
+				Generation: lo.ToPtr(int64(1)),
+				Labels:     lo.ToPtr(map[string]string{"type": "git"}),
+				Owner:      lo.ToPtr("user1"),
+			},
+		}
+		newRepo := &api.Repository{
+			Metadata: api.ObjectMeta{
+				Name:       lo.ToPtr("test-repo"),
+				Generation: lo.ToPtr(int64(1)),
+				Labels:     lo.ToPtr(map[string]string{"type": "git"}),
+				Owner:      lo.ToPtr("user2"),
+			},
+		}
+
+		updateDetails := handler.computeResourceUpdatedDetails(oldRepo.Metadata, newRepo.Metadata)
+		require.NotNil(updateDetails)
+		require.Contains(updateDetails.UpdatedFields, api.Owner)
+		require.Equal(lo.ToPtr("user1"), updateDetails.PreviousOwner)
+		require.Equal(lo.ToPtr("user2"), updateDetails.NewOwner)
+		require.Len(updateDetails.UpdatedFields, 1)
+	})
+
+	t.Run("NoChanges", func(t *testing.T) {
+		oldResource := &api.Device{
+			Metadata: api.ObjectMeta{
+				Name:       lo.ToPtr("test-device"),
+				Generation: lo.ToPtr(int64(1)),
+				Labels:     lo.ToPtr(map[string]string{"env": "prod"}),
+				Owner:      lo.ToPtr("fleet1"),
+			},
+		}
+		newResource := &api.Device{
+			Metadata: api.ObjectMeta{
+				Name:       lo.ToPtr("test-device"),
+				Generation: lo.ToPtr(int64(1)),
+				Labels:     lo.ToPtr(map[string]string{"env": "prod"}),
+				Owner:      lo.ToPtr("fleet1"),
+			},
+		}
+
+		updateDetails := handler.computeResourceUpdatedDetails(oldResource.Metadata, newResource.Metadata)
+		require.Nil(updateDetails)
+	})
+
+	t.Run("NilResources", func(t *testing.T) {
+		updateDetails := handler.computeResourceUpdatedDetails(api.ObjectMeta{}, api.ObjectMeta{})
+		require.Nil(updateDetails)
+
+		updateDetails = handler.computeResourceUpdatedDetails(api.ObjectMeta{}, api.ObjectMeta{})
+		require.Nil(updateDetails)
+	})
 }

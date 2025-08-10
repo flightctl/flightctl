@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/org"
 )
 
 const (
@@ -14,37 +15,40 @@ const (
 )
 
 const (
+	CertificateSigningRequestKind = "certificatesigningrequest"
 	DeviceKind                    = "device"
 	EnrollmentRequestKind         = "enrollmentrequest"
+	EventKind                     = "event"
 	FleetKind                     = "fleet"
+	OrganizationKind              = "organization"
 	RepositoryKind                = "repository"
 	ResourceSyncKind              = "resourcesync"
 	TemplateVersionKind           = "templateversion"
-	CertificateSigningRequestKind = "certificatesigningrequest"
-	EventKind                     = "event"
 )
 
 var (
 	pluralKinds = map[string]string{
+		CertificateSigningRequestKind: "certificatesigningrequests",
 		DeviceKind:                    "devices",
 		EnrollmentRequestKind:         "enrollmentrequests",
+		EventKind:                     "events",
 		FleetKind:                     "fleets",
+		OrganizationKind:              "organizations",
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
 		TemplateVersionKind:           "templateversions",
-		CertificateSigningRequestKind: "certificatesigningrequests",
-		EventKind:                     "events",
 	}
 
 	shortnameKinds = map[string]string{
+		CertificateSigningRequestKind: "csr",
 		DeviceKind:                    "dev",
 		EnrollmentRequestKind:         "er",
+		EventKind:                     "ev",
 		FleetKind:                     "flt",
+		OrganizationKind:              "org",
 		RepositoryKind:                "repo",
 		ResourceSyncKind:              "rs",
 		TemplateVersionKind:           "tv",
-		CertificateSigningRequestKind: "csr",
-		EventKind:                     "ev",
 	}
 )
 
@@ -98,6 +102,13 @@ func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCod
 			return fmt.Errorf("%d %s", statusCode, string(responseBody))
 		}
 		return fmt.Errorf("%d %s", statusCode, responseError.Message)
+	}
+	return nil
+}
+
+func validateOrganizationID(orgID string) error {
+	if _, err := org.Parse(orgID); err != nil {
+		return err
 	}
 	return nil
 }

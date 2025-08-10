@@ -593,11 +593,10 @@ func (fs *FieldSelector) queryField(args ...string) (*sql.FunctionResult, error)
 
 // resolveSelectorField attempts to resolve a field using both visible and hidden selectors.
 func (fs *FieldSelector) resolveSelectorField(resolver Resolver, key string) ([]*SelectorField, error) {
-	// First, try resolving as a hidden selector
-	resolvedFields, _ := resolver.ResolveFields(NewHiddenSelectorName(key))
+	resolvedFields, _ := resolver.ResolveFields(NewSelectorName(key))
 	if len(resolvedFields) == 0 {
-		// Fallback to resolving as a normal (visible) selector
-		return resolver.ResolveFields(NewSelectorName(key))
+		// Fallback to resolving as a hidden selector
+		return resolver.ResolveFields(NewHiddenSelectorName(key))
 	}
 	return resolvedFields, nil
 }

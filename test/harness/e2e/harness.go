@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,19 @@ type Harness struct {
 	startTime time.Time
 
 	VM vm.TestVMInterface
+
+	// Git repository management
+	gitRepos   map[string]string // map of repo name to repo path
+	gitWorkDir string            // working directory for git operations
+}
+
+// GitServerConfig holds configuration for the git server
+type GitServerConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	SSHKey   string // path to SSH private key if using key auth
 }
 
 func findTopLevelDir() string {
@@ -133,14 +147,21 @@ func NewTestHarness(ctx context.Context) *Harness {
 	k8sCluster, err := kubernetesClient()
 	Expect(err).ToNot(HaveOccurred(), "failed to get kubernetes cluster")
 
+	// Initialize git repository management
+	gitWorkDir := filepath.Join(GinkgoT().TempDir(), "git-repos")
+	err = os.MkdirAll(gitWorkDir, 0755)
+	Expect(err).ToNot(HaveOccurred())
+
 	return &Harness{
-		VMs:       []vm.TestVMInterface{testVM},
-		Client:    c,
-		Context:   ctx,
-		Cluster:   k8sCluster,
-		ctxCancel: cancel,
-		startTime: startTime,
-		VM:        testVM,
+		VMs:        []vm.TestVMInterface{testVM},
+		Client:     c,
+		Context:    ctx,
+		Cluster:    k8sCluster,
+		ctxCancel:  cancel,
+		startTime:  startTime,
+		VM:         testVM,
+		gitRepos:   make(map[string]string),
+		gitWorkDir: gitWorkDir,
 	}
 }
 
@@ -239,6 +260,11 @@ func (h *Harness) Cleanup(printConsole bool) {
 		}
 		err := vm.ForceDelete()
 		Expect(err).ToNot(HaveOccurred())
+	}
+
+	// Clean up git repositories
+	if err := h.CleanupGitRepositories(); err != nil {
+		logrus.Errorf("Failed to clean up git repositories: %v", err)
 	}
 
 	diffTime := time.Since(h.startTime)
@@ -1085,4 +1111,452 @@ func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
 	}
 
 	return "", "", fmt.Errorf("unknown context")
+}
+
+// GetGitServerConfig returns the configuration for the e2e git server
+func (h *Harness) GetGitServerConfig() GitServerConfig {
+	// Default configuration for the e2e git server
+	return GitServerConfig{
+		Host:     getEnvOrDefault("E2E_GIT_SERVER_HOST", "localhost"),
+		Port:     getEnvOrDefaultInt("E2E_GIT_SERVER_PORT", 3222),
+		User:     getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
+		Password: getEnvOrDefault("E2E_GIT_SERVER_PASSWORD", "user"),
+	}
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvOrDefaultInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
+}
+
+// CreateGitRepositoryOnServer creates a new Git repository on the e2e git server
+func (h *Harness) CreateGitRepositoryOnServer(repoName string) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+
+	config := h.GetGitServerConfig()
+
+	// Use SSH to create the repository on the git server
+	createCmd := fmt.Sprintf("create-repo %s", repoName)
+	err := h.runGitServerSSHCommand(config, createCmd)
+	if err != nil {
+		return fmt.Errorf("failed to create git repository %s: %w", repoName, err)
+	}
+
+	// Store the repository name for cleanup
+	h.gitRepos[repoName] = fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
+		config.User, config.Host, config.Port, repoName)
+
+	logrus.Infof("Created git repository: %s on git server", repoName)
+	return nil
+}
+
+// DeleteGitRepositoryOnServer deletes a Git repository from the e2e git server
+func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+
+	config := h.GetGitServerConfig()
+
+	// Use SSH to delete the repository on the git server
+	deleteCmd := fmt.Sprintf("delete-repo %s", repoName)
+	err := h.runGitServerSSHCommand(config, deleteCmd)
+	if err != nil {
+		return fmt.Errorf("failed to delete git repository %s: %w", repoName, err)
+	}
+
+	// Remove from our tracking
+	delete(h.gitRepos, repoName)
+
+	logrus.Infof("Deleted git repository: %s from git server", repoName)
+	return nil
+}
+
+// runGitServerSSHCommand executes a command on the git server via SSH
+func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string) error {
+	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
+	sshCmd := exec.Command("sshpass", "-e", "ssh",
+		"-p", fmt.Sprintf("%d", config.Port),
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "PubkeyAuthentication=no",
+		"-o", "LogLevel=ERROR",
+		fmt.Sprintf("%s@%s", config.User, config.Host),
+		command)
+	sshCmd.Env = append(os.Environ(), fmt.Sprintf("SSHPASS=%s", config.Password))
+
+	output, err := sshCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("SSH command failed: %w, output: %s", err, string(output))
+	}
+
+	logrus.Debugf("SSH command executed successfully: %s", command)
+	return nil
+}
+
+// CloneGitRepositoryFromServer clones a repository from the git server to a local working directory
+func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+	if localPath == "" {
+		return fmt.Errorf("local path cannot be empty")
+	}
+
+	config := h.GetGitServerConfig()
+	repoURL := fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
+		config.User, config.Host, config.Port, repoName)
+
+	// Create parent directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	// Use sshpass for authentication when cloning
+	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
+	cloneCmd := exec.Command("sshpass", "-e", "git", "clone", repoURL, localPath)
+	cloneCmd.Env = append(os.Environ(),
+		"SSHPASS="+config.Password,
+		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no")
+
+	if output, err := cloneCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to clone repository %s to %s: %w, output: %s", repoURL, localPath, err, string(output))
+	}
+
+	logrus.Infof("Cloned git repository %s to %s", repoName, localPath)
+	return nil
+}
+
+// PushContentToGitServerRepo pushes content to a git repository on the server
+func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commitMessage string) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+	if filePath == "" {
+		return fmt.Errorf("file path cannot be empty")
+	}
+	if commitMessage == "" {
+		commitMessage = "Add content via test harness"
+	}
+
+	// Create a temporary working directory
+	workDir := filepath.Join(h.gitWorkDir, "temp-"+uuid.New().String())
+	defer os.RemoveAll(workDir)
+
+	// Clone the repository
+	if err := h.CloneGitRepositoryFromServer(repoName, workDir); err != nil {
+		return fmt.Errorf("failed to clone repository for push: %w", err)
+	}
+
+	// Write content to file
+	fullFilePath := filepath.Join(workDir, filePath)
+	if err := os.MkdirAll(filepath.Dir(fullFilePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for file: %w", err)
+	}
+
+	if err := os.WriteFile(fullFilePath, []byte(content), 0600); err != nil {
+		return fmt.Errorf("failed to write content to file: %w", err)
+	}
+
+	// Git operations with authentication
+	config := h.GetGitServerConfig()
+	gitEnv := append(os.Environ(),
+		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no",
+		"SSHPASS="+config.Password,
+		"GIT_AUTHOR_NAME=Test Harness",
+		"GIT_AUTHOR_EMAIL=test@flightctl.dev",
+		"GIT_COMMITTER_NAME=Test Harness",
+		"GIT_COMMITTER_EMAIL=test@flightctl.dev",
+	)
+
+	gitCmds := [][]string{
+		{"git", "add", filePath},
+		{"git", "commit", "-m", commitMessage},
+		{"git", "push", "origin", "main"},
+	}
+
+	for _, gitCmd := range gitCmds {
+		// #nosec G204 -- This is test code with controlled git commands (add, commit, push)
+		cmd := exec.Command(gitCmd[0], gitCmd[1:]...)
+		cmd.Dir = workDir
+		cmd.Env = gitEnv
+
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to execute git command %v: %w, output: %s", gitCmd, err, string(output))
+		}
+	}
+
+	logrus.Infof("Pushed content to git repository %s, file: %s", repoName, filePath)
+	return nil
+}
+
+// CreateRepository creates a Repository resource pointing to the git server repository
+func (h *Harness) CreateGitRepository(repoName string, repositorySpec v1alpha1.RepositorySpec) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+
+	// First create the git repository on the server
+	if err := h.CreateGitRepositoryOnServer(repoName); err != nil {
+		return fmt.Errorf("failed to create git repository on server: %w", err)
+	}
+
+	// Create the Repository resource
+	repository := v1alpha1.Repository{
+		ApiVersion: v1alpha1.RepositoryAPIVersion,
+		Kind:       v1alpha1.RepositoryKind,
+		Metadata: v1alpha1.ObjectMeta{
+			Name: &repoName,
+		},
+		Spec: repositorySpec,
+	}
+
+	_, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
+	if err != nil {
+		// Clean up the git repository if Repository resource creation fails
+		if cleanupErr := h.DeleteGitRepositoryOnServer(repoName); cleanupErr != nil {
+			logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
+		}
+		return fmt.Errorf("failed to create Repository resource: %w", err)
+	}
+
+	logrus.Infof("Created Repository resource %s", repoName)
+	return nil
+}
+
+// UpdateGitServerRepository updates content in an existing git repository working directory
+func (h *Harness) UpdateGitServerRepository(repoName, filePath, content, commitMessage string) error {
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+	if filePath == "" {
+		return fmt.Errorf("file path cannot be empty")
+	}
+	if commitMessage == "" {
+		commitMessage = "Update content via test harness"
+	}
+
+	return h.PushContentToGitServerRepo(repoName, filePath, content, commitMessage)
+}
+
+// CreateResourceSync creates a ResourceSync resource that points to a git repository
+func (h *Harness) CreateResourceSync(name, repoName string, spec v1alpha1.ResourceSyncSpec) error {
+	if name == "" {
+		return fmt.Errorf("ResourceSync name cannot be empty")
+	}
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+
+	// Set the repository name in the spec if not already set
+	if spec.Repository == "" {
+		spec.Repository = repoName
+	}
+
+	resourceSync := v1alpha1.ResourceSync{
+		ApiVersion: v1alpha1.ResourceSyncAPIVersion,
+		Kind:       v1alpha1.ResourceSyncKind,
+		Metadata: v1alpha1.ObjectMeta{
+			Name: &name,
+		},
+		Spec: spec,
+	}
+
+	_, err := h.Client.CreateResourceSyncWithResponse(h.Context, resourceSync)
+	if err != nil {
+		return fmt.Errorf("failed to create ResourceSync: %w", err)
+	}
+
+	logrus.Infof("Created ResourceSync %s pointing to repository %s", name, repoName)
+	return nil
+}
+
+// ReplaceResourceSync replaces an existing ResourceSync resource
+func (h *Harness) ReplaceResourceSync(name, repoName string, spec v1alpha1.ResourceSyncSpec) error {
+	if name == "" {
+		return fmt.Errorf("ResourceSync name cannot be empty")
+	}
+	if repoName == "" {
+		return fmt.Errorf("repository name cannot be empty")
+	}
+
+	// Set the repository name in the spec if not already set
+	if spec.Repository == "" {
+		spec.Repository = repoName
+	}
+
+	resourceSync := v1alpha1.ResourceSync{
+		ApiVersion: v1alpha1.ResourceSyncAPIVersion,
+		Kind:       v1alpha1.ResourceSyncKind,
+		Metadata: v1alpha1.ObjectMeta{
+			Name: &name,
+		},
+		Spec: spec,
+	}
+
+	_, err := h.Client.ReplaceResourceSyncWithResponse(h.Context, name, resourceSync)
+	if err != nil {
+		return fmt.Errorf("failed to replace ResourceSync: %w", err)
+	}
+
+	logrus.Infof("Replaced ResourceSync %s pointing to repository %s", name, repoName)
+	return nil
+}
+
+// DeleteResourceSync deletes the specified ResourceSync
+func (h *Harness) DeleteResourceSync(name string) error {
+	if name == "" {
+		return fmt.Errorf("ResourceSync name cannot be empty")
+	}
+
+	_, err := h.Client.DeleteResourceSync(h.Context, name)
+	if err != nil {
+		return fmt.Errorf("failed to delete ResourceSync: %w", err)
+	}
+
+	logrus.Infof("Deleted ResourceSync %s", name)
+	return nil
+}
+
+// CreateFleetConfigInGitRepo creates a fleet configuration and pushes it to a git repository
+func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSpec v1alpha1.FleetSpec) error {
+	fleet := v1alpha1.Fleet{
+		ApiVersion: v1alpha1.FleetAPIVersion,
+		Kind:       v1alpha1.FleetKind,
+		Metadata: v1alpha1.ObjectMeta{
+			Name: &fleetName,
+		},
+		Spec: fleetSpec,
+	}
+
+	fleetYAML, err := yaml.Marshal(fleet)
+	if err != nil {
+		return fmt.Errorf("failed to marshal fleet to YAML: %w", err)
+	}
+
+	filePath := fmt.Sprintf("fleets/%s.yaml", fleetName)
+	commitMessage := fmt.Sprintf("Add fleet configuration: %s", fleetName)
+
+	return h.PushContentToGitServerRepo(repoName, filePath, string(fleetYAML), commitMessage)
+}
+
+// CreateDeviceConfigInGitRepo creates a device configuration and pushes it to a git repository
+func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, deviceSpec v1alpha1.DeviceSpec) error {
+	device := v1alpha1.Device{
+		ApiVersion: v1alpha1.DeviceAPIVersion,
+		Kind:       v1alpha1.DeviceKind,
+		Metadata: v1alpha1.ObjectMeta{
+			Name: &deviceName,
+		},
+		Spec: &deviceSpec,
+	}
+
+	deviceYAML, err := yaml.Marshal(device)
+	if err != nil {
+		return fmt.Errorf("failed to marshal device to YAML: %w", err)
+	}
+
+	filePath := fmt.Sprintf("devices/%s.yaml", deviceName)
+	commitMessage := fmt.Sprintf("Add device configuration: %s", deviceName)
+
+	return h.PushContentToGitServerRepo(repoName, filePath, string(deviceYAML), commitMessage)
+}
+
+// WaitForResourceSyncStatus waits for a ResourceSync to reach a specific status
+func (h *Harness) WaitForResourceSyncStatus(name string, expectedStatus v1alpha1.ConditionStatus, timeout string) error {
+	Eventually(func() error {
+		response, err := h.Client.GetResourceSyncWithResponse(h.Context, name)
+		if err != nil {
+			return fmt.Errorf("failed to get ResourceSync: %w", err)
+		}
+
+		if response.JSON200 == nil {
+			return fmt.Errorf("ResourceSync not found")
+		}
+
+		resourceSync := response.JSON200
+		if resourceSync.Status == nil {
+			return fmt.Errorf("ResourceSync status is nil")
+		}
+
+		if len(resourceSync.Status.Conditions) == 0 {
+			return fmt.Errorf("ResourceSync has no conditions")
+		}
+
+		// Check if the expected status is present in conditions
+		for _, condition := range resourceSync.Status.Conditions {
+			if condition.Type == "ResourceSyncStatus" && condition.Status == expectedStatus {
+				return nil
+			}
+		}
+
+		return fmt.Errorf("ResourceSync %s has not reached expected status %s", name, expectedStatus)
+	}, timeout, POLLING).Should(BeNil())
+
+	logrus.Infof("ResourceSync %s reached expected status %s", name, expectedStatus)
+	return nil
+}
+
+// GetGitRepoURL returns the SSH URL for a git repository on the server
+func (h *Harness) GetGitRepoURL(repoName string) (string, error) {
+	url, exists := h.gitRepos[repoName]
+	if !exists {
+		return "", fmt.Errorf("git repository %s not found in harness", repoName)
+	}
+	return url, nil
+}
+
+// CleanupGitRepositories removes all git repositories created by the harness
+func (h *Harness) CleanupGitRepositories() error {
+	for repoName := range h.gitRepos {
+		if err := h.DeleteGitRepositoryOnServer(repoName); err != nil {
+			logrus.Errorf("Failed to remove git repository %s: %v", repoName, err)
+		} else {
+			logrus.Infof("Cleaned up git repository %s", repoName)
+		}
+	}
+
+	// Clean up the local git working directory
+	if err := os.RemoveAll(h.gitWorkDir); err != nil {
+		logrus.Errorf("Failed to remove git working directory %s: %v", h.gitWorkDir, err)
+		return err
+	}
+
+	h.gitRepos = make(map[string]string)
+	logrus.Info("Cleaned up all git repositories")
+	return nil
+}
+
+// CreateGitRepositoryWithContent creates a git repository with initial content
+func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content string, repositorySpec v1alpha1.RepositorySpec) error {
+	// Create the git repository and Repository resource
+	if err := h.CreateGitRepository(repoName, repositorySpec); err != nil {
+		return fmt.Errorf("failed to create git repository: %w", err)
+	}
+
+	// Add initial content if provided
+	if filePath != "" && content != "" {
+		if err := h.PushContentToGitServerRepo(repoName, filePath, content, "Initial commit"); err != nil {
+			// Clean up on failure
+			if cleanupErr := h.DeleteGitRepositoryOnServer(repoName); cleanupErr != nil {
+				logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
+			}
+			return fmt.Errorf("failed to push initial content: %w", err)
+		}
+	}
+
+	return nil
 }

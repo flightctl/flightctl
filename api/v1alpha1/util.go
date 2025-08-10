@@ -441,11 +441,14 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonDeviceDiskWarning:               {},
 	EventReasonDeviceDisconnected:              {},
 	EventReasonDeviceSpecInvalid:               {},
+	EventReasonFleetInvalid:                    {},
 	EventReasonDeviceMultipleOwnersDetected:    {},
+	EventReasonDeviceUpdateFailed:              {},
 	EventReasonInternalTaskFailed:              {},
 	EventReasonResourceSyncInaccessible:        {},
 	EventReasonResourceSyncParsingFailed:       {},
 	EventReasonResourceSyncSyncFailed:          {},
+	EventReasonFleetRolloutFailed:              {},
 }
 
 // GetEventType determines the event type based on the event reason
