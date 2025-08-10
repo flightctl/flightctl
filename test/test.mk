@@ -69,7 +69,7 @@ deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
 deploy-e2e-ocp-test-vm:
-	sudo test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
+	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
 
 prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2
 	./test/scripts/prepare_cli.sh
