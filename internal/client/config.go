@@ -273,7 +273,7 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 
 	tlsConfig, err := CreateTLSConfigFromConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: creating TLS config: %w", err)
+		return nil, fmt.Errorf("creating TLS config: %w", err)
 	}
 	tlsConfig.ServerName = tlsServerName
 
@@ -291,39 +291,30 @@ func CreateTLSConfigFromConfig(config *Config) (*tls.Config, error) {
 		InsecureSkipVerify: config.Service.InsecureSkipVerify, //nolint:gosec
 	}
 
-	if err := addCertificatesToTLSConfig(&tlsConfig, config); err != nil {
-		return nil, fmt.Errorf("CreateTLSConfigFromConfig: adding certificates: %w", err)
-	}
-
-	return &tlsConfig, nil
-}
-
-func addCertificatesToTLSConfig(tlsConfig *tls.Config, config *Config) error {
 	// Client cert
 	if len(config.AuthInfo.ClientCertificateData) > 0 {
 		clientCert, err := tls.X509KeyPair(config.AuthInfo.ClientCertificateData, config.AuthInfo.ClientKeyData)
 		if err != nil {
-			return fmt.Errorf("parsing client cert and key: %w", err)
+			return nil, fmt.Errorf("failed to load client certificate and key: %w", err)
 		}
 		tlsConfig.Certificates = []tls.Certificate{clientCert}
 	}
 
 	// CAs
 	if len(config.Service.CertificateAuthorityData) > 0 {
+		// Create a new cert pool and add the system certs.
+		// On error, we continue with an empty pool.
 		rootCAs, err := x509.SystemCertPool()
 		if err != nil {
-			return fmt.Errorf("loading system cert pool: %w", err)
-		}
-		if rootCAs == nil {
 			rootCAs = x509.NewCertPool()
 		}
 		if ok := rootCAs.AppendCertsFromPEM(config.Service.CertificateAuthorityData); !ok {
-			return fmt.Errorf("failed to append CA certs")
+			return nil, errors.New("failed to append certificate authority data")
 		}
 		tlsConfig.RootCAs = rootCAs
 	}
 
-	return nil
+	return &tlsConfig, nil
 }
 
 // NewGRPCClientFromConfig returns a new gRPC Client from the given config.
@@ -340,7 +331,7 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 
 	tlsConfig, err := CreateTLSConfigFromConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("NewGRPCClientFromConfig: creating TLS config: %w", err)
+		return nil, fmt.Errorf("creating TLS config: %w", err)
 	}
 
 	u, err := url.Parse(grpcEndpoint)
