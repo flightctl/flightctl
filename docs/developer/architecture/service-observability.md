@@ -71,7 +71,7 @@ This:
 You can pass optional `trace.SpanStartOption` values such as `WithAttributes` or `WithLinks` to enrich the span with metadata or associate it with another context (e.g., for async task correlation):
 
 ```go
-receivedCtx, handlerSpan := instrumentation.StartSpan(
+receivedCtx, handlerSpan := tracing.StartSpan(
   receivedCtx, "flightctl/queues", r.name, trace.WithLinks(
     trace.LinkFromContext(ctx, attribute.String("request.id", requestID))))
 ```
@@ -84,7 +84,7 @@ The following is an example of how Flightctl uses a `TracedService` wrapper to c
 
 ```go
 func startSpan(ctx context.Context, method string) (context.Context, trace.Span) {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/service", method)
+	ctx, span := tracing.StartSpan(ctx, "flightctl/service", method)
 	return ctx, span
 }
 
