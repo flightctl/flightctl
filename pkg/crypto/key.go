@@ -236,27 +236,16 @@ func ParseKeyPEM(pemKey []byte) (crypto.PrivateKey, error) {
 	return key, nil
 }
 
-func GetExtensionValue(cert *x509.Certificate, oid asn1.ObjectIdentifier) (string, error) {
-	for _, ext := range cert.Extensions {
+func GetCertificateExtensionValueAsStr(cert *x509.Certificate, oid asn1.ObjectIdentifier) (string, error) {
+	for _, ext := range append(cert.Extensions, cert.ExtraExtensions...) {
 		if ext.Id.Equal(oid) {
-			var value string
-			if _, err := asn1.Unmarshal(ext.Value, &value); err != nil {
-				return "", fmt.Errorf("failed to unmarshal extension for OID %v: %w", oid, err)
+			var s string
+			var unmarshalErr error
+			if _, unmarshalErr = asn1.Unmarshal(ext.Value, &s); unmarshalErr == nil {
+				return s, nil
 			}
-			return value, nil
+			return "", fmt.Errorf("failed to unmarshal extension for OID %v: %w", oid, unmarshalErr)
 		}
 	}
-
-	// Fallback: also check ExtraExtensions (if needed)
-	for _, ext := range cert.ExtraExtensions {
-		if ext.Id.Equal(oid) {
-			var value string
-			if _, err := asn1.Unmarshal(ext.Value, &value); err != nil {
-				return "", fmt.Errorf("failed to unmarshal extension for OID %v: %w", oid, err)
-			}
-			return value, nil
-		}
-	}
-
 	return "", flterrors.ErrExtensionNotFound
 }
