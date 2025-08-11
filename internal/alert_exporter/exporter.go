@@ -37,7 +37,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
@@ -144,7 +144,7 @@ func (a *AlertExporter) processingCycle(
 	cycleNumber int,
 ) {
 	// Start OpenTelemetry span for the processing cycle
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/alert-exporter", "ProcessingCycle")
+	ctx, span := tracing.StartSpan(ctx, "flightctl/alert-exporter", "ProcessingCycle")
 	defer span.End()
 
 	// Add cycle information as span attributes
@@ -170,7 +170,7 @@ func (a *AlertExporter) processingCycle(
 
 	// Process events with span
 	processStart := time.Now()
-	processCtx, processSpan := instrumentation.StartSpan(tickerCtx, "flightctl/alert-exporter", "ProcessEvents")
+	processCtx, processSpan := tracing.StartSpan(tickerCtx, "flightctl/alert-exporter", "ProcessEvents")
 	newCheckpoint, err := eventProcessor.ProcessLatestEvents(processCtx, *checkpoint, metrics)
 	processSpan.End()
 	if err != nil {
@@ -185,7 +185,7 @@ func (a *AlertExporter) processingCycle(
 
 	// Send alerts with span
 	sendStart := time.Now()
-	_, sendSpan := instrumentation.StartSpan(tickerCtx, "flightctl/alert-exporter", "SendAlerts")
+	_, sendSpan := tracing.StartSpan(tickerCtx, "flightctl/alert-exporter", "SendAlerts")
 	err = alertSender.SendAlerts(newCheckpoint)
 	sendSpan.End()
 	if err != nil {
@@ -200,7 +200,7 @@ func (a *AlertExporter) processingCycle(
 
 	// Store checkpoint with span
 	checkpointStart := time.Now()
-	ckptCtx, ckptSpan := instrumentation.StartSpan(tickerCtx, "flightctl/alert-exporter", "StoreCheckpoint")
+	ckptCtx, ckptSpan := tracing.StartSpan(tickerCtx, "flightctl/alert-exporter", "StoreCheckpoint")
 	err = checkpointManager.StoreCheckpoint(ckptCtx, newCheckpoint)
 	ckptSpan.End()
 	if err != nil {

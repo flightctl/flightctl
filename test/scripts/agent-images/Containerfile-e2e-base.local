@@ -61,3 +61,4 @@ RUN mkdir -p /etc/containers/registries.conf.d/ && \
     echo "[[registry]]" > /etc/containers/registries.conf.d/custom-registry.conf && \
     echo "location = \"${REGISTRY_ADDRESS}\"" >> /etc/containers/registries.conf.d/custom-registry.conf && \
     echo "insecure = true" >> /etc/containers/registries.conf.d/custom-registry.conf
+RUN  mkdir -p /etc/containers/registries.conf.d/ && echo -e '[[registry]]\nlocation = "10.100.102.70:5000"\ninsecure = true' > /etc/containers/registries.conf.d/flightctl-e2e.conf

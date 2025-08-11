@@ -11,17 +11,18 @@ When the `flightctl-agent` starts, it reads its configuration from `/etc/flightc
 
 The agent's configuration file `/etc/flightctl/config.yaml` takes the following parameters:
 
-| Parameter | Type | Required | Description |
-| --------- | ---- | :------: | ----------- |
-| `enrollment-service` | `EnrollmentService` | Y | Connection details for the device owner's Flight Control service used by the agent to enroll the device. |
-| `spec-fetch-interval` | `Duration` | | Interval in which the agent polls the service for updates to its device specification. Default: `60s` |
+| Parameter | Type | Required | Description|
+| --------- | ---- | :------: |------------|
+| `enrollment-service`     | `EnrollmentService` | Y | Connection details for the device owner's Flight Control service used by the agent to enroll the device. |
+| `spec-fetch-interval`    | `Duration` | | Interval in which the agent polls the service for updates to its device specification. Default: `60s` |
 | `status-update-interval` | `Duration` | | Interval in which the agent reports its device status under normal conditions. The agent immediately sends status reports on major events related to the health of the system and application workloads as well as on the progress during a system update. Default: `60s` |
-| `default-labels` | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. Default: `{}` |
-| `system-info` | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault"]` |
-| `system-info-custom` | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. See [Custom system info collectors](#custom-system-info-collectors). Default: `[]` |
-| `system-info-timeout` | `Duration` | | The timeout for collecting system info. Default: `2m` |
-| `log-level` | `string` | | The level of logging: "panic", "fatal", "error", "warn"/"warning", "info", "debug", or "trace". Default: `info` |
-| `tpm` | `TPM` | | TPM configuration for hardware-based device identity. See [TPM Configuration](#tpm-configuration). Default: TPM disabled |
+| `default-labels`         | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. Default: `{}` |
+| `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault"]` |
+| `system-info-custom`     | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. See [Custom system info collectors](#custom-system-info-collectors). Default: `[]` |
+| `system-info-timeout`    | `Duration` | | The timeout for collecting system info. Default: `2m` |
+| `pull-timeout`           | `Duration` | | The timeout for pulling a single OCI target. Default: `10m` |
+| `log-level`              | `string` | | The level of logging: "panic", "fatal", "error", "warn"/"warning", "info", "debug", or "trace". Default: `info` |
+| `tpm`                    | `TPM` | | TPM configuration for hardware-based device identity. See [TPM Configuration](#tpm-configuration). Default: TPM disabled |
 
 `Duration` values are strings of an integer value with appended unit of time ('s' for seconds, 'm' for minutes, or 'h' for hours). Examples: `30s`, `10m`, `24h`
 

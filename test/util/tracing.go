@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -41,7 +42,7 @@ func InitSuiteTracerForGinkgo(description string) context.Context {
 		Expect(s(context.Background())).To(Succeed(), "error shutting down tracer provider")
 	})
 
-	suiteCtx, suiteSpan := instrumentation.StartSpan(context.Background(), "flightctl/tests", description)
+	suiteCtx, suiteSpan := tracing.StartSpan(context.Background(), "flightctl/tests", description)
 	DeferCleanup(func() {
 		suiteSpan.End()
 	})
@@ -49,7 +50,7 @@ func InitSuiteTracerForGinkgo(description string) context.Context {
 }
 
 func StartSpecTracerForGinkgo(parent context.Context) context.Context {
-	ctx, span := instrumentation.StartSpan(parent, "flightctl/tests", CurrentSpecReport().FullText())
+	ctx, span := tracing.StartSpan(parent, "flightctl/tests", CurrentSpecReport().FullText())
 	DeferCleanup(func() {
 		if CurrentSpecReport().Failed() {
 			span.SetStatus(codes.Error, CurrentSpecReport().Failure.Message)

@@ -10,10 +10,11 @@ export KUBECONFIG=${KUBECONFIG_PATH}
 VM_NAME="test-vm"
 VM_RAM=10240                # RAM in MB necessary to run the flightctl e2e
 VM_CPUS=8                  # Number of CPUs
-VM_DISK_SIZE=30          # Disk size
+VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
 NETWORK_NAME=${NETWORK_NAME:-baremetal-0}
 echo "ocp_network name is: ${NETWORK_NAME}"
+echo "Disk size increment: ${VM_DISK_SIZE_INC}G"
 ISO_URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-x86_64-9-latest.x86_64.qcow2"
 DISK_PATH="/var/lib/libvirt/images/${VM_NAME}.qcow2"
 DISK_PATH_SRC="/var/lib/libvirt/images/${VM_NAME}_src.qcow2"
@@ -61,8 +62,10 @@ fi
 echo "Copying ${DISK_PATH_SRC} to ${DISK_PATH}..."
 cp ${DISK_PATH_SRC} ${DISK_PATH}
 
-# Resize the VM image
-qemu-img resize ${DISK_PATH} +20G  # bumping for the increased number of agent-images to be saved
+# Resize the VM image to make room for the increased number of agent-images to be saved
+echo "Resizing image ${DISK_PATH}..."
+qemu-img resize ${DISK_PATH} +${VM_DISK_SIZE_INC}G && \
+qemu-img info --output=json "${DISK_PATH}"
 
 # Create the VM
 echo "Creating virtual machine ${VM_NAME}..."
@@ -70,7 +73,7 @@ virt-install \
   --name $VM_NAME \
   --memory $VM_RAM \
   --vcpus $VM_CPUS \
-  --disk path=$DISK_PATH,size=${VM_DISK_SIZE},format=qcow2 \
+  --disk path=$DISK_PATH,format=qcow2 \
   --os-variant centos-stream9  \
   --network network="default" \
   --network network=$NETWORK_NAME,model=virtio \

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -186,18 +187,25 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 }
 
 func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
+	hasOwner := len(lo.FromPtr(existing.GetOwner())) != 0
+
 	sameSpec := resource.HasSameSpecAs(existing)
 	if !sameSpec {
-		if fromAPI {
-			hasOwner := len(lo.FromPtr(existing.GetOwner())) != 0
-			if hasOwner {
-				// Don't let the user update the spec if it has an owner
-				return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-			}
+		if fromAPI && hasOwner {
+			// Don't let the user update the spec if it has an owner
+			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
 
 		// Update the generation if the spec was updated
 		resource.SetGeneration(lo.ToPtr(lo.FromPtr(existing.GetGeneration()) + 1))
+	}
+
+	// Don't let the user update a fleet's labels if it has an owner
+	if fromAPI && hasOwner && resource.GetKind() == api.FleetKind {
+		sameLabels := reflect.DeepEqual(existing.GetLabels(), resource.GetLabels())
+		if !sameLabels {
+			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
 	}
 
 	if resource.GetResourceVersion() != nil &&
