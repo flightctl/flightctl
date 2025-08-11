@@ -142,8 +142,8 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 }
 
 func (n *publisher) Run(ctx context.Context, wg *sync.WaitGroup) {
-	defer n.stop()
 	defer wg.Done()
+	defer n.stop()
 	n.log.Debug("Starting publisher")
 	ticker := time.NewTicker(n.interval)
 	defer ticker.Stop()
