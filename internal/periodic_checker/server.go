@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 )
 
 type Server struct {
@@ -62,6 +62,8 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer taskQueuePublisher.Close()
+
 	callbackManager := tasks_client.NewCallbackManager(taskQueuePublisher, s.log)
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "", []string{}))
 
@@ -89,12 +91,6 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	periodicTaskConsumer := NewPeriodicTaskConsumer(consumerConfig)
 
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		periodicTaskConsumer.Start(ctx)
-		return nil
-	})
-
 	// Periodic task publisher
 	publisherConfig := PeriodicTaskPublisherConfig{
 		Log:            s.log,
@@ -111,10 +107,18 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	eg.Go(func() error {
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		periodicTaskConsumer.Start(ctx)
+	}()
+	go func() {
+		defer wg.Done()
 		periodicTaskPublisher.Start(ctx)
-		return nil
-	})
+	}()
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
@@ -122,20 +126,20 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Shutdown signal received")
 	cancel()
 
-	// Create a timeout for attempted graceful shutdown of the publisher and consumer
-	shutdownComplete := make(chan struct{})
+	// Wait for consumer and publisher to finish
+	done := make(chan struct{})
 	go func() {
-		err = eg.Wait()
-		close(shutdownComplete)
+		wg.Wait()
+		close(done)
 	}()
 
 	select {
-	case <-shutdownComplete:
+	case <-done:
 		s.log.Info("Shutdown of publisher and consumer complete")
 	case <-time.After(10 * time.Second):
 		s.log.Error("Shutdown timeout exceeded, forcing exit")
 		return fmt.Errorf("shutdown timeout exceeded")
 	}
 
-	return err
+	return nil
 }

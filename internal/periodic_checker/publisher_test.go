@@ -169,6 +169,7 @@ func runSchedulingLoopWithTimeout(t *testing.T, publisher *PeriodicTaskPublisher
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	publisher.wg.Add(1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -192,8 +193,11 @@ func assertTaskRescheduledWithInterval(t *testing.T, task *ScheduledTask, expect
 	tolerance := expectedInterval / 10 // 10% tolerance
 	minExpected := expectedInterval - tolerance
 	maxExpected := expectedInterval + tolerance
+	if minExpected < 0 {
+		minExpected = 0
+	}
 
-	require.True(t, timeDiff > minExpected && timeDiff < maxExpected,
+	require.True(t, timeDiff >= minExpected && timeDiff <= maxExpected,
 		"NextRun should be approximately now + %v, got difference of %v", expectedInterval, timeDiff)
 }
 
@@ -488,6 +492,7 @@ func TestPeriodicTaskPublisher_schedulingLoop_ContextCancellation(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
+	f.publisher.wg.Add(1)
 	go func() {
 		defer close(done)
 		f.publisher.schedulingLoop(ctx)

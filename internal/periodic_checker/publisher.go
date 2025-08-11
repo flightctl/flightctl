@@ -82,6 +82,7 @@ type PeriodicTaskPublisher struct {
 
 	// Configurable intervals
 	orgSyncInterval time.Duration
+	wg              sync.WaitGroup
 }
 
 type PeriodicTaskPublisherConfig struct {
@@ -112,17 +113,24 @@ func NewPeriodicTaskPublisher(publisherConfig PeriodicTaskPublisherConfig) (*Per
 }
 
 func (p *PeriodicTaskPublisher) Start(ctx context.Context) {
+	p.log.Info("Starting periodic task publisher")
+	p.wg.Add(1)
 	// Start organization sync goroutine
 	go p.organizationSyncLoop(ctx)
 
+	p.wg.Add(1)
 	// Main scheduling loop
-	p.schedulingLoop(ctx)
+	go p.schedulingLoop(ctx)
 
+	<-ctx.Done()
+	p.wg.Wait()
 	p.clearHeap()
-	p.log.Info("Publisher stopped")
+	p.log.Info("Periodic task publisher stopped")
 }
 
 func (p *PeriodicTaskPublisher) schedulingLoop(ctx context.Context) {
+	defer p.wg.Done()
+
 	taskTimer := time.NewTimer(DefaultTaskTickerInterval)
 	defer taskTimer.Stop()
 
@@ -226,6 +234,8 @@ func (p *PeriodicTaskPublisher) publishTask(ctx context.Context, taskType Period
 }
 
 func (p *PeriodicTaskPublisher) organizationSyncLoop(ctx context.Context) {
+	defer p.wg.Done()
+
 	// Initial sync of organizations
 	p.syncOrganizations(ctx)
 
