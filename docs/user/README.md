@@ -31,7 +31,7 @@ Welcome to the Flight Control user documentation.
   * [Monitoring Device Resources](managing-devices.md#monitoring-device-resources)
   * [Accessing Devices Remotely](managing-devices.md#accessing-devices-remotely)
   * [Scheduling Updates and Downloads](managing-devices.md#scheduling-updates-and-downloads)
-* **[Alerts and Monitoring](alerts-monitoring.md)** - How to monitor device health and manage alerts.
+* **[Alerts and Monitoring](alerts.md)** - How to monitor device health and manage alerts.
 * **[Metrics Configuration](metrics.md)** - How to configure and use the metrics system for monitoring Flight Control.
 * **[Managing Device Fleets](managing-fleets.md)** - How to manage fleets of devices.
   * [Understanding Fleets](managing-fleets.md#understanding-fleets)

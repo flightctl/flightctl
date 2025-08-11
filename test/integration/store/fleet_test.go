@@ -691,5 +691,66 @@ var _ = Describe("FleetStore create", func() {
 			Expect(orgIds).To(HaveKey(otherOrgId.String()))
 		})
 
+		It("Cannot update fleet spec or labels when owned by resourcesync", func() {
+			// Create a resourcesync first
+			resourceSync := api.ResourceSync{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("test-resourcesync"),
+				},
+				Spec: api.ResourceSyncSpec{
+					Repository: "myrepo",
+					Path:       "my/path",
+				},
+			}
+			_, err := storeInst.ResourceSync().Create(ctx, orgId, &resourceSync, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create a fleet owned by the resourcesync
+			owner := util.SetResourceOwner(api.ResourceSyncKind, "test-resourcesync")
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("owned-fleet"),
+					Labels: &map[string]string{"original": "label"},
+					Owner:  owner,
+				},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{
+						MatchLabels: &map[string]string{"key": "original"},
+					},
+				},
+			}
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the fleet was created with the owner
+			createdFleet, err := storeInst.Fleet().Get(ctx, orgId, "owned-fleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(createdFleet.Metadata.Owner).ToNot(BeNil())
+			Expect(*createdFleet.Metadata.Owner).To(Equal("ResourceSync/test-resourcesync"))
+
+			// Try to update the fleet's spec - should fail
+			updatedFleet := *createdFleet
+			updatedFleet.Spec.Selector = &api.LabelSelector{
+				MatchLabels: &map[string]string{"key": "updated"},
+			}
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
+			_, err = storeInst.Fleet().Update(ctx, orgId, &updatedFleet, nil, true, callback, nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+
+			// Try to update the fleet's labels - should fail
+			updatedFleet = *createdFleet
+			updatedFleet.Metadata.Labels = &map[string]string{"updated": "label"}
+			_, err = storeInst.Fleet().Update(ctx, orgId, &updatedFleet, nil, true, callback, nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+
+			// Verify the original fleet is unchanged
+			unchangedFleet, err := storeInst.Fleet().Get(ctx, orgId, "owned-fleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(unchangedFleet.Spec.Selector.MatchLabels).To(Equal(&map[string]string{"key": "original"}))
+			Expect(unchangedFleet.Metadata.Labels).To(Equal(&map[string]string{"original": "label"}))
+		})
+
 	})
 })
