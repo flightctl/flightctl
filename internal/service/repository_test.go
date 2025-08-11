@@ -33,14 +33,16 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*
 		Spec: spec,
 	}
 
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := ServiceHandler{
-		EventHandler:    NewEventHandler(&TestStore{}, logrus.New()),
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
-		log:             logrus.New(),
+		eventHandler: NewEventHandler(ts, wc, logrus.New()),
+		store:        ts,
+		workerClient: wc,
+		log:          logrus.New(),
 	}
 	ctx := context.Background()
-	_, err = serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &repository, nil, nil)
+	_, err = serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &repository, nil)
 	require.NoError(err)
 	resp, status := serviceHandler.PatchRepository(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
@@ -165,15 +167,18 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := ServiceHandler{
-		EventHandler: NewEventHandler(&TestStore{}, logrus.New()),
-		store:        &TestStore{},
+		eventHandler: NewEventHandler(ts, wc, logrus.New()),
+		store:        ts,
+		workerClient: wc,
 		log:          logrus.New(),
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &api.Repository{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
-	}, nil, nil)
+	}, nil)
 	require.NoError(err)
 	_, status := serviceHandler.PatchRepository(ctx, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
@@ -198,7 +203,7 @@ func createRepository(ctx context.Context, r store.Repository, orgId uuid.UUID, 
 	}
 
 	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err = r.Create(ctx, orgId, &resource, nil, callback)
+	_, err = r.Create(ctx, orgId, &resource, callback)
 	return err
 }
 
@@ -217,9 +222,12 @@ func setAccessCondition(ctx context.Context, repository *api.Repository, err err
 func TestRepoTester_SetAccessCondition(t *testing.T) {
 	require := require.New(t)
 
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := ServiceHandler{
-		EventHandler: NewEventHandler(&TestStore{}, logrus.New()),
-		store:        &TestStore{},
+		eventHandler: NewEventHandler(ts, wc, logrus.New()),
+		store:        ts,
+		workerClient: wc,
 		log:          logrus.New(),
 	}
 	r := serviceHandler.store.Repository()

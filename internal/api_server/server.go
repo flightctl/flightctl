@@ -21,8 +21,8 @@ import (
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/transport"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
@@ -142,7 +142,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := tasks_client.TaskQueuePublisher(s.queuesProvider)
+	publisher, err := worker_client.QueuePublisher(s.queuesProvider)
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
+	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	s.log.Println("Initializing API server")
 	swagger, err := api.GetSwagger()
@@ -193,7 +193,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
-		s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)

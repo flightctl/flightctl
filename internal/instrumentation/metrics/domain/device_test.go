@@ -80,13 +80,13 @@ func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, 
 
 // Implement other required methods with empty implementations
 func (m *MockDevice) InitialMigration(ctx context.Context) error { return nil }
-func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, error) {
+func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback store.EventCallback) (*api.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, error) {
+func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.EventCallback) (*api.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (*api.Device, bool, error) {
+func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.EventCallback) (*api.Device, bool, error) {
 	return nil, false, nil
 }
 func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
@@ -104,7 +104,7 @@ func (m *MockDevice) Summary(ctx context.Context, orgId uuid.UUID, listParams st
 func (m *MockDevice) Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (api.LabelList, error) {
 	return nil, nil
 }
-func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.DeviceStoreCallback, callbackEvent store.EventCallback) (bool, error) {
+func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.EventCallback) (bool, error) {
 	return true, nil
 }
 func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, callbackEvent store.EventCallback) (*api.Device, error) {

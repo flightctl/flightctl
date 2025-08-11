@@ -6,18 +6,16 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.T) {
 	// Create a minimal ResourceSync instance with nil dependencies
-	var callbackManager tasks_client.CallbackManager
 	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(callbackManager, serviceHandler, log, nil)
+	resourceSync := NewResourceSync(serviceHandler, log, nil)
 
 	// Test with nil ResourceSync
 	repo, err := resourceSync.GetRepositoryAndValidateAccess(context.Background(), nil)
@@ -29,11 +27,10 @@ func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.
 
 func TestResourceSync_ParseFleetsFromResources_ValidResources(t *testing.T) {
 	// Create a minimal ResourceSync instance with nil dependencies
-	var callbackManager tasks_client.CallbackManager
 	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(callbackManager, serviceHandler, log, nil)
+	resourceSync := NewResourceSync(serviceHandler, log, nil)
 
 	// Create valid resources
 	resources := []GenericResourceMap{
@@ -70,11 +67,10 @@ func TestResourceSync_ParseFleetsFromResources_ValidResources(t *testing.T) {
 
 func TestResourceSync_ParseFleetsFromResources_InvalidResources(t *testing.T) {
 	// Create a minimal ResourceSync instance with nil dependencies
-	var callbackManager tasks_client.CallbackManager
 	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(callbackManager, serviceHandler, log, nil)
+	resourceSync := NewResourceSync(serviceHandler, log, nil)
 
 	// Create invalid resources
 	resources := []GenericResourceMap{
@@ -343,12 +339,11 @@ func TestRemoveIgnoredFields_WithLeadingSlash(t *testing.T) {
 
 func TestResourceSync_WithIgnoredFields(t *testing.T) {
 	// Test ResourceSync with ignored fields configuration
-	var callbackManager tasks_client.CallbackManager
 	var serviceHandler service.Service
 	log := logrus.New()
 
 	ignorePaths := []string{"metadata/labels/environment", "status"}
-	resourceSync := NewResourceSync(callbackManager, serviceHandler, log, ignorePaths)
+	resourceSync := NewResourceSync(serviceHandler, log, ignorePaths)
 
 	// Create resources with fields that should be ignored
 	resources := []GenericResourceMap{

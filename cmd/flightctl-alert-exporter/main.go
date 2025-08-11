@@ -10,7 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
@@ -64,12 +64,12 @@ func main() {
 		log.Fatalf("initializing kv store: %v", err)
 	}
 
-	publisher, err := tasks_client.TaskQueuePublisher(queuesProvider)
+	publisher, err := worker_client.QueuePublisher(queuesProvider)
 	if err != nil {
 		log.Fatalf("initializing task queue publisher: %v", err)
 	}
-	callbackManager := tasks_client.NewCallbackManager(publisher, log)
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, callbackManager, kvStore, nil, log, "", "", []string{}))
+	workerClient := worker_client.NewWorkerClient(publisher, log)
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}))
 
 	server := alert_exporter.New(cfg, log)
 	if err := server.Run(ctx, serviceHandler); err != nil {
