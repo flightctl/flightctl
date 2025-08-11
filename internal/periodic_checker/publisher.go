@@ -9,11 +9,12 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/exp/rand"
 )
 
-var (
+const (
 	DefaultTaskTickerInterval = 1 * time.Second
 	DefaultOrgSyncInterval    = 5 * time.Minute
 )
@@ -82,7 +83,9 @@ type PeriodicTaskPublisher struct {
 
 	// Configurable intervals
 	orgSyncInterval time.Duration
-	wg              sync.WaitGroup
+
+	wakeup chan struct{}
+	wg     sync.WaitGroup
 }
 
 type PeriodicTaskPublisherConfig struct {
@@ -109,6 +112,7 @@ func NewPeriodicTaskPublisher(publisherConfig PeriodicTaskPublisherConfig) (*Per
 		orgSyncInterval: orgSyncInterval,
 		pollConfig:      publisherConfig.PollConfig,
 		taskHeap:        NewTaskHeap(),
+		wakeup:          make(chan struct{}, 1),
 	}, nil
 }
 
@@ -135,45 +139,51 @@ func (p *PeriodicTaskPublisher) schedulingLoop(ctx context.Context) {
 	defer taskTimer.Stop()
 
 	for {
-		// Calculate next wake time
 		p.heapMu.Lock()
-		var nextWake time.Duration
-		if p.taskHeap.Len() > 0 && p.taskHeap.Peek() != nil {
-			nextWake = time.Until(p.taskHeap.Peek().NextRun)
-			if nextWake < 0 {
-				nextWake = 0
-			}
-		} else {
-			nextWake = DefaultTaskTickerInterval
-		}
+		nextTask := p.taskHeap.Peek()
 		p.heapMu.Unlock()
 
-		taskTimer.Stop()
-		taskTimer = time.NewTimer(nextWake)
+		if nextTask == nil {
+			taskTimer = time.NewTimer(DefaultTaskTickerInterval)
+		} else if time.Until(nextTask.NextRun) <= 0 {
+			// Task ready now, process immediately
+			p.publishReadyTasks(ctx)
+			continue // Recalculate next wake time immediately
+		} else {
+			taskTimer = time.NewTimer(time.Until(nextTask.NextRun))
+		}
 
 		select {
 		case <-taskTimer.C:
-			for {
-				task := p.getNextReadyTask()
-				if task == nil {
-					break
-				}
-
-				if !p.isOrgRegistered(task.OrgID) {
-					p.log.Infof("Organization %s not registered, removing associated task %s from tracking",
-						task.OrgID, task.TaskType)
-					continue
-				}
-
-				if err := p.publishTask(ctx, task.TaskType, task.OrgID); err != nil {
-					p.log.Errorf("Failed to process next task: %v", err)
-					p.rescheduleTaskRetry(task)
-				} else {
-					p.rescheduleTask(task)
-				}
-			}
+			p.publishReadyTasks(ctx)
+		case <-p.wakeup:
+			taskTimer.Stop()
+			p.publishReadyTasks(ctx)
 		case <-ctx.Done():
+			taskTimer.Stop()
 			return
+		}
+	}
+}
+
+func (p *PeriodicTaskPublisher) publishReadyTasks(ctx context.Context) {
+	for {
+		task := p.getNextReadyTask()
+		if task == nil {
+			break
+		}
+
+		if !p.isOrgRegistered(task.OrgID) {
+			p.log.Infof("Organization %s not registered, removing associated task %s from tracking",
+				task.OrgID, task.TaskType)
+			continue
+		}
+
+		if err := p.publishTask(ctx, task.TaskType, task.OrgID); err != nil {
+			p.log.Errorf("Failed to process next task: %v", err)
+			p.rescheduleTaskRetry(task)
+		} else {
+			p.rescheduleTask(task)
 		}
 	}
 }
@@ -263,9 +273,9 @@ func (p *PeriodicTaskPublisher) syncOrganizations(ctx context.Context) {
 
 	currentOrgs := make(map[uuid.UUID]struct{})
 	for _, org := range orgList.Items {
-		orgID, err := uuid.Parse(*org.Metadata.Name)
+		orgID, err := uuid.Parse(lo.FromPtr(org.Metadata.Name))
 		if err != nil {
-			p.log.Errorf("Failed to parse organization ID %s: %v", *org.Metadata.Name, err)
+			p.log.Errorf("Failed to parse organization ID %s: %v", lo.FromPtr(org.Metadata.Name), err)
 			continue
 		}
 		currentOrgs[orgID] = struct{}{}
@@ -307,6 +317,8 @@ func (p *PeriodicTaskPublisher) addOrganizationTasks(orgID uuid.UUID) {
 		heap.Push(p.taskHeap, task)
 	}
 	p.heapMu.Unlock()
+
+	p.signalWakeup()
 }
 
 func (p *PeriodicTaskPublisher) diffOrganizations(currentOrgs map[uuid.UUID]struct{}) (toAdd []uuid.UUID, toRemove []uuid.UUID) {
@@ -354,6 +366,15 @@ func (p *PeriodicTaskPublisher) removeOrganizationTasks(orgIDs []uuid.UUID) {
 	// Re-build the heap with remaining tasks
 	heap.Init(&newHeap)
 	*p.taskHeap = newHeap
+
+	p.signalWakeup()
+}
+
+func (p *PeriodicTaskPublisher) signalWakeup() {
+	select {
+	case p.wakeup <- struct{}{}:
+	default:
+	}
 }
 
 func (p *PeriodicTaskPublisher) clearHeap() {

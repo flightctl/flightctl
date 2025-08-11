@@ -150,7 +150,7 @@ func createTestTask(orgID uuid.UUID, taskType PeriodicTaskType, nextRunOffset ti
 		NextRun:  time.Now().Add(nextRunOffset),
 		OrgID:    orgID,
 		TaskType: taskType,
-		Interval: 1 * time.Second,
+		Interval: 1 * time.Hour,
 		Retries:  retries,
 	}
 }
@@ -168,6 +168,12 @@ func runSchedulingLoopWithTimeout(t *testing.T, publisher *PeriodicTaskPublisher
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	// Drain the wakeup channel before starting
+	select {
+	case <-publisher.wakeup:
+	default:
+	}
 
 	publisher.wg.Add(1)
 	done := make(chan struct{})
@@ -288,7 +294,7 @@ func TestPeriodicTaskPublisher_syncOrganizations_AddAndRemoveOrgs(t *testing.T) 
 	}
 }
 
-func TestPeriodicTaskPublisher_schedulingLoop(t *testing.T) {
+func TestPeriodicTaskPublisher_schedulingLoopTimer(t *testing.T) {
 	tests := []struct {
 		name               string
 		setupTasks         func() []*ScheduledTask
@@ -473,6 +479,66 @@ func TestPeriodicTaskPublisher_schedulingLoop_MultipleTasksReady(t *testing.T) {
 		require.Equal(t, 0, task.Retries)
 		require.True(t, task.NextRun.After(now))
 	}
+}
+
+func TestPeriodicTaskPublisher_schedulingLoopWakeupSignal(t *testing.T) {
+	f := newPublisherTestFixture(t)
+
+	// Create test organization
+	orgs := createTestOrganizations(1)
+	f.orgService.organizations = orgs
+	f.orgService.status = api.Status{Code: 200}
+	orgID := uuid.MustParse(*orgs.Items[0].Metadata.Name)
+
+	// Add organization to publisher's tracking
+	ctx := context.Background()
+	f.syncOrganizations(ctx)
+	f.clearHeap()
+
+	now := time.Now()
+	tasks := []*ScheduledTask{
+		{
+			NextRun:  now.Add(1 * time.Minute), // Not ready to run
+			OrgID:    orgID,
+			TaskType: PeriodicTaskTypeResourceSync,
+			Interval: 1 * time.Hour,
+			Retries:  0,
+		},
+	}
+
+	f.addTaskToHeap(tasks[0])
+
+	// Explicitly signal wakeup to start the scheduler
+	f.publisher.signalWakeup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	f.publisher.wg.Add(1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.publisher.schedulingLoop(ctx)
+	}()
+
+	// Assert that the existing task is not published
+	require.Equal(t, 0, f.channelManager.getPublishedTaskCount())
+
+	// Add a new task that is ready to run and signal wakeup
+	readyTask := createTestTask(orgID, PeriodicTaskTypeRepositoryTester, -1*time.Minute, 0)
+	f.addTaskToHeap(readyTask)
+	f.publisher.signalWakeup()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Scheduling loop did not exit within expected timeout")
+	}
+
+	// Assert that the newly added task was published
+	require.Equal(t, 1, f.channelManager.getPublishedTaskCount())
+	publishedTasks := f.channelManager.publishedTasks
+	require.Equal(t, PeriodicTaskTypeRepositoryTester, publishedTasks[0].Type)
 }
 
 func TestPeriodicTaskPublisher_schedulingLoop_ContextCancellation(t *testing.T) {
