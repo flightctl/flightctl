@@ -34,6 +34,9 @@ sed '/^\s*listen\s*\[::\]:8090/d' "$NGINX_CONFIG_OUTPUT" > "${NGINX_CONFIG_OUTPU
 # Removes IPv4 listen directive for the IPv6 configuration
 sed '/^\s*listen\s*8090 ssl/d' "$NGINX_CONFIG_OUTPUT" > "${NGINX_CONFIG_OUTPUT}.ipv6"
 
+# Wait for certificates
+wait_for_files "$CERTS_SOURCE_PATH/server.crt" "$CERTS_SOURCE_PATH/server.key"
+
 # Handle server certificates
 #
 # The CLI artifacts container runs as user 1001 by default,
