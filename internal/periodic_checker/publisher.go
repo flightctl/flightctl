@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	DefaultTaskTickerInterval = 1 * time.Second
-	DefaultOrgSyncInterval    = 5 * time.Minute
+	DefaultOrgSyncInterval = 5 * time.Minute
 )
 
 type ScheduledTask struct {
@@ -71,7 +70,7 @@ type PeriodicTaskPublisher struct {
 	tasksMetadata  map[PeriodicTaskType]PeriodicTaskMetadata
 	orgService     OrganizationService
 	channelManager TaskChannelManager
-	pollConfig     poll.Config
+	taskBackoff    poll.Config
 
 	// Heap for scheduled tasks
 	taskHeap *TaskHeap
@@ -94,12 +93,12 @@ type PeriodicTaskPublisherConfig struct {
 	TasksMetadata   map[PeriodicTaskType]PeriodicTaskMetadata
 	ChannelManager  TaskChannelManager
 	OrgSyncInterval time.Duration
-	PollConfig      poll.Config
+	TaskBackoff     poll.Config
 }
 
 func NewPeriodicTaskPublisher(publisherConfig PeriodicTaskPublisherConfig) (*PeriodicTaskPublisher, error) {
 	orgSyncInterval := publisherConfig.OrgSyncInterval
-	if orgSyncInterval == 0 {
+	if orgSyncInterval <= 0 {
 		orgSyncInterval = DefaultOrgSyncInterval
 	}
 
@@ -110,7 +109,7 @@ func NewPeriodicTaskPublisher(publisherConfig PeriodicTaskPublisherConfig) (*Per
 		channelManager:  publisherConfig.ChannelManager,
 		organizations:   make(map[uuid.UUID]struct{}),
 		orgSyncInterval: orgSyncInterval,
-		pollConfig:      publisherConfig.PollConfig,
+		taskBackoff:     publisherConfig.TaskBackoff,
 		taskHeap:        NewTaskHeap(),
 		wakeup:          make(chan struct{}, 1),
 	}, nil
@@ -135,35 +134,49 @@ func (p *PeriodicTaskPublisher) Start(ctx context.Context) {
 func (p *PeriodicTaskPublisher) schedulingLoop(ctx context.Context) {
 	defer p.wg.Done()
 
-	taskTimer := time.NewTimer(DefaultTaskTickerInterval)
-	defer taskTimer.Stop()
-
 	for {
 		p.heapMu.Lock()
 		nextTask := p.taskHeap.Peek()
 		p.heapMu.Unlock()
 
 		if nextTask == nil {
-			taskTimer = time.NewTimer(DefaultTaskTickerInterval)
+			if err := p.waitForWakeup(ctx); err != nil {
+				return
+			}
 		} else if time.Until(nextTask.NextRun) <= 0 {
 			// Task ready now, process immediately
 			p.publishReadyTasks(ctx)
-			continue // Recalculate next wake time immediately
 		} else {
-			taskTimer = time.NewTimer(time.Until(nextTask.NextRun))
-		}
-
-		select {
-		case <-taskTimer.C:
-			p.publishReadyTasks(ctx)
-		case <-p.wakeup:
-			taskTimer.Stop()
-			p.publishReadyTasks(ctx)
-		case <-ctx.Done():
-			taskTimer.Stop()
-			return
+			if err := p.waitForTaskReadyOrWakeup(ctx, nextTask); err != nil {
+				return
+			}
 		}
 	}
+}
+
+func (p *PeriodicTaskPublisher) waitForWakeup(ctx context.Context) error {
+	select {
+	case <-p.wakeup:
+		p.publishReadyTasks(ctx)
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (p *PeriodicTaskPublisher) waitForTaskReadyOrWakeup(ctx context.Context, task *ScheduledTask) error {
+	taskTimer := time.NewTimer(time.Until(task.NextRun))
+	defer taskTimer.Stop()
+
+	select {
+	case <-taskTimer.C:
+		p.publishReadyTasks(ctx)
+	case <-p.wakeup:
+		p.publishReadyTasks(ctx)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
 }
 
 func (p *PeriodicTaskPublisher) publishReadyTasks(ctx context.Context) {
@@ -212,7 +225,7 @@ func (p *PeriodicTaskPublisher) isOrgRegistered(orgID uuid.UUID) bool {
 }
 
 func (p *PeriodicTaskPublisher) calculateBackoffDelay(retries int) time.Duration {
-	return poll.CalculateBackoffDelay(&p.pollConfig, retries)
+	return poll.CalculateBackoffDelay(&p.taskBackoff, retries)
 }
 
 func (p *PeriodicTaskPublisher) rescheduleTask(task *ScheduledTask) {

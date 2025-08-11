@@ -25,9 +25,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var (
-	suiteCtx context.Context
-)
+var suiteCtx context.Context
 
 // Mock task executor for testing
 type mockPeriodicTaskExecutor struct {
@@ -137,7 +135,7 @@ var _ = Describe("Periodic", func() {
 		callbackManager = tasks_client.NewCallbackManager(taskQueuePublisher, log)
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
 
-		channelManager := periodic.NewChannelManager(periodic.ChannelManagerConfig{
+		channelManager = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,
 		})
 
@@ -250,7 +248,7 @@ var _ = Describe("Periodic", func() {
 				}
 
 				// Short circuit after ~5 calls per org to resource sync which should be called roughly every second
-				if repositoryTesterExecutor.GetExecuteCallCount() != 2 && resourceSyncExecutor.GetExecuteCallCount() < 10 {
+				if repositoryTesterExecutor.GetExecuteCallCount() < 2 && resourceSyncExecutor.GetExecuteCallCount() < 10 {
 					return false
 				}
 

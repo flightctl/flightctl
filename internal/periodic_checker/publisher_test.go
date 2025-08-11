@@ -21,7 +21,7 @@ type publisherTestFixture struct {
 	orgService     *mockOrganizationService
 	channelManager *mockChannelManager
 	tasksMetadata  map[PeriodicTaskType]PeriodicTaskMetadata
-	pollConfig     poll.Config
+	taskBackoff    poll.Config
 }
 
 func newPublisherTestFixture(t *testing.T) *publisherTestFixture {
@@ -29,7 +29,7 @@ func newPublisherTestFixture(t *testing.T) *publisherTestFixture {
 		orgService:     &mockOrganizationService{},
 		channelManager: &mockChannelManager{},
 		tasksMetadata:  createTestTaskMetadata(),
-		pollConfig: poll.Config{
+		taskBackoff: poll.Config{
 			BaseDelay: 100 * time.Millisecond,
 			Factor:    2,
 			MaxDelay:  10 * time.Second,
@@ -41,7 +41,7 @@ func newPublisherTestFixture(t *testing.T) *publisherTestFixture {
 		OrgService:     f.orgService,
 		ChannelManager: f.channelManager,
 		TasksMetadata:  f.tasksMetadata,
-		PollConfig:     f.pollConfig,
+		TaskBackoff:    f.taskBackoff,
 	}
 
 	var err error
@@ -690,7 +690,7 @@ func TestPeriodicTaskPublisher_reschedule(t *testing.T) {
 
 				f.publisher.rescheduleTaskRetry(task)
 
-				assertTaskRescheduledWithBackoff(t, task, &f.pollConfig, tt.expectedRetries)
+				assertTaskRescheduledWithBackoff(t, task, &f.taskBackoff, tt.expectedRetries)
 				require.Equal(t, 1, f.publisher.taskHeap.Len())
 
 				// Verify task in heap

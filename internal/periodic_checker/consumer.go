@@ -58,7 +58,7 @@ type PeriodicTaskConsumerConfig struct {
 }
 
 func NewPeriodicTaskConsumer(config PeriodicTaskConsumerConfig) *PeriodicTaskConsumer {
-	if config.ConsumerCount == 0 {
+	if config.ConsumerCount <= 0 {
 		config.ConsumerCount = DefaultConsumerCount
 	}
 

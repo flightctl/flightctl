@@ -97,7 +97,7 @@ func (s *Server) Run(ctx context.Context) error {
 		OrgService:     serviceHandler,
 		TasksMetadata:  periodicTasks,
 		ChannelManager: channelManager,
-		PollConfig: poll.Config{
+		TaskBackoff: poll.Config{
 			BaseDelay: 100 * time.Millisecond,
 			Factor:    3,
 			MaxDelay:  10 * time.Second,

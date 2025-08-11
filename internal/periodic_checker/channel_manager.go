@@ -27,7 +27,7 @@ type ChannelManagerConfig struct {
 
 func NewChannelManager(config ChannelManagerConfig) *ChannelManager {
 	bufferSize := config.ChannelBufferSize
-	if bufferSize == 0 {
+	if bufferSize <= 0 {
 		bufferSize = DefaultChannelBufferSize
 	}
 
