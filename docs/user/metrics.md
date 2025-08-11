@@ -21,26 +21,39 @@ Monitors system resource usage on the Flight Control server.
 - `flightctl_memory_utilization`: Memory consumption statistics  
 - `flightctl_disk_utilization`: Disk I/O operations and performance
 
-**Configuration:****
+**Configuration:**
 
 - `enabled`: Enable/disable system collector (default: `true`)
 - `tickerInterval`: Collection frequency (default: `"5s"`)
 
 ### HTTP Collector
 
-Tracks HTTP API performance and service level compliance.
+Tracks HTTP API performance using OpenTelemetry instrumentation. This collector integrates OpenTelemetry HTTP metrics with the existing Prometheus metrics infrastructure, providing standardized HTTP observability.
+
+**Features:**
+
+- **OpenTelemetry Integration**: Uses OpenTelemetry HTTP instrumentation for standardized metrics
+- **Prometheus Export**: Automatically exports OpenTelemetry metrics in Prometheus format
+- **Tracing Integration**: Supports distributed tracing when tracing is enabled
 
 **Metrics:**
 
-- `flightctl_http_request_duration`: API request latency histograms
-- `flightctl_http_requests_total`: Request counts by endpoint and status code
-- `flightctl_http_slo_violations`: SLO compliance tracking
+The HTTP collector automatically generates standard OpenTelemetry HTTP server metrics, which typically include:
+
+- `http_server_duration`: HTTP request duration histograms with labels for method, route, and status code
+- `http_server_request_size`: HTTP request size histograms  
+- `http_server_response_size`: HTTP response size histograms
+- Additional OpenTelemetry standard HTTP metrics as defined by semantic conventions
+
+**Labels:** Metrics include standard OpenTelemetry semantic convention labels such as:
+- `http_method`: HTTP request method (GET, POST, etc.)
+- `http_route`: API endpoint route
+- `http_status_code`: HTTP response status code
+- `service_name`: FlightCtl service name (e.g., "flightctl-api")
 
 **Configuration:**
 
-- `enabled`: Enable/disable HTTP metrics (default: `true`)
-- `sloMax`: Maximum response time for SLO tracking in seconds (default: `4.0`)
-- `apiLatencyBins`: Histogram buckets for latency measurements (default: `[1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0]`)
+- `enabled`: Enable/disable HTTP metrics collection (default: `true`)
 
 ### Device Collector
 
@@ -54,7 +67,7 @@ Monitors device status and health across your fleet.
 
 **Labels:** `organization_id`, `fleet`, `status`
 
-**Configuration:****
+**Configuration:**
 
 - `enabled`: Enable/disable device metrics (default: `true`)
 - `tickerInterval`: Collection frequency (default: `"30s"`)
@@ -128,9 +141,7 @@ Tracks synchronization between Flight Control and managed devices.
       "tickerInterval": "10s"
     },
     "httpCollector": {
-      "enabled": true,
-      "sloMax": 2.0,
-      "apiLatencyBins": [0.1, 0.5, 1.0, 5.0]
+      "enabled": true
     },
     "deviceCollector": {
       "enabled": true,
@@ -155,7 +166,7 @@ Tracks synchronization between Flight Control and managed devices.
 ## Usage Notes
 
 - **Metric Exposure**: All metrics are available at the configured HTTP endpoint in Prometheus format
-- **Collection Strategy**: Periodic collectors run on configurable timers; HTTP metrics are captured in real-time
+- **Collection Strategy**: Periodic collectors run on configurable timers; HTTP metrics are captured in real-time via OpenTelemetry instrumentation
 - **Prometheus Integration**: Metrics can be scraped by Prometheus or any compatible monitoring system
 - **Labels**: Use labels like `organization_id`, `fleet`, and `status` to filter and group metrics for dashboards and alerts
 - **Performance**: Adjust `tickerInterval` based on your monitoring needs to balance freshness with system load
