@@ -77,8 +77,19 @@ func (h *EventHandler) HandleDeviceUpdatedEvents(ctx context.Context, resourceKi
 	// Only generate status change events when the device is not being created
 	if !created {
 		statusUpdates := common.ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId, h.store)
+
+		// Deduplicate DeviceDisconnected events - if multiple status fields changed to Unknown,
+		// only emit one DeviceDisconnected event
+		deviceDisconnectedEmitted := false
 		for _, update := range statusUpdates {
-			h.CreateEvent(ctx, common.GetDeviceEventFromUpdateDetails(ctx, name, update))
+			if update.Reason == api.EventReasonDeviceDisconnected {
+				if !deviceDisconnectedEmitted {
+					h.CreateEvent(ctx, common.GetDeviceEventFromUpdateDetails(ctx, name, update))
+					deviceDisconnectedEmitted = true
+				}
+			} else {
+				h.CreateEvent(ctx, common.GetDeviceEventFromUpdateDetails(ctx, name, update))
+			}
 		}
 	}
 
