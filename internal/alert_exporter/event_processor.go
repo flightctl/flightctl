@@ -298,6 +298,7 @@ func (c *CheckpointContext) setAlert(event api.Event, reason string, group []str
 		c.alerts[k][reason].ResourceKind = event.InvolvedObject.Kind
 		c.alerts[k][reason].OrgID = store.NullOrgId.String()
 		c.alerts[k][reason].Reason = reason
+		c.alerts[k][reason].Summary = event.Message
 		c.alerts[k][reason].StartsAt = *event.Metadata.CreationTimestamp
 		c.alerts[k][reason].EndsAt = nil
 
