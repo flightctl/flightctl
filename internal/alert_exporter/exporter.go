@@ -52,6 +52,7 @@ type AlertInfo struct {
 	ResourceKind string
 	OrgID        string
 	Reason       string
+	Summary      string
 	StartsAt     time.Time
 	EndsAt       *time.Time
 }
