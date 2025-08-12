@@ -28,13 +28,15 @@ Monitors system resource usage on the Flight Control server.
 
 ### HTTP Collector
 
-Tracks HTTP API performance using OpenTelemetry instrumentation. This collector integrates OpenTelemetry HTTP metrics with the existing Prometheus metrics infrastructure, providing standardized HTTP observability.
+Tracks HTTP API performance and service level compliance.
+
+Note: This collector uses OpenTelemetry under the hood and follows standard HTTP semantic conventions. Metrics are exported in Prometheus format.
 
 **Features:**
 
-- **OpenTelemetry Integration**: Uses OpenTelemetry HTTP instrumentation for standardized metrics
-- **Prometheus Export**: Automatically exports OpenTelemetry metrics in Prometheus format
-- **Tracing Integration**: Supports distributed tracing when tracing is enabled
+- **Real-time Monitoring**: Captures HTTP request metrics as they happen
+- **Standard Metrics**: Provides industry-standard HTTP observability metrics
+- **Prometheus Compatible**: Exports metrics in Prometheus format for easy integration
 
 **Metrics:**
 
@@ -43,13 +45,17 @@ The HTTP collector automatically generates standard OpenTelemetry HTTP server me
 - `http_server_duration`: HTTP request duration histograms with labels for method, route, and status code
 - `http_server_request_size`: HTTP request size histograms  
 - `http_server_response_size`: HTTP response size histograms
-- Additional OpenTelemetry standard HTTP metrics as defined by semantic conventions
 
-**Labels:** Metrics include standard OpenTelemetry semantic convention labels such as:
-- `http_method`: HTTP request method (GET, POST, etc.)
-- `http_route`: API endpoint route
+**Labels:** All HTTP metrics include labels that allow you to filter and aggregate data by different dimensions. These labels follow standard OpenTelemetry semantic conventions:
+
+- `http_method`: HTTP request method
+- `http_scheme`: HTTP scheme  
 - `http_status_code`: HTTP response status code
-- `service_name`: FlightCtl service name (e.g., "flightctl-api")
+- `net_host_name`: Network host name
+- `net_host_port`: Network host port
+- `net_protocol_name`: Network protocol name
+- `net_protocol_version`: Network protocol version
+- `service_name`: FlightCtl service name
 
 **Configuration:**
 
