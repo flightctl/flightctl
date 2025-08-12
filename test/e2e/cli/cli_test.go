@@ -2,14 +2,11 @@ package cli_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
@@ -21,16 +18,8 @@ import (
 )
 
 var (
-	invalidSyntax       = "invalid syntax"
-	kind                = "involvedObject.kind"
 	unspecifiedResource = "Error: name must be specified when deleting"
-	fieldSelector       = "--field-selector"
-	fleetYAMLPath       = "fleet.yaml"
-	limit               = "--limit"
-	jsonFlag            = "-ojson"
-	repoYAMLPath        = "repository-flightctl.yaml"
 	resourceCreated     = `(200 OK|201 Created)`
-	erYAMLPath          = "enrollmentrequest.yaml"
 )
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
@@ -115,7 +104,7 @@ var _ = Describe("cli operation", func() {
 		It("should prevent reapplying enrollment request with same name after device creation", Label("83301", "sanity"), func() {
 
 			By("Applying enrollment request initially")
-			out, err := harness.ManageResource("apply", erYAMLPath)
+			out, err := harness.ManageResource("apply", util.ErYAMLName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 
@@ -138,7 +127,7 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(ContainSubstring("device exists"))
 
 			By("Attempting to reapply the same enrollment request")
-			out, err = harness.ManageResource("apply", erYAMLPath)
+			out, err = harness.ManageResource("apply", util.ErYAMLName)
 			Expect(err).To(HaveOccurred())
 			badRequestMessage := fmt.Sprintf("%d %s", http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 			Expect(out).To(ContainSubstring(badRequestMessage))
@@ -155,7 +144,7 @@ var _ = Describe("cli operation", func() {
 			By("Testing Device resource lifecycle")
 			out, err := harness.CLI("apply", "-f", deviceYamlPath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 
 			device := harness.GetDeviceByYaml(deviceYamlPath)
 			Expect(*device.Metadata.Name).ToNot(BeEmpty(), "device name should not be empty")
@@ -191,7 +180,7 @@ var _ = Describe("cli operation", func() {
 			By("Testing Fleet resource lifecycle")
 			out, err = harness.CLI("apply", "-f", fleetBYamlPath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 			fleet := harness.GetFleetByYaml(fleetBYamlPath)
 			Expect(fleet.Spec.Template).ToNot(BeNil(), "fleet template should not be nil")
 			Expect(fleet.Spec.Selector).ToNot(BeNil(), "fleet selector should not be nil")
@@ -221,7 +210,7 @@ var _ = Describe("cli operation", func() {
 				out, err = harness.CLI("apply", "-f", repositoryFlightctlYamlPath)
 				return err
 			}).Should(BeNil(), "failed to apply Repository")
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 
 			repo := harness.GetRepositoryByYaml(repositoryFlightctlYamlPath)
 
@@ -240,7 +229,7 @@ var _ = Describe("cli operation", func() {
 			By("ResourceSync: Resources lifecycle")
 			out, err = harness.CLI("apply", "-f", resourceSyncYamlPath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 			rSync := harness.GetResourceSyncByYaml(resourceSyncYamlPath)
 
 			//Update rSync name
@@ -258,7 +247,7 @@ var _ = Describe("cli operation", func() {
 			By("EnrollmentRequest: Resources lifecycle")
 			out, err = harness.CLI("apply", "-f", enrollmentRequestYamlPath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 			er := harness.GetEnrollmentRequestByYaml(enrollmentRequestYamlPath)
 
 			//Update er name
@@ -279,7 +268,7 @@ var _ = Describe("cli operation", func() {
 				out, err = harness.CLI("apply", "-f", csrYamlPath)
 				return err
 			}).Should(BeNil(), "failed to apply CSR")
-			Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
+			Expect(out).To(MatchRegexp(resourceCreated))
 			csr := harness.GetCertificateSigningRequestByYaml(csrYamlPath)
 
 			//Update csr name
@@ -394,214 +383,6 @@ var _ = Describe("cli operation", func() {
 			Expect(clientVersion).ToNot(BeEmpty(), "client version should be found")
 			Expect(serverVersion).ToNot(BeEmpty(), "server version should be found")
 			Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
-		})
-	})
-
-	Context("Events API Tests", func() {
-		It("should list events resource is created/updated/deleted", Label("81779", "sanity"), func() {
-			var deviceName, fleetName, repoName string
-			var er *v1alpha1.EnrollmentRequest
-
-			resources := []struct {
-				resourceType string
-				yamlPath     string
-			}{
-				{util.DeviceResource, util.DeviceYAMLPath},
-				{util.FleetResource, fleetYAMLPath},
-				{util.RepoResource, repoYAMLPath},
-				{util.ErResource, erYAMLPath},
-			}
-
-			By("Applying resources: device, fleet, repo, enrollment request")
-			for _, r := range resources {
-				_, err := harness.ManageResource(util.ApplyAction, r.yamlPath)
-				Expect(err).ToNot(HaveOccurred())
-
-				switch r.resourceType {
-				case util.DeviceResource:
-					device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
-					deviceName = *device.Metadata.Name
-				case util.FleetResource:
-					fleet := harness.GetFleetByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
-					fleetName = *fleet.Metadata.Name
-				case util.RepoResource:
-					repo := harness.GetRepositoryByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
-					repoName = *repo.Metadata.Name
-				case util.ErResource:
-					out, err := harness.CLI(util.ApplyAction, util.ForceFlag, util.GetTestExamplesYamlPath(r.yamlPath))
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(MatchRegexp(`(200 OK|201 Created)`))
-					er = harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
-				}
-			}
-
-			By("Verifying Created events")
-			createdEvents, err := verifyEventsByReason(harness, resources, deviceName, fleetName, repoName, er, "ResourceCreated")
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(createdEvents)).To(BeZero(), fmt.Sprintf("Missing created events for: %v", createdEvents))
-
-			By("Reapplying resources (updates)")
-			for _, r := range resources {
-				// Read the YAML file and add a test-update label
-				yamlPath := util.GetTestExamplesYamlPath(r.yamlPath)
-				yamlData, err := os.ReadFile(yamlPath)
-				Expect(err).ToNot(HaveOccurred())
-
-				// Parse YAML and add test-update label
-				var resource map[string]interface{}
-				err = yaml.Unmarshal(yamlData, &resource)
-				Expect(err).ToNot(HaveOccurred())
-
-				// Ensure metadata exists
-				if resource["metadata"] == nil {
-					resource["metadata"] = make(map[string]interface{})
-				}
-				metadata := resource["metadata"].(map[string]interface{})
-
-				// Ensure labels exist
-				if metadata["labels"] == nil {
-					metadata["labels"] = make(map[string]interface{})
-				}
-				labels := metadata["labels"].(map[string]interface{})
-
-				// Add test-update label
-				labels["test-update"] = "true"
-
-				// Marshal back to YAML
-				modifiedYaml, err := yaml.Marshal(&resource)
-				Expect(err).ToNot(HaveOccurred())
-				yamlStr := string(modifiedYaml)
-
-				_, err = harness.CLIWithStdin(yamlStr, "apply", "-f", "-")
-				Expect(err).ToNot(HaveOccurred())
-
-				// Update resource names for verification
-				switch r.resourceType {
-				case util.DeviceResource:
-					device := harness.GetDeviceByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
-					deviceName = *device.Metadata.Name
-				case util.FleetResource:
-					fleet := harness.GetFleetByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
-					fleetName = *fleet.Metadata.Name
-				case util.RepoResource:
-					repo := harness.GetRepositoryByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
-					repoName = *repo.Metadata.Name
-				case util.ErResource:
-					er = harness.GetEnrollmentRequestByYaml(util.GetTestExamplesYamlPath(r.yamlPath))
-				}
-			}
-
-			By("Verifying updated events")
-			// Check for all resources since we made changes to all of them
-			updatedEvents, err := verifyEventsByReason(harness, resources, deviceName, fleetName, repoName, er, "ResourceUpdated")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(updatedEvents)).To(BeZero(), fmt.Sprintf("Missing updated events for: %v", updatedEvents))
-
-			By("Querying events with fieldSelector kind=Device")
-			out, err := harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.DeviceResource))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
-
-			By("Querying events with fieldSelector kind=Fleet")
-			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.FleetResource))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(formatResourceEvent("Fleet", fleetName, util.EventCreated)))
-
-			By("Querying events with fieldSelector kind=Repository")
-			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.RepoResource))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(formatResourceEvent(util.RepoResource, repoName, util.EventCreated)))
-
-			By("Querying events with fieldSelector type=Normal")
-			out, err = harness.RunGetEvents(fieldSelector, "type=Normal")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring("Normal"))
-
-			By("Querying events with a specific device name")
-			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("involvedObject.name=%s", deviceName))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(deviceName))
-
-			By("Querying events with a combined filter: kind=Device, type=Normal")
-			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s,type=Normal", kind, util.DeviceResource))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(MatchRegexp(formatResourceEvent(util.DeviceResource, deviceName, util.EventCreated)))
-			Expect(out).To(ContainSubstring("Normal"))
-
-			By("Querying with an invalid fieldSelector key")
-			out, err = harness.RunGetEvents(fieldSelector, "invalidField=xyz")
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("unable to resolve selector name"))
-
-			By("Querying with an unknown kind in fieldSelector")
-			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=AlienDevice", kind))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).ToNot(ContainSubstring("Normal"))
-
-			By("Deleting the resource")
-			_, err = harness.ManageResource("delete", util.Device, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			By("Verifying deleted events are listed")
-			out, err = harness.RunGetEvents(limit, "1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(util.EventDeleted))
-
-			By("Querying events with limit=1")
-			out, err = harness.RunGetEvents(limit, "1")
-			Expect(err).ToNot(HaveOccurred())
-			lines := strings.Split(strings.TrimSpace(out), "\n")
-			Expect(len(lines)).To(Equal(2)) // 1 header + 1 event
-
-			By("Running with no argument")
-			out, err = harness.RunGetEvents(limit)
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("flag needs an argument"))
-
-			By("Running with empty string as argument")
-			out, err = harness.RunGetEvents(limit, "")
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring(invalidSyntax))
-
-			By("Running with negative number")
-			out, err = harness.RunGetEvents(limit, "-1")
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("must be greater than 0"))
-
-			By("Running with non-integer string")
-			out, err = harness.RunGetEvents(limit, "xyz")
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring(invalidSyntax))
-
-			By("Running with too many args")
-			out, err = harness.RunGetEvents(limit, "1", "2")
-			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("accepts 1 arg(s), received 2"))
-
-			By("fetching the next page of events using the continue flag", func() {
-				page, err := getEventsPage(harness, limit, "1", jsonFlag)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(page.Items).To(HaveLen(1))
-				Expect(page.Metadata.Continue).ToNot(BeNil(), "expected non-nil continue token")
-
-				nextPage, err := getEventsPage(harness, "--continue", *page.Metadata.Continue, jsonFlag)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(nextPage.Items).ToNot(BeEmpty())
-			})
-
-			By("verifying that events are sorted by creationTimestamp descending", func() {
-				page, err := getEventsPage(harness, jsonFlag)
-				Expect(err).ToNot(HaveOccurred())
-				timestamps, err := extractTimestamps(page.Items)
-				Expect(err).ToNot(HaveOccurred())
-
-				for i := 1; i < len(timestamps); i++ {
-					Expect(timestamps[i-1].After(timestamps[i]) || timestamps[i-1].Equal(timestamps[i])).To(BeTrue(),
-						"Events should be sorted descending by creationTimestamp")
-				}
-			})
-
 		})
 	})
 })
@@ -770,78 +551,6 @@ func GetVersionByPrefix(output, prefix string) string {
 		}
 	}
 	return ""
-}
-
-func getEventsPage(harness *e2e.Harness, args ...string) (v1alpha1.EventList, error) {
-	out, err := harness.RunGetEvents(args...)
-	if err != nil {
-		return v1alpha1.EventList{}, err
-	}
-
-	var page v1alpha1.EventList
-	err = json.Unmarshal([]byte(out), &page)
-	if err != nil {
-		return v1alpha1.EventList{}, err
-	}
-
-	return page, nil
-}
-
-func extractTimestamps(events []v1alpha1.Event) ([]time.Time, error) {
-	var timestamps []time.Time
-
-	for _, event := range events {
-		if event.Metadata.CreationTimestamp == nil {
-			return nil, fmt.Errorf("event missing CreationTimestamp")
-		}
-		timestamps = append(timestamps, *event.Metadata.CreationTimestamp)
-	}
-
-	return timestamps, nil
-}
-
-func verifyEventsByReason(harness *e2e.Harness, resources []struct {
-	resourceType string
-	yamlPath     string
-}, deviceName, fleetName, repoName string, er *v1alpha1.EnrollmentRequest, eventReason string) ([]string /* missingEvents */, error) {
-	out, err := harness.RunGetEvents(fmt.Sprintf("--field-selector=reason=%s", eventReason))
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(out, "\n")
-	missingEvents := []string{}
-
-	for _, r := range resources {
-		var name string
-		switch r.resourceType {
-		case util.DeviceResource:
-			name = deviceName
-		case util.FleetResource:
-			name = fleetName
-		case util.RepoResource:
-			name = repoName
-		case util.ErResource:
-			name = *er.Metadata.Name
-		}
-
-		matched := false
-		for _, line := range lines {
-			if strings.Contains(line, r.resourceType) && strings.Contains(line, name) {
-				matched = true
-				break
-			}
-		}
-
-		if !matched {
-			missingEvents = append(missingEvents, fmt.Sprintf("%s %s", r.resourceType, name))
-			fmt.Fprintf(GinkgoWriter,
-				"\n[DEBUG] No event with reason='%s' found for %s %s\nEvent output:\n%s\n\n",
-				eventReason, r.resourceType, name, out)
-		}
-	}
-
-	return missingEvents, nil
 }
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.
