@@ -55,19 +55,12 @@ sed -i "s|{{AUTH_CLIENT_ID}}|${AUTH_CLIENT_ID}|g" "$ENV_OUTPUT"
 sed -i "s|{{INTERNAL_AUTH_URL}}|${AUTH_URL}|g" "$ENV_OUTPUT"
 sed -i "s|{{AUTH_INSECURE_SKIP_VERIFY}}|${AUTH_INSECURE_SKIP_VERIFY}|g" "$ENV_OUTPUT"
 
-# Handle server certificates
-if [ -f "$CERTS_SOURCE_PATH/server.crt" ]; then
-  cp "$CERTS_SOURCE_PATH/server.crt" "$CERTS_DEST_PATH/server.crt"
-else
-  echo "Warning: Server certificate not found at $CERTS_SOURCE_PATH/server.crt"
-  exit 1
-fi
-if [ -f "$CERTS_SOURCE_PATH/server.key" ]; then
-  cp "$CERTS_SOURCE_PATH/server.key" "$CERTS_DEST_PATH/server.key"
-else
-  echo "Warning: Server key not found at $CERTS_SOURCE_PATH/server.key"
-  exit 1
-fi
+# Wait for certificates
+wait_for_files "$CERTS_SOURCE_PATH/server.crt" "$CERTS_SOURCE_PATH/server.key"
+
+# Copy certificates to destination path
+cp "$CERTS_SOURCE_PATH/server.crt" "$CERTS_DEST_PATH/server.crt"
+cp "$CERTS_SOURCE_PATH/server.key" "$CERTS_DEST_PATH/server.key"
 
 if [ -f "$CERTS_SOURCE_PATH/auth/ca.crt" ]; then
   echo "Using provided auth CA certificate"

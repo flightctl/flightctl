@@ -18,6 +18,7 @@ Exec=/bin/sh /config-source/init.sh
 Type=oneshot
 RemainAfterExit=true
 TimeoutStartSec=5s
+Restart=on-failure
 RestartSec=5s
 
 [Install]
