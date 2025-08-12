@@ -22,7 +22,7 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 		Status: &api.DeviceStatus{
 			Updated: api.DeviceUpdatedStatus{
 				Status: api.DeviceUpdatedStatusOutOfDate,
-				Info:   lo.ToPtr("The device could not be updated to the fleet's latest device spec: update failed"),
+				Info:   lo.ToPtr("Device could not be updated to the fleet's latest device spec: update failed"),
 			},
 			Conditions: []api.Condition{
 				{
@@ -43,7 +43,7 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 		Status: &api.DeviceStatus{
 			Updated: api.DeviceUpdatedStatus{
 				Status: api.DeviceUpdatedStatusOutOfDate,
-				Info:   lo.ToPtr("The device has not been updated to the latest device spec."),
+				Info:   lo.ToPtr("Device has not been updated to the latest device spec."),
 			},
 		},
 	}
@@ -56,7 +56,7 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 		Status: &api.DeviceStatus{
 			Updated: api.DeviceUpdatedStatus{
 				Status: api.DeviceUpdatedStatusUpToDate,
-				Info:   lo.ToPtr("The device has been updated to the latest device spec."),
+				Info:   lo.ToPtr("Device was updated to the latest device spec."),
 			},
 		},
 	}
@@ -86,7 +86,7 @@ func TestComputeDeviceStatusChanges_StatusTransition(t *testing.T) {
 		Status: &api.DeviceStatus{
 			Updated: api.DeviceUpdatedStatus{
 				Status: api.DeviceUpdatedStatusUpToDate,
-				Info:   lo.ToPtr("The device has been updated to the latest device spec."),
+				Info:   lo.ToPtr("Device was updated to the latest device spec."),
 			},
 		},
 	}
@@ -99,7 +99,7 @@ func TestComputeDeviceStatusChanges_StatusTransition(t *testing.T) {
 		Status: &api.DeviceStatus{
 			Updated: api.DeviceUpdatedStatus{
 				Status: api.DeviceUpdatedStatusOutOfDate,
-				Info:   lo.ToPtr("The device could not be updated to the fleet's latest device spec: update failed"),
+				Info:   lo.ToPtr("Device could not be updated to the fleet's latest device spec: update failed"),
 			},
 			Conditions: []api.Condition{
 				{

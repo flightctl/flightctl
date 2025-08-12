@@ -450,6 +450,9 @@ The following table shows the application runtimes and formats supported by Flig
 > [!NOTE]
 > Requires `podman-compose` to be installed on the device.
 
+> [!NOTE]
+> Image downloads adhere to the `pull-timeout` [configuration](configuring-agent.md#agent-configyaml-configuration-file).
+
 > [!TIP]
 > Short image names (e.g., `nginx`) are not supported. Use fully qualified references like `docker.io/nginx` to avoid ambiguity.
 
@@ -616,6 +619,9 @@ Volume images must follow the OCI artifact specification:
 > in the layer's `org.opencontainers.image.title` field. For single layer archives if the mount path
 > does not exist as a directory the single layer will be extracted as a file at that path, otherwise
 > it will be placed into the existing directory using the file name in the name field for the layer.
+
+> [!NOTE]
+> Artifact downloads adhere to the `pull-timeout` [configuration](configuring-agent.md#agent-configyaml-configuration-file).
 
 #### Device Requirements
 

@@ -3,6 +3,8 @@ package dependency
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,7 +24,6 @@ import (
 const (
 	testImageV1 = "quay.io/flightctl-tests/alpine:v1"
 	testImageV2 = "quay.io/flightctl-tests/alpine:v2"
-	testImageV3 = "quay.io/flightctl-tests/alpine:v3"
 	testOSImage = "quay.io/flightctl-tests/os:latest"
 )
 
@@ -226,7 +227,7 @@ func TestEnsureScheduled(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, timeout)
+			manager := NewPrefetchManager(log, podman, rw, timeout)
 
 			// register a collector that returns the test targets
 			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
@@ -306,7 +307,7 @@ func TestIsReady(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, timeout)
+			manager := NewPrefetchManager(log, podman, rw, timeout)
 
 			for _, image := range tt.scheduledImages {
 				state := tt.imageStates[image]
@@ -348,7 +349,7 @@ func TestStatus(t *testing.T) {
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 	timeout := util.Duration(5 * time.Second)
-	manager := NewPrefetchManager(log, podman, timeout)
+	manager := NewPrefetchManager(log, podman, rw, timeout)
 
 	targets := []OCIPullTarget{
 		{
@@ -694,7 +695,7 @@ func TestBeforeUpdate(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, timeout)
+			manager := NewPrefetchManager(log, podman, rw, timeout)
 
 			// Register collectors
 			for _, collector := range tt.collectors {
@@ -812,7 +813,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	rw := fileio.NewReadWriter()
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 	timeout := util.Duration(5 * time.Second)
-	manager := NewPrefetchManager(log, podman, timeout)
+	manager := NewPrefetchManager(log, podman, rw, timeout)
 
 	// simulate the complete lifecycle of pull secret cleanup
 	var cleanupCalls []string
@@ -888,4 +889,203 @@ func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desir
 
 func newTestOCICollector(fn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)) OCICollector {
 	return &testOCICollector{collectFn: fn}
+}
+
+func TestCleanupPartialLayers(t *testing.T) {
+	tests := []struct {
+		name            string
+		setupDirs       []string
+		setupDirTimes   []time.Time
+		activePulls     bool
+		emptyTmpDir     bool
+		expectedRemoved []string
+		expectedKept    []string
+	}{
+		{
+			name: "removes all container_images_storage directories",
+			setupDirs: []string{
+				"container_images_storage123",
+				"container_images_storage456",
+				"container_images_storage789",
+			},
+			setupDirTimes: []time.Time{
+				time.Now().Add(-2 * time.Hour),
+				time.Now().Add(-1 * time.Hour),
+				time.Now().Add(-5 * time.Minute),
+			},
+			expectedRemoved: []string{
+				"container_images_storage123",
+				"container_images_storage456",
+				"container_images_storage789",
+			},
+		},
+		{
+			name: "cleanup proceeds even with active pulls",
+			setupDirs: []string{
+				"container_images_storage123",
+				"container_images_storage456",
+			},
+			setupDirTimes: []time.Time{
+				time.Now().Add(-2 * time.Hour),
+				time.Now().Add(-1 * time.Hour),
+			},
+			activePulls: true,
+			expectedRemoved: []string{
+				"container_images_storage123",
+				"container_images_storage456",
+			},
+		},
+		{
+			name: "removes single directory",
+			setupDirs: []string{
+				"container_images_storage123",
+			},
+			setupDirTimes: []time.Time{
+				time.Now().Add(-1 * time.Hour),
+			},
+			expectedRemoved: []string{
+				"container_images_storage123",
+			},
+		},
+		{
+			name: "ignores non-container_images_storage directories",
+			setupDirs: []string{
+				"container_images_storage123",
+				"container_images_storage456",
+				"some_other_dir",
+				"random_temp",
+			},
+			setupDirTimes: []time.Time{
+				time.Now().Add(-2 * time.Hour),
+				time.Now().Add(-1 * time.Hour),
+				time.Now().Add(-30 * time.Minute),
+				time.Now().Add(-15 * time.Minute),
+			},
+			expectedRemoved: []string{
+				"container_images_storage123",
+				"container_images_storage456",
+			},
+			expectedKept: []string{
+				"some_other_dir",
+				"random_temp",
+			},
+		},
+		{
+			name:      "handles empty directory",
+			setupDirs: []string{},
+		},
+		{
+			name: "sorts directories correctly by time",
+			setupDirs: []string{
+				"container_images_storage_newer",
+				"container_images_storage_oldest",
+				"container_images_storage_middle",
+			},
+			setupDirTimes: []time.Time{
+				time.Now().Add(-1 * time.Minute),
+				time.Now().Add(-3 * time.Hour),
+				time.Now().Add(-30 * time.Minute),
+			},
+			expectedRemoved: []string{
+				"container_images_storage_oldest",
+				"container_images_storage_middle",
+				"container_images_storage_newer",
+			},
+		},
+		{
+			name:        "skips cleanup when tmpdir is empty",
+			setupDirs:   []string{},
+			emptyTmpDir: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			// create temp directory and setup fileio
+			rootDir := t.TempDir()
+			tmpDir := filepath.Join(rootDir, "var", "tmp")
+			err := os.MkdirAll(tmpDir, 0755)
+			require.NoError(err)
+
+			// create test directories
+			for i, dir := range tt.setupDirs {
+				dirPath := filepath.Join(tmpDir, dir)
+				err := os.MkdirAll(dirPath, 0755)
+				require.NoError(err)
+
+				// set modification time if provided
+				if i < len(tt.setupDirTimes) {
+					err = os.Chtimes(dirPath, tt.setupDirTimes[i], tt.setupDirTimes[i])
+					require.NoError(err)
+				}
+			}
+
+			// setup fileio with root dir
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(rootDir)
+
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+
+			// setup expectations for GetImageCopyTmpDir
+			// return /var/tmp or empty based on test case
+			tmpDirResponse := "/var/tmp"
+			if tt.emptyTmpDir {
+				tmpDirResponse = ""
+			}
+			mockExec.EXPECT().
+				ExecuteWithContext(gomock.Any(), "podman", "info", "--format", "{{.Store.ImageCopyTmpDir}}").
+				Return(tmpDirResponse, "", 0).
+				AnyTimes()
+
+			// create podman client
+			podmanClient := client.NewPodman(log, mockExec, rw, poll.Config{})
+
+			// create prefetch manager
+			pm := &prefetchManager{
+				log:          log,
+				podmanClient: podmanClient,
+				readWriter:   rw,
+				pullTimeout:  5 * time.Minute,
+				tasks:        make(map[string]*prefetchTask),
+				tmpDir:       "", // always start without cache to test fetching
+			}
+
+			// setup active pulls if needed
+			if tt.activePulls {
+				pm.tasks["test-image"] = &prefetchTask{
+					cancelFn: func() {},
+					done:     false,
+				}
+			}
+
+			// run cleanup
+			ctx := context.Background()
+			err = pm.cleanupPartialLayers(ctx)
+			require.NoError(err)
+
+			// verify expected directories exist
+			if tt.expectedKept != nil {
+				for _, dir := range tt.expectedKept {
+					dirPath := filepath.Join(tmpDir, dir)
+					_, err := os.Stat(dirPath)
+					require.NoError(err, "expected directory %s to exist", dir)
+				}
+			}
+
+			// verify expected directories were removed
+			for _, dir := range tt.expectedRemoved {
+				dirPath := filepath.Join(tmpDir, dir)
+				_, err := os.Stat(dirPath)
+				require.True(os.IsNotExist(err), "expected directory %s to be removed", dir)
+			}
+		})
+	}
 }

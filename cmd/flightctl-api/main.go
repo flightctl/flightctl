@@ -15,12 +15,15 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
 
+//nolint:gocyclo
 func main() {
 	ctx := context.Background()
 
@@ -139,15 +142,13 @@ func main() {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}
 
-	metrics := instrumentation.NewApiMetrics(cfg)
-
 	// create the agent service listener as tcp (combined HTTP+gRPC)
 	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
 	if err != nil {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig, metrics)
+	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig)
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
@@ -155,7 +156,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, metrics, agentserver.GetGRPCServer())
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentserver.GetGRPCServer())
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -169,9 +170,43 @@ func main() {
 		cancel()
 	}()
 
-	if cfg.Prometheus != nil {
+	if cfg.Metrics != nil && cfg.Metrics.Enabled {
+		var collectors []metrics.NamedCollector
+		if cfg.Metrics.DeviceCollector != nil && cfg.Metrics.DeviceCollector.Enabled {
+			collectors = append(collectors, domain.NewDeviceCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.FleetCollector != nil && cfg.Metrics.FleetCollector.Enabled {
+			collectors = append(collectors, domain.NewFleetCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.RepositoryCollector != nil && cfg.Metrics.RepositoryCollector.Enabled {
+			collectors = append(collectors, domain.NewRepositoryCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.ResourceSyncCollector != nil && cfg.Metrics.ResourceSyncCollector.Enabled {
+			collectors = append(collectors, domain.NewResourceSyncCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
+			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+				collectors = append(collectors, systemMetricsCollector)
+				defer func() {
+					if err := systemMetricsCollector.Shutdown(); err != nil {
+						log.Errorf("Failed to shutdown system metrics collector: %v", err)
+					}
+				}()
+			}
+		}
+		if cfg.Metrics.HttpCollector != nil && cfg.Metrics.HttpCollector.Enabled {
+			if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", log); httpMetricsCollector != nil {
+				collectors = append(collectors, httpMetricsCollector)
+				defer func() {
+					if err := httpMetricsCollector.Shutdown(); err != nil {
+						log.Errorf("Failed to shutdown HTTP metrics collector: %v", err)
+					}
+				}()
+			}
+		}
+
 		go func() {
-			metricsServer := instrumentation.NewMetricsServer(log, cfg, metrics)
+			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
 			if err := metricsServer.Run(ctx); err != nil {
 				log.Fatalf("Error running server: %s", err)
 			}

@@ -533,7 +533,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 			}
 
-			err := storeInst.Fleet().UpdateConditions(ctx, orgId, "myfleet-1", conditions)
+			err := storeInst.Fleet().UpdateConditions(ctx, orgId, "myfleet-1", conditions, nil)
 			Expect(err).ToNot(HaveOccurred())
 			updatedFleet, err := storeInst.Fleet().Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -593,6 +593,163 @@ var _ = Describe("FleetStore create", func() {
 			err = storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
+		})
+
+		It("CountByRolloutStatus - with specific orgId", func() {
+			// Create fleets with different rollout statuses
+			fleet1 := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("fleet-rollout-1"),
+				},
+				Status: &api.FleetStatus{
+					Rollout: &api.FleetRolloutStatus{
+						CurrentBatch: lo.ToPtr(1),
+					},
+				},
+			}
+			fleet2 := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("fleet-rollout-2"),
+				},
+				Status: &api.FleetStatus{
+					Rollout: &api.FleetRolloutStatus{
+						CurrentBatch: lo.ToPtr(2),
+					},
+				},
+			}
+			fleet3 := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("fleet-rollout-3"),
+				},
+				Status: &api.FleetStatus{
+					Rollout: &api.FleetRolloutStatus{
+						CurrentBatch: lo.ToPtr(1),
+					},
+				},
+			}
+
+			_, err := storeInst.Fleet().Create(ctx, orgId, &fleet1, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet3, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Test with specific orgId
+			results, err := storeInst.Fleet().CountByRolloutStatus(ctx, &orgId, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			// Count expected results: 3 original fleets + 3 new ones = 6 total
+			// Original fleets have no rollout status (will be "none")
+			// New fleets have batch1 (2 fleets) and batch2 (1 fleet)
+			totalCount := int64(0)
+			statusCounts := make(map[string]int64)
+			for _, result := range results {
+				Expect(result.OrgID).To(Equal(orgId.String()))
+				totalCount += result.Count
+				statusCounts[result.Status] += result.Count
+			}
+			Expect(totalCount).To(Equal(int64(6))) // 3 original + 3 new fleets
+
+			// Check specific status counts
+			Expect(statusCounts["none"]).To(Equal(int64(3))) // Original fleets
+			Expect(statusCounts["1"]).To(Equal(int64(2)))    // fleet-rollout-1 and fleet-rollout-3 (batch 1)
+			Expect(statusCounts["2"]).To(Equal(int64(1)))    // fleet-rollout-2 (batch 2)
+		})
+
+		It("CountByRolloutStatus - with nil orgId (all orgs)", func() {
+			// Create another org with a fleet
+			otherOrgId := uuid.New()
+			err := testutil.CreateTestOrganization(ctx, storeInst, otherOrgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("other-org-fleet"),
+				},
+				Status: &api.FleetStatus{
+					Rollout: &api.FleetRolloutStatus{
+						CurrentBatch: lo.ToPtr(5),
+					},
+				},
+			}
+			_, err = storeInst.Fleet().Create(ctx, otherOrgId, &fleet, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Test with nil orgId (should get all orgs)
+			results, err := storeInst.Fleet().CountByRolloutStatus(ctx, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).ToNot(BeEmpty())
+
+			// Should have results for both organizations
+			orgIds := make(map[string]bool)
+			for _, result := range results {
+				orgIds[result.OrgID] = true
+			}
+			Expect(orgIds).To(HaveKey(orgId.String()))
+			Expect(orgIds).To(HaveKey(otherOrgId.String()))
+		})
+
+		It("Cannot update fleet spec or labels when owned by resourcesync", func() {
+			// Create a resourcesync first
+			resourceSync := api.ResourceSync{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("test-resourcesync"),
+				},
+				Spec: api.ResourceSyncSpec{
+					Repository: "myrepo",
+					Path:       "my/path",
+				},
+			}
+			_, err := storeInst.ResourceSync().Create(ctx, orgId, &resourceSync, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create a fleet owned by the resourcesync
+			owner := util.SetResourceOwner(api.ResourceSyncKind, "test-resourcesync")
+			fleet := api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("owned-fleet"),
+					Labels: &map[string]string{"original": "label"},
+					Owner:  owner,
+				},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{
+						MatchLabels: &map[string]string{"key": "original"},
+					},
+				},
+			}
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the fleet was created with the owner
+			createdFleet, err := storeInst.Fleet().Get(ctx, orgId, "owned-fleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(createdFleet.Metadata.Owner).ToNot(BeNil())
+			Expect(*createdFleet.Metadata.Owner).To(Equal("ResourceSync/test-resourcesync"))
+
+			// Try to update the fleet's spec - should fail
+			updatedFleet := *createdFleet
+			updatedFleet.Spec.Selector = &api.LabelSelector{
+				MatchLabels: &map[string]string{"key": "updated"},
+			}
+			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
+			_, err = storeInst.Fleet().Update(ctx, orgId, &updatedFleet, nil, true, callback, nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+
+			// Try to update the fleet's labels - should fail
+			updatedFleet = *createdFleet
+			updatedFleet.Metadata.Labels = &map[string]string{"updated": "label"}
+			_, err = storeInst.Fleet().Update(ctx, orgId, &updatedFleet, nil, true, callback, nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
+
+			// Verify the original fleet is unchanged
+			unchangedFleet, err := storeInst.Fleet().Get(ctx, orgId, "owned-fleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(unchangedFleet.Spec.Selector.MatchLabels).To(Equal(&map[string]string{"key": "original"}))
+			Expect(unchangedFleet.Metadata.Labels).To(Equal(&map[string]string{"original": "label"}))
 		})
 
 	})

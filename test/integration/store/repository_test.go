@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -283,6 +284,65 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(repositoryCallbackCalled).To(BeTrue())
+		})
+
+		It("CountByOrg - with specific orgId", func() {
+			// Test with specific orgId
+			results, err := storeInst.Repository().CountByOrg(ctx, &orgId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).To(HaveLen(1))
+			Expect(results[0].OrgID).To(Equal(orgId.String()))
+			Expect(results[0].Count).To(Equal(int64(4))) // 4 repositories from BeforeEach
+
+			// Create additional repositories in the same org with unique names
+			for i := 10; i <= 11; i++ {
+				spec := api.RepositorySpec{}
+				err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+					Url: "myrepo",
+				})
+				Expect(err).ToNot(HaveOccurred())
+
+				resource := api.Repository{
+					Metadata: api.ObjectMeta{
+						Name:   lo.ToPtr(fmt.Sprintf("myrepository-%d", i)),
+						Labels: &map[string]string{"environment": "test"},
+					},
+					Spec: spec,
+				}
+				callback := store.RepositoryStoreCallback(func(context.Context, uuid.UUID, *api.Repository, *api.Repository) {})
+				_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback, nil)
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			results, err = storeInst.Repository().CountByOrg(ctx, &orgId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).To(HaveLen(1))
+			Expect(results[0].OrgID).To(Equal(orgId.String()))
+			Expect(results[0].Count).To(Equal(int64(6))) // 4 original + 2 new
+		})
+
+		It("CountByOrg - with nil orgId (all orgs)", func() {
+			// Create repositories in another organization
+			otherOrgId := uuid.New()
+			err := testutil.CreateTestOrganization(ctx, storeInst, otherOrgId)
+			Expect(err).ToNot(HaveOccurred())
+			err = testutil.CreateRepositories(ctx, 2, storeInst, otherOrgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Test with nil orgId (should get all orgs)
+			results, err := storeInst.Repository().CountByOrg(ctx, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(results).To(HaveLen(2)) // Should have results for both organizations
+
+			// Verify both organizations are present
+			orgIds := make(map[string]int64)
+			for _, result := range results {
+				orgIds[result.OrgID] = result.Count
+			}
+			Expect(orgIds).To(HaveKey(orgId.String()))
+			Expect(orgIds).To(HaveKey(otherOrgId.String()))
+			Expect(orgIds[orgId.String()]).To(Equal(int64(4)))      // Original org has 4 repositories
+			Expect(orgIds[otherOrgId.String()]).To(Equal(int64(2))) // Other org has 2 repositories
 		})
 
 	})

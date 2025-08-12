@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"slices"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -15,7 +14,6 @@ import (
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/service"
@@ -44,7 +42,6 @@ type AgentServer struct {
 	listener       net.Listener
 	queuesProvider queues.Provider
 	tlsConfig      *tls.Config
-	metrics        *instrumentation.ApiMetrics
 	grpcServer     *AgentGrpcServer
 	orgResolver    *org.Resolver
 }
@@ -58,7 +55,6 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
-	metrics *instrumentation.ApiMetrics,
 ) *AgentServer {
 	resolver := org.NewResolver(st.Organization(), cacheExpirationTime)
 	return &AgentServer{
@@ -69,7 +65,6 @@ func New(
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
-		metrics:        metrics,
 		grpcServer:     NewAgentGrpcServer(log, cfg),
 		orgResolver:    resolver,
 	}
@@ -154,10 +149,6 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	}
 
-	if s.metrics != nil {
-		middlewares = slices.Insert(middlewares, 0, s.metrics.AgentServerMiddleware)
-	}
-
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
@@ -183,7 +174,7 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
 	server.HandlerFromMux(h, router)
 
-	return otelhttp.NewHandler(router, "agent-http-Server"), nil
+	return otelhttp.NewHandler(router, "agent-http-server"), nil
 }
 
 // grpcMuxHandlerFunc dispatches requests to the gRPC server or the HTTP handler based on the request headers

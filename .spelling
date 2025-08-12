@@ -169,6 +169,20 @@ uid
 idp
 systemctl
 enablement
+tcg
+EK
+pre-installed
+LAK
+LDevID
+CAs
+Infineon
+ConfigMap
+STMicroelectronics
+Nuvoton
+UEFI
+AIA
+NVRAM
+RSA
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -315,3 +329,8 @@ nginx
 rateLimit
 real_ip
 untrusted
+ - docs/user/tpm-authentication.md
+TN1330
+- docs/user/metrics.md
+sloMax
+SLO

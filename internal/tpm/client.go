@@ -37,10 +37,10 @@ type Client struct {
 
 // NewClient creates a new simplified TPM client with the given configuration.
 func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config.Config) (*Client, error) {
-	sysPath := config.TPM.Path
+	devicePath := config.TPM.DevicePath
 
 	// discover and validate TPM device
-	tpmPath, err := discoverAndValidateTPM(rw, log, sysPath)
+	tpmPath, err := discoverAndValidateTPM(rw, log, devicePath)
 	if err != nil {
 		return nil, fmt.Errorf("discovering TPM: %w", err)
 	}
@@ -63,7 +63,7 @@ func newClientWithConnection(conn io.ReadWriteCloser, log *log.PrefixLogger, rw 
 	// TODO: make dynamic
 	keyAlgo := ECDSA
 
-	session, err := NewSession(conn, rw, log, config.TPM.EnableOwnership, config.TPM.PersistencePath, keyAlgo)
+	session, err := NewSession(conn, rw, log, config.TPM.AuthEnabled, config.TPM.StorageFilePath, keyAlgo)
 	if err != nil {
 		return nil, fmt.Errorf("creating TPM session: %w", err)
 	}
