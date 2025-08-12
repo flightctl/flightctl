@@ -193,19 +193,20 @@ func main() {
 		jitterDuration = time.Duration(agentConfigTemplate.StatusUpdateInterval)
 	}
 
+	launchParams := agentLaunchParams{
+		agents:          agents,
+		agentFolders:    agentsFolders,
+		log:             log,
+		serviceClient:   serviceClient,
+		formattedLabels: formattedLables,
+		sem:             sem,
+		jitterDuration:  jitterDuration,
+	}
 	for i := range *numDevices {
 		if err := sem.Acquire(ctx, 1); err != nil {
 			break
 		}
-		go func() {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Duration(rand.Float64() * float64(jitterDuration))): //nolint:gosec
-			}
-			go startAgent(ctx, agents[i], log, i)
-			go approveAgent(ctx, log, serviceClient, agentsFolders[i], formattedLables, sem)
-		}()
+		go launchAgent(ctx, i, launchParams)
 	}
 	// block until we can acquire all entries. This is an indication that all devices have been
 	// enrolled, and it's safe to start the "stopAfter" function.
@@ -219,6 +220,19 @@ func main() {
 
 	<-ctx.Done()
 	log.Infoln("Simulator stopped.")
+}
+
+func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
+	defer params.sem.Release(1)
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(time.Duration(rand.Float64() * float64(params.jitterDuration))): //nolint:gosec
+	}
+	// leave the agent process running in the background
+	// when the agent is approved, we return and release the semaphore to allow other agents to onboard
+	go startAgent(ctx, params.agents[i], params.log, i)
+	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels)
 }
 
 func reportVersion(versionFormat *string) error {
@@ -317,6 +331,16 @@ type createAgentsConfig struct {
 	agentConfigTemplate *agent_config.Config
 	parsedSourceIPs     []net.IP
 	maxConcurrency      int
+}
+
+type agentLaunchParams struct {
+	agents          []*agent.Agent
+	agentFolders    []string
+	log             *logrus.Logger
+	serviceClient   *apiClient.ClientWithResponses
+	formattedLabels *map[string]string
+	sem             *semaphore.Weighted
+	jitterDuration  time.Duration
 }
 
 func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
@@ -423,10 +447,9 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 	return agents, agentsFolders
 }
 
-func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string, sem *semaphore.Weighted) {
-	defer sem.Release(1)
+func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
 	enrollmentId := ""
-	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, 5*time.Minute, false, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, false, func(ctx context.Context) (bool, error) {
 		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
 		if enrollmentId == "" {
 			bannerFileData, err := readBannerFile(agentDir)
