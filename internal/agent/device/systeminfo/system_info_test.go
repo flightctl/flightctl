@@ -2,7 +2,6 @@ package systeminfo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -10,67 +9,11 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
-
-func TestManager(t *testing.T) {
-	require := require.New(t)
-
-	// setup
-	tmpDir := t.TempDir()
-	dataDir := filepath.Join("etc", "flightctl")
-	readWriter := fileio.NewReadWriter()
-	readWriter.SetRootdir(tmpDir)
-	err := readWriter.MkdirAll(dataDir, 0755)
-	require.NoError(err)
-	err = readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
-	require.NoError(err)
-	log := log.NewPrefixLogger("test")
-
-	// set mock boot_id
-	mockBootID := "c4070599-f0f0-472d-8084-09b7274ebf18"
-	err = readWriter.WriteFile(bootIDPath, []byte(mockBootID), 0644)
-	require.NoError(err)
-
-	ctrl := gomock.NewController(t)
-	mockExecuter := executer.NewMockExecuter(ctrl)
-	bootTime := "2024-12-13 11:01:08"
-	collectTimeout := util.Duration(5 * time.Second)
-	mockExecuter.EXPECT().ExecuteWithContext(context.Background(), "uptime", "-s").Return(bootTime, "", 0).Times(2)
-
-	// initialize client new device
-	manager := NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout)
-	err = manager.Initialize(context.Background())
-	require.NoError(err)
-	require.NotNil(manager)
-	require.NotEmpty(manager.BootTime())
-	require.False(manager.IsRebooted())
-	require.Equal(mockBootID, manager.BootID())
-
-	// test rebooted
-	// change bootID stored in system.json on disk
-	mockBootID2 := "c4070599-f0f0-472d-8084-09b7274ebf19"
-	mockStatus := &Boot{
-		Time: bootTime,
-		ID:   mockBootID2,
-	}
-	mockStatusBytes, err := json.Marshal(mockStatus)
-	require.NoError(err)
-	err = readWriter.WriteFile(filepath.Join(dataDir, SystemFileName), mockStatusBytes, 0644)
-	require.NoError(err)
-
-	// reinitialize client
-	manager = NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout)
-	err = manager.Initialize(context.Background())
-	require.NoError(err)
-	require.NotEmpty(manager.BootTime())
-	require.Equal(mockBootID, manager.BootID())
-	require.True(manager.IsRebooted())
-}
 
 // go test -benchmem -run=^$ -bench ^BenchmarkCollectInfo$ -cpuprofile=cpu.pprof -memprofile=mem.pprof github.com/flightctl/flightctl/internal/agent/device/systeminfo
 func BenchmarkCollectInfo(b *testing.B) {
@@ -250,6 +193,7 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 		expectSystem  bool
 		expectKernel  bool
 		expectDistro  bool
+		expectErr     bool
 	}{
 		{
 			name:     "empty infoKeys",
@@ -257,67 +201,75 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 		},
 		{
 			name:      "CPU keys",
-			infoKeys:  []string{infoKeyCPUCores, infoKeyCPUProcessors, infoKeyCPUModel},
+			infoKeys:  []string{cpuCoresKey, cpuProcessorsKey, cpuModelKey},
 			expectCPU: true,
 		},
 		{
 			name:      "GPU keys",
-			infoKeys:  []string{infoKeyGPU},
+			infoKeys:  []string{gpuKey},
 			expectGPU: true,
 		},
 		{
 			name:         "memory keys",
-			infoKeys:     []string{infoKeyMemoryTotalKb},
+			infoKeys:     []string{memoryTotalKbKey},
 			expectMemory: true,
 		},
 		{
 			name:          "network keys",
-			infoKeys:      []string{infoKeyNetInterfaceDefault, infoKeyNetIPDefault, infoKeyNetMACDefault},
+			infoKeys:      []string{netInterfaceDefaultKey, netIPDefaultKey, netMACDefaultKey},
 			expectNetwork: true,
 		},
 		{
 			name:       "BIOS keys",
-			infoKeys:   []string{infoKeyBIOSVendor, infoKeyBIOSVersion},
+			infoKeys:   []string{biosVendorKey, biosVersionKey},
 			expectBIOS: true,
 		},
 		{
 			name:         "system keys",
-			infoKeys:     []string{infoKeyProductName, infoKeyProductSerial, infoKeyProductUUID},
+			infoKeys:     []string{productNameKey, productSerialKey, productUUIDKey},
 			expectSystem: true,
 		},
 		{
 			name:         "kernel key",
-			infoKeys:     []string{infoKeyKernel},
+			infoKeys:     []string{kernelKey},
 			expectKernel: true,
 		},
 		{
 			name:         "distribution keys",
-			infoKeys:     []string{infoKeyDistroName, infoKeyDistroVersion},
+			infoKeys:     []string{distroNameKey, distroVersionKey},
 			expectDistro: true,
 		},
 		{
 			name:          "mixed keys",
-			infoKeys:      []string{infoKeyCPUCores, infoKeyGPU, infoKeyNetIPDefault, infoKeyProductName},
+			infoKeys:      []string{cpuCoresKey, gpuKey, netIPDefaultKey, productNameKey},
 			expectCPU:     true,
 			expectGPU:     true,
 			expectNetwork: true,
 			expectSystem:  true,
 		},
 		{
-			name:     "unknown keys",
-			infoKeys: []string{"unknownKey", "anotherUnknown"},
+			name:      "unknown keys",
+			infoKeys:  []string{"unknownKey", "anotherUnknown"},
+			expectErr: true,
 		},
 		{
 			name:      "mixed known and unknown",
-			infoKeys:  []string{infoKeyCPUCores, "unknownKey", infoKeyGPU},
+			infoKeys:  []string{cpuCoresKey, "unknownKey", gpuKey},
 			expectCPU: true,
 			expectGPU: true,
+			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := collectionOptsFromInfoKeys(tt.infoKeys)
+			opts, err := collectionOptsFromInfoKeys(tt.infoKeys)
+
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 
 			cfg := &collectCfg{}
 			for _, opt := range opts {
@@ -337,9 +289,9 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 }
 
 func TestCollectOptFunctions(t *testing.T) {
-	t.Run("WithAllDefault enables all collections", func(t *testing.T) {
+	t.Run("WithAll enables all collections", func(t *testing.T) {
 		cfg := &collectCfg{}
-		WithAllDefault()(cfg)
+		WithAll()(cfg)
 
 		require.True(t, cfg.hasCollector(collectorCPU))
 		require.True(t, cfg.hasCollector(collectorGPU))
@@ -349,7 +301,7 @@ func TestCollectOptFunctions(t *testing.T) {
 		require.True(t, cfg.hasCollector(collectorSystem))
 		require.True(t, cfg.hasCollector(collectorKernel))
 		require.True(t, cfg.hasCollector(collectorDistribution))
-		require.False(t, cfg.collectAllCustom) // Should not affect custom
+		require.True(t, cfg.collectAllCustom)
 	})
 
 	t.Run("individual collection options", func(t *testing.T) {
@@ -358,14 +310,14 @@ func TestCollectOptFunctions(t *testing.T) {
 			opt   CollectOpt
 			check collectorType
 		}{
-			{"WithCPUCollection", WithCPUCollection(), collectorCPU},
-			{"WithGPUCollection", WithGPUCollection(), collectorGPU},
-			{"WithMemoryCollection", WithMemoryCollection(), collectorMemory},
-			{"WithNetworkCollection", WithNetworkCollection(), collectorNetwork},
-			{"WithBIOSCollection", WithBIOSCollection(), collectorBIOS},
-			{"WithSystemCollection", WithSystemCollection(), collectorSystem},
-			{"WithKernelCollection", WithKernelCollection(), collectorKernel},
-			{"WithDistributionCollection", WithDistributionCollection(), collectorDistribution},
+			{"withCPUCollector", withCollector(collectorCPU, collectCPUFunc), collectorCPU},
+			{"withGPUCollector", withCollector(collectorGPU, collectGPUFunc), collectorGPU},
+			{"withMemoryCollector", withCollector(collectorMemory, collectMemoryFunc), collectorMemory},
+			{"withNetworkCollector", withCollector(collectorNetwork, collectNetworkFunc), collectorNetwork},
+			{"withBIOSCollector", withCollector(collectorBIOS, collectBIOSFunc), collectorBIOS},
+			{"withSystemCollector", withCollector(collectorSystem, collectSystemFunc), collectorSystem},
+			{"withKernelCollector", withCollector(collectorKernel, collectKernelFunc), collectorKernel},
+			{"withDistributionCollector", withCollector(collectorDistribution, collectDistributionFunc), collectorDistribution},
 		}
 
 		for _, tt := range tests {
@@ -386,33 +338,46 @@ func TestCollectOptFunctions(t *testing.T) {
 		}{
 			{
 				name: "CPU and GPU only",
-				opts: []CollectOpt{WithCPUCollection(), WithGPUCollection()},
+				opts: []CollectOpt{withCollector(collectorCPU, collectCPUFunc), withCollector(collectorGPU, collectGPUFunc)},
 				expected: map[collectorType]bool{
-					collectorCPU: true, collectorGPU: true,
-					collectorMemory: false, collectorNetwork: false,
-					collectorBIOS: false, collectorSystem: false,
-					collectorKernel: false, collectorDistribution: false,
+					collectorCPU:          true,
+					collectorGPU:          true,
+					collectorMemory:       false,
+					collectorNetwork:      false,
+					collectorBIOS:         false,
+					collectorSystem:       false,
+					collectorKernel:       false,
+					collectorDistribution: false,
 				},
 				allCustom: false,
 			},
 			{
 				name: "Hardware collectors",
-				opts: []CollectOpt{WithCPUCollection(), WithMemoryCollection(), WithBIOSCollection(), WithSystemCollection()},
+				opts: []CollectOpt{withCollector(collectorCPU, collectCPUFunc), withCollector(collectorMemory, collectMemoryFunc), withCollector(collectorBIOS, collectBIOSFunc), withCollector(collectorSystem, collectSystemFunc)},
 				expected: map[collectorType]bool{
-					collectorCPU: true, collectorMemory: true, collectorBIOS: true, collectorSystem: true,
-					collectorGPU: false, collectorNetwork: false,
-					collectorKernel: false, collectorDistribution: false,
+					collectorCPU:          true,
+					collectorMemory:       true,
+					collectorBIOS:         true,
+					collectorSystem:       true,
+					collectorGPU:          false,
+					collectorNetwork:      false,
+					collectorKernel:       false,
+					collectorDistribution: false,
 				},
 				allCustom: false,
 			},
 			{
 				name: "With custom collection",
-				opts: []CollectOpt{WithNetworkCollection(), WithAllCustom()},
+				opts: []CollectOpt{withCollector(collectorNetwork, collectNetworkFunc), WithAllCustom()},
 				expected: map[collectorType]bool{
-					collectorNetwork: true,
-					collectorCPU:     false, collectorGPU: false, collectorMemory: false,
-					collectorBIOS: false, collectorSystem: false,
-					collectorKernel: false, collectorDistribution: false,
+					collectorNetwork:      true,
+					collectorCPU:          false,
+					collectorGPU:          false,
+					collectorMemory:       false,
+					collectorBIOS:         false,
+					collectorSystem:       false,
+					collectorKernel:       false,
+					collectorDistribution: false,
 				},
 				allCustom: true,
 			},

@@ -119,18 +119,33 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
 
 		oldConfig := collectCfg{}
-		for _, opt := range collectionOptsFromInfoKeys(m.infoKeys) {
+
+		// Ignore errors for previous and new. We're just trying to diff the two to see if there
+		// is something new that should be collected
+		opts, _ := collectionOptsFromInfoKeys(m.infoKeys)
+		for _, opt := range opts {
 			opt(&oldConfig)
 		}
 
 		newConfig := collectCfg{}
-		for _, opt := range collectionOptsFromInfoKeys(cfg.SystemInfo) {
+		opts, _ = collectionOptsFromInfoKeys(cfg.SystemInfo)
+		for _, opt := range opts {
 			opt(&newConfig)
 		}
 
 		m.infoKeys = cfg.SystemInfo
 
-		if !oldConfig.Equal(&newConfig) {
+		// If the newConfig only removes required collectors but doesn't add any
+		// new collectors, there is no need to trigger a recollection
+		hasNewCollectors := false
+		for cType := range newConfig.enabledTypes {
+			if !oldConfig.hasCollector(cType) {
+				hasNewCollectors = true
+				break
+			}
+		}
+
+		if hasNewCollectors {
 			m.collected = false
 		}
 	}
@@ -248,7 +263,11 @@ func collectDeviceSystemInfo(
 ) (v1alpha1.DeviceSystemInfo, error) {
 	agentVersion := version.Get()
 
-	collectionOpts := collectionOptsFromInfoKeys(infoKeys)
+	collectionOpts, err := collectionOptsFromInfoKeys(infoKeys)
+	// Don't block collection for a few unknown keys. Try our best to grab everything we can
+	if err != nil {
+		log.Warnf("Failed to handle system info keys: %v", err)
+	}
 
 	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath, collectionOpts...)
 	if err != nil {

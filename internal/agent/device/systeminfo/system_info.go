@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -42,38 +41,38 @@ const (
 	HardwareMapFileName = "hardware-map.yaml"
 
 	// Info key constants for system information collection
-	infoKeyHostname     = "hostname"
-	infoKeyArchitecture = "architecture"
-	infoKeyKernel       = "kernel"
+	hostnameKey     = "hostname"
+	architectureKey = "architecture"
+	kernelKey       = "kernel"
 
 	// CPU info keys
-	infoKeyCPUCores      = "cpuCores"
-	infoKeyCPUProcessors = "cpuProcessors"
-	infoKeyCPUModel      = "cpuModel"
+	cpuCoresKey      = "cpuCores"
+	cpuProcessorsKey = "cpuProcessors"
+	cpuModelKey      = "cpuModel"
 
 	// GPU info keys
-	infoKeyGPU = "gpu"
+	gpuKey = "gpu"
 
 	// Memory info keys
-	infoKeyMemoryTotalKb = "memoryTotalKb"
+	memoryTotalKbKey = "memoryTotalKb"
 
 	// Network info keys
-	infoKeyNetInterfaceDefault = "netInterfaceDefault"
-	infoKeyNetIPDefault        = "netIpDefault"
-	infoKeyNetMACDefault       = "netMacDefault"
+	netInterfaceDefaultKey = "netInterfaceDefault"
+	netIPDefaultKey        = "netIpDefault"
+	netMACDefaultKey       = "netMacDefault"
 
 	// BIOS info keys
-	infoKeyBIOSVendor  = "biosVendor"
-	infoKeyBIOSVersion = "biosVersion"
+	biosVendorKey  = "biosVendor"
+	biosVersionKey = "biosVersion"
 
 	// System info keys
-	infoKeyProductName   = "productName"
-	infoKeyProductSerial = "productSerial"
-	infoKeyProductUUID   = "productUuid"
+	productNameKey   = "productName"
+	productSerialKey = "productSerial"
+	productUUIDKey   = "productUuid"
 
 	// Distribution info keys
-	infoKeyDistroName    = "distroName"
-	infoKeyDistroVersion = "distroVersion"
+	distroNameKey    = "distroName"
+	distroVersionKey = "distroVersion"
 )
 
 type Manager interface {
@@ -262,15 +261,25 @@ type SystemInfo struct {
 
 type infoMap map[string]string
 
+type Boot struct {
+	// Time is the time the system was booted.
+	Time string `json:"bootTime,omitempty"`
+	// ID is the unique boot ID populated by the kernel.
+	ID string `json:"bootID,omitempty"`
+}
+
+func (b *Boot) IsEmpty() bool {
+	return b.Time == "" && b.ID == ""
+}
+
 type collectContext struct {
-	ctx                 context.Context
 	log                 *log.PrefixLogger
 	exec                executer.Executer
 	reader              fileio.Reader
 	hardwareMapFilePath string
 }
 
-type collectorFunc func(collectCtx *collectContext, info *Info) error
+type collectorFunc func(ctx context.Context, collectCtx *collectContext, info *Info) error
 
 type collectorType int
 
@@ -285,17 +294,6 @@ const (
 	collectorDistribution
 	collectorBoot
 )
-
-type Boot struct {
-	// Time is the time the system was booted.
-	Time string `json:"bootTime,omitempty"`
-	// ID is the unique boot ID populated by the kernel.
-	ID string `json:"bootID,omitempty"`
-}
-
-func (b *Boot) IsEmpty() bool {
-	return b.Time == "" && b.ID == ""
-}
 
 type collectCfg struct {
 	collectAllCustom bool
@@ -319,18 +317,7 @@ func (cfg *collectCfg) hasCollector(cType collectorType) bool {
 	return cfg.enabledTypes[cType]
 }
 
-// Equal compares two collectCfg instances to determine if they have the same enabled collector types
-func (cfg *collectCfg) Equal(other *collectCfg) bool {
-	if cfg == nil && other == nil {
-		return true
-	}
-	if cfg == nil || other == nil {
-		return false
-	}
-	return reflect.DeepEqual(cfg.enabledTypes, other.enabledTypes)
-}
-
-func collectCPUFunc(collectCtx *collectContext, info *Info) error {
+func collectCPUFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
 	cpuInfo, err := collectCPUInfo(collectCtx.reader)
 	if err != nil {
 		return fmt.Errorf("CPU collector failed: %w", err)
@@ -339,7 +326,7 @@ func collectCPUFunc(collectCtx *collectContext, info *Info) error {
 	return nil
 }
 
-func collectGPUFunc(collectCtx *collectContext, info *Info) error {
+func collectGPUFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
 	gpuInfo, err := collectGPUInfo(collectCtx.log, collectCtx.reader, collectCtx.hardwareMapFilePath)
 	if err != nil {
 		return fmt.Errorf("GPU collector failed: %w", err)
@@ -348,7 +335,7 @@ func collectGPUFunc(collectCtx *collectContext, info *Info) error {
 	return nil
 }
 
-func collectMemoryFunc(collectCtx *collectContext, info *Info) error {
+func collectMemoryFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
 	memInfo, err := collectMemoryInfo(collectCtx.log, collectCtx.reader)
 	if err != nil {
 		return fmt.Errorf("memory collector failed: %w", err)
@@ -357,8 +344,8 @@ func collectMemoryFunc(collectCtx *collectContext, info *Info) error {
 	return nil
 }
 
-func collectNetworkFunc(collectCtx *collectContext, info *Info) error {
-	netInfo, err := collectNetworkInfo(collectCtx.ctx, collectCtx.log, collectCtx.exec, collectCtx.reader)
+func collectNetworkFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
+	netInfo, err := collectNetworkInfo(ctx, collectCtx.log, collectCtx.exec, collectCtx.reader)
 	if err != nil {
 		return fmt.Errorf("network collector failed: %w", err)
 	}
@@ -366,7 +353,7 @@ func collectNetworkFunc(collectCtx *collectContext, info *Info) error {
 	return nil
 }
 
-func collectBIOSFunc(collectCtx *collectContext, info *Info) error {
+func collectBIOSFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
 	biosInfo, err := collectBIOSInfo(collectCtx.reader)
 	if err != nil {
 		return fmt.Errorf("BIOS collector failed: %w", err)
@@ -375,7 +362,7 @@ func collectBIOSFunc(collectCtx *collectContext, info *Info) error {
 	return nil
 }
 
-func collectSystemFunc(collectCtx *collectContext, info *Info) error {
+func collectSystemFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
 	sysInfo, err := collectSystemInfo(collectCtx.reader)
 	if err != nil {
 		return fmt.Errorf("system collector failed: %w", err)
@@ -384,8 +371,8 @@ func collectSystemFunc(collectCtx *collectContext, info *Info) error {
 	return nil
 }
 
-func collectKernelFunc(collectCtx *collectContext, info *Info) error {
-	out, err := collectCtx.exec.CommandContext(collectCtx.ctx, "uname", "-r").Output()
+func collectKernelFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
+	out, err := collectCtx.exec.CommandContext(ctx, "uname", "-r").Output()
 	if err != nil {
 		return fmt.Errorf("kernel collector failed: %w", err)
 	}
@@ -393,8 +380,8 @@ func collectKernelFunc(collectCtx *collectContext, info *Info) error {
 	return nil
 }
 
-func collectDistributionFunc(collectCtx *collectContext, info *Info) error {
-	distroInfo, err := collectDistributionInfo(collectCtx.ctx, collectCtx.reader)
+func collectDistributionFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
+	distroInfo, err := collectDistributionInfo(ctx, collectCtx.reader)
 	if err != nil {
 		return fmt.Errorf("distribution collector failed: %w", err)
 	}
@@ -402,14 +389,14 @@ func collectDistributionFunc(collectCtx *collectContext, info *Info) error {
 	return nil
 }
 
-func collectBootFunc(collectCtx *collectContext, info *Info) error {
+func collectBootFunc(ctx context.Context, collectCtx *collectContext, info *Info) error {
 	bootID, err := getBootID(collectCtx.reader)
 	if err != nil {
 		return fmt.Errorf("boot collector failed to get boot ID: %w", err)
 	}
 	info.Boot.ID = bootID
 
-	bootTime, err := getBootTime(collectCtx.ctx, collectCtx.exec)
+	bootTime, err := getBootTime(ctx, collectCtx.exec)
 	if err != nil {
 		return fmt.Errorf("boot collector failed to get boot time: %w", err)
 	}
@@ -419,16 +406,10 @@ func collectBootFunc(collectCtx *collectContext, info *Info) error {
 
 type CollectOpt func(*collectCfg)
 
-// WithAllCustom sets the allCustom option to true enabling all custom scripts to be collected.
-func WithAllCustom() CollectOpt {
+// WithAll runs all custom collectors and all flight control defined default collectors.
+func WithAll() CollectOpt {
 	return func(cfg *collectCfg) {
 		cfg.collectAllCustom = true
-	}
-}
-
-// WithAllDefault enables collection of all default hardware information.
-func WithAllDefault() CollectOpt {
-	return func(cfg *collectCfg) {
 		cfg.addCollector(collectorCPU, collectCPUFunc)
 		cfg.addCollector(collectorGPU, collectGPUFunc)
 		cfg.addCollector(collectorMemory, collectMemoryFunc)
@@ -440,72 +421,50 @@ func WithAllDefault() CollectOpt {
 	}
 }
 
-// WithCPUCollection enables CPU information collection.
-func WithCPUCollection() CollectOpt {
-	return func(cfg *collectCfg) { cfg.addCollector(collectorCPU, collectCPUFunc) }
+// WithAllCustom enables all custom collection.
+func WithAllCustom() CollectOpt {
+	return func(cfg *collectCfg) {
+		cfg.collectAllCustom = true
+	}
 }
 
-// WithGPUCollection enables GPU information collection.
-func WithGPUCollection() CollectOpt {
-	return func(cfg *collectCfg) { cfg.addCollector(collectorGPU, collectGPUFunc) }
+// withCollector creates a CollectOpt that adds a specific collector
+func withCollector(cType collectorType, fn collectorFunc) CollectOpt {
+	return func(cfg *collectCfg) { cfg.addCollector(cType, fn) }
 }
 
-// WithMemoryCollection enables memory information collection.
-func WithMemoryCollection() CollectOpt {
-	return func(cfg *collectCfg) { cfg.addCollector(collectorMemory, collectMemoryFunc) }
-}
-
-// WithNetworkCollection enables network information collection.
-func WithNetworkCollection() CollectOpt {
-	return func(cfg *collectCfg) { cfg.addCollector(collectorNetwork, collectNetworkFunc) }
-}
-
-// WithBIOSCollection enables BIOS information collection.
-func WithBIOSCollection() CollectOpt {
-	return func(cfg *collectCfg) { cfg.addCollector(collectorBIOS, collectBIOSFunc) }
-}
-
-// WithSystemCollection enables system information collection.
-func WithSystemCollection() CollectOpt {
-	return func(cfg *collectCfg) { cfg.addCollector(collectorSystem, collectSystemFunc) }
-}
-
-// WithKernelCollection enables kernel information collection.
-func WithKernelCollection() CollectOpt {
-	return func(cfg *collectCfg) { cfg.addCollector(collectorKernel, collectKernelFunc) }
-}
-
-// WithDistributionCollection enables distribution information collection.
-func WithDistributionCollection() CollectOpt {
-	return func(cfg *collectCfg) { cfg.addCollector(collectorDistribution, collectDistributionFunc) }
-}
-
-// collectionOptsFromInfoKeys returns CollectOpt functions based on the provided infoKeys.
-func collectionOptsFromInfoKeys(infoKeys []string) []CollectOpt {
+// collectionOptsFromInfoKeys returns CollectOpt functions based on the provided infoKeys. An error is returned
+// containing any unknown keys that were supplied. All successful Opts that were constructed are always returned
+func collectionOptsFromInfoKeys(infoKeys []string) ([]CollectOpt, error) {
 	var opts []CollectOpt
+	var errs []error
 
 	for _, key := range infoKeys {
 		switch key {
-		case infoKeyCPUCores, infoKeyCPUProcessors, infoKeyCPUModel:
-			opts = append(opts, WithCPUCollection())
-		case infoKeyGPU:
-			opts = append(opts, WithGPUCollection())
-		case infoKeyMemoryTotalKb:
-			opts = append(opts, WithMemoryCollection())
-		case infoKeyNetInterfaceDefault, infoKeyNetIPDefault, infoKeyNetMACDefault:
-			opts = append(opts, WithNetworkCollection())
-		case infoKeyBIOSVendor, infoKeyBIOSVersion:
-			opts = append(opts, WithBIOSCollection())
-		case infoKeyProductName, infoKeyProductSerial, infoKeyProductUUID:
-			opts = append(opts, WithSystemCollection())
-		case infoKeyKernel:
-			opts = append(opts, WithKernelCollection())
-		case infoKeyDistroName, infoKeyDistroVersion:
-			opts = append(opts, WithDistributionCollection())
+		case cpuCoresKey, cpuProcessorsKey, cpuModelKey:
+			opts = append(opts, withCollector(collectorCPU, collectCPUFunc))
+		case gpuKey:
+			opts = append(opts, withCollector(collectorGPU, collectGPUFunc))
+		case memoryTotalKbKey:
+			opts = append(opts, withCollector(collectorMemory, collectMemoryFunc))
+		case netInterfaceDefaultKey, netIPDefaultKey, netMACDefaultKey:
+			opts = append(opts, withCollector(collectorNetwork, collectNetworkFunc))
+		case biosVendorKey, biosVersionKey:
+			opts = append(opts, withCollector(collectorBIOS, collectBIOSFunc))
+		case productNameKey, productSerialKey, productUUIDKey:
+			opts = append(opts, withCollector(collectorSystem, collectSystemFunc))
+		case kernelKey:
+			opts = append(opts, withCollector(collectorKernel, collectKernelFunc))
+		case distroNameKey, distroVersionKey:
+			opts = append(opts, withCollector(collectorDistribution, collectDistributionFunc))
+		default:
+			errs = append(errs, fmt.Errorf("unknown key: %q", key))
 		}
 	}
 
-	return opts
+	// Always return the opts that we successfully handled so that collection isn't fully blocked
+	// by invalid keys. errors.Join returns nil if there are no errors
+	return opts, errors.Join(errs...)
 }
 
 // Collect collects system information and returns it as a map of key-value pairs.
@@ -541,7 +500,6 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	info.Architecture = runtime.GOARCH
 
 	collectCtx := &collectContext{
-		ctx:                 ctx,
 		log:                 log,
 		exec:                exec,
 		reader:              reader,
@@ -563,7 +521,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 			return info, ctx.Err()
 		}
 
-		if err = collectorFn(collectCtx, info); err != nil {
+		if err = collectorFn(ctx, collectCtx, info); err != nil {
 			log.Warningf("Collector failed: %v", err)
 
 			// If it's a context error, allow early exit
@@ -595,10 +553,10 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 
 // SupportedInfoKeys is a map of supported info keys to their corresponding functions.
 var SupportedInfoKeys = map[string]func(info *Info) string{
-	infoKeyHostname:     func(i *Info) string { return i.Hostname },
-	infoKeyArchitecture: func(i *Info) string { return i.Architecture },
-	infoKeyKernel:       func(i *Info) string { return i.Kernel },
-	infoKeyDistroName: func(i *Info) string {
+	hostnameKey:     func(i *Info) string { return i.Hostname },
+	architectureKey: func(i *Info) string { return i.Architecture },
+	kernelKey:       func(i *Info) string { return i.Kernel },
+	distroNameKey: func(i *Info) string {
 		if i.Distribution == nil {
 			return ""
 		}
@@ -610,7 +568,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	infoKeyDistroVersion: func(i *Info) string {
+	distroVersionKey: func(i *Info) string {
 		if i.Distribution == nil {
 			return ""
 		}
@@ -622,43 +580,43 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	infoKeyProductName: func(i *Info) string {
+	productNameKey: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.ProductName
 		}
 		return ""
 	},
-	infoKeyProductSerial: func(i *Info) string {
+	productSerialKey: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.SerialNumber
 		}
 		return ""
 	},
-	infoKeyProductUUID: func(i *Info) string {
+	productUUIDKey: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.UUID
 		}
 		return ""
 	},
-	infoKeyBIOSVendor: func(i *Info) string {
+	biosVendorKey: func(i *Info) string {
 		if i.Hardware.BIOS != nil {
 			return i.Hardware.BIOS.Vendor
 		}
 		return ""
 	},
-	infoKeyBIOSVersion: func(i *Info) string {
+	biosVersionKey: func(i *Info) string {
 		if i.Hardware.BIOS != nil {
 			return i.Hardware.BIOS.Version
 		}
 		return ""
 	},
-	infoKeyNetInterfaceDefault: func(i *Info) string {
+	netInterfaceDefaultKey: func(i *Info) string {
 		if i.Hardware.Network != nil && i.Hardware.Network.DefaultRoute != nil {
 			return i.Hardware.Network.DefaultRoute.Interface
 		}
 		return ""
 	},
-	infoKeyNetIPDefault: func(i *Info) string {
+	netIPDefaultKey: func(i *Info) string {
 		if i.Hardware.Network == nil || i.Hardware.Network.DefaultRoute == nil {
 			return ""
 		}
@@ -682,7 +640,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	infoKeyNetMACDefault: func(i *Info) string {
+	netMACDefaultKey: func(i *Info) string {
 		if i.Hardware.Network == nil || i.Hardware.Network.DefaultRoute == nil {
 			return ""
 		}
@@ -694,7 +652,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	infoKeyGPU: func(i *Info) string {
+	gpuKey: func(i *Info) string {
 		if len(i.Hardware.GPU) == 0 {
 			return ""
 		}
@@ -705,25 +663,25 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return strings.Join(parts, ".")
 	},
-	infoKeyMemoryTotalKb: func(i *Info) string {
+	memoryTotalKbKey: func(i *Info) string {
 		if i.Hardware.Memory == nil || i.Hardware.Memory.TotalKB <= 0 {
 			return ""
 		}
 		return fmt.Sprintf("%d", i.Hardware.Memory.TotalKB)
 	},
-	infoKeyCPUCores: func(i *Info) string {
+	cpuCoresKey: func(i *Info) string {
 		if i.Hardware.CPU != nil {
 			return fmt.Sprintf("%d", i.Hardware.CPU.TotalCores)
 		}
 		return ""
 	},
-	infoKeyCPUProcessors: func(i *Info) string {
+	cpuProcessorsKey: func(i *Info) string {
 		if i.Hardware.CPU != nil {
 			return fmt.Sprintf("%d", len(i.Hardware.CPU.Processors))
 		}
 		return ""
 	},
-	infoKeyCPUModel: func(i *Info) string {
+	cpuModelKey: func(i *Info) string {
 		if i.Hardware.CPU != nil && len(i.Hardware.CPU.Processors) > 0 {
 			return i.Hardware.CPU.Processors[0].Model
 		}
