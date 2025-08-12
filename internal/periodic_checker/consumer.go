@@ -2,6 +2,7 @@ package periodic
 
 import (
 	"context"
+	"fmt"
 	"runtime/debug"
 	"sync"
 
@@ -13,7 +14,7 @@ const (
 	DefaultConsumerCount = 5
 )
 
-func executeWithRecover(executor PeriodicTaskExecutor, ctx context.Context, log logrus.FieldLogger, taskType PeriodicTaskType, orgID uuid.UUID) {
+func executeWithRecover(ctx context.Context, executor PeriodicTaskExecutor, log logrus.FieldLogger, taskType PeriodicTaskType, orgID uuid.UUID) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithFields(logrus.Fields{
@@ -39,7 +40,7 @@ func (c *PeriodicTaskConsumer) processTask(ctx context.Context, reference Period
 		return
 	}
 
-	executeWithRecover(executor, ctx, c.log, reference.Type, reference.OrgID)
+	executeWithRecover(ctx, executor, c.log, reference.Type, reference.OrgID)
 }
 
 type PeriodicTaskConsumer struct {
@@ -57,7 +58,17 @@ type PeriodicTaskConsumerConfig struct {
 	ConsumerCount  int
 }
 
-func NewPeriodicTaskConsumer(config PeriodicTaskConsumerConfig) *PeriodicTaskConsumer {
+func NewPeriodicTaskConsumer(config PeriodicTaskConsumerConfig) (*PeriodicTaskConsumer, error) {
+	if config.ChannelManager == nil {
+		return nil, fmt.Errorf("channel manager is required")
+	}
+	if config.Log == nil {
+		return nil, fmt.Errorf("log is required")
+	}
+	if config.Executors == nil {
+		return nil, fmt.Errorf("executors are required")
+	}
+
 	if config.ConsumerCount <= 0 {
 		config.ConsumerCount = DefaultConsumerCount
 	}
@@ -67,7 +78,7 @@ func NewPeriodicTaskConsumer(config PeriodicTaskConsumerConfig) *PeriodicTaskCon
 		log:            config.Log,
 		executors:      config.Executors,
 		consumerCount:  config.ConsumerCount,
-	}
+	}, nil
 }
 
 // runConsumer runs a single consumer goroutine
@@ -91,7 +102,9 @@ func (c *PeriodicTaskConsumer) runConsumer(ctx context.Context, consumerID int) 
 	}
 }
 
-func (c *PeriodicTaskConsumer) Start(ctx context.Context) {
+// Run spins up the consumer goroutines.
+// It blocks until the context is done.
+func (c *PeriodicTaskConsumer) Run(ctx context.Context) {
 	// Start all consumer goroutines
 	for i := 0; i < c.consumerCount; i++ {
 		c.wg.Add(1)

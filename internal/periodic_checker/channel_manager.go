@@ -3,6 +3,7 @@ package periodic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -25,7 +26,11 @@ type ChannelManagerConfig struct {
 	ChannelBufferSize int
 }
 
-func NewChannelManager(config ChannelManagerConfig) *ChannelManager {
+func NewChannelManager(config ChannelManagerConfig) (*ChannelManager, error) {
+	if config.Log == nil {
+		return nil, fmt.Errorf("log is required")
+	}
+
 	bufferSize := config.ChannelBufferSize
 	if bufferSize <= 0 {
 		bufferSize = DefaultChannelBufferSize
@@ -35,7 +40,7 @@ func NewChannelManager(config ChannelManagerConfig) *ChannelManager {
 		taskChannel: make(chan PeriodicTaskReference, bufferSize),
 		log:         config.Log,
 		closed:      false,
-	}
+	}, nil
 }
 
 func (cm *ChannelManager) PublishTask(ctx context.Context, taskRef PeriodicTaskReference) error {

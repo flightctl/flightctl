@@ -21,7 +21,7 @@ type publisherTestFixture struct {
 	orgService     *mockOrganizationService
 	channelManager *mockChannelManager
 	tasksMetadata  map[PeriodicTaskType]PeriodicTaskMetadata
-	taskBackoff    poll.Config
+	taskBackoff    *poll.Config
 }
 
 func newPublisherTestFixture(t *testing.T) *publisherTestFixture {
@@ -29,7 +29,7 @@ func newPublisherTestFixture(t *testing.T) *publisherTestFixture {
 		orgService:     &mockOrganizationService{},
 		channelManager: &mockChannelManager{},
 		tasksMetadata:  createTestTaskMetadata(),
-		taskBackoff: poll.Config{
+		taskBackoff: &poll.Config{
 			BaseDelay: 100 * time.Millisecond,
 			Factor:    2,
 			MaxDelay:  10 * time.Second,
@@ -67,9 +67,9 @@ func (f *publisherTestFixture) syncOrganizations(ctx context.Context) {
 }
 
 func (f *publisherTestFixture) addTaskToHeap(task *ScheduledTask) {
-	f.publisher.heapMu.Lock()
+	f.publisher.mu.Lock()
 	heap.Push(f.publisher.taskHeap, task)
-	f.publisher.heapMu.Unlock()
+	f.publisher.mu.Unlock()
 }
 
 func (f *publisherTestFixture) clearHeap() {
@@ -395,9 +395,9 @@ func TestPeriodicTaskPublisher_schedulingLoopTimer(t *testing.T) {
 			require.Equal(t, tt.expectedHeapSize, f.publisher.taskHeap.Len())
 
 			if tt.validateTasks != nil {
-				f.publisher.heapMu.Lock()
+				f.publisher.mu.Lock()
 				tt.validateTasks(t, f)
-				f.publisher.heapMu.Unlock()
+				f.publisher.mu.Unlock()
 			}
 		})
 	}
@@ -466,13 +466,13 @@ func TestPeriodicTaskPublisher_schedulingLoop_MultipleTasksReady(t *testing.T) {
 	require.Equal(t, 3, f.publisher.taskHeap.Len())
 
 	// Verify all tasks have retries reset and NextRun in the future
-	f.publisher.heapMu.Lock()
+	f.publisher.mu.Lock()
 	var rescheduledTasks []*ScheduledTask
 	for f.publisher.taskHeap.Len() > 0 {
 		task := heap.Pop(f.publisher.taskHeap).(*ScheduledTask)
 		rescheduledTasks = append(rescheduledTasks, task)
 	}
-	f.publisher.heapMu.Unlock()
+	f.publisher.mu.Unlock()
 
 	require.Len(t, rescheduledTasks, 3)
 	for _, task := range rescheduledTasks {
@@ -690,7 +690,7 @@ func TestPeriodicTaskPublisher_reschedule(t *testing.T) {
 
 				f.publisher.rescheduleTaskRetry(task)
 
-				assertTaskRescheduledWithBackoff(t, task, &f.taskBackoff, tt.expectedRetries)
+				assertTaskRescheduledWithBackoff(t, task, f.taskBackoff, tt.expectedRetries)
 				require.Equal(t, 1, f.publisher.taskHeap.Len())
 
 				// Verify task in heap

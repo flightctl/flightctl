@@ -77,7 +77,10 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.cfg.Periodic != nil {
 		channelManagerConfig.ChannelBufferSize = s.cfg.Periodic.Consumers * 2
 	}
-	channelManager := NewChannelManager(channelManagerConfig)
+	channelManager, err := NewChannelManager(channelManagerConfig)
+	if err != nil {
+		return err
+	}
 	defer channelManager.Close()
 
 	// Periodic task consumer
@@ -89,7 +92,10 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.cfg.Periodic != nil {
 		consumerConfig.ConsumerCount = s.cfg.Periodic.Consumers
 	}
-	periodicTaskConsumer := NewPeriodicTaskConsumer(consumerConfig)
+	periodicTaskConsumer, err := NewPeriodicTaskConsumer(consumerConfig)
+	if err != nil {
+		return err
+	}
 
 	// Periodic task publisher
 	publisherConfig := PeriodicTaskPublisherConfig{
@@ -97,7 +103,7 @@ func (s *Server) Run(ctx context.Context) error {
 		OrgService:     serviceHandler,
 		TasksMetadata:  periodicTasks,
 		ChannelManager: channelManager,
-		TaskBackoff: poll.Config{
+		TaskBackoff: &poll.Config{
 			BaseDelay: 100 * time.Millisecond,
 			Factor:    3,
 			MaxDelay:  10 * time.Second,
@@ -113,11 +119,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 	go func() {
 		defer wg.Done()
-		periodicTaskConsumer.Start(ctx)
+		periodicTaskConsumer.Run(ctx)
 	}()
 	go func() {
 		defer wg.Done()
-		periodicTaskPublisher.Start(ctx)
+		periodicTaskPublisher.Run(ctx)
 	}()
 
 	sigShutdown := make(chan os.Signal, 1)

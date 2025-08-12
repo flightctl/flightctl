@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -135,15 +136,21 @@ var _ = Describe("Periodic", func() {
 		callbackManager = tasks_client.NewCallbackManager(taskQueuePublisher, log)
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
 
-		channelManager = periodic.NewChannelManager(periodic.ChannelManagerConfig{
+		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,
 		})
+		Expect(err).ToNot(HaveOccurred())
 
 		publisherConfig = periodic.PeriodicTaskPublisherConfig{
 			Log:            log,
 			OrgService:     serviceHandler,
 			TasksMetadata:  testPeriodicTasks,
 			ChannelManager: channelManager,
+			TaskBackoff: &poll.Config{
+				BaseDelay: 1 * time.Minute, // Make backoff very long to make it clear if it is triggered
+				Factor:    2,
+				MaxDelay:  2 * time.Minute,
+			},
 		}
 
 		repositoryTesterExecutor = &mockPeriodicTaskExecutor{}
@@ -191,16 +198,17 @@ var _ = Describe("Periodic", func() {
 			// Start consumer and publisher together
 			eg, egCtx := errgroup.WithContext(ctx)
 
-			periodicTaskConsumer := periodic.NewPeriodicTaskConsumer(consumerConfig)
+			periodicTaskConsumer, err := periodic.NewPeriodicTaskConsumer(consumerConfig)
+			Expect(err).ToNot(HaveOccurred())
 			eg.Go(func() error {
-				periodicTaskConsumer.Start(egCtx)
+				periodicTaskConsumer.Run(egCtx)
 				return nil
 			})
 
 			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
 			eg.Go(func() error {
-				periodicTaskPublisher.Start(egCtx)
+				periodicTaskPublisher.Run(egCtx)
 				return nil
 			})
 
@@ -223,16 +231,17 @@ var _ = Describe("Periodic", func() {
 			// Start consumer and publisher together
 			eg, egCtx := errgroup.WithContext(ctx)
 
-			periodicTaskConsumer := periodic.NewPeriodicTaskConsumer(consumerConfig)
+			periodicTaskConsumer, err := periodic.NewPeriodicTaskConsumer(consumerConfig)
+			Expect(err).ToNot(HaveOccurred())
 			eg.Go(func() error {
-				periodicTaskConsumer.Start(egCtx)
+				periodicTaskConsumer.Run(egCtx)
 				return nil
 			})
 
 			periodicTaskPublisher, err := periodic.NewPeriodicTaskPublisher(publisherConfig)
 			Expect(err).ToNot(HaveOccurred())
 			eg.Go(func() error {
-				periodicTaskPublisher.Start(egCtx)
+				periodicTaskPublisher.Run(egCtx)
 				return nil
 			})
 
