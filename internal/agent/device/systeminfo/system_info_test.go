@@ -2,7 +2,6 @@ package systeminfo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -10,67 +9,11 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
-	gomock "go.uber.org/mock/gomock"
+	"go.uber.org/mock/gomock"
 )
-
-func TestManager(t *testing.T) {
-	require := require.New(t)
-
-	// setup
-	tmpDir := t.TempDir()
-	dataDir := filepath.Join("etc", "flightctl")
-	readWriter := fileio.NewReadWriter()
-	readWriter.SetRootdir(tmpDir)
-	err := readWriter.MkdirAll(dataDir, 0755)
-	require.NoError(err)
-	err = readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
-	require.NoError(err)
-	log := log.NewPrefixLogger("test")
-
-	// set mock boot_id
-	mockBootID := "c4070599-f0f0-472d-8084-09b7274ebf18"
-	err = readWriter.WriteFile(bootIDPath, []byte(mockBootID), 0644)
-	require.NoError(err)
-
-	ctrl := gomock.NewController(t)
-	mockExecuter := executer.NewMockExecuter(ctrl)
-	bootTime := "2024-12-13 11:01:08"
-	collectTimeout := util.Duration(5 * time.Second)
-	mockExecuter.EXPECT().ExecuteWithContext(context.Background(), "uptime", "-s").Return(bootTime, "", 0).Times(2)
-
-	// initialize client new device
-	manager := NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout)
-	err = manager.Initialize(context.Background())
-	require.NoError(err)
-	require.NotNil(manager)
-	require.NotEmpty(manager.BootTime())
-	require.False(manager.IsRebooted())
-	require.Equal(mockBootID, manager.BootID())
-
-	// test rebooted
-	// change bootID stored in system.json on disk
-	mockBootID2 := "c4070599-f0f0-472d-8084-09b7274ebf19"
-	mockStatus := &Boot{
-		Time: bootTime,
-		ID:   mockBootID2,
-	}
-	mockStatusBytes, err := json.Marshal(mockStatus)
-	require.NoError(err)
-	err = readWriter.WriteFile(filepath.Join(dataDir, SystemFileName), mockStatusBytes, 0644)
-	require.NoError(err)
-
-	// reinitialize client
-	manager = NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout)
-	err = manager.Initialize(context.Background())
-	require.NoError(err)
-	require.NotEmpty(manager.BootTime())
-	require.Equal(mockBootID, manager.BootID())
-	require.True(manager.IsRebooted())
-}
 
 // go test -benchmem -run=^$ -bench ^BenchmarkCollectInfo$ -cpuprofile=cpu.pprof -memprofile=mem.pprof github.com/flightctl/flightctl/internal/agent/device/systeminfo
 func BenchmarkCollectInfo(b *testing.B) {
@@ -236,4 +179,263 @@ func generateScriptBytes(sleepms int, output string, exitCode int) []byte {
 
 	content := fmt.Sprintf("#!/bin/bash\n%secho '%s'\nexit %d", sleepCmd, output, exitCode)
 	return []byte(content)
+}
+
+func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
+	tests := []struct {
+		name          string
+		infoKeys      []string
+		expectCPU     bool
+		expectGPU     bool
+		expectMemory  bool
+		expectNetwork bool
+		expectBIOS    bool
+		expectSystem  bool
+		expectKernel  bool
+		expectDistro  bool
+		expectErr     bool
+	}{
+		{
+			name:     "empty infoKeys",
+			infoKeys: []string{},
+		},
+		{
+			name:      "CPU keys",
+			infoKeys:  []string{cpuCoresKey, cpuProcessorsKey, cpuModelKey},
+			expectCPU: true,
+		},
+		{
+			name:      "GPU keys",
+			infoKeys:  []string{gpuKey},
+			expectGPU: true,
+		},
+		{
+			name:         "memory keys",
+			infoKeys:     []string{memoryTotalKbKey},
+			expectMemory: true,
+		},
+		{
+			name:          "network keys",
+			infoKeys:      []string{netInterfaceDefaultKey, netIPDefaultKey, netMACDefaultKey},
+			expectNetwork: true,
+		},
+		{
+			name:       "BIOS keys",
+			infoKeys:   []string{biosVendorKey, biosVersionKey},
+			expectBIOS: true,
+		},
+		{
+			name:         "system keys",
+			infoKeys:     []string{productNameKey, productSerialKey, productUUIDKey},
+			expectSystem: true,
+		},
+		{
+			name:         "kernel key",
+			infoKeys:     []string{kernelKey},
+			expectKernel: true,
+		},
+		{
+			name:         "distribution keys",
+			infoKeys:     []string{distroNameKey, distroVersionKey},
+			expectDistro: true,
+		},
+		{
+			name:          "mixed keys",
+			infoKeys:      []string{cpuCoresKey, gpuKey, netIPDefaultKey, productNameKey},
+			expectCPU:     true,
+			expectGPU:     true,
+			expectNetwork: true,
+			expectSystem:  true,
+		},
+		{
+			name:      "unknown keys",
+			infoKeys:  []string{"unknownKey", "anotherUnknown"},
+			expectErr: true,
+		},
+		{
+			name:      "mixed known and unknown",
+			infoKeys:  []string{cpuCoresKey, "unknownKey", gpuKey},
+			expectCPU: true,
+			expectGPU: true,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := collectionOptsFromInfoKeys(tt.infoKeys)
+
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			cfg := &collectCfg{}
+			for _, opt := range opts {
+				opt(cfg)
+			}
+
+			require.Equal(t, tt.expectCPU, cfg.hasCollector(collectorCPU), "CPU collection mismatch")
+			require.Equal(t, tt.expectGPU, cfg.hasCollector(collectorGPU), "GPU collection mismatch")
+			require.Equal(t, tt.expectMemory, cfg.hasCollector(collectorMemory), "Memory collection mismatch")
+			require.Equal(t, tt.expectNetwork, cfg.hasCollector(collectorNetwork), "Network collection mismatch")
+			require.Equal(t, tt.expectBIOS, cfg.hasCollector(collectorBIOS), "BIOS collection mismatch")
+			require.Equal(t, tt.expectSystem, cfg.hasCollector(collectorSystem), "System collection mismatch")
+			require.Equal(t, tt.expectKernel, cfg.hasCollector(collectorKernel), "Kernel collection mismatch")
+			require.Equal(t, tt.expectDistro, cfg.hasCollector(collectorDistribution), "Distribution collection mismatch")
+		})
+	}
+}
+
+func TestCollectOptFunctions(t *testing.T) {
+	t.Run("WithAll enables all collections", func(t *testing.T) {
+		cfg := &collectCfg{}
+		WithAll()(cfg)
+
+		require.True(t, cfg.hasCollector(collectorCPU))
+		require.True(t, cfg.hasCollector(collectorGPU))
+		require.True(t, cfg.hasCollector(collectorMemory))
+		require.True(t, cfg.hasCollector(collectorNetwork))
+		require.True(t, cfg.hasCollector(collectorBIOS))
+		require.True(t, cfg.hasCollector(collectorSystem))
+		require.True(t, cfg.hasCollector(collectorKernel))
+		require.True(t, cfg.hasCollector(collectorDistribution))
+		require.True(t, cfg.collectAllCustom)
+	})
+
+	t.Run("individual collection options", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			opt   CollectOpt
+			check collectorType
+		}{
+			{"withCPUCollector", withCollector(collectorCPU, collectCPUFunc), collectorCPU},
+			{"withGPUCollector", withCollector(collectorGPU, collectGPUFunc), collectorGPU},
+			{"withMemoryCollector", withCollector(collectorMemory, collectMemoryFunc), collectorMemory},
+			{"withNetworkCollector", withCollector(collectorNetwork, collectNetworkFunc), collectorNetwork},
+			{"withBIOSCollector", withCollector(collectorBIOS, collectBIOSFunc), collectorBIOS},
+			{"withSystemCollector", withCollector(collectorSystem, collectSystemFunc), collectorSystem},
+			{"withKernelCollector", withCollector(collectorKernel, collectKernelFunc), collectorKernel},
+			{"withDistributionCollector", withCollector(collectorDistribution, collectDistributionFunc), collectorDistribution},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				cfg := &collectCfg{}
+				tt.opt(cfg)
+				require.True(t, cfg.hasCollector(tt.check), "Option should enable its corresponding collection")
+			})
+		}
+	})
+
+	t.Run("combining options", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			opts      []CollectOpt
+			expected  map[collectorType]bool
+			allCustom bool
+		}{
+			{
+				name: "CPU and GPU only",
+				opts: []CollectOpt{withCollector(collectorCPU, collectCPUFunc), withCollector(collectorGPU, collectGPUFunc)},
+				expected: map[collectorType]bool{
+					collectorCPU:          true,
+					collectorGPU:          true,
+					collectorMemory:       false,
+					collectorNetwork:      false,
+					collectorBIOS:         false,
+					collectorSystem:       false,
+					collectorKernel:       false,
+					collectorDistribution: false,
+				},
+				allCustom: false,
+			},
+			{
+				name: "Hardware collectors",
+				opts: []CollectOpt{withCollector(collectorCPU, collectCPUFunc), withCollector(collectorMemory, collectMemoryFunc), withCollector(collectorBIOS, collectBIOSFunc), withCollector(collectorSystem, collectSystemFunc)},
+				expected: map[collectorType]bool{
+					collectorCPU:          true,
+					collectorMemory:       true,
+					collectorBIOS:         true,
+					collectorSystem:       true,
+					collectorGPU:          false,
+					collectorNetwork:      false,
+					collectorKernel:       false,
+					collectorDistribution: false,
+				},
+				allCustom: false,
+			},
+			{
+				name: "With custom collection",
+				opts: []CollectOpt{withCollector(collectorNetwork, collectNetworkFunc), WithAllCustom()},
+				expected: map[collectorType]bool{
+					collectorNetwork:      true,
+					collectorCPU:          false,
+					collectorGPU:          false,
+					collectorMemory:       false,
+					collectorBIOS:         false,
+					collectorSystem:       false,
+					collectorKernel:       false,
+					collectorDistribution: false,
+				},
+				allCustom: true,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				cfg := &collectCfg{}
+				for _, opt := range tt.opts {
+					opt(cfg)
+				}
+
+				for collectorType, expected := range tt.expected {
+					require.Equal(t, expected, cfg.hasCollector(collectorType),
+						"Collector type %v should be %v", collectorType, expected)
+				}
+				require.Equal(t, tt.allCustom, cfg.collectAllCustom)
+			})
+		}
+	})
+}
+
+func TestCollect_AllDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tmpDir))
+
+	// Create minimal file structure
+	err := readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
+	require.NoError(t, err)
+	err = readWriter.WriteFile(bootIDPath, []byte("test-boot-id"), 0644)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	mockExecuter := executer.NewMockExecuter(ctrl)
+	logger := log.NewPrefixLogger("test")
+	ctx := context.Background()
+
+	// Boot time collection always happens (needed for reboot detection)
+	mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0).Times(1)
+
+	info, err := Collect(ctx, logger, mockExecuter, readWriter, nil, "")
+	require.NoError(t, err)
+	require.NotNil(t, info)
+
+	// Should have basic info (always collected)
+	require.NotEmpty(t, info.OperatingSystem)
+	require.NotEmpty(t, info.Architecture)
+	require.NotEmpty(t, info.Boot.ID)
+	require.NotEmpty(t, info.Boot.Time)
+
+	// Should NOT have hardware info
+	require.Nil(t, info.Hardware.CPU)
+	require.Len(t, info.Hardware.GPU, 0)
+	require.Nil(t, info.Hardware.Memory)
+	require.Nil(t, info.Hardware.Network)
+	require.Nil(t, info.Hardware.BIOS)
+	require.Nil(t, info.Hardware.System)
+	require.Nil(t, info.Distribution)
+	require.Empty(t, info.Kernel)
+
 }

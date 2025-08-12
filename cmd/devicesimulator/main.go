@@ -296,6 +296,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 			Server:               agentConfigTemplate.ManagementService.Config.Service.Server,
 			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent_config.CacertFile),
 		}
+		cfg.SystemInfo = []string{}
 
 		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
 		if err := cfg.Complete(); err != nil {
