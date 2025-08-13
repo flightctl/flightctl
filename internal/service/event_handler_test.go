@@ -221,6 +221,39 @@ func TestEventHandler_HandleDeviceUpdatedEmptyOldDevice(t *testing.T) {
 	assert.Equal(t, 1, len(events.Items))
 }
 
+func TestEventHandler_DeviceDisconnectedEventDeduplication(t *testing.T) {
+	serviceHandler := serviceHandler()
+
+	ctx := context.Background()
+
+	// Create old device with all statuses as non-Unknown
+	oldDevice := prepareDevice(uuid.New(), "foo")
+	oldDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
+	oldDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
+	oldDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
+
+	// Create new device with all statuses as Unknown (simulating disconnection)
+	newDevice := prepareDevice(uuid.New(), "foo")
+	newDevice.Status.Summary.Status = api.DeviceSummaryStatusUnknown
+	newDevice.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
+	newDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusUnknown
+
+	// This should trigger multiple DeviceDisconnected events, but only one should be emitted
+	serviceHandler.EventHandler.HandleDeviceUpdatedEvents(ctx, api.DeviceKind, uuid.New(), "foo", oldDevice, newDevice, false, nil)
+
+	events, err := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	assert.NoError(t, err)
+
+	// Should only have 1 DeviceDisconnected event, not 3
+	deviceDisconnectedCount := 0
+	for _, event := range events.Items {
+		if event.Reason == api.EventReasonDeviceDisconnected {
+			deviceDisconnectedCount++
+		}
+	}
+	assert.Equal(t, 1, deviceDisconnectedCount, "Should only emit one DeviceDisconnected event when multiple status fields change to Unknown")
+}
+
 func TestEventDevicePatchDeviceStatus(t *testing.T) {
 	require := require.New(t)
 
