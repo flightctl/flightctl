@@ -153,8 +153,8 @@ func TestSignerChains(t *testing.T) {
 				if got, want := cert.Subject.CommonName, BootstrapCNFromName(cfg, "foo"); got != want {
 					t.Fatalf("CN not adjusted: got %q want %q", got, want)
 				}
-				if _, _, err := GetOrgIDExtensionFromCert(cert); err != nil {
-					t.Fatalf("OrgID extension missing: %v", err)
+				if _, present, err := GetOrgIDExtensionFromCert(cert); !present || err != nil {
+					t.Fatalf("Failed to ensure OrgID ext. exists: present=%v err=%v", present, err)
 				}
 				if _, err := GetSignerNameExtension(cert); err != nil {
 					t.Fatalf("SignerName extension missing: %v", err)
@@ -173,8 +173,8 @@ func TestSignerChains(t *testing.T) {
 				return withOrgCtx(orgID), req
 			},
 			assert: func(cert *x509.Certificate) {
-				if _, _, err := GetOrgIDExtensionFromCert(cert); err != nil {
-					t.Fatalf("OrgID extension missing: %v", err)
+				if _, present, err := GetOrgIDExtensionFromCert(cert); !present || err != nil {
+					t.Fatalf("Failed to ensure OrgID ext. exists: present=%v err=%v", present, err)
 				}
 				if _, err := GetSignerNameExtension(cert); err != nil {
 					t.Fatalf("SignerName extension missing: %v", err)
