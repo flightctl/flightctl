@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
-	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	chi "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -118,27 +116,6 @@ func extractOrgIDFromRequestQuery(r *http.Request) (uuid.UUID, error) {
 	return parsedID, nil
 }
 
-// getOrgIDFromCert tries to extract the OrgID (as a uuid.UUID) from the given
-// X.509 certificate. The OrgID is expected to be stored in a custom extension
-// identified by OIDOrgID. If the extension is not found or cannot be parsed as
-// a UUID, an error is returned.
-func getOrgIDFromCert(cert *x509.Certificate) (uuid.UUID, error) {
-	if cert == nil {
-		return uuid.Nil, fmt.Errorf("certificate is nil")
-	}
-
-	v, err := fccrypto.GetExtensionValue(cert, signer.OIDOrgID)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	orgID, parseErr := org.Parse(v)
-	if parseErr != nil {
-		return uuid.Nil, fmt.Errorf("invalid org_id extension value: %w", parseErr)
-	}
-	return orgID, nil
-}
-
 // extractOrgIDFromRequestCert extracts organization ID from the client certificate.
 // Returns the default organization ID if no certificate is available or if the
 // certificate doesn't contain an org ID extension.
@@ -149,12 +126,12 @@ func extractOrgIDFromRequestCert(r *http.Request) (uuid.UUID, error) {
 		return org.DefaultID, nil
 	}
 
-	certOrgID, err := getOrgIDFromCert(peerCertificate)
+	orgID, present, err := signer.GetOrgIDExtensionFromCert(peerCertificate)
 	if err != nil {
-		if errors.Is(err, flterrors.ErrExtensionNotFound) {
-			return org.DefaultID, nil
-		}
 		return uuid.Nil, fmt.Errorf("failed to extract organization ID from certificate: %w", err)
 	}
-	return certOrgID, nil
+	if !present {
+		return org.DefaultID, nil
+	}
+	return orgID, nil
 }
