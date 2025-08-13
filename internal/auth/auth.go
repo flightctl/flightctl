@@ -96,13 +96,24 @@ func getTlsConfig(cfg *config.Config) *tls.Config {
 	return tlsConfig
 }
 
+func getOrgConfig(cfg *config.Config) *common.AuthOrganizationsConfig {
+	if cfg.Organizations == nil {
+		return &common.AuthOrganizationsConfig{
+			Enabled: false,
+		}
+	}
+	return &common.AuthOrganizationsConfig{
+		Enabled: cfg.Organizations.Enabled,
+	}
+}
+
 func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
 	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
 	authZ = NilAuth{}
 	var err error
-	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg))
+	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
 	if err != nil {
 		return fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}

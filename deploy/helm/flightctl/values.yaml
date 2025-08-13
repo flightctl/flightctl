@@ -29,6 +29,7 @@
 ## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
 ## @param global.nodePorts Node port numbers for FCTL services
 ## @param global.imagePullPolicy Image pull policy for all containers
+## @param global.organizations.enabled Enable IDP-provided organizations support
 
 global:
   target: "standalone" # standalone, acm, aap
@@ -78,6 +79,8 @@ global:
   imagePullPolicy: IfNotPresent
   rbac:
     create: true
+  organizations:
+    enabled: false
 
 
 ## @section Component specific parameters

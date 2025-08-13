@@ -82,6 +82,9 @@ type AuthInfo struct {
 	// The authentication provider (i.e. k8s, OIDC)
 	// +optional
 	AuthProvider *AuthProviderConfig `json:"auth-provider,omitempty"`
+	// Organizations indicates the configured IdP supports organizations.
+	// +optional
+	OrganizationsEnabled bool `json:"organizations-enabled,omitempty"`
 }
 
 type AuthProviderConfig struct {

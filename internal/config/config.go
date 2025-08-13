@@ -19,16 +19,17 @@ const (
 )
 
 type Config struct {
-	Database     *dbConfig           `json:"database,omitempty"`
-	Service      *svcConfig          `json:"service,omitempty"`
-	KV           *kvConfig           `json:"kv,omitempty"`
-	Alertmanager *alertmanagerConfig `json:"alertmanager,omitempty"`
-	Auth         *authConfig         `json:"auth,omitempty"`
-	Metrics      *metricsConfig      `json:"metrics,omitempty"`
-	CA           *ca.Config          `json:"ca,omitempty"`
-	Tracing      *tracingConfig      `json:"tracing,omitempty"`
-	GitOps       *gitOpsConfig       `json:"gitOps,omitempty"`
-	Periodic     *periodicConfig     `json:"periodic,omitempty"`
+	Database      *dbConfig            `json:"database,omitempty"`
+	Service       *svcConfig           `json:"service,omitempty"`
+	KV            *kvConfig            `json:"kv,omitempty"`
+	Alertmanager  *alertmanagerConfig  `json:"alertmanager,omitempty"`
+	Auth          *authConfig          `json:"auth,omitempty"`
+	Metrics       *metricsConfig       `json:"metrics,omitempty"`
+	CA            *ca.Config           `json:"ca,omitempty"`
+	Tracing       *tracingConfig       `json:"tracing,omitempty"`
+	GitOps        *gitOpsConfig        `json:"gitOps,omitempty"`
+	Periodic      *periodicConfig      `json:"periodic,omitempty"`
+	Organizations *organizationsConfig `json:"organizations,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -176,6 +177,10 @@ type gitOpsConfig struct {
 
 type periodicConfig struct {
 	Consumers int `json:"consumers,omitempty"`
+}
+
+type organizationsConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 type ConfigOption func(*Config)

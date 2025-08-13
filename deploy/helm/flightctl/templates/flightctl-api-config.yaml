@@ -73,6 +73,8 @@ data:
             externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         {{- end }}
     {{ end }}
+    organizations:
+        enabled: {{ .Values.global.organizations.enabled }}
     {{ if .Values.global.metrics.enabled }}
     metrics:
         enabled: true

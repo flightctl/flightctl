@@ -22,8 +22,13 @@ const (
 )
 
 type AuthConfig struct {
-	Type string
-	Url  string
+	Type                string
+	Url                 string
+	OrganizationsConfig AuthOrganizationsConfig
+}
+
+type AuthOrganizationsConfig struct {
+	Enabled bool
 }
 
 type Identity struct {
