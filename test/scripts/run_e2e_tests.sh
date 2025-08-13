@@ -100,8 +100,8 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
     # Combine all tests for this node into a single focus pattern
     # Use regex OR (|) to match any of the tests
     if [[ -s "${NODE_TESTS}" ]]; then
-        # Read all tests and join them with | for regex OR
-        FOCUS_PATTERN=$(paste -sd '|' "${NODE_TESTS}")
+        # Read all tests, escape regex metacharacters, and join them with | for regex OR
+        FOCUS_PATTERN=$(sed 's/[[\.*^$()+?{|\\]/\\&/g' "${NODE_TESTS}" | paste -sd '|')
         echo "Focus pattern for node ${GINKGO_NODE}: ${FOCUS_PATTERN}"
         CMD+=("--focus" "${FOCUS_PATTERN}")
     fi

@@ -1328,10 +1328,9 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 }
 
 // GetVMFromPool retrieves a VM from the pool for the given worker ID.
-// This enforces the proper VM pool pattern where VMs are only created in BeforeSuite.
-// If the VM doesn't exist in the pool, it returns an error.
+// VMs are created on-demand if they don't already exist in the pool.
 func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
-	// Get VM from the global pool (this should already exist from BeforeSuite)
+	// Get VM from the global pool (created on-demand if needed)
 	testVM, err := SetupVMForWorker(workerID, os.TempDir(), 2233)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get VM from pool for worker %d: %w", workerID, err)
@@ -1346,7 +1345,7 @@ func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
 // SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
 // and starts the agent. This is useful for tests that use the VM pool pattern.
 func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
-	// Get VM from pool (this should already exist from BeforeSuite)
+	// Get VM from pool (created on-demand if needed)
 	testVM, err := h.GetVMFromPool(workerID)
 	if err != nil {
 		return fmt.Errorf("failed to get VM from pool: %w", err)

@@ -53,8 +53,6 @@ var _ = Describe("Field Selectors in Flight Control", func() {
 	)
 
 	BeforeEach(func() {
-		_ = testutil.StartSpecTracerForGinkgo(suiteCtx)
-
 		// Generate unique test ID for this test
 		testID := harness.GetTestIDFromContext()
 

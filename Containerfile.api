@@ -4,11 +4,15 @@ ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
 
+# Convert ARGs to ENV so make can use them
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
+
 # Switch to root for build operations
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)

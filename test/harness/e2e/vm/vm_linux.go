@@ -411,10 +411,6 @@ func (v *VMInLibvirt) Delete() (err error) {
 
 // Shutdown the VM
 func (v *VMInLibvirt) Shutdown() (err error) {
-	if err != nil {
-		return fmt.Errorf("unable to load existing libvirt domain: %w", err)
-	}
-
 	//check if domain is running and shut it down
 	isRunning, err := v.IsRunning()
 	if err != nil {
@@ -463,6 +459,12 @@ func (v *VMInLibvirt) ForceDelete() (err error) {
 		v.libvirtConn.Close()
 		v.libvirtConn = nil
 	}
+	if v.consoleStream != nil {
+		_ = v.consoleStream.Abort()
+		_ = v.consoleStream.Free()
+		v.consoleStream = nil
+	}
+	v.consoleOutput = nil
 
 	return
 }
@@ -685,27 +687,11 @@ func (v *VMInLibvirt) HasSnapshot(name string) (bool, error) {
 		return false, fmt.Errorf("VM domain is not initialized")
 	}
 
-	// For external snapshots with NO_METADATA flag, check for the actual snapshot files
-	// Check for disk snapshot file (external snapshots create new disk files)
-	diskSnapshotPath := v.TestVM.DiskImagePath + "." + name
-	if _, err := os.Stat(diskSnapshotPath); err == nil {
-		logrus.Debugf("Found disk snapshot file: %s", diskSnapshotPath)
-		return true, nil
-	}
-
-	// Check for memory snapshot file
-	if v.TestVM.MemoryFilePath != "" {
-		memSnapshotPath := v.TestVM.MemoryFilePath + "." + name
-		if _, err := os.Stat(memSnapshotPath); err == nil {
-			logrus.Debugf("Found memory snapshot file: %s", memSnapshotPath)
-			return true, nil
-		}
-	}
-
-	// Fallback to libvirt metadata check
+	// Check libvirt metadata for snapshot (snapshots are created with metadata)
 	_, err := v.domain.SnapshotLookupByName(name, 0)
 	if err != nil {
-		if errors.As(err, &libvirt.Error{Code: libvirt.ERR_NO_DOMAIN_SNAPSHOT}) {
+		var libvirtErr libvirt.Error
+		if errors.As(err, &libvirtErr) && libvirtErr.Code == libvirt.ERR_NO_DOMAIN_SNAPSHOT {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to check snapshot %s: %w", name, err)

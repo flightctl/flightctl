@@ -51,7 +51,7 @@ jobs:
           path: |
             /var/cache/dnf
             /var/lib/dnf
-          key: ${{ runner.os }}-dnf-${{ matrix.image }}
+          key: ${{ runner.os }}-dnf-${{ matrix.image.name }}
           restore-keys: |
             ${{ runner.os }}-dnf-
 

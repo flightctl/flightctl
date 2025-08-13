@@ -44,7 +44,8 @@ func GetOrCreateVMPool(config VMPoolConfig) *VMPool {
 	return globalVMPool
 }
 
-// GetVMForWorker returns a VM for the given worker ID, creating it if necessary
+// GetVMForWorker returns a VM for the given worker ID, creating it on-demand if it doesn't exist.
+// This method supports lazy VM creation to optimize resource usage.
 func (p *VMPool) GetVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	p.mutex.RLock()
 	if vm, exists := p.vms[workerID]; exists {
@@ -305,7 +306,8 @@ func GetBaseDiskPath() (string, error) {
 	return baseDisk, nil
 }
 
-// SetupVMForWorker is a convenience function that initializes the VM pool and returns a VM for the worker
+// SetupVMForWorker is a convenience function that initializes the VM pool and returns a VM for the worker.
+// VMs are created on-demand if they don't already exist in the pool.
 func SetupVMForWorker(workerID int, tempDir string, sshPortBase int) (vm.TestVMInterface, error) {
 	baseDiskPath, err := GetBaseDiskPath()
 	if err != nil {

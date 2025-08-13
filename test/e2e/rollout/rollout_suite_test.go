@@ -61,7 +61,7 @@ var _ = AfterEach(func() {
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup
-	err := harness.CleanUpTestResources()
+	err := harness.CleanUpAllTestResources()
 	Expect(err).ToNot(HaveOccurred())
 
 	// Now restore suite context for any remaining cleanup operations

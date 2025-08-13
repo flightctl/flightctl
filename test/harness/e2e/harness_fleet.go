@@ -2,12 +2,13 @@ package e2e
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
-	"strconv"
 )
 
 func (h *Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs ...v1alpha1.ConfigProviderSpec) (v1alpha1.DeviceSpec, error) {
