@@ -18,39 +18,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Checkout
-        run: |
-          commits=${{ github.event.pull_request.commits }}
-          if [[ -n "$commits" ]]; then
-            # Prepare enough depth for diffs with master
-            git fetch --depth="$(( commits + 1 ))"
-          fi
+          fetch-depth: 0
 
-      - uses: dorny/paths-filter@v3
-        id: filter
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
         with:
-          filters: |
-            notdocs:
-              - '!.spelling'
-              - '!README.md'
-              - '!docs/**'
+          since_last_remote_commit: 'true'
+          files_ignore: |
+            .spelling
+            README.md
+            docs/**
+            .github/**
+            examples/**
 
       - name: Check commit message
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: hack/check-commits.sh
 
       - name: Setup all dependencies
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
       - name: Check that generated files have been updated and that go.mod is tidy
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           make generate
           make tidy
           git diff --exit-code
 
       - name: Running Linter
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make lint
