@@ -43,43 +43,34 @@ func NewCASigners(ca CA) *CASigners {
 	ret := &CASigners{
 		ca: ca,
 		signers: map[string]Signer{
-			cfg.ClientBootstrapSignerName: compose(
-				compose(
-					NewClientBootstrap,
-					WithOrgIDExtension,
-					WithSignerNameExtension,
-				)(ca),
-				WithCSRValidation,
-				WithCertificateReuse,
-				WithSignerNameValidation,
+			cfg.ClientBootstrapSignerName: WithSignerNameValidation(
+				WithCertificateReuse(
+					WithCSRValidation(
+						WithSignerNameExtension(
+							WithOrgIDExtension(NewClientBootstrap))(ca),
+					),
+				),
 			),
-			cfg.DeviceEnrollmentSignerName: compose(
-				compose(
-					NewSignerDeviceEnrollment,
-					WithOrgIDExtension,
-					WithSignerNameExtension,
-				)(ca),
-				WithCSRValidation,
-				WithCertificateReuse,
-				WithSignerNameValidation,
+			cfg.DeviceEnrollmentSignerName: WithSignerNameValidation(
+				WithCertificateReuse(
+					WithCSRValidation(
+						WithSignerNameExtension(WithOrgIDExtension(NewSignerDeviceEnrollment))(ca),
+					),
+				),
 			),
-			cfg.DeviceSvcClientSignerName: compose(
-				compose(
-					NewSignerDeviceSvcClient,
-					WithSignerNameExtension,
-				)(ca),
-				WithCSRValidation,
-				WithCertificateReuse,
-				WithSignerNameValidation,
+			cfg.DeviceSvcClientSignerName: WithSignerNameValidation(
+				WithCertificateReuse(
+					WithCSRValidation(
+						WithSignerNameExtension(NewSignerDeviceSvcClient)(ca),
+					),
+				),
 			),
-			cfg.ServerSvcSignerName: compose(
-				compose(
-					NewSignerServerSvc,
-					WithSignerNameExtension,
-				)(ca),
-				WithCSRValidation,
-				WithCertificateReuse,
-				WithSignerNameValidation,
+			cfg.ServerSvcSignerName: WithSignerNameValidation(
+				WithCertificateReuse(
+					WithCSRValidation(
+						WithSignerNameExtension(NewSignerServerSvc)(ca),
+					),
+				),
 			),
 		},
 	}
@@ -300,15 +291,6 @@ func WithOrgIDExtension(s func(CA) Signer) func(CA) Signer {
 			},
 		}
 	}
-}
-
-// Compose applies decorators sequentially to base and returns the composed value.
-// It is generic and works for both concrete Signers and Signer factory functions.
-func compose[T any](base T, decorators ...func(T) T) T {
-	for _, d := range decorators {
-		base = d(base)
-	}
-	return base
 }
 
 func WithSignerRestrictedPrefixes(restrictedPrefixes map[string]Signer, s Signer) Signer {
