@@ -4,8 +4,8 @@
 the flightctl-agent process with configurable concurrency and monitoring capabilities. 
 
 The simulator automatically handles device enrollment, fleet assignment, and provides comprehensive metrics for performance testing.
-Certain fields of a device spec (for example OS image updates and applications) can cause issues during simulation. These are intentionally
-disabled or no-op in the simulator context to avoid unintended downloads and resource usage.
+Certain fields of a device spec (for example OS image updates and applications) can cause issues during simulation. It is highly 
+recommended to avoid including OS images or Applications in specs.
 
 ### Setup
 

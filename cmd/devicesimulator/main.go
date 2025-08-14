@@ -115,6 +115,11 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
+	// Disable console banner for all simulated agents
+	if err := os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true"); err != nil {
+		log.Fatalf("Error setting banner disable environment variable: %v", err)
+	}
+
 	// Parse and validate source IPs
 	var parsedSourceIPs []net.IP
 	for _, ipStr := range *sourceIPs {
@@ -372,18 +377,6 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 		err := os.Setenv(client.TestRootDirEnvKey, agentDir)
 		if err != nil {
 			logger.Fatalf("Error setting environment variable: %v", err)
-		}
-
-		// Disable console banner for simulated agents
-		err = os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true")
-		if err != nil {
-			logger.Fatalf("Error setting banner disable environment variable: %v", err)
-		}
-
-		// Enable simulation mode for agents
-		err = os.Setenv("FLIGHTCTL_SIMULATED", "true")
-		if err != nil {
-			logger.Fatalf("Error setting simulation mode environment variable: %v", err)
 		}
 
 		copyAgentFiles(logger, certDir, agentDir)

@@ -7,7 +7,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
-	"github.com/flightctl/flightctl/internal/agent/device/environment"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
@@ -43,12 +42,6 @@ func NewManager(
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
 ) Manager {
-	// In a simulated environment we want to avoid anything related to podman
-	// so that we don't even attempt to download images
-	if environment.IsEnabled(environment.Simulated) {
-		log.Info("Using simulation OS manager")
-		return newSimManager(log)
-	}
 	return &manager{
 		client:       client,
 		podmanClient: podmanClient,

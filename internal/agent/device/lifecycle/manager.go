@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/environment"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -324,7 +324,8 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 		m.log.Warnf("Failed to notify systemd: %v", err)
 	}
 
-	if !environment.IsEnabled(environment.DisableConsoleBanner) {
+	value := os.Getenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER")
+	if !(strings.EqualFold(value, "true") || value == "1") {
 		fmt.Println(buffer.String())
 	}
 	return nil
