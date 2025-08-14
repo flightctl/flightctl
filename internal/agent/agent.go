@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/healthcheck"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
@@ -154,6 +155,10 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	policyManager := policy.NewManager(a.log)
 
+	healthcheckManager := healthcheck.New(deviceName,
+		time.Duration(a.config.HealthcheckInterval),
+		a.log)
+
 	devicePublisher := publisher.New(deviceName,
 		time.Duration(a.config.SpecFetchInterval),
 		backoff,
@@ -243,6 +248,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		specManager,
 		devicePublisher,
+		healthcheckManager,
 		statusManager,
 		hookManager,
 		lifecycleManager,
@@ -294,6 +300,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		statusManager,
 		specManager,
 		devicePublisher,
+		healthcheckManager,
 		applicationManager,
 		systemdManager,
 		a.config.SpecFetchInterval,

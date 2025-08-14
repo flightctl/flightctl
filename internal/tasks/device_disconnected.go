@@ -36,11 +36,11 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 	defer cancel()
 
 	// Calculate the cutoff time for disconnected devices
-	cutoffTime := time.Now().Add(-api.DeviceDisconnectedTimeout)
+	cutoffTime := time.Now().Add(-api.DeviceDisconnectedTimeout).Format(time.RFC3339)
 
 	// Create a field selector to only get devices that haven't been seen for more than DeviceDisconnectedTimeout
 	// and don't already have "Unknown" status to avoid reprocessing the same devices
-	fieldSelectorStr := fmt.Sprintf("status.lastSeen<%s,status.summary.status!=Unknown", cutoffTime.Format(time.RFC3339))
+	fieldSelectorStr := fmt.Sprintf("lastSeen<%s,status.summary.status!=Unknown", cutoffTime)
 
 	// List devices that match the disconnection criteria with pagination
 	listParams := api.ListDevicesParams{

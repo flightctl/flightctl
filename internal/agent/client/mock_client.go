@@ -63,6 +63,20 @@ func (mr *MockManagementMockRecorder) GetRenderedDevice(ctx, name, params any, r
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDevice", reflect.TypeOf((*MockManagement)(nil).GetRenderedDevice), varargs...)
 }
 
+// HealthcheckDevice mocks base method.
+func (m *MockManagement) HealthcheckDevice(ctx context.Context, name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HealthcheckDevice", ctx, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HealthcheckDevice indicates an expected call of HealthcheckDevice.
+func (mr *MockManagementMockRecorder) HealthcheckDevice(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HealthcheckDevice", reflect.TypeOf((*MockManagement)(nil).HealthcheckDevice), ctx, name)
+}
+
 // PatchDeviceStatus mocks base method.
 func (m *MockManagement) PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error {
 	m.ctrl.T.Helper()

@@ -40,19 +40,29 @@ const (
 )
 
 type testProvider struct {
-	queue   chan []byte
-	stopped atomic.Bool
-	wg      *sync.WaitGroup
-	log     logrus.FieldLogger
+	queue       chan []byte
+	pubsubQueue chan []byte
+	stopped     atomic.Bool
+	wg          *sync.WaitGroup
+	log         logrus.FieldLogger
+}
+
+func (t *testProvider) NewBroadcaster(channelName string) (queues.Broadcaster, error) {
+	return t, nil
+}
+
+func (t *testProvider) NewSubscriber(channelName string) (queues.Subscriber, error) {
+	return t, nil
 }
 
 func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	return &testProvider{
-		queue: make(chan []byte, 20),
-		wg:    &wg,
-		log:   log,
+		queue:       make(chan []byte, 20),
+		pubsubQueue: make(chan []byte, 20),
+		wg:          &wg,
+		log:         log,
 	}
 }
 
@@ -102,6 +112,33 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 			}
 		}
 	}()
+	return nil
+}
+
+func (t *testProvider) Subscribe(ctx context.Context, handler queues.BroadcastHandler) (queues.Subscription, error) {
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		log := logrus.New()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case b, ok := <-t.pubsubQueue:
+				if !ok {
+					return
+				}
+				if err := handler(ctx, b, log); err != nil {
+					log.WithError(err).Errorf("handling broadcast message: %s", string(b))
+				}
+			}
+		}
+	}()
+	return t, nil
+}
+
+func (t *testProvider) Broadcast(ctx context.Context, payload []byte) error {
+	t.pubsubQueue <- payload
 	return nil
 }
 
