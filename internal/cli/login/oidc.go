@@ -18,18 +18,20 @@ type OIDCDirectResponse struct {
 }
 
 type OIDC struct {
-	ClientId           string
-	CAFile             string
-	InsecureSkipVerify bool
-	ConfigUrl          string
+	ClientId             string
+	CAFile               string
+	InsecureSkipVerify   bool
+	ConfigUrl            string
+	RequestOrganizations bool
 }
 
-func NewOIDCConfig(caFile, clientId, authUrl string, insecure bool) OIDC {
+func NewOIDCConfig(caFile, clientId, authUrl string, requestOrganizations bool, insecure bool) OIDC {
 	return OIDC{
-		CAFile:             caFile,
-		InsecureSkipVerify: insecure,
-		ClientId:           clientId,
-		ConfigUrl:          fmt.Sprintf("%s/.well-known/openid-configuration", authUrl),
+		CAFile:               caFile,
+		InsecureSkipVerify:   insecure,
+		ClientId:             clientId,
+		ConfigUrl:            fmt.Sprintf("%s/.well-known/openid-configuration", authUrl),
+		RequestOrganizations: requestOrganizations,
 	}
 }
 
@@ -45,7 +47,7 @@ func (o OIDC) getOIDCClient(callback string) (*osincli.Client, error) {
 		TokenUrl:           oauthServerResponse.TokenEndpoint,
 		ErrorsInStatusCode: true,
 		RedirectUrl:        callback,
-		Scope:              "openid",
+		Scope:              o.getScopes(),
 	}
 
 	client, err := osincli.NewClient(config)
@@ -73,6 +75,7 @@ func (o OIDC) authHeadless(username, password string) (AuthInfo, error) {
 	param.Add("username", username)
 	param.Add("password", password)
 	param.Add("grant_type", "password")
+	param.Add("scope", o.getScopes())
 	payload := bytes.NewBufferString(param.Encode())
 
 	req, err := http.NewRequest(http.MethodPost, oauthResponse.TokenEndpoint, payload)
@@ -118,6 +121,14 @@ func (o OIDC) authHeadless(username, password string) (AuthInfo, error) {
 	}
 
 	return AuthInfo(directResponse), nil
+}
+
+func (o OIDC) getScopes() string {
+	scopes := "openid"
+	if o.RequestOrganizations {
+		scopes += " organization:*"
+	}
+	return scopes
 }
 
 func (o OIDC) Renew(refreshToken string) (AuthInfo, error) {
