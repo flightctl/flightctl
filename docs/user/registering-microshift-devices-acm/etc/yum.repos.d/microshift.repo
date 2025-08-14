@@ -1,0 +1,15 @@
+[rhocp]
+baseurl=https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel9/$basearch/rhocp/4.15/os/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+
+
+[fast-datapath]
+baseurl=https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel9/$basearch/fast-datapath/os/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+
+
+# https://github.com/flightctl/flightctl-demos/blob/main/demos/basic-nginx-demo/bootc/etc/yum.repos.d/microshift.repo
