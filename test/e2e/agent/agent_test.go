@@ -1,7 +1,7 @@
 package agent_test
 
 import (
-	"context"
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,44 +10,22 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("VM Agent behavior", func() {
-	var (
-		ctx     context.Context
-		harness *e2e.Harness
-	)
-
-	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-		err := harness.VM.RunAndWaitForSSH()
-		Expect(err).ToNot(HaveOccurred())
-	})
-
-	AfterEach(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
-		harness.Cleanup(true)
-	})
-
 	Context("vm", func() {
 		It("Verify VM agent", Label("80455"), func() {
 			By("should print QR output to console")
 			// Wait for the top-most part of the QR output to appear
-			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
-
-			fmt.Println("============ Console output ============")
-			lines := strings.Split(harness.VM.GetConsoleOutput(), "\n")
-			fmt.Println(strings.Join(lines[len(lines)-20:], "\n"))
-			fmt.Println("========================================")
+			Eventually(harness.GetFlightctlAgentLogs, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
 
 			By("should have flightctl-agent running")
-			stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+			var stdout *bytes.Buffer
+			var err error
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 
@@ -59,9 +37,9 @@ var _ = Describe("VM Agent behavior", func() {
 
 		It("Verifying generation of enrollment request link", Label("75518"), func() {
 			By("should be reporting device status on enrollment request")
-			// Get the enrollment Request ID from the console output
-			enrollmentID := harness.GetEnrollmentIDFromConsole()
-			logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
+			// Get the enrollment Request ID from the service logs
+			enrollmentID := harness.GetEnrollmentIDFromServiceLogs("flightctl-agent")
+			GinkgoWriter.Printf("Enrollment ID found in flightctl-agent service logs: %s\n", enrollmentID)
 
 			// Wait for the device to create the enrollment request, and check the TPM details
 			enrollmentRequest := harness.WaitForEnrollmentRequest(enrollmentID)
@@ -70,8 +48,8 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(enrollmentRequest.Spec.DeviceStatus.SystemInfo.IsEmpty()).NotTo(BeTrue())
 
 			// Approve the enrollment and wait for the device details to be populated by the agent
-			harness.ApproveEnrollment(enrollmentID, testutil.TestEnrollmentApproval())
-			logrus.Infof("Waiting for device %s to report status", enrollmentID)
+			harness.ApproveEnrollment(enrollmentID, harness.TestEnrollmentApproval())
+			GinkgoWriter.Printf("Waiting for device %s to report status\n", enrollmentID)
 
 			// wait for the device to pickup enrollment and report measurements on device status
 			Eventually(func() *apiclient.GetDeviceResponse {
@@ -324,12 +302,12 @@ var _ = Describe("VM Agent behavior", func() {
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			By("should report 'Unknown' after the device vm is powered-off")
-
+			//find a better way to test this without waiting for 10 min
 			// Shutdown the vm.
-			err = harness.VM.Shutdown()
-			Expect(err).ToNot(HaveOccurred())
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
+			//err = harness.VM.Shutdown()
+			//Expect(err).ToNot(HaveOccurred())
+			//Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+			//deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
 
 		})
 

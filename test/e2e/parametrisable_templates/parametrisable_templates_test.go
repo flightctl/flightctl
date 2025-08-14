@@ -1,11 +1,9 @@
 package parametrisabletemplates
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -14,21 +12,13 @@ import (
 
 var _ = Describe("Template variables in the device configuraion", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceId string
+		testID   string
 	)
 
 	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-		deviceId = harness.StartVMAndEnroll()
-	})
-
-	AfterEach(func() {
-		harness.Cleanup(true)
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
+		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
+		testID = harness.GetTestIDFromContext()
 	})
 
 	Context("parametrisable_templates", func() {
@@ -39,6 +29,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			By("Create a fleet with template variables in InlineConfigProviderSpec")
 			err := configProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidWithFunction)
 			Expect(err).ToNot(HaveOccurred())
+			fleetTestName := fmt.Sprintf("fleet-test-%s", testID)
 			err = harness.CreateTestFleetWithConfig(fleetTestName, testFleetSelector, configProviderSpec)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -51,10 +42,10 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				device.Metadata.Labels = &map[string]string{
+				harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 					fleetSelectorKey: fleetSelectorValue,
 					teamLabelKey:     teamLabelValue,
-				}
+				})
 				logrus.Infof("Updating %s with label %s=%s and %s=%s", deviceId,
 					fleetSelectorKey, fleetSelectorValue, teamLabelKey, teamLabelValue)
 			})
@@ -95,6 +86,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				By("Create a fleet with a template variable")
 				err = configProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidWithFunction)
 				Expect(err).ToNot(HaveOccurred())
+				fleetTestName := fmt.Sprintf("fleet-test-%s", testID)
 				err = harness.CreateTestFleetWithConfig(fleetTestName, testFleetSelector, configProviderSpec)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -159,21 +151,33 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Create a git and a http repository")
+				repoTestName := fmt.Sprintf("git-repo-%s", testID)
+				gitMetadata.Name = &repoTestName
 				err = harness.CreateRepository(gitRepositorySpec, gitMetadata)
 				Expect(err).ToNot(HaveOccurred())
 				logrus.Infof("Created git repository %s", *gitMetadata.Name)
 
+				httpRepoName := fmt.Sprintf("http-repo-%s", testID)
+				httpRepoMetadata.Name = &httpRepoName
 				err = harness.CreateRepository(httpRepositoryspec, httpRepoMetadata)
 				Expect(err).ToNot(HaveOccurred())
 				logrus.Infof("Created http repository %s", *httpRepoMetadata.Name)
 
 				By("Create the device spec adding inline. git, http configs")
+				// Create git config with dynamic repository name
+				gitConfigWithRepo := gitConfigvalid
+				gitConfigWithRepo.GitRef.Repository = repoTestName
+
+				// Create http config with dynamic repository name
+				httpConfigWithRepo := httpConfigvalid
+				httpConfigWithRepo.HttpRef.Repository = httpRepoName
+
 				httpConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
-				err = httpConfigProviderSpec.FromHttpConfigProviderSpec(httpConfigvalid)
+				err = httpConfigProviderSpec.FromHttpConfigProviderSpec(httpConfigWithRepo)
 				Expect(err).ToNot(HaveOccurred())
 
 				gitConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
-				err = gitConfigProviderSpec.FromGitConfigProviderSpec(gitConfigvalid)
+				err = gitConfigProviderSpec.FromGitConfigProviderSpec(gitConfigWithRepo)
 				Expect(err).ToNot(HaveOccurred())
 
 				inlineConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
@@ -193,6 +197,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				deviceSpec.Config = &configProviderSpec
 
 				By("Create a fleet with parametrisable templates in the os image, inlineconfig, gitconfig")
+				fleetTestName := fmt.Sprintf("fleet-test-%s", testID)
 				err = harness.CreateOrUpdateTestFleet(fleetTestName, testFleetSelector, deviceSpec)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -202,14 +207,14 @@ var _ = Describe("Template variables in the device configuraion", func() {
 
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 
-					device.Metadata.Labels = &map[string]string{
+					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
 						teamLabelKey:     teamLabelValue,
 						aliasKey:         deviceAlias,
 						configLabelKey:   configLabelValue,
 						revisionLabelKey: revisionLabelValue,
 						suffixLabelKey:   suffixLabelValue,
-					}
+					})
 					logrus.Infof("Updating %s with labels", deviceId)
 				})
 				Expect(err).ToNot(HaveOccurred())
@@ -282,14 +287,13 @@ var _ = Describe("Template variables in the device configuraion", func() {
 
 				logrus.Infof("Removing %s labels", teamLabelKey)
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-
-					device.Metadata.Labels = &map[string]string{
+					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
 						aliasKey:         deviceAlias,
 						configLabelKey:   configLabelValue,
 						revisionLabelKey: revisionLabelValue,
 						suffixLabelKey:   suffixLabelValue,
-					}
+					})
 					logrus.Infof("Updating %s with labels", deviceId)
 				})
 				Expect(err).ToNot(HaveOccurred())
@@ -318,7 +322,6 @@ var _ = Describe("Template variables in the device configuraion", func() {
 var (
 	fleetSelectorKey      = "fleet"
 	fleetSelectorValue    = "test"
-	fleetTestName         = "fleet-test"
 	inlinePath            = "/var/home/user/{{ getOrDefault .metadata.labels \"team\" \"c\" }}.txt"
 	inlineContent         = "{{ getOrDefault .metadata.labels \"team\" \"c\" }}"
 	teamLabelKey          = "team"
@@ -327,11 +330,9 @@ var (
 	defaultTeamLabelValue = "c"
 	contentWithFunction   = "{{ replace \"a\" \"c\" .metadata.labels.team }}"
 	pathWithFunction      = "/var/home/user/{{ upper .metadata.labels.team | lower }}/test.txt"
-	repoTestName          = "git-repo"
 	repoTestUrl           = "https://github.com/flightctl/flightctl-demos"
 	deviceAlias           = "base"
 	branchTargetRevision  = "demo"
-	httpRepoName          = "http-repo"
 	gitRepoConfigPath     = "/demos/basic-nginx-demo/configuration"
 	httpConfigPath        = "/var/home/user/{{ .metadata.labels.config }}"
 	configLabelKey        = "config"
@@ -386,7 +387,7 @@ var _ = gitRepositorySpec.FromGenericRepoSpec(v1alpha1.GenericRepoSpec{
 })
 
 var gitMetadata = v1alpha1.ObjectMeta{
-	Name:   &repoTestName,
+	Name:   nil, // Will be set dynamically in test
 	Labels: &map[string]string{},
 }
 
@@ -400,7 +401,7 @@ var httpRepositoryspec v1alpha1.RepositorySpec
 var _ = httpRepositoryspec.FromHttpRepoSpec(httpRepoSpec)
 
 var httpRepoMetadata = v1alpha1.ObjectMeta{
-	Name: &httpRepoName,
+	Name: nil, // Will be set dynamically in test
 }
 
 var gitConfigvalid = v1alpha1.GitConfigProviderSpec{
@@ -410,7 +411,7 @@ var gitConfigvalid = v1alpha1.GitConfigProviderSpec{
 		TargetRevision string `json:"targetRevision"`
 	}{
 		Path:           gitRepoConfigPath,
-		Repository:     repoTestName,
+		Repository:     "", // Will be set dynamically in test
 		TargetRevision: revision,
 	},
 	Name: gitConfigName,
@@ -423,7 +424,7 @@ var httpConfigvalid = v1alpha1.HttpConfigProviderSpec{
 		Suffix     *string `json:"suffix,omitempty"`
 	}{
 		FilePath:   httpConfigPath,
-		Repository: httpRepoName,
+		Repository: "", // Will be set dynamically in test
 		Suffix:     &suffix,
 	},
 	Name: httpConfigName,

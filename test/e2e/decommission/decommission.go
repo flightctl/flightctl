@@ -1,9 +1,6 @@
 package decommission_test
 
 import (
-	"context"
-	"testing"
-
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
@@ -11,32 +8,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const TIMEOUT = "2m"
-
-func TestDecommission(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Decommission E2E Suite")
-}
-
 var _ = Describe("CLI decommission test", func() {
-	var (
-		harness  *e2e.Harness
-		deviceId string
-		ctx      = context.Background()
-	)
-
-	BeforeEach(func() {
-		harness = e2e.NewTestHarness(ctx)
-		deviceId = harness.StartVMAndEnroll()
-	})
-
-	AfterEach(func() {
-		harness.Cleanup(false)
-	})
 
 	Context("decommission", func() {
 
 		It("should decommission a device via CLI", Label("decommission", "81782"), func() {
+			// Enroll device and get device ID
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 			logrus.Infof("decommission device with id: %s", deviceId)
 
 			out, err := harness.CLI("decommission", "devices/"+deviceId)
