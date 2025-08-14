@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/environment"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -323,8 +324,9 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 		m.log.Warnf("Failed to notify systemd: %v", err)
 	}
 
-	// additionally print the banner into the output console
-	fmt.Println(buffer.String())
+	if !environment.IsEnabled(environment.DisableConsoleBanner) {
+		fmt.Println(buffer.String())
+	}
 	return nil
 }
 

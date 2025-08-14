@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
+	"github.com/flightctl/flightctl/internal/agent/device/environment"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -34,6 +35,13 @@ func NewManager(
 	podmanClient *client.Podman,
 	systemInfo systeminfo.Manager,
 ) Manager {
+	// In a simulated environment we want to avoid anything related to podman
+	// We don't want to download any artifacts and certainly don't
+	// want to attempt to run the podman monitor or run multiple versions of a container
+	if environment.IsEnabled(environment.Simulated) {
+		log.Info("Using simulation applications manager")
+		return newSimManager(log)
+	}
 	bootTime := systemInfo.BootTime()
 	return &manager{
 		readWriter:    readWriter,

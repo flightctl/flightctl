@@ -374,6 +374,18 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 			logger.Fatalf("Error setting environment variable: %v", err)
 		}
 
+		// Disable console banner for simulated agents
+		err = os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true")
+		if err != nil {
+			logger.Fatalf("Error setting banner disable environment variable: %v", err)
+		}
+
+		// Enable simulation mode for agents
+		err = os.Setenv("FLIGHTCTL_SIMULATED", "true")
+		if err != nil {
+			logger.Fatalf("Error setting simulation mode environment variable: %v", err)
+		}
+
 		copyAgentFiles(logger, certDir, agentDir)
 
 		cfg := agent_config.NewDefault()
