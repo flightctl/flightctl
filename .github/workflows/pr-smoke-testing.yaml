@@ -19,63 +19,68 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            notdocs:
-              - '!.spelling'
-              - '!README.md'
-              - '!docs/**'
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          since_last_remote_commit: 'true'
+          files_ignore: |
+            .spelling
+            README.md
+            docs/**
+            .github/**
+            examples/**
 
       - name: Setup all dependencies
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
       - name: Create cluster
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make cluster
 
       - name: Deploy
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: DISABLE_FIPS="true" make deploy
 
       - name: Check
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           kubectl get pods --all-namespaces
 
       - name: Apply device
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: bin/flightctl apply -f examples/device.yaml
 
       - name: Apply fleet
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: bin/flightctl apply -f examples/fleet.yaml
 
       - name: Apply enrollmentrequest
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: bin/flightctl apply -f examples/enrollmentrequest.yaml
 
       - name: Apply repository
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: bin/flightctl apply -f examples/repository-flightctl.yaml
 
       - name: Apply resourcesync
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: bin/flightctl apply -f examples/resourcesync.yaml
 
       - name: Build the simulator
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: DISABLE_FIPS="true" make build-devicesimulator
 
       - name: Simulator run
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
 
       - name: Collect and Upload Logs
-        if: always() && steps.filter.outputs.notdocs == 'true'
+        if: always() && steps.changed-files.outputs.any_changed == 'true'
         uses: ./.github/actions/collect-logs
         with:
           namespace-external: 'flightctl-external'
