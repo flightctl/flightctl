@@ -559,6 +559,12 @@ func (h *Harness) CleanUpAllTestResources() error {
 	return h.CleanUpTestResources(util.ResourceTypes[:]...)
 }
 
+func (h *Harness) CleanUpResource(resourceType string, resourceName string) (string, error) {
+	logrus.Infof("Deleting resource %s of resource type %s", resourceName, resourceType)
+	resource := resourceType + "/" + resourceName
+	return h.CLI("delete", resource)
+}
+
 // CleanUpTestResources deletes only resources that have the test label for the current test
 func (h *Harness) CleanUpTestResources(resourceTypes ...string) error {
 	testID := h.GetTestIDFromContext()
@@ -1440,6 +1446,36 @@ func (h *Harness) addTestLabelToResource(metadata *v1alpha1.ObjectMeta) {
 	(*metadata.Labels)["test-id"] = testID
 }
 
+// TODO: Modify addTestLabelsToYAML to include other labels and remove addLabelsToYAML
+func (h *Harness) AddLabelsToYAML(yamlContent string, addLabels map[string]string) (string, error) {
+	// Parse the YAML document
+	var resource map[string]interface{}
+	if err := yaml.Unmarshal([]byte(yamlContent), &resource); err != nil {
+		return "", fmt.Errorf("failed to parse yaml document: %w", err)
+	}
+
+	// Add labels to metadata
+	if metadata, ok := resource["metadata"].(map[string]interface{}); ok {
+		if labels, ok := metadata["labels"].(map[string]interface{}); ok {
+			for key, value := range addLabels {
+				labels[key] = value
+			}
+		} else {
+			metadata["labels"] = addLabels
+		}
+	} else {
+		resource["metadata"] = map[string]interface{}{"labels": addLabels}
+	}
+
+	// Marshal back to YAML
+	modifiedDoc, err := yaml.Marshal(resource)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal modified yaml: %w", err)
+	}
+	GinkgoWriter.Printf("🔍 [DEBUG] Modified YAML: %s\n", string(modifiedDoc))
+	return string(modifiedDoc), nil
+}
+
 func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1alpha1.EnrollmentRequestApproval) {
 	testID := h.GetTestIDFromContext()
 
@@ -1927,4 +1963,108 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 	}
 
 	return nil
+}
+
+// ChangeK8sContext changes the kubernetes context
+func (h *Harness) ChangeK8sContext(k8sContext string) error {
+	cmd := exec.Command("oc", "config", "use-context", k8sContext)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		GinkgoWriter.Printf("❌ Failed to change context to %s: %v\n", k8sContext, err)
+		return fmt.Errorf("failed to change context to %s: %w", k8sContext, err)
+	} else {
+		GinkgoWriter.Printf("✅ Changed context to %s: %s\n", k8sContext, output)
+		return nil
+	}
+}
+
+func (h *Harness) CreateResource(resourceType string) (string, string, []byte, error) {
+	uniqueResourceYAML, err := util.CreateUniqueYAMLFile(resourceType+".yaml", h.GetTestIDFromContext())
+	if err != nil {
+		return "", "", nil, err
+	}
+	defer util.CleanupTempYAMLFile(uniqueResourceYAML)
+
+	// ManageResource applies the resource to the cluster with test labels
+	applyOutput, err := h.ManageResource("apply", uniqueResourceYAML)
+	if err != nil {
+		return applyOutput, "", nil, err
+	}
+	if strings.Contains(applyOutput, "201 Created") || strings.Contains(applyOutput, "200 OK") {
+		var resource interface{}
+		var resourceName *string
+
+		switch resourceType {
+		case "device":
+			device := h.GetDeviceByYaml(uniqueResourceYAML)
+			updatedDevice, err := h.GetDevice(*device.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+			resource = updatedDevice
+			resourceName = updatedDevice.Metadata.Name
+		case "fleet":
+			fleet := h.GetFleetByYaml(uniqueResourceYAML)
+			updatedFleet, err := h.GetFleet(*fleet.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+			resource = updatedFleet
+			resourceName = updatedFleet.Metadata.Name
+		case "repository":
+			repo := h.GetRepositoryByYaml(uniqueResourceYAML)
+			updatedRepo, err := h.GetRepository(*repo.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+			resource = updatedRepo
+			resourceName = updatedRepo.Metadata.Name
+		default:
+			return applyOutput, "", nil, fmt.Errorf("Unsupported resource type: %s", resourceType)
+		}
+
+		// Remove resourceVersion before marshaling to avoid conflicts
+		switch resource := resource.(type) {
+		case *v1alpha1.Device:
+			resource.Metadata.ResourceVersion = nil
+		case *v1alpha1.Fleet:
+			resource.Metadata.ResourceVersion = nil
+		case *v1alpha1.Repository:
+			resource.Metadata.ResourceVersion = nil
+		}
+
+		resourceData, err := yaml.Marshal(resource)
+		if err != nil {
+			return applyOutput, "", nil, err
+		}
+		return applyOutput, *resourceName, resourceData, nil
+	} else {
+		GinkgoWriter.Printf("Apply output: %s\n", applyOutput)
+		return applyOutput, "", nil, fmt.Errorf("Failed to create a %s", resourceType)
+	}
+}
+
+// GetDefaultK8sContext returns the a K8s context with default in its name
+func (h *Harness) GetDefaultK8sContext() (string, error) {
+	cmd := exec.Command("kubectl", "config", "get-contexts", "-o", "name")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("Failed to get contexts: %v", err)
+	}
+
+	contexts := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, context := range contexts {
+		if strings.Contains(context, "default") {
+			GinkgoWriter.Printf("🔍 [DEBUG] Found default context: %s\n", context)
+			return context, nil
+		}
+	}
+	return "", fmt.Errorf("no context with 'default' in name found")
+}
+
+// GetK8sApiEndpoint returns the API endpoint for a given K8s context
+func (h *Harness) GetK8sApiEndpoint(k8sContext string) (string, error) {
+	if err := h.ChangeK8sContext(k8sContext); err != nil {
+		return "", fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
+	}
+	cmd := exec.Command("bash", "-c", "oc whoami --show-server")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("Failed to get Kubernetes API endpoint: %v", err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
