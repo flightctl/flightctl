@@ -6,11 +6,11 @@ metadata:
 spec:
   selector:
     matchLabels:
-      fleet: default
+      fleet: default-{{test_id}}
   template:
     metadata:
       labels:
-        fleet: default
+        fleet: default-{{test_id}}
     spec:
       os:
         image: quay.io/redhat/rhde:9.2

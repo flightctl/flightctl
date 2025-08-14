@@ -56,7 +56,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"os"
 	"os/exec"
@@ -87,11 +86,6 @@ const POLLING = "250ms"
 const POLLINGLONG = "1s"
 const TIMEOUT = "5m"
 const LONGTIMEOUT = "10m"
-
-// TestIDKey is the context key used to store the test ID
-type TestIDKeyType struct{}
-
-var TestIDKey = TestIDKeyType{}
 
 type Harness struct {
 	Client    *apiclient.ClientWithResponses
@@ -1378,6 +1372,11 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 // This allows tests to use their own context for operations while keeping
 // the suite context for cleanup operations.
 func (h *Harness) SetTestContext(ctx context.Context) {
+	if testID, ok := ctx.Value(util.TestIDKey).(string); ok && testID != "" {
+		GinkgoWriter.Printf("SetTestContext called with test ID: %s\n", testID)
+	} else {
+		GinkgoWriter.Printf("SetTestContext called with context that has NO test ID\n")
+	}
 	h.Context = ctx
 }
 
@@ -1387,29 +1386,17 @@ func (h *Harness) GetTestContext() context.Context {
 	return h.Context
 }
 
-// generateTestID generates a unique test identifier
-func generateTestID() string {
-	// Generate a random 8-character string
-	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, 8)
-	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))] //nolint:gosec
-	}
-	return fmt.Sprintf("test-%d-%s", time.Now().UnixNano(), string(b))
-}
-
 // GetTestIDFromContext retrieves the test ID from the context
-// If no test ID is found, it generates a new one and stores it in the context
+// If no test ID is found, it indicates a programming error and will cause the test to fail
 func (h *Harness) GetTestIDFromContext() string {
-	if testID, ok := h.Context.Value(TestIDKey).(string); ok && testID != "" {
+	if testID, ok := h.Context.Value(util.TestIDKey).(string); ok && testID != "" {
+		GinkgoWriter.Printf("Harness using test ID: %s\n", testID)
 		return testID
 	}
 
-	// Generate a new test ID and store it in the context
-	testID := generateTestID()
-	h.Context = context.WithValue(h.Context, TestIDKey, testID)
-	logrus.Debugf("Generated new test ID: %s", testID)
-	return testID
+	// This should never happen if the test context is set up correctly
+	Fail("Test ID not found in context - this indicates the test context was not properly initialized with StartSpecTracerForGinkgo")
+	return "" // This line will never be reached, but needed for compilation
 }
 
 // addTestLabelToResource adds the test ID as a label to the resource metadata

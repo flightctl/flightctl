@@ -151,10 +151,15 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 }
 
 func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
-	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname", "--boot=all"}
+	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname"}
 
 	if opts.Unit != "" {
 		args = append(args, "-u", opts.Unit)
+		// Add systemd invocation ID to get logs from the latest service invocation
+		args = append(args, fmt.Sprintf("_SYSTEMD_INVOCATION_ID=$(systemctl show -p InvocationID --value %s)", opts.Unit))
+	} else {
+		// Only use --boot=all when not targeting a specific service invocation
+		args = append(args, "--boot=all")
 	}
 	if opts.Since != "" {
 		args = append(args, "--since", fmt.Sprintf("%q", opts.Since))
