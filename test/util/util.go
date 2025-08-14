@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -174,6 +175,26 @@ func (t *testProvider) Subscribe(ctx context.Context, handler queues.PubSubHandl
 func (t *testProvider) Publish(ctx context.Context, payload []byte) error {
 	t.pubsubQueue <- payload
 	return nil
+}
+
+func IsAcmInstalled() (bool, error) {
+	if !BinaryExistsOnPath("oc") {
+		return false, fmt.Errorf("oc not found on PATH")
+	}
+	cmd := exec.Command("oc", "get", "multiclusterhub", "-A")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, err
+	}
+	outputString := string(output)
+	if outputString == "error: the server doesn't have a resource type \"multiclusterhub\"" {
+		return false, fmt.Errorf("ACM is not installed: %s", outputString)
+	}
+	if strings.Contains(outputString, "Running") || strings.Contains(outputString, "Paused") {
+		logrus.Infof("The cluster has ACM installed")
+		return true, nil
+	}
+	return false, fmt.Errorf("multiclusterhub is not in Running status")
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
