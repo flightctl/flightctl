@@ -13,7 +13,7 @@ type Organization struct {
 	DisplayName string `json:"display_name"`
 
 	// External identifier of the organization in the configured IdP.
-	ExternalID string `gorm:"index" json:"external_id"`
+	ExternalID string `gorm:"uniqueIndex" json:"external_id"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

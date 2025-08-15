@@ -31,7 +31,9 @@ func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
 
 func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.Device, api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_ = auth.InitAuth(nil, log.InitLogs())
+	err := auth.InitAuth(nil, log.InitLogs(), nil)
+	require.NoError(err)
+
 	status := api.NewDeviceStatus()
 	device := api.Device{
 		ApiVersion: "v1",
@@ -53,7 +55,7 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 		workerClient: wc,
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil)
+	_, err = serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDevice(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)
@@ -62,7 +64,9 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 
 func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_ = auth.InitAuth(nil, log.InitLogs())
+	err := auth.InitAuth(nil, log.InitLogs(), nil)
+	require.NoError(err)
+
 	ts := &TestStore{}
 	wc := &DummyWorkerClient{}
 	serviceHandler := &ServiceHandler{
@@ -71,7 +75,7 @@ func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch a
 		workerClient: wc,
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil)
+	_, err = serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDeviceStatus(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)

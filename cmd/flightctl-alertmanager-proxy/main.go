@@ -26,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
@@ -106,7 +107,7 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create context with token for authorization check (using proper context key)
-	ctx := context.WithValue(r.Context(), common.TokenCtxKey, token)
+	ctx := context.WithValue(r.Context(), consts.TokenCtxKey, token)
 
 	// Check if user has permission to access alerts
 	allowed, err := auth.GetAuthZ().CheckPermission(ctx, alertsResource, getAction)
@@ -197,7 +198,7 @@ func main() {
 	}
 
 	// Initialize auth system
-	if err := auth.InitAuth(cfg, logger); err != nil {
+	if err := auth.InitAuth(cfg, logger, nil); err != nil {
 		logger.Fatalf("Failed to initialize auth: %v", err)
 	}
 

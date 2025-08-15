@@ -102,13 +102,11 @@ func (AapGatewayAuth) GetAuthToken(r *http.Request) (string, error) {
 	return common.ExtractBearerToken(r)
 }
 
-func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
+func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
 	userInfo, err := a.loadUserInfo(token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get identity: %w", err)
 	}
 
-	return &common.Identity{
-		Username: userInfo.Username,
-	}, nil
+	return common.NewBaseIdentity(userInfo.Username, "", []string{}), nil
 }

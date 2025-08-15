@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config/ca"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -71,7 +72,8 @@ func (s *ServiceTestSuite) Setup() {
 	s.caClient, _, err = icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{})
+	orgResolver := resolvers.NewDefaultResolver(s.Store.Organization())
+	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{}, orgResolver)
 }
 
 // Teardown performs common cleanup for service tests
