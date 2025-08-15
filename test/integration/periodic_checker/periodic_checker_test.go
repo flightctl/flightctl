@@ -136,7 +136,8 @@ var _ = Describe("Periodic", func() {
 
 		// Setup worker client and service handler
 		workerClient = worker_client.NewWorkerClient(queuePublisher, log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,
@@ -221,11 +222,13 @@ var _ = Describe("Periodic", func() {
 		})
 
 		It("works for multiple organizations", func() {
+			externalID2 := "external-id-2"
 			// Create a second organization
 			orgId2 := uuid.New()
 			org := &model.Organization{
 				ID:          orgId2,
 				DisplayName: "test-org-2",
+				ExternalID:  externalID2,
 			}
 			_, err := storeInst.Organization().Create(ctx, org)
 			Expect(err).ToNot(HaveOccurred())

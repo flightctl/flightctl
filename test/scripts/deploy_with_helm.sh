@@ -150,6 +150,8 @@ if [[ "${LOGGED_IN}" == "false" ]]; then
   exit 1
 fi
 
+org_id=$(./bin/flightctl get organizations | awk 'NR==2 {print $1}')
+./bin/flightctl config set-organization "$org_id"
 
 # Setup telemetry gateway certificates (non-blocking)
 if ! "${SCRIPT_DIR}"/setup_telemetry_gateway_certs.sh \
