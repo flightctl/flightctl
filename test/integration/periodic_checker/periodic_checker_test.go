@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -134,7 +135,8 @@ var _ = Describe("Periodic", func() {
 
 		// Setup worker client and service handler
 		workerClient = worker_client.NewWorkerClient(queuePublisher, log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		orgResolver := resolvers.BuildResolver(ctx, cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,
@@ -224,6 +226,7 @@ var _ = Describe("Periodic", func() {
 			org := &model.Organization{
 				ID:          orgId2,
 				DisplayName: "test-org-2",
+				ExternalID:  "external-id-2",
 			}
 			_, err := storeInst.Organization().Create(ctx, org)
 			Expect(err).ToNot(HaveOccurred())

@@ -13,8 +13,8 @@ func (a NilAuth) ValidateToken(ctx context.Context, token string) error {
 	return nil
 }
 
-func (a NilAuth) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
-	return &common.Identity{}, nil
+func (a NilAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
+	return common.NewBaseIdentity("", "", []string{}), nil
 }
 
 func (a NilAuth) GetAuthConfig() common.AuthConfig {

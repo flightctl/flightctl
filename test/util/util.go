@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -105,8 +106,8 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 	return nil
 }
 
-// NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
+// NewTestApiServer creates a new test server and returns the server and the listener listening on localhost's next available port.
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*apiserver.Server, net.Listener, error) {
 	// create a listener using the next available port
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -119,11 +120,11 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, orgResolver), listener, nil
 }
 
-// NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
+// NewTestAgentServer creates a new test server and returns the server and the listener listening on localhost's next available port.
+func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -136,7 +137,7 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig), listener, nil
+	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig, orgResolver), listener, nil
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.

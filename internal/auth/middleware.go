@@ -8,7 +8,8 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -62,12 +63,12 @@ func CreateAuthNMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handl
 				writeResponse(w, api.StatusUnauthorized("failed to validate token"), log)
 				return
 			}
-			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
+			ctx := context.WithValue(r.Context(), consts.TokenCtxKey, authToken)
 			identity, err := authN.GetIdentity(ctx, authToken)
 			if err != nil {
 				log.WithError(err).Error("failed to get identity")
 			} else {
-				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+				ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}
@@ -110,7 +111,7 @@ func CreateAuthZMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handl
 				return
 			}
 
-			if !isAllowed(r.Context(), resource, action, w) {
+			if !isAllowed(r.Context(), log, resource, action, w) {
 				// http.Error was called in isAllowed
 				return
 			}
@@ -122,11 +123,18 @@ func CreateAuthZMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handl
 	}
 }
 
-func isAllowed(ctx context.Context, resource string, action action, w http.ResponseWriter) bool {
+func isAllowed(ctx context.Context, log logrus.FieldLogger, resource string, action action, w http.ResponseWriter) bool {
 	// Perform permission check
 	allowed, err := GetAuthZ().CheckPermission(ctx, resource, string(action))
 	if err != nil {
-		http.Error(w, errAuthorizationServerUnavailable, http.StatusServiceUnavailable)
+		log.WithError(err).Error("failed to check permission")
+
+		// Check if this is a client-side error (e.g., invalid token claims)
+		if flterrors.IsClientAuthError(err) {
+			http.Error(w, errBadRequest, http.StatusBadRequest)
+		} else {
+			http.Error(w, errAuthorizationServerUnavailable, http.StatusServiceUnavailable)
+		}
 		return false
 	}
 	if allowed {

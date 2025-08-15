@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
@@ -92,9 +93,10 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	provider := testutil.NewTestProvider(serverLog)
-	// create server
+	orgResolver := resolvers.BuildResolver(ctx, &serverCfg, store.Organization(), serverLog)
 
-	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
+	// create server
+	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider, orgResolver)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
@@ -103,7 +105,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
 	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient)
 
-	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
+	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts, provider, orgResolver)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}

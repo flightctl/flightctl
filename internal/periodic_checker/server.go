@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -66,7 +67,8 @@ func (s *Server) Run(ctx context.Context) error {
 	defer queuePublisher.Close()
 
 	workerClient := worker_client.NewWorkerClient(queuePublisher, s.log)
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
+	orgResolver := resolvers.BuildResolver(ctx, s.cfg, s.store.Organization(), s.log)
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, orgResolver))
 
 	// Initialize the task executors
 	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg)
