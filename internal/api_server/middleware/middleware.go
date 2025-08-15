@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	chi "github.com/go-chi/chi/v5/middleware"
@@ -56,7 +57,7 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 		if auth.GetConfiguredAuthType() != auth.AuthTypeNil {
 			identity, err := common.GetIdentity(ctx)
 			if err == nil && identity != nil {
-				userName = identity.Username
+				userName = identity.GetUsername()
 			}
 		}
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, fmt.Sprintf("user:%s", userName))
@@ -75,7 +76,7 @@ var CertOrgIDExtractor OrgIDExtractor = extractOrgIDFromRequestCert
 
 // AddOrgIDToCtx extracts organization ID using the supplied extractor, validates it
 // using the provided resolver, and injects it into the request context.
-func AddOrgIDToCtx(resolver *org.Resolver, extractor OrgIDExtractor) func(http.Handler) http.Handler {
+func AddOrgIDToCtx(resolver resolvers.Resolver, extractor OrgIDExtractor) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()

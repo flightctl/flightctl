@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/alert_exporter"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -69,7 +70,8 @@ var _ = Describe("Alert Exporter", func() {
 		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		orgResolver := resolvers.BuildResolver(ctx, cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
 		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler)
 		alertSender = alert_exporter.NewAlertSender(log, cfg.Alertmanager.Hostname, cfg.Alertmanager.Port, cfg)

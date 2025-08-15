@@ -266,7 +266,7 @@ func TestAuthN(t *testing.T) {
 				if tc.tokenErr != nil {
 					authNMock.EXPECT().GetIdentity(gomock.Any(), gomock.Any()).Times(0)
 				} else {
-					authNMock.EXPECT().GetIdentity(gomock.Any(), "token").Return(&common.Identity{}, tc.identityErr).Times(1)
+					authNMock.EXPECT().GetIdentity(gomock.Any(), "token").Return(&common.BaseIdentity{}, tc.identityErr).Times(1)
 				}
 			}
 

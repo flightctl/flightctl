@@ -18,7 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/transport"
@@ -56,7 +56,7 @@ type Server struct {
 	listener           net.Listener
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
-	orgResolver        *org.Resolver
+	orgResolver        resolvers.Resolver
 }
 
 // New returns a new instance of a flightctl server.
@@ -68,8 +68,8 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	consoleEndpointReg console.InternalSessionRegistration,
+	orgResolver resolvers.Resolver,
 ) *Server {
-	resolver := org.NewResolver(st.Organization(), 5*time.Minute)
 	return &Server{
 		log:                log,
 		cfg:                cfg,
@@ -78,7 +78,7 @@ func New(
 		listener:           listener,
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
-		orgResolver:        resolver,
+		orgResolver:        orgResolver,
 	}
 }
 
@@ -165,7 +165,7 @@ func (s *Server) Run(ctx context.Context) error {
 		MultiErrorHandler: oapiMultiErrorHandler,
 	}
 
-	err = auth.InitAuth(s.cfg, s.log)
+	err = auth.InitAuth(s.cfg, s.log, s.orgResolver)
 	if err != nil {
 		return fmt.Errorf("failed initializing auth: %w", err)
 	}
@@ -193,7 +193,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
-		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
@@ -307,7 +307,6 @@ func (s *Server) Run(ctx context.Context) error {
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
 		kvStore.Close()
-		s.orgResolver.Close()
 		s.queuesProvider.Stop()
 		s.queuesProvider.Wait()
 	}()

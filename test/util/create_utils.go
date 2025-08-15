@@ -19,7 +19,8 @@ import (
 
 func CreateTestOrganization(ctx context.Context, storeInst store.Store, orgId uuid.UUID) error {
 	org := &model.Organization{
-		ID: orgId,
+		ID:         orgId,
+		ExternalID: fmt.Sprintf("external-id-%s", orgId.String()),
 	}
 	_, err := storeInst.Organization().Create(ctx, org)
 	if err != nil {

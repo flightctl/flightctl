@@ -2,6 +2,19 @@
 
 Flight Control provides organizations as a mechanism to group resources and facilitate access control for users.
 
+## Overview
+
+Organizations provide a measure of resource isolation within Flight Control. Resources in this context include entities such as devices and fleets.
+
+Some important notes about how organizations work:
+
+- Resources cannot be shared or moved between organizations.
+- APIs never aggregate content across organizations.
+  - For example, the devices list API returns resources only from a single selected organization, even if the caller has access to others.
+- All organizations share the same Flight Control service configuration.
+- Flight Control delegates organization / user mappings to the configured identity providers.
+  - Adding or removing a user’s access to an organization is managed in the identity provider, not in Flight Control.
+
 ## Organizations configuration
 
 Currently, Flight Control only supports multi-organization deployments when configured with a compatible OIDC identity provider. When organization support is enabled:
