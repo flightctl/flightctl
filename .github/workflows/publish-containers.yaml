@@ -110,17 +110,26 @@ jobs:
       - name: Prepare version variables
         id: version-vars
         run: |
+          set -euo pipefail
           SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
-          SOURCE_GIT_TREE_STATE=$(( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
+          if [ ! -d ".git" ]; then
+            SOURCE_GIT_TREE_STATE=clean
+          elif git diff --quiet; then
+            SOURCE_GIT_TREE_STATE=clean
+          else
+            SOURCE_GIT_TREE_STATE=dirty
+          fi
           SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
-          
-          echo "git_tag=${SOURCE_GIT_TAG}" >> $GITHUB_OUTPUT
-          echo "git_tree_state=${SOURCE_GIT_TREE_STATE}" >> $GITHUB_OUTPUT
-          echo "git_commit=${SOURCE_GIT_COMMIT}" >> $GITHUB_OUTPUT
-          
+
+          {
+            echo "git_tag=${SOURCE_GIT_TAG}"
+            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+            echo "git_commit=${SOURCE_GIT_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
+
           echo "Calculated version variables:"
           echo "  SOURCE_GIT_TAG: ${SOURCE_GIT_TAG}"
-          echo "  SOURCE_GIT_TREE_STATE: ${SOURCE_GIT_TREE_STATE}" 
+          echo "  SOURCE_GIT_TREE_STATE: ${SOURCE_GIT_TREE_STATE}"
           echo "  SOURCE_GIT_COMMIT: ${SOURCE_GIT_COMMIT}"
 
       - name: Set up Docker Buildx
