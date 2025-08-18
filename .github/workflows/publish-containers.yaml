@@ -147,10 +147,6 @@ jobs:
             org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
           extra-args: |
             --ulimit nofile=10000:10000
-            --mount=type=cache,target=/opt/app-root/src/go/pkg/mod
-            --mount=type=cache,target=/opt/app-root/src/.cache/go-build
-            --mount=type=cache,target=/var/cache/dnf
-            --mount=type=cache,target=/var/lib/dnf
           containerfiles: Containerfile.${{ matrix.image }}
           context: .
 
