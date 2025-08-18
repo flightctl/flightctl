@@ -1,4 +1,4 @@
-package decommission_test
+package configuration_test
 
 import (
 	"testing"
@@ -9,11 +9,13 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const SUITE_TIMEOUT = "2m"
+const TIMEOUT = "5m"
+const POLLING = "125ms"
+const LONGTIMEOUT = "10m"
 
-func TestCLIDecommission(t *testing.T) {
+func TestConfiguration(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Decommission E2E Suite")
+	RunSpecs(t, "Configuration E2E Suite")
 }
 
 var _ = BeforeSuite(func() {

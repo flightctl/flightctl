@@ -1,4 +1,4 @@
-package decommission_test
+package label_selectors
 
 import (
 	"testing"
@@ -9,11 +9,9 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const SUITE_TIMEOUT = "2m"
-
-func TestCLIDecommission(t *testing.T) {
+func TestLabelSelectors(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Decommission E2E Suite")
+	RunSpecs(t, "Label Selectors E2E Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -61,3 +59,8 @@ var _ = AfterEach(func() {
 
 	GinkgoWriter.Printf("✅ [AfterEach] Worker %d: Test cleanup completed\n", workerID)
 })
+
+const (
+	uniqueLabelKey = "unique"
+	deviceCount    = 10
+)
