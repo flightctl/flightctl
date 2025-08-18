@@ -104,6 +104,31 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Prepare version variables
+        id: version-vars
+        run: |
+          set -euo pipefail
+          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          if [ ! -d ".git" ]; then
+            SOURCE_GIT_TREE_STATE=clean
+          elif git diff --quiet; then
+            SOURCE_GIT_TREE_STATE=clean
+          else
+            SOURCE_GIT_TREE_STATE=dirty
+          fi
+          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+
+          {
+            echo "git_tag=${SOURCE_GIT_TAG}"
+            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+            echo "git_commit=${SOURCE_GIT_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Calculated version variables:"
+          echo "  SOURCE_GIT_TAG: ${SOURCE_GIT_TAG}"
+          echo "  SOURCE_GIT_TREE_STATE: ${SOURCE_GIT_TREE_STATE}"
+          echo "  SOURCE_GIT_COMMIT: ${SOURCE_GIT_COMMIT}"
+
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
@@ -116,6 +141,10 @@ jobs:
             org.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
             org.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
             org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
+          build-args: |
+            SOURCE_GIT_TAG=${{ steps.version-vars.outputs.git_tag }}
+            SOURCE_GIT_TREE_STATE=${{ steps.version-vars.outputs.git_tree_state }}
+            SOURCE_GIT_COMMIT=${{ steps.version-vars.outputs.git_commit }}
           extra-args: |
             --ulimit nofile=10000:10000
           containerfiles: Containerfile.${{ matrix.image }}
