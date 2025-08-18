@@ -11,12 +11,14 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/org"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
+	"github.com/google/uuid"
 )
 
 var (
-	NullOrgId            = org.DefaultID
+	NullOrgID            = org.DefaultID
 	OIDSignerName        = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
 	OIDOrgID             = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 2}
 	OIDDeviceFingerprint = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 3}
@@ -48,7 +50,51 @@ func PeerCertificateFromCtx(ctx context.Context) (*x509.Certificate, error) {
 }
 
 func GetSignerNameExtension(cert *x509.Certificate) (string, error) {
-	return fccrypto.GetExtensionValue(cert, OIDSignerName)
+	s, err := fccrypto.GetCertificateExtensionValueAsStr(cert, OIDSignerName)
+	if err != nil {
+		return "", err
+	}
+	return s, nil
+}
+
+// GetOrgIDExtensionFromCSR extracts the organization ID (UUID) from the CSR's
+// OIDOrgID extension. It returns (id, true, nil) if present and valid;
+// (uuid.Nil, false, nil) if the extension is absent; and (uuid.Nil, present, err)
+// if retrieval fails or the value cannot be parsed as a UUID.
+func GetOrgIDExtensionFromCSR(cert *x509.CertificateRequest) (uuid.UUID, bool, error) {
+	s, err := fccrypto.GetCSRExtensionValueAsStr(cert, OIDOrgID)
+	if errors.Is(err, flterrors.ErrExtensionNotFound) {
+		return uuid.Nil, false, nil
+	}
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("failed to get OrgID extension from CSR: %w", err)
+	}
+	orgID, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.Nil, true, fmt.Errorf("invalid OrgID format in CSR: %w", err)
+	}
+	return orgID, true, nil
+}
+
+// GetOrgIDExtensionFromCert extracts the organization ID (UUID) from the
+// certificate's OIDOrgID extension. It returns (id, true, nil) if present and
+// valid; (uuid.Nil, false, nil) if the extension is absent; and (uuid.Nil,
+// present, err) if retrieval fails or the value cannot be parsed as a UUID.
+func GetOrgIDExtensionFromCert(cert *x509.Certificate) (uuid.UUID, bool, error) {
+	s, err := fccrypto.GetCertificateExtensionValueAsStr(cert, OIDOrgID)
+
+	if errors.Is(err, flterrors.ErrExtensionNotFound) {
+		return uuid.Nil, false, nil
+	}
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("failed to get OrgID extension from certificate: %w", err)
+	}
+
+	orgID, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.Nil, true, fmt.Errorf("invalid OrgID format in certificate: %w", err)
+	}
+	return orgID, true, nil
 }
 
 func DeviceFingerprintFromCN(cfg *ca.Config, commonName string) (string, error) {

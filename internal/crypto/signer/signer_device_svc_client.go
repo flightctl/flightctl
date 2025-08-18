@@ -72,7 +72,6 @@ func (s *SignerDeviceSvcClient) Sign(ctx context.Context, request SignRequest) (
 		ctx,
 		&x509CSR,
 		int(expirySeconds),
-		WithExtension(OIDOrgID, NullOrgId.String()),
 		WithExtension(OIDDeviceFingerprint, fingerprint),
 	)
 }

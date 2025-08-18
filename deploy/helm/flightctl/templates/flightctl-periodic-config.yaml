@@ -15,6 +15,8 @@ data:
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
+    periodic:
+        consumers: {{ .Values.periodic.consumers }}
     {{ if .Values.global.tracing.enabled }}
     tracing:
         enabled: true

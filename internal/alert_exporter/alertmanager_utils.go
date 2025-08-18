@@ -333,6 +333,9 @@ func alertToAlertmanagerAlert(alert *AlertInfo) AlertmanagerAlert {
 			"resource":  alert.ResourceName,
 			"org_id":    alert.OrgID,
 		},
+		Annotations: map[string]string{
+			"summary": alert.Summary,
+		},
 		StartsAt: alert.StartsAt,
 	}
 	if alert.EndsAt != nil {

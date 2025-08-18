@@ -28,6 +28,7 @@ type Config struct {
 	CA           *ca.Config          `json:"ca,omitempty"`
 	Tracing      *tracingConfig      `json:"tracing,omitempty"`
 	GitOps       *gitOpsConfig       `json:"gitOps,omitempty"`
+	Periodic     *periodicConfig     `json:"periodic,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -171,6 +172,10 @@ type gitOpsConfig struct {
 	// IgnoreResourceUpdates lists JSON pointer paths that should be ignored
 	// when comparing desired vs. live resources during GitOps sync.
 	IgnoreResourceUpdates []string `json:"ignoreResourceUpdates,omitempty"`
+}
+
+type periodicConfig struct {
+	Consumers int `json:"consumers,omitempty"`
 }
 
 type ConfigOption func(*Config)

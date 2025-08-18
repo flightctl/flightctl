@@ -93,16 +93,18 @@ func ParseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 	return csr, nil
 }
 
-// GetExtensionValueFromCSR retrieves the raw value of the extension identified
-// by oid from csr, searching both Extensions and ExtraExtensions. It returns
-// an error if the extension is missing.
-func GetExtensionValueFromCSR(csr *x509.CertificateRequest, oid asn1.ObjectIdentifier) ([]byte, error) {
+// GetCSRExtensionValueAsStr retrieves a specific extension from a CSR as a string.
+func GetCSRExtensionValueAsStr(csr *x509.CertificateRequest, oid asn1.ObjectIdentifier) (string, error) {
 	for _, ext := range append(csr.Extensions, csr.ExtraExtensions...) {
 		if ext.Id.Equal(oid) {
-			return ext.Value, nil
+			var s string
+			if _, err := asn1.Unmarshal(ext.Value, &s); err == nil {
+				return s, nil
+			}
+			return "", fmt.Errorf("unmarshalling extension %v", oid)
 		}
 	}
-	return nil, flterrors.ErrExtensionNotFound
+	return "", flterrors.ErrExtensionNotFound
 }
 
 func ValidateX509CSR(c *x509.CertificateRequest) error {

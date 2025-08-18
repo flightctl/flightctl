@@ -12,6 +12,9 @@ on:
 env:
   QUAY_ORG: quay.io/flightctl
   QUAY_CHARTS: quay.io/flightctl/charts
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
 
 jobs:
   generate-tags:
@@ -20,7 +23,7 @@ jobs:
       image_tags: ${{ steps.get-tags.outputs.image_tags }}
       helm_tag: ${{ steps.get-tags.outputs.helm_tag }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -51,7 +54,7 @@ jobs:
             fi
 
             # The images tags are taken from git
-            image_tags=( ${latest_tag}-${GITHUB_SHA} ${latest_tag} ${version} )
+            image_tags=( ${latest_tag}-${GITHUB_SHA} ${latest_tag} ${version} cache )
             echo "image_tags=${image_tags[@]}" >> $GITHUB_OUTPUT
             echo "image_tags=${image_tags[@]}"
 
@@ -64,7 +67,7 @@ jobs:
     runs-on: "ubuntu-24.04"
     needs: [publish-flightctl-containers, generate-tags]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup all dependencies
         uses: ./.github/actions/setup-dependencies
@@ -99,10 +102,36 @@ jobs:
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:v0.12.4
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache DNF packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-${{ matrix.image }}
+          restore-keys: |
+            ${{ runner.os }}-dnf-
 
       - name: Build
         id: build
