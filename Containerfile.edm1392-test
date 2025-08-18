@@ -1,0 +1,14 @@
+FROM quay.io/centos-bootc/centos-bootc:stream9
+
+# Install flightctl-agent from Copr (this will create /var/lib/flightctl)
+RUN dnf -y copr enable @redhat-et/flightctl && \
+    dnf -y install flightctl-agent && \
+    rm -rf /var/{cache,log} /var/lib/{dnf,rhsm} && \
+    systemctl enable flightctl-agent.service
+
+# Apply our fix: add the tmpfiles.d configuration and remove the problematic directory
+RUN echo "d /var/lib/flightctl 0755 root root -" > /usr/lib/tmpfiles.d/flightctl.conf && \
+    rm -rf /var/lib/flightctl
+
+# Now run the linter - it should pass
+RUN bootc container lint --fatal-warnings

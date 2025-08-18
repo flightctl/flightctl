@@ -1,0 +1,8 @@
+FROM quay.io/centos-bootc/centos-bootc:stream9
+ 
+RUN dnf -y copr enable @redhat-et/flightctl && \
+dnf -y install flightctl-agent && \
+rm -rf /var/{cache,log} /var/lib/{dnf,rhsm} && \
+systemctl enable flightctl-agent.service
+ 
+RUN bootc container lint --fatal-warnings

@@ -428,7 +428,7 @@ echo "Flightctl Observability Stack uninstalled."
     mkdir -p %{buildroot}/etc/flightctl
     cp bin/flightctl %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
-    mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
+    mkdir -p %{buildroot}/usr/lib/tmpfiles.d
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
     mkdir -p %{buildroot}/usr/lib/flightctl/hooks.d/{afterupdating,beforeupdating,afterrebooting,beforerebooting}
     mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
@@ -437,6 +437,7 @@ echo "Flightctl Observability Stack uninstalled."
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
+    echo "d /var/lib/flightctl 0755 root root -" > %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
     bin/flightctl completion bash > flightctl-completion.bash
     install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions
     bin/flightctl completion fish > flightctl-completion.fish
@@ -564,7 +565,7 @@ fi
     %{_bindir}/flightctl-must-gather
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
     /usr/lib/systemd/system/flightctl-agent.service
-    %{_sharedstatedir}/flightctl
+    /usr/lib/tmpfiles.d/flightctl.conf
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     %{_docdir}/%{NAME}/*
     %{_docdir}/%{NAME}/.markdownlint-cli2.yaml
