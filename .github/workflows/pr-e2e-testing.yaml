@@ -25,6 +25,7 @@ env:
   BUILDKIT_PROGRESS: plain
   # Define the total number of parallel nodes for Ginkgo
   GINKGO_TOTAL_NODES: 4
+  GINKGO_PROCS: 2
   # Set the registry for container caching
   QUAY_ORG: quay.io/flightctl
   REGISTRY: quay.io
