@@ -26,7 +26,7 @@ const (
 )
 
 func ListAll(harness *e2e.Harness, resourceKind string) (string, error) {
-	return harness.CLI(get, resourceKind)
+	return harness.CLI(get, resourceKind, "-l", "test-id="+harness.GetTestIDFromContext())
 }
 
 func ExpectNotExistWithName(harness *e2e.Harness, resourceKind string, name string) error {
@@ -75,10 +75,11 @@ func ApplyFromExampleFile(harness *e2e.Harness, fileName string) (string, error)
 }
 
 func FilterWithFieldValueCondition(harness *e2e.Harness, resourceKind string, fieldName string, operator FieldSelectorOperator, fieldValue string) (string, error) {
-	return harness.CLI(get, resourceKind, fieldSelectorSwitch, fmt.Sprintf("%s%s%s", fieldName, operator, fieldValue), "-o", wide)
+	return harness.CLI(get, resourceKind, fieldSelectorSwitch, fmt.Sprintf("%s%s%s", fieldName, operator, fieldValue), "-l", "test-id="+harness.GetTestIDFromContext(), "-o", wide)
 }
 
 func FilterWithLabelSelector(harness *e2e.Harness, resourceKind string, selector string) (string, error) {
+	selector += ",test-id=" + harness.GetTestIDFromContext()
 	return harness.CLI(get, resourceKind, labelSelectorSwitch, selector, "-o", wide)
 }
 
@@ -87,7 +88,8 @@ func FilterWithCreationTimeDuringCurrentYear(harness *e2e.Harness, resourceKind 
 	startOfYear := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
 	endOfYear := time.Date(now.Year()+1, 1, 1, 0, 0, 0, 0, time.UTC)
 	return harness.CLI(get, resourceKind, fieldSelectorSwitch,
-		fmt.Sprintf("%s>=%s,%s<%s", fieldName, startOfYear.Format(time.RFC3339), fieldName, endOfYear.Format(time.RFC3339)), "-o", wide)
+		fmt.Sprintf("%s>=%s,%s<%s", fieldName, startOfYear.Format(time.RFC3339), fieldName, endOfYear.Format(time.RFC3339)),
+		"-l", "test-id="+harness.GetTestIDFromContext(), "-o", wide)
 }
 
 func SomeRowsAreListedInResponse(response string, err error, expectedRows int) error {

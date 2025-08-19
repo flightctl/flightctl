@@ -1,18 +1,15 @@
 package agent_test
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -27,24 +24,25 @@ func sleepAppImageName(harness *e2e.Harness, tag string) string {
 
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceId string
 		device   *v1alpha1.Device
 	)
 
 	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-		deviceId = harness.StartVMAndEnroll()
-	})
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
 
-	AfterEach(func() {
-		harness.Cleanup(true)
+		// Use the shared harness from the suite test
+		// The harness is already set up with VM from pool and agent started
+		// We just need to enroll the device
+		deviceId, device = harness.EnrollAndWaitForOnlineStatus()
 	})
 
 	Context("application", func() {
 		It("should install an application image package and report its status", Label("76800", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			By("Add the application spec to the device")
 
 			// Make sure the device status right after bootstrap is Online
@@ -66,7 +64,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
-				logrus.Infof("Updating %s with application %s", deviceId, imageName)
+				GinkgoWriter.Printf("Updating %s with application %s\n", deviceId, imageName)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -110,7 +108,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				appSpec.EnvVars = &applicationVars
 
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
-				logrus.Infof("Updating %s with application %s", deviceId, imageName)
+				GinkgoWriter.Printf("Updating %s with application %s\n", deviceId, imageName)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -126,11 +124,11 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			verifyCommandOutputsSubstring(harness, []string{"sudo", "podman", "exec", containerName, "printenv"}, "SIMPLE")
 
 			By("Delete the application from the fleet configuration")
-			logrus.Infof("Removing all the applications from %s", deviceId)
+			GinkgoWriter.Printf("Removing all the applications from %s\n", deviceId)
 
 			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
 				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
-				logrus.Infof("Updating %s removing application %s", deviceId, imageName)
+				GinkgoWriter.Printf("Updating %s removing application %s\n", deviceId, imageName)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -139,6 +137,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 		})
 
 		It("Should handle application volumes from images correctly", Label("83000"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			By("Update the application to include artifact volumes")
 
 			imageName := sleepAppImageName(harness, "v3")
@@ -207,6 +208,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 		})
 
 		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			By("Creating the first application")
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
@@ -219,7 +223,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			By("Verify the Device resource after update")
 			updatedDevice, err := harness.GetDevice(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			logrus.Infof("Updated Device Resource: %+v", updatedDevice)
+			GinkgoWriter.Printf("Updated Device Resource: %+v\n", updatedDevice)
 
 			By("Wait for the device to receive the initial inline app configuration")
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
@@ -262,9 +266,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			err = harness.UpdateDevice(deviceId, func(d *v1alpha1.Device) {
 				err := updateDeviceApplicationFromInline(d, inlineAppName, inlineApp)
 				if err != nil {
-					logrus.Errorf("Failed to update application %s on device %s: %v", inlineAppName, deviceId, err)
+					GinkgoWriter.Printf("Failed to update application %s on device %s: %v\n", inlineAppName, deviceId, err)
 				} else {
-					logrus.Infof("Successfully updated application %s on device %s", inlineAppName, deviceId)
+					GinkgoWriter.Printf("Successfully updated application %s on device %s\n", inlineAppName, deviceId)
 				}
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -324,6 +328,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 		})
 
 		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			By("Create initial application")
 			initialRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())

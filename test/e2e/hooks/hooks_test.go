@@ -1,38 +1,30 @@
 package hooks
 
 import (
-	"context"
 	"fmt"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceId string
 	)
 
 	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-		deviceId = harness.StartVMAndEnroll()
-	})
-
-	AfterEach(func() {
-		harness.Cleanup(true)
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
 	Context("hooks", func() {
 		It(`Verifies that lifecycles hooks are triggered after the device and agent events`, Label("78753", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
 
 			By("Update the device image to one containing an embedded hook")
 			_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
@@ -50,7 +42,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Spec.Os = &osImageSpec
 
-				logrus.Infof("Updating %s with Os image", osImageSpec)
+				GinkgoWriter.Printf("Updating %s with Os image\n", osImageSpec)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -73,7 +65,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "cat", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(sshdConfigurationContent))
-			logrus.Infof("the configuration %s was found in the device", inlineConfigName)
+			GinkgoWriter.Printf("the configuration %s was found in the device\n", inlineConfigName)
 
 			By("Check that the embedded sshd hook is triggered and sshd config reloaded trying to login with user and password")
 			_, err = harness.VM.RunSSHWithUser([]string{"pwd"}, nil, rootUser)
@@ -159,7 +151,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Spec = &deviceSpec
-				logrus.Infof("Updating %s with a new image and configuration %s", deviceId, inlineConfigLifecycleName)
+				GinkgoWriter.Printf("Updating %s with a new image and configuration %s\n", deviceId, inlineConfigLifecycleName)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -167,14 +159,21 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that in the device logs the hooks were triggered")
-			logs, err := harness.ReadPrimaryVMAgentLogs("")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(logs).To(ContainSubstring("this is a test message from afterupdating hook"))
-			Expect(logs).To(ContainSubstring("this is a test message from afterrebooting hook"))
-			Expect(logs).To(ContainSubstring("this is a test message from beforerebooting hook"))
-			Expect(logs).To(ContainSubstring("this is a test message from beforeupdating hook"))
+			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
+				WithArguments("").
+				Should(
+					SatisfyAll(
+						ContainSubstring("this is a test message from afterupdating hook"),
+						ContainSubstring("this is a test message from afterrebooting hook"),
+						ContainSubstring("this is a test message from beforerebooting hook"),
+						ContainSubstring("this is a test message from beforeupdating hook"),
+					),
+				)
 		})
 		It("Verifies that lifecycle hooks can be defined with template variables", Label("80022"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			const (
 				firstFileContents        = "this is a test message from afteradding hook"
 				firstFilePath            = "temp-dir/file1.txt"
@@ -214,9 +213,49 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 			// ensure we see our expected messages
-			logs, err := harness.ReadPrimaryVMAgentLogs("")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(logs).To(And(ContainSubstring(templateHookDirectory), ContainSubstring(firstFileContents)))
+			DeferCleanup(func() {
+				if CurrentSpecReport().Failed() {
+					// Debug info for first file check failure
+					logs, err := harness.ReadPrimaryVMAgentLogs("")
+					if err == nil {
+						lines := strings.Split(logs, "\n")
+						GinkgoWriter.Printf("=== FIRST FILE CHECK DEBUG (total %d lines) ===\n", len(lines))
+
+						// Print logs in chunks to avoid size limits
+						chunkSize := 50
+						for i := 0; i < len(lines); i += chunkSize {
+							end := i + chunkSize
+							if end > len(lines) {
+								end = len(lines)
+							}
+							GinkgoWriter.Printf("--- Lines %d-%d ---\n", i+1, end)
+							GinkgoWriter.Printf("%s\n", strings.Join(lines[i:end], "\n"))
+						}
+
+						// Also show hook-specific filtered logs
+						relevantLines := []string{}
+						for _, line := range lines {
+							if strings.Contains(line, "hook") || strings.Contains(line, "logger") ||
+								strings.Contains(line, templateHookDirectory) ||
+								strings.Contains(line, firstFileContents) {
+								relevantLines = append(relevantLines, line)
+							}
+						}
+						if len(relevantLines) > 0 {
+							GinkgoWriter.Printf("=== HOOK-RELATED ENTRIES ===\n%s\n", strings.Join(relevantLines, "\n"))
+						}
+					}
+				}
+			})
+
+			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
+				WithArguments("").
+				Should(
+					SatisfyAll(
+						ContainSubstring(templateHookDirectory),
+						ContainSubstring(firstFileContents),
+					),
+				)
 
 			By("adding a second file, and updating the first file to the hooks watch directory")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
@@ -240,9 +279,62 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// ensure we see our expected messages
-			logs, err = harness.ReadPrimaryVMAgentLogs("")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(logs).To(And(ContainSubstring(firstFileUpdatedContents), ContainSubstring(secondFileContents)))
+			DeferCleanup(func() {
+				if CurrentSpecReport().Failed() {
+					// Print full logs chunked to stdout to avoid Gomega size limits
+					logs, err := harness.ReadPrimaryVMAgentLogs("")
+					if err == nil {
+						lines := strings.Split(logs, "\n")
+						GinkgoWriter.Printf("=== SECOND FILE CHECK DEBUG (total %d lines) ===\n", len(lines))
+
+						// Print all logs in manageable chunks
+						chunkSize := 50
+						for i := 0; i < len(lines); i += chunkSize {
+							end := i + chunkSize
+							if end > len(lines) {
+								end = len(lines)
+							}
+							GinkgoWriter.Printf("--- Lines %d-%d ---\n", i+1, end)
+							GinkgoWriter.Printf("%s\n", strings.Join(lines[i:end], "\n"))
+						}
+
+						// Also show hook-specific filtered logs
+						hookLines := []string{}
+						for _, line := range lines {
+							if strings.Contains(line, "hook") || strings.Contains(line, "logger") ||
+								strings.Contains(line, templateHookDirectory) ||
+								strings.Contains(line, firstFileUpdatedContents) ||
+								strings.Contains(line, secondFileContents) {
+								hookLines = append(hookLines, line)
+							}
+						}
+						if len(hookLines) > 0 {
+							GinkgoWriter.Printf("=== HOOK-RELATED ENTRIES ===\n%s\n", strings.Join(hookLines, "\n"))
+						}
+					}
+
+					// Also check what files were actually created
+					files, err := harness.VM.RunSSH([]string{"find", "/var/home/user/", "-type", "f", "-exec", "ls", "-la", "{}", ";"}, nil)
+					if err == nil {
+						GinkgoWriter.Printf("=== FILES IN WATCH DIRECTORY ===\n%s\n", files.String())
+					}
+
+					// Check hook configuration files
+					hooks, err := harness.VM.RunSSH([]string{"find", "/etc/flightctl/hooks.d/", "-name", "*.yaml", "-exec", "cat", "{}", ";"}, nil)
+					if err == nil {
+						GinkgoWriter.Printf("=== HOOK CONFIGURATIONS ===\n%s\n", hooks.String())
+					}
+				}
+			})
+
+			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
+				WithArguments("").
+				Should(
+					SatisfyAll(
+						ContainSubstring(firstFileUpdatedContents),
+						ContainSubstring(secondFileContents),
+					),
+				)
 		})
 	})
 })

@@ -16,9 +16,19 @@ jobs:
     strategy:
       matrix:
         image: 
-          - {name: 'git-server', containerfile: 'test/scripts/agent-images/Containerfile.git-server'}
-          - {name: 'sleep-app', containerfile: 'test/scripts/agent-images/Containerfile.sleep-app'}
-        
+          - {name: 'git-server',   containerfile: 'test/scripts/agent-images/Containerfile.git-server'}
+          - {name: 'e2e-base',     containerfile: 'test/scripts/agent-images/Containerfile-e2e-base.local'}
+          - {name: 'e2e-v2',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v2.local'}
+          - {name: 'e2e-v3',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v3.local'}
+          - {name: 'e2e-v4',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v4.local'}
+          - {name: 'e2e-v5',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v5.local'}
+          - {name: 'e2e-v6',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v6.local'}
+          - {name: 'e2e-v7',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v7.local'}
+          - {name: 'e2e-v8',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v8.local'}
+          - {name: 'e2e-v9',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v9.local'}
+          - {name: 'sleep-app-v1', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v1'}
+          - {name: 'sleep-app-v2', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v2'}
+          - {name: 'sleep-app-v3', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v3'}
     runs-on: "ubuntu-24.04"
     steps:
       - uses: actions/checkout@v4

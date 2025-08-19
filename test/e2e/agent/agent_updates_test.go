@@ -1,7 +1,6 @@
 package agent_test
 
 import (
-	"context"
 	"fmt"
 	"slices"
 	"strconv"
@@ -10,43 +9,41 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("VM Agent behavior during updates", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceId string
 	)
 
 	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-		deviceId = harness.StartVMAndEnroll()
-	})
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
 
-	AfterEach(func() {
-		harness.Cleanup(true)
+		// The harness is already set up with VM from pool and agent started
+		// We just need to enroll the device
+		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
 	Context("updates", func() {
 		It("should update to the requested image", Label("75523"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			By("Verifying update to agent  with requested image")
 			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
 			Expect(err).ToNot(HaveOccurred())
 
 			currentImage := device.Status.Os.Image
-			logrus.Infof("Current image is: %s", currentImage)
-			logrus.Infof("New image is: %s", newImageReference)
+			GinkgoWriter.Printf("Current image is: %s\n", currentImage)
+			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateApplyingUpdate))
-				}, TIMEOUT)
+				}, LONGTIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
@@ -54,7 +51,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateRebooting))
-				}, TIMEOUT)
+				}, LONGTIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusRebooting))
@@ -69,30 +66,33 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					}
 					return false
 				}, TIMEOUT)
-			logrus.Info("Device updated to new image 🎉")
+			GinkgoWriter.Printf("Device updated to new image 🎉\n")
 		})
 
 		It("Should update to v4 with embedded application", Label("77671", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			By("Verifying update to agent  with embedded application")
 
 			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
 			Expect(err).ToNot(HaveOccurred())
 
 			currentImage := device.Status.Os.Image
-			logrus.Infof("Current image is: %s", currentImage)
-			logrus.Infof("New image is: %s", newImageReference)
+			GinkgoWriter.Printf("Current image is: %s\n", currentImage)
+			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateApplyingUpdate))
-				}, TIMEOUT)
+				}, LONGTIMEOUT)
 
 			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
 				func(device *v1alpha1.Device) bool {
 					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateRebooting))
-				}, TIMEOUT)
+				}, LONGTIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
@@ -111,20 +111,20 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
-			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:v4")
-			logrus.Info("We expect containers with sleep infinity process to be present but not running")
+			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", "flightctl-device:v4")
+			GinkgoWriter.Printf("We expect containers with sleep infinity process to be present but not running\n")
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("sleep infinity"))
 
-			logrus.Info("We expect podman containers with sleep infinity process to be present but not running 👌")
+			GinkgoWriter.Printf("We expect podman containers with sleep infinity process to be present but not running 👌\n")
 
 			device, newImageReference, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":base")
 			Expect(err).ToNot(HaveOccurred())
 
 			currentImage = device.Status.Os.Image
-			logrus.Infof("Current image is: %s", currentImage)
-			logrus.Infof("New image is: %s", newImageReference)
+			GinkgoWriter.Printf("Current image is: %s\n", currentImage)
+			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 3",
 				func(device *v1alpha1.Device) bool {
@@ -155,15 +155,15 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
-			logrus.Infof("Device updated to new image %s 🎉", "flightctl-device:base")
+			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", "flightctl-device:base")
 			Expect(device.Spec.Applications).To(BeNil())
-			logrus.Info("Application demo_embedded_app is not present in new image 🌞")
+			GinkgoWriter.Printf("Application demo_embedded_app is not present in new image 🌞\n")
 
 			stdout1, err1 := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
 			Expect(err1).NotTo(HaveOccurred())
 			Expect(stdout1.String()).NotTo(ContainSubstring("sleep infinity"))
 
-			logrus.Info("Went back to base image and checked that there is no application now👌")
+			GinkgoWriter.Printf("Went back to base image and checked that there is no application now👌\n")
 
 			By("The agent executable should have the proper SELinux domain after the upgrade")
 			stdout, err = harness.VM.RunSSH([]string{"sudo", "ls", "-Z", "/usr/bin/flightctl-agent"}, nil)
@@ -172,6 +172,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 		})
 
 		It("Should resolve to the latest version when multiple updates are applied", Label("77672"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			initialVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -182,7 +185,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			defer func() {
 				err := harness.DeleteRepository(*repoMetadata.Name)
 				if err != nil {
-					logrus.Errorf("Failed to delete repository %s: %v", *repoMetadata.Name, err)
+					GinkgoWriter.Printf("Failed to delete repository %s: %v\n", *repoMetadata.Name, err)
 				}
 			}()
 
@@ -224,6 +227,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 		It("Should rollback when updating to a broken image", Label("82481", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			expectedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())
 			dev, err := harness.GetDevice(deviceId)
@@ -249,12 +255,12 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			dur, err := time.ParseDuration(TIMEOUT)
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(func() string {
-				logrus.Infof("Checking console output for rollback logs")
+				GinkgoWriter.Printf("Checking console output for rollback logs\n")
 				logs, err := harness.ReadPrimaryVMAgentLogs("")
 				Expect(err).NotTo(HaveOccurred())
 				return logs
 			}).
-				WithContext(harness.Context).
+				WithContext(harness.GetTestContext()).
 				WithTimeout(dur).
 				WithPolling(time.Second * 10).
 				Should(ContainSubstring(fmt.Sprintf("Attempting to rollback to previous renderedVersion: %d", expectedVersion)))
@@ -279,13 +285,27 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			*/
 		})
 		It("Should respect the spec's update schedule", Label("79220", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			const everyMinuteExpression = "* * * * *"
 			startGracePeriod := "1m"
 
 			// function for generating a cron expression to execute in a specified number of minutes from the current time
 			inNMinutes := func(minutes int) string {
-				now := time.Now().Add(time.Duration(minutes) * time.Minute)
-				return fmt.Sprintf("%d * * * *", now.Minute())
+
+				stdout, err := harness.VM.RunSSH([]string{"date", "-Iseconds"}, nil)
+				Expect(err).NotTo(HaveOccurred())
+				GinkgoWriter.Printf("Current device time: %s\n", stdout.String())
+				// convert the current time to a time.Time object
+				timeStr := strings.TrimSpace(stdout.String())
+				currentDeviceTime, err := time.Parse(time.RFC3339, timeStr)
+				Expect(err).NotTo(HaveOccurred())
+				// add minutes to the current time
+				minutesFromNow := currentDeviceTime.Add(time.Duration(minutes) * time.Minute)
+				// format the time as a cron expression
+				inMinutes := fmt.Sprintf("%d * * * *", minutesFromNow.Minute())
+				return inMinutes
 			}
 			// cron is time based and since we can't control when this specific test will run, we do our best to ensure
 			// that this test will always succeed whenever it is run.
@@ -370,6 +390,17 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			}, TIMEOUT)
 		})
 		It("Should not crash in case of unexpected services configs", Label("78711", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
+			stdout, err := harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/current.json"}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			GinkgoWriter.Printf("before updateCurrent.json: %s\n", stdout.String())
+
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/desired.json"}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			GinkgoWriter.Printf("before update desired.json: %s\n", stdout.String())
+
 			const (
 				rapidFilesCount  = 10
 				firewallZonesDir = "/etc/firewalld/zones"
@@ -381,21 +412,28 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Malformed XML — should cause firewall reload hook to fail
 			// ------------------------------------------------------------------
 			By(fmt.Sprintf("Applying malformed XML to %s", badZoneFile))
-			err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigForPath("bad-zone", badZoneFile, "<invalid")}
 			})
 			Expect(err).NotTo(HaveOccurred())
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/current.json"}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			GinkgoWriter.Printf("after update current.json: %s\n", stdout.String())
+
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/desired.json"}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			GinkgoWriter.Printf("after update desired.json: %s\n", stdout.String())
 
 			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1alpha1.Device) bool {
 				return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError))
-			}, TIMEOUT)
+			}, "10m")
 
 			// ------------------------------------------------------------------
 			// Rapidly add, remove, or update multiple files
 			// ------------------------------------------------------------------
 			By("Rapidly applying multiple config changes in quick succession")
 			for i := 1; i <= rapidFilesCount; i++ {
-				logrus.Infof("Applying update %d", i)
+				GinkgoWriter.Printf("Applying update %d\n", i)
 				path := fmt.Sprintf("%s/rapid-%d.json", firewallZonesDir, i)
 				name := fmt.Sprintf("rapid-%d", i)
 				err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
@@ -448,7 +486,7 @@ var flightDemosHttpRepoConfig = v1alpha1.HttpConfigProviderSpec{
 func isDeviceUpdateObserved(device *v1alpha1.Device, expectedVersion int) bool {
 	version, err := e2e.GetRenderedVersion(device)
 	if err != nil {
-		logrus.Errorf("Failed to parse rendered version '%s': %v", device.Status.Config.RenderedVersion, err)
+		GinkgoWriter.Printf("Failed to parse rendered version '%s': %v\n", device.Status.Config.RenderedVersion, err)
 		return false
 	}
 	// The update has already applied
@@ -481,6 +519,7 @@ func newInlineConfigVersion(version int) v1alpha1.ConfigProviderSpec {
 	return provider
 }
 
+// newInlineConfigForPath creates a ConfigProviderSpec with inline configuration for the specified path
 func newInlineConfigForPath(name string, path string, content string) v1alpha1.ConfigProviderSpec {
 	var inlineConfig = v1alpha1.FileSpec{
 		Content: content,

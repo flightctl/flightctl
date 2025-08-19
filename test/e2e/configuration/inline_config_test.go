@@ -1,53 +1,30 @@
 package configuration_test
 
 import (
-	"context"
 	"fmt"
-	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 )
-
-var (
-	suiteCtx context.Context
-)
-
-func TestConfigurations(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Inline configuration E2E Suite")
-}
-
-var _ = BeforeSuite(func() {
-	suiteCtx = testutil.InitSuiteTracerForGinkgo("Inline configuration E2E Suite")
-})
 
 var _ = Describe("Inline configuration tests", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceId string
 	)
 	// Setup for the suite
 	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-		deviceId = harness.StartVMAndEnroll()
-	})
-
-	AfterEach(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
-		harness.Cleanup(true)
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
 	Context("Inline config tests", func() {
 
 		It("flighctl support inlineconfig with path, owner, permission and content", Label("78316", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
 
 			By("Update device with inline config, set path of the config (the fields that have defaults - don't set (mode,user, group)")
 			validConfigs, err := getConfigurationFromInlineConfig(validInlineConfig)
@@ -59,17 +36,17 @@ var _ = Describe("Inline configuration tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigs, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The configuration file should have the online config, the content is empty.")
+			GinkgoWriter.Printf("The configuration file should have the online config, the content is empty.\n")
 			stdout, err := harness.VM.RunSSH([]string{"cat", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(""))
 
-			logrus.Infof("The deconfiguration file should have the default owner permissions:root.")
+			GinkgoWriter.Printf("The deconfiguration file should have the default owner permissions:root.\n")
 			owner, err := harness.VM.RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(owner.String()).To(ContainSubstring(fmt.Sprintf("%s %s", "root", "root")))
 
-			logrus.Infof("The configuration file should have the default permissions: 0644.")
+			GinkgoWriter.Printf("The configuration file should have the default permissions: 0644.\n")
 			mode, err := harness.VM.RunSSH([]string{"stat -c %A", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mode.String()).To(ContainSubstring(inlineDefaultNotationMode))
@@ -84,7 +61,7 @@ var _ = Describe("Inline configuration tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithMode, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The configuration file should have the correct permissions.")
+			GinkgoWriter.Printf("The configuration file should have the correct permissions.\n")
 			mode, err = harness.VM.RunSSH([]string{"stat -c %A", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mode.String()).To(ContainSubstring(inlineNotationMode))
@@ -99,7 +76,7 @@ var _ = Describe("Inline configuration tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithUser, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The configuration file should have the updated owner permissions.")
+			GinkgoWriter.Printf("The configuration file should have the updated owner permissions.\n")
 			owner, err = harness.VM.RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(owner.String()).To(ContainSubstring(fmt.Sprintf("%s %s", inlineUser, inlineGroup)))
@@ -114,7 +91,7 @@ var _ = Describe("Inline configuration tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithContent, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The configuration file should have the updated content")
+			GinkgoWriter.Printf("The configuration file should have the updated content\n")
 			stdout1, err := harness.VM.RunSSH([]string{"cat", inlinePath1}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout1.String()).To(ContainSubstring(inlineContent))
@@ -129,7 +106,7 @@ var _ = Describe("Inline configuration tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWithPath2, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The configuration file should have the updated content.")
+			GinkgoWriter.Printf("The configuration file should have the updated content.\n")
 			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath2}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
@@ -152,7 +129,7 @@ var _ = Describe("Inline configuration tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfigsWith2Files, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The configuration file should have the updated content.")
+			GinkgoWriter.Printf("The configuration file should have the updated content.\n")
 			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath2}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
@@ -166,12 +143,15 @@ var _ = Describe("Inline configuration tests", func() {
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, *combinedConfigs, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("The configuration file should have the updated content.")
+			GinkgoWriter.Printf("The configuration file should have the updated content.\n")
 			stdout, err = harness.VM.RunSSH([]string{"cat", inlinePath2}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 		})
 		It("Validations for flighctl inlineconfigs", Label("78364", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			currentVersion1, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -279,10 +259,7 @@ var (
 func UpdateDeviceConfig(harness *e2e.Harness, deviceId string, configs []v1alpha1.ConfigProviderSpec) error {
 	err := harness.UpdateDevice(deviceId, func(device *v1alpha1.Device) {
 		device.Spec.Config = &configs
-		logrus.WithFields(logrus.Fields{
-			"deviceId": deviceId,
-			"config":   fmt.Sprintf("%+v", &device.Spec.Config),
-		}).Info("Updating device with new config")
+		GinkgoWriter.Printf("Updating device with new config - deviceId: %s, config: %+v\n", deviceId, &device.Spec.Config)
 	})
 	return err
 }

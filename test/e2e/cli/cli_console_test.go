@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,12 +9,11 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/login"
-	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
-	"github.com/sirupsen/logrus"
 )
 
 // Test constants
@@ -27,25 +25,25 @@ const (
 // Console test-suite
 // -----------------------------------------------------------------------------
 
-var _ = Describe("CLI - device console", Serial, func() {
+var _ = Describe("CLI - device console", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceID string
 	)
 
 	BeforeEach(func() {
-		ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		login.LoginToAPIWithToken(harness)
 
-		By("booting a VM and enrolling the device")
-		deviceID = harness.StartVMAndEnroll()
+		By("enrolling the device")
+		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	AfterEach(func() { harness.Cleanup(false) })
-
 	It("connects to a device and executes a simple command", Label("80483", "sanity"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		cs := harness.NewConsoleSession(deviceID)
 		cs.MustSend("ls")
 		cs.MustExpect(".*bin")
@@ -53,6 +51,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 	})
 
 	It("supports multiple simultaneous console sessions", Label("81737", "sanity"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		cs1 := harness.NewConsoleSession(deviceID)
 		cs2 := harness.NewConsoleSession(deviceID)
 
@@ -72,6 +73,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 	})
 
 	It("keeps console sessions open during a device update", Label("81786"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		const sessionsToOpen = 4
 		const expectedRenderedVersion = 2 + sessionsToOpen*2
 
@@ -116,6 +120,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 	})
 
 	It("allows tuning spec-fetch-interval", Label("82538"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		const (
 			cfgFile              = "/etc/flightctl/config.yaml"
 			specFetchKey         = "spec-fetch-interval"
@@ -146,8 +153,13 @@ var _ = Describe("CLI - device console", Serial, func() {
 
 		By("waiting for publisher logs with the new interval")
 		// Wait for the target log messages to appear
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
+		opts := vm.JournalOpts{
+			Unit:     "flightctl-agent",
+			Since:    logLookbackDuration,
+			LastBoot: true,
+		}
+		eventuallySlow(harness.VM.JournalLogs).
+			WithArguments(opts).
 			Should(And(
 				ContainSubstring("No new template version from management service"),
 				ContainSubstring("publisher.go"),
@@ -157,7 +169,11 @@ var _ = Describe("CLI - device console", Serial, func() {
 		logPattern := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
 		expectedInterval := time.Duration(specFetchIntervalSec) * time.Second
 		Eventually(func() bool {
-			logs, err := harness.ReadPrimaryVMAgentLogs(logLookbackDuration)
+			logs, err := harness.VM.JournalLogs(vm.JournalOpts{
+				Unit:     "flightctl-agent",
+				Since:    logLookbackDuration,
+				LastBoot: true,
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			return validateTimestampIntervals(logs, logPattern, expectedInterval)
@@ -165,6 +181,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 	})
 
 	It("recovers from image pull network disruption", Label("82541"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		const disruptionTime = 1 * time.Minute
 		_, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 		Expect(err).ToNot(HaveOccurred())
@@ -173,16 +192,17 @@ var _ = Describe("CLI - device console", Serial, func() {
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
-		logrus.Infof("Simulating network failure")
+		GinkgoWriter.Printf("Simulating network failure\n")
+		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
 		err = harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		logrus.Infof("Waiting for image pull activity")
+		GinkgoWriter.Printf("Waiting for image pull activity\n")
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration).
 			Should(ContainSubstring("Pulling image"))
 
-		logrus.Infof("Simulating network disruption for %s", disruptionTime)
+		GinkgoWriter.Printf("Simulating network disruption for %s\n", disruptionTime)
 		Consistently(resources.GetJSONByName[*v1alpha1.Device]).
 			WithTimeout(disruptionTime).
 			WithPolling(disruptionTime/10).
@@ -192,21 +212,25 @@ var _ = Describe("CLI - device console", Serial, func() {
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		logrus.Infof("Network disruption fixed. Waiting for the device to finish updating")
+		GinkgoWriter.Printf("Network disruption fixed. Waiting for the device to finish updating\n")
 		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
 	It("recovers from image pull network connection error", Label("83029"), func() {
-		logrus.Infof("Simulating network failure")
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
+		GinkgoWriter.Printf("Simulating network failure\n")
+		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
 		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
 		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 		Expect(err).ToNot(HaveOccurred())
 
-		logrus.Infof("Waiting for image pull activity")
+		GinkgoWriter.Printf("Waiting for image pull activity\n")
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
@@ -215,7 +239,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 			WithArguments(logLookbackDuration).
 			Should(ContainSubstring("Pulling image"))
 
-		logrus.Infof("Waiting for image pull failure. It will take a while...")
+		GinkgoWriter.Printf("Waiting for image pull failure. It will take a while...\n")
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration).
 			Should(And(
@@ -227,17 +251,20 @@ var _ = Describe("CLI - device console", Serial, func() {
 			),
 			)
 
-		logrus.Infof("Image pull failure detected!")
+		GinkgoWriter.Printf("Image pull failure detected!\n")
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		logrus.Infof("Waiting for the device to finish updating")
+		GinkgoWriter.Printf("Waiting for the device to finish updating\n")
 		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
 	It("provides console --help and auxiliary features", Label("81866", "sanity"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		out, err := harness.CLI("console", "--help")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(
@@ -287,22 +314,22 @@ func eventuallySlow(actual any) types.AsyncAssertion {
 // Returns a slice of valid timestamps found in the logs.
 func extractTimestampsFromLogs(logs string, logPattern *regexp.Regexp) []time.Time {
 	lines := strings.Split(strings.TrimSpace(logs), "\n")
-	logrus.Infof("Read %d log lines from agent journal", len(lines))
+	GinkgoWriter.Printf("Read %d log lines from agent journal\n", len(lines))
 
 	var validTimestamps []time.Time
 
 	for _, line := range lines {
 		if m := logPattern.FindStringSubmatch(line); m != nil {
 			if t, err := time.Parse(time.RFC3339Nano, m[1]); err != nil {
-				logrus.Warnf("Failed to parse timestamp %q: %v", m[1], err)
+				GinkgoWriter.Printf("Failed to parse timestamp %q: %v\n", m[1], err)
 			} else {
 				validTimestamps = append(validTimestamps, t)
-				logrus.Infof("Found matching log line with timestamp: %s", t.Format(time.RFC3339))
+				GinkgoWriter.Printf("Found matching log line with timestamp: %s\n", t.Format(time.RFC3339))
 			}
 		}
 	}
 
-	logrus.Infof("Found %d lines matching the pattern", len(validTimestamps))
+	GinkgoWriter.Printf("Found %d lines matching the pattern\n", len(validTimestamps))
 	return validTimestamps
 }
 
@@ -311,22 +338,22 @@ func extractTimestampsFromLogs(logs string, logPattern *regexp.Regexp) []time.Ti
 func validateIntervalTiming(timestamps []time.Time, expectedInterval time.Duration) bool {
 	const toleranceThreshold = time.Second
 
-	logrus.Infof("Validating intervals between %d timestamps", len(timestamps))
+	GinkgoWriter.Printf("Validating intervals between %d timestamps\n", len(timestamps))
 
 	for i := 1; i < len(timestamps); i++ {
 		delta := timestamps[i].Sub(timestamps[i-1])
 		deviation := (delta - expectedInterval).Abs()
 
-		logrus.Infof("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v",
+		GinkgoWriter.Printf("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v\n",
 			i-1, i, delta, expectedInterval, deviation)
 
 		if deviation > toleranceThreshold {
-			logrus.Infof("Interval not as expected - deviation %v > %v threshold", deviation, toleranceThreshold)
+			GinkgoWriter.Printf("Interval not as expected - deviation %v > %v threshold\n", deviation, toleranceThreshold)
 			return false
 		}
 	}
 
-	logrus.Infof("All %d intervals are stable within %v tolerance", len(timestamps)-1, toleranceThreshold)
+	GinkgoWriter.Printf("All %d intervals are stable within %v tolerance\n", len(timestamps)-1, toleranceThreshold)
 	return true
 }
 
@@ -337,7 +364,7 @@ func validateTimestampIntervals(logs string, logPattern *regexp.Regexp, expected
 
 	const minRequired = 2
 	if len(timestamps) < minRequired {
-		logrus.Infof("Need at least %d matching timestamps, only have %d - waiting for more logs", minRequired, len(timestamps))
+		GinkgoWriter.Printf("Need at least %d matching timestamps, only have %d - waiting for more logs\n", minRequired, len(timestamps))
 		return false
 	}
 

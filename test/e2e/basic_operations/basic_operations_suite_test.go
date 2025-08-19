@@ -1,4 +1,4 @@
-package decommission_test
+package basic_operations
 
 import (
 	"testing"
@@ -9,11 +9,9 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const SUITE_TIMEOUT = "2m"
-
-func TestCLIDecommission(t *testing.T) {
+func TestBasicOperations(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Decommission E2E Suite")
+	RunSpecs(t, "Basic Operations E2E Suite")
 }
 
 var _ = BeforeSuite(func() {

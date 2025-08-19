@@ -105,6 +105,7 @@ e2e-test: deploy bin/output/qcow2/disk.qcow2
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_PROCS=4
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_OUTPUT_INTERCEPTOR_MODE=swap
 run-e2e-test:
+	sudo chmod a+x test/scripts/e2e_cleanup.sh test/scripts/e2e_startup.sh
 	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
 
 view-coverage: $(REPORTS)/unit-coverage.out $(REPORTS)/unit-coverage.out

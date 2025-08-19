@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	. "github.com/onsi/ginkgo/v2"
 	"sigs.k8s.io/yaml"
 )
 
@@ -21,6 +22,13 @@ func CreateDevice(harness *e2e.Harness, name string, labels *map[string]string) 
 			Name:   &name,
 			Labels: labels,
 		},
+	}
+
+	// Ensure test-id label is preserved
+	if labels != nil {
+		harness.SetLabelsForDeviceMetadata(&device.Metadata, *labels)
+	} else {
+		harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{})
 	}
 
 	yamlStr, err := marshalToString(device)
@@ -66,6 +74,13 @@ func CreateFleet(harness *e2e.Harness, name string, templateImage string, labels
 		},
 	}
 
+	// Ensure test-id label is preserved
+	if labels != nil {
+		harness.SetLabelsForFleetMetadata(&fleet.Metadata, *labels)
+	} else {
+		harness.SetLabelsForFleetMetadata(&fleet.Metadata, map[string]string{})
+	}
+
 	yamlStr, err := marshalToString(fleet)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal fleet: %w", err)
@@ -84,7 +99,7 @@ func DeleteFleets(harness *e2e.Harness, fleets []*api.Fleet) error {
 	return nil
 }
 
-func CreateRepository(harness *e2e.Harness, name string, url string) (*api.Repository, error) {
+func CreateRepository(harness *e2e.Harness, name string, url string, labels *map[string]string) (*api.Repository, error) {
 	spec := api.RepositorySpec{}
 	specError := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 		Url:  url,
@@ -101,6 +116,12 @@ func CreateRepository(harness *e2e.Harness, name string, url string) (*api.Repos
 			Name: &name,
 		},
 		Spec: spec,
+	}
+
+	if labels != nil {
+		harness.SetLabelsForRepositoryMetadata(&repository.Metadata, *labels)
+	} else {
+		harness.SetLabelsForRepositoryMetadata(&repository.Metadata, map[string]string{})
 	}
 
 	yamlStr, err := marshalToString(repository)
@@ -132,7 +153,7 @@ func marshalToString(v interface{}) (string, error) {
 func applyToCreateFromText(harness *e2e.Harness, text string) error {
 	output, err := harness.CLIWithStdin(text, apply, "-f", "-")
 	if err == nil && strings.Contains(output, created) {
-		fmt.Println(output)
+		GinkgoWriter.Printf("%s\n", output)
 	}
 	return err
 }
