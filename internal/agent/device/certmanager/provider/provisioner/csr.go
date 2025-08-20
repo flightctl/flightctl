@@ -11,12 +11,18 @@ import (
 	"text/template"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	agentapi "github.com/flightctl/flightctl/internal/api/client/agent"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 )
+
+// csrClient is the minimal management client surface required by the CSR provisioner.
+type csrClient interface {
+	CreateCertificateSigningRequest(ctx context.Context, csr api.CertificateSigningRequest, rcb ...agentapi.RequestEditorFn) (*api.CertificateSigningRequest, int, error)
+	GetCertificateSigningRequest(ctx context.Context, name string, rcb ...agentapi.RequestEditorFn) (*api.CertificateSigningRequest, int, error)
+}
 
 // CSRProvisionerConfig defines configuration for Certificate Signing Request (CSR) based provisioning.
 // This provisioner generates a private key and CSR, submits it to the management server,
@@ -26,8 +32,8 @@ type CSRProvisionerConfig struct {
 	Signer string `json:"signer"`
 	// CommonName is the common name for the certificate
 	CommonName string `json:"common-name,omitempty"`
-	// KeyUsage specifies the key usage for the certificate (e.g., "clientAuth", "serverAuth")
-	KeyUsage []string `json:"key-usage,omitempty"`
+	// Usages specifies a set of key usages requested in the issued certificate (e.g., "clientAuth", "serverAuth")
+	Usages []string `json:"usages,omitempty"`
 	// ExpirationSeconds requests a specific certificate validity duration (in seconds); signer may ignore
 	ExpirationSeconds *int32 `json:"expiration-seconds,omitempty"`
 	// Additional CSR-specific configuration (future extensions)
@@ -38,20 +44,25 @@ type CSRProvisionerConfig struct {
 // It generates a private key and CSR, submits it to the management server, and polls
 // for approval and certificate issuance. This supports the standard Kubernetes CSR workflow.
 type CSRProvisioner struct {
-	deviceName       string                // Name of the device requesting the certificate
-	managementClient client.Management     // Client for communicating with management server
-	cfg              *CSRProvisionerConfig // Configuration for CSR provisioning
+	// Name of the device requesting the certificate
+	deviceName string
+	// Client for communicating with management server
+	csrClient csrClient
+	// Configuration for CSR provisioning
+	cfg *CSRProvisionerConfig
 
-	csrName    string        // Name of the CSR resource on the server
-	privateKey crypto.Signer // Generated private key for this certificate
+	// Name of the CSR resource on the server
+	csrName string
+	// Generated private key for this certificate
+	privateKey crypto.Signer
 }
 
 // NewCSRProvisioner creates a new CSR provisioner with the specified configuration.
-func NewCSRProvisioner(deviceName string, managementClient client.Management, cfg *CSRProvisionerConfig) (*CSRProvisioner, error) {
+func NewCSRProvisioner(deviceName string, csrClient csrClient, cfg *CSRProvisionerConfig) (*CSRProvisioner, error) {
 	return &CSRProvisioner{
-		deviceName:       deviceName,
-		managementClient: managementClient,
-		cfg:              cfg,
+		deviceName: deviceName,
+		csrClient:  csrClient,
+		cfg:        cfg,
 	}, nil
 }
 
@@ -79,6 +90,15 @@ func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate
 
 	p.privateKey = key
 
+	usages := []string{
+		"clientAuth",
+		"CA:false",
+	}
+
+	if len(p.cfg.Usages) > 0 {
+		usages = append(usages, p.cfg.Usages...)
+	}
+
 	req := api.CertificateSigningRequest{
 		ApiVersion: api.CertificateSigningRequestAPIVersion,
 		Kind:       api.CertificateSigningRequestKind,
@@ -89,10 +109,10 @@ func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate
 			ExpirationSeconds: p.cfg.ExpirationSeconds, // <- Use directly from your CSRProvisionerConfig
 			Request:           csr,
 			SignerName:        p.cfg.Signer,
-			Usages:            &p.cfg.KeyUsage,
+			Usages:            &usages,
 		},
 	}
-	_, statusCode, err := p.managementClient.CreateCertificateSigningRequest(ctx, req)
+	_, statusCode, err := p.csrClient.CreateCertificateSigningRequest(ctx, req)
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("create csr: %w", err)
 	}
@@ -115,7 +135,7 @@ func (p *CSRProvisioner) check(ctx context.Context) (bool, *x509.Certificate, []
 		return false, nil, nil, fmt.Errorf("no private key generated")
 	}
 
-	csr, statusCode, err := p.managementClient.GetCertificateSigningRequest(ctx, p.csrName)
+	csr, statusCode, err := p.csrClient.GetCertificateSigningRequest(ctx, p.csrName)
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("get csr: %w", err)
 	}
@@ -177,12 +197,14 @@ func generateKeyAndCSR(commonName string) (crypto.Signer, []byte, error) {
 // CSRProvisionerFactory implements ProvisionerFactory for CSR-based provisioners.
 // It creates CSR provisioners with device-specific configuration and validates CSR configs.
 type CSRProvisionerFactory struct {
-	deviceName       string            // Name of the device for CSR common name substitution
-	managementClient client.Management // Client for communicating with management server
+	// Name of the device for CSR common name substitution
+	deviceName string
+	// Client for communicating with management server
+	managementClient csrClient
 }
 
 // NewCSRProvisionerFactory creates a new CSRProvisionerFactory with the specified dependencies.
-func NewCSRProvisionerFactory(deviceName string, managementClient client.Management) *CSRProvisionerFactory {
+func NewCSRProvisionerFactory(deviceName string, managementClient csrClient) *CSRProvisionerFactory {
 	return &CSRProvisionerFactory{
 		deviceName:       deviceName,
 		managementClient: managementClient,
@@ -191,7 +213,7 @@ func NewCSRProvisionerFactory(deviceName string, managementClient client.Managem
 
 // Type returns the provisioner type string used as map key in the certificate manager.
 func (f *CSRProvisionerFactory) Type() string {
-	return "csr"
+	return string(provider.ProvisionerTypeCSR)
 }
 
 // New creates a new CSRProvisioner based on the provided certificate config.
@@ -233,7 +255,7 @@ func (f *CSRProvisionerFactory) New(log provider.Logger, cc provider.Certificate
 func (f *CSRProvisionerFactory) Validate(log provider.Logger, cc provider.CertificateConfig) error {
 	prov := cc.Provisioner
 
-	if prov.Type != "csr" {
+	if prov.Type != provider.ProvisionerTypeCSR {
 		return fmt.Errorf("not a CSR provisioner")
 	}
 

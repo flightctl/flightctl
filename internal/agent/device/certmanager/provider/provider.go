@@ -4,10 +4,24 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
-	"io"
 	"slices"
+)
 
-	"github.com/flightctl/flightctl/internal/util"
+// ProvisionerType represents the type identifier for a certificate provisioner.
+// Use the provided constants instead of raw string literals.
+type ProvisionerType string
+
+const (
+	ProvisionerTypeCSR        ProvisionerType = "csr"
+	ProvisionerTypeSelfSigned ProvisionerType = "self-signed"
+)
+
+// StorageType represents the type identifier for a certificate storage backend.
+// Use the provided constants instead of raw string literals.
+type StorageType string
+
+const (
+	StorageTypeFilesystem StorageType = "filesystem"
 )
 
 // Logger provides a logging interface for certificate management operations.
@@ -77,70 +91,31 @@ type ConfigProvider interface {
 	GetCertificateConfigs() ([]CertificateConfig, error)
 }
 
-// SupportsNotify is an optional interface for configuration providers that can notify
-// about configuration changes. This enables reactive certificate management.
-type SupportsNotify interface {
-	// RegisterConfigChangeChannel registers a channel to receive configuration change notifications
-	RegisterConfigChangeChannel(ch chan<- ConfigProvider, cp ConfigProvider) error
-}
-
-// ConfigProviderChangeNotifier provides common functionality for configuration providers
-// that support change notifications. It manages the notification channel and provides
-// a method to trigger configuration change events.
-type ConfigProviderChangeNotifier struct {
-	changeCh chan<- ConfigProvider // Channel to send configuration change notifications
-	self     ConfigProvider        // Reference to the provider that owns this notifier
-}
-
-// RegisterConfigChangeChannel registers a channel to receive configuration change notifications.
-// This is typically called during certificate manager initialization.
-func (n *ConfigProviderChangeNotifier) RegisterConfigChangeChannel(ch chan<- ConfigProvider, cp ConfigProvider) error {
-	n.self = cp
-	n.changeCh = ch
-	return nil
-}
-
-// TriggerConfigChange sends a configuration change notification to the registered channel.
-// This should be called when the configuration provider detects a change in its configuration.
-func (n *ConfigProviderChangeNotifier) TriggerConfigChange() {
-	if n.changeCh != nil {
-		select {
-		case n.changeCh <- n.self:
-		default:
-		}
-	}
-}
-
-// StateStorageProvider defines an interface for saving and loading certificate state.
-// This enables persistence of certificate metadata and state across agent restarts.
-type StateStorageProvider interface {
-	// StoreState persists data by reading from the provided reader (e.g., JSON stream).
-	StoreState(io.Reader) error
-
-	// LoadState restores data by writing to the provided writer.
-	LoadState(io.Writer) error
-}
-
 // CertificateConfig defines the complete configuration for a managed certificate.
 // It includes provisioner settings, storage configuration, and renewal policies.
 type CertificateConfig struct {
-	Name             string            `json:"name"`                        // Unique certificate identifier
-	Provisioner      ProvisionerConfig `json:"provisioner"`                 // Provisioner configuration
-	Storage          StorageConfig     `json:"storage"`                     // Storage configuration
-	AllowRenew       *bool             `json:"allow-renew,omitempty"`       // Whether automatic renewal is enabled
-	RenewalThreshold *util.Duration    `json:"renewal-threshold,omitempty"` // Time before expiration to trigger renewal
+	// Unique certificate identifier
+	Name string `json:"name"`
+	// Provisioner configuration
+	Provisioner ProvisionerConfig `json:"provisioner"`
+	// Storage configuration
+	Storage StorageConfig `json:"storage"`
 }
 
 // StorageConfig defines storage provider configuration including type and type-specific settings.
 type StorageConfig struct {
-	Type   string          `json:"type,omitempty"`   // Storage type identifier (e.g., "filesystem")
-	Config json.RawMessage `json:"config,omitempty"` // Type-specific configuration as JSON
+	// Storage type identifier (e.g., "filesystem")
+	Type StorageType `json:"type,omitempty"`
+	// Type-specific configuration as JSON
+	Config json.RawMessage `json:"config,omitempty"`
 }
 
 // ProvisionerConfig defines provisioner configuration including type and type-specific settings.
 type ProvisionerConfig struct {
-	Type   string          `json:"type,omitempty"`   // Provisioner type identifier (e.g., "csr", "self-signed")
-	Config json.RawMessage `json:"config,omitempty"` // Type-specific configuration as JSON
+	// Provisioner type identifier (e.g., "csr", "self-signed")
+	Type ProvisionerType `json:"type,omitempty"`
+	// Type-specific configuration as JSON
+	Config json.RawMessage `json:"config,omitempty"`
 }
 
 // Equal compares two CertificateConfig instances for equality.
@@ -155,22 +130,6 @@ func (c CertificateConfig) Equal(other CertificateConfig) bool {
 	}
 
 	if !c.Storage.Equal(other.Storage) {
-		return false
-	}
-
-	if (c.AllowRenew == nil) != (other.AllowRenew == nil) {
-		return false
-	}
-
-	if c.AllowRenew != nil && *c.AllowRenew != *other.AllowRenew {
-		return false
-	}
-
-	if (c.RenewalThreshold == nil) != (other.RenewalThreshold == nil) {
-		return false
-	}
-
-	if c.RenewalThreshold != nil && *c.RenewalThreshold != *other.RenewalThreshold {
 		return false
 	}
 

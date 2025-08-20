@@ -4,46 +4,37 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
-	"github.com/samber/lo"
 )
 
-const DefaultSyncInterval = 1 * time.Hour
 const DefaultRequeueDelay = 10 * time.Second
 
 // CertManager manages the complete certificate lifecycle for flight control agents.
-// It coordinates certificate provisioning, storage, renewal, and cleanup across multiple
-// configuration providers and implements retry logic for failed operations.
+// It coordinates certificate provisioning, storage, and cleanup across multiple configuration providers.
 // The manager supports pluggable provisioners (CSR, self-signed, etc.) and storage
 // backends (filesystem, etc.) through factory patterns.
 type CertManager struct {
-	log             provider.Logger
-	certificates    *certStorage                           // In-memory certificate state with optional persistent backing
-	configs         map[string]provider.ConfigProvider     // Configuration providers (agent-config, file, static)
-	provisioners    map[string]provider.ProvisionerFactory // Certificate provisioner factories (CSR, self-signed, empty)
-	storages        map[string]provider.StorageFactory     // Storage provider factories (filesystem, empty)
-	configChangeCh  chan provider.ConfigProvider           // Channel for configuration change notifications
-	processingQueue *CertificateProcessingQueue            // Queue for async certificate processing with retry logic
-	syncInterval    time.Duration                          // Interval for periodic certificate sync operations
-	requeueDelay    time.Duration                          // Delay before retrying failed certificate operations
+	log provider.Logger
+	// In-memory certificate state with optional persistent backing
+	certificates *certStorage
+	// Configuration providers (agent-config, file, static)
+	configs map[string]provider.ConfigProvider
+	// Certificate provisioner factories (CSR, self-signed, empty)
+	provisioners map[string]provider.ProvisionerFactory
+	// Storage provider factories (filesystem, empty)
+	storages map[string]provider.StorageFactory
+	// Queue for async certificate processing with retry logic
+	processingQueue *CertificateProcessingQueue
+	// Delay before retrying failed certificate operations
+	requeueDelay time.Duration
 }
 
 // ManagerOption defines a functional option for configuring CertManager during initialization.
 type ManagerOption func(*CertManager) error
-
-// WithSyncInterval sets a custom sync interval for the CertManager Run loop.
-// The sync interval determines how often the manager checks certificate status and renewal needs.
-func WithSyncInterval(interval time.Duration) ManagerOption {
-	return func(cm *CertManager) error {
-		if interval <= 0 {
-			return fmt.Errorf("sync interval must be positive")
-		}
-		cm.syncInterval = interval
-		return nil
-	}
-}
 
 // WithRequeueDelay sets a custom requeue delay for certificate provisioning checks.
 // This delay is used when a certificate provisioning operation is not yet complete
@@ -54,25 +45,6 @@ func WithRequeueDelay(delay time.Duration) ManagerOption {
 			return fmt.Errorf("requeue delay must be positive")
 		}
 		cm.requeueDelay = delay
-		return nil
-	}
-}
-
-// WithStateStorageProvider sets the state storage provider for certificate state persistence.
-// This enables the manager to persist certificate metadata and state across restarts.
-// Without this, certificate state is only kept in memory.
-func WithStateStorageProvider(storage provider.StateStorageProvider) ManagerOption {
-	return func(cm *CertManager) error {
-		if storage == nil {
-			return fmt.Errorf("provided state storage provider is nil")
-		}
-
-		newCertStorage, err := newCertStorage(storage)
-		if err != nil {
-			return fmt.Errorf("failed to create cert storage: %w", err)
-		}
-
-		cm.certificates = newCertStorage
 		return nil
 	}
 }
@@ -92,12 +64,6 @@ func WithConfigProvider(config provider.ConfigProvider) ManagerOption {
 		}
 
 		cm.configs[name] = config
-		if notifiable, ok := config.(provider.SupportsNotify); ok {
-			if err := notifiable.RegisterConfigChangeChannel(cm.configChangeCh, config); err != nil {
-				return fmt.Errorf("failed to register config change channel for provider %q: %w", name, err)
-			}
-			cm.log.Debugf("Registered config change notifier for provider %q", name)
-		}
 		return nil
 	}
 }
@@ -141,17 +107,17 @@ func WithStorageProvider(store provider.StorageFactory) ManagerOption {
 }
 
 // NewManager creates and initializes a new CertManager with the provided options.
-// It sets up default values for sync interval and requeue delay if not specified,
-// and initializes the certificate storage and processing queue.
-func NewManager(log provider.Logger, opts ...ManagerOption) (*CertManager, error) {
-	var err error
+func NewManager(ctx context.Context, log provider.Logger, opts ...ManagerOption) (*CertManager, error) {
+	if log == nil {
+		return nil, fmt.Errorf("logger is nil")
+	}
 
 	cm := &CertManager{
-		log:            log,
-		configs:        make(map[string]provider.ConfigProvider),
-		provisioners:   make(map[string]provider.ProvisionerFactory),
-		storages:       make(map[string]provider.StorageFactory),
-		configChangeCh: make(chan provider.ConfigProvider, 10),
+		log:          log,
+		configs:      make(map[string]provider.ConfigProvider),
+		provisioners: make(map[string]provider.ProvisionerFactory),
+		storages:     make(map[string]provider.StorageFactory),
+		certificates: newCertStorage(),
 	}
 
 	for _, opt := range opts {
@@ -160,53 +126,23 @@ func NewManager(log provider.Logger, opts ...ManagerOption) (*CertManager, error
 		}
 	}
 
-	// If no certificate storage was set via options, initialize default storage without state.
-	if cm.certificates == nil {
-		if cm.certificates, err = newCertStorage(nil); err != nil {
-			return nil, fmt.Errorf("failed to initialize default cert storage: %w", err)
-		}
-	}
-
-	if cm.syncInterval == 0 {
-		cm.syncInterval = DefaultSyncInterval
-	}
-
 	if cm.requeueDelay == 0 {
 		cm.requeueDelay = DefaultRequeueDelay
 	}
 
 	cm.processingQueue = NewCertificateProcessingQueue(cm.ensureCertificate)
+	go cm.processingQueue.Run(ctx)
 	return cm, nil
 }
 
-// Run starts the certificate manager's main event loop.
-// It processes configuration changes, runs periodic sync operations, and handles
-// certificate provisioning, renewal, and cleanup. This method blocks until the context is canceled.
-func (cm *CertManager) Run(ctx context.Context) {
-	go cm.processingQueue.Run(ctx)
-
+// Sync performs a full synchronization of all certificate providers.
+func (cm *CertManager) Sync(ctx context.Context, _ *config.Config) error {
+	cm.log.Debug("Starting certificate sync")
 	if err := cm.sync(ctx); err != nil {
 		cm.log.Errorf("certificate management sync failed: %v", err)
+		return err
 	}
-
-	ticker := time.NewTicker(cm.syncInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case provider := <-cm.configChangeCh:
-			cm.log.Infof("Config change detected from provider %q — running immediate sync", provider.Name())
-			if err := cm.syncProvider(ctx, provider); err != nil {
-				cm.log.Errorf("syncProvider failed for %q: %v", provider.Name(), err)
-			}
-		case <-ticker.C:
-			if err := cm.sync(ctx); err != nil {
-				cm.log.Errorf("certificate management sync failed: %v", err)
-			}
-		}
-	}
+	return nil
 }
 
 // sync performs a full synchronization of all certificate providers.
@@ -246,19 +182,26 @@ func (cm *CertManager) syncProvider(ctx context.Context, provider provider.Confi
 		}
 	}()
 
-	configs, err := provider.GetCertificateConfigs()
-	if err != nil {
-		cm.log.Errorf("failed to load configs from provider %q: %v", providerName, err)
-
+	configs, loadErr := provider.GetCertificateConfigs()
+	if loadErr != nil {
 		// Mark existing certificates as handled so they won't be deleted
-		providerObj, err := cm.certificates.EnsureProvider(providerName)
-		if err != nil {
-			return err
+		cm.log.Errorf("failed to load certificate configs from provider %q: %v", providerName, loadErr)
+
+		if _, ensureErr := cm.certificates.EnsureProvider(providerName); ensureErr != nil {
+			return fmt.Errorf("ensure provider %q: %w", providerName, ensureErr)
 		}
-		for _, cert := range providerObj.Certificates {
-			handledCertificates = append(handledCertificates, cert.Name)
+
+		certs, snapErr := cm.certificates.ReadCertificates(providerName)
+		if snapErr != nil {
+			// Be conservative: without a snapshot we might delete valid certs.
+			return fmt.Errorf("snapshot existing certificates for provider %q: %w", providerName, snapErr)
 		}
-		return fmt.Errorf("failed to load certificate configs from provider %q: %w", providerName, err)
+
+		for _, c := range certs {
+			handledCertificates = append(handledCertificates, c.Name)
+		}
+
+		return fmt.Errorf("load certificate configs from provider %q: %w", providerName, loadErr)
 	}
 
 	if _, err := cm.certificates.EnsureProvider(providerName); err != nil {
@@ -275,8 +218,7 @@ func (cm *CertManager) syncProvider(ctx context.Context, provider provider.Confi
 	return nil
 }
 
-// syncCertificate synchronizes a single certificate by checking if it needs renewal
-// and triggering the appropriate provisioning or renewal process.
+// syncCertificate synchronizes a single certificate.
 func (cm *CertManager) syncCertificate(ctx context.Context, provider provider.ConfigProvider, cfg provider.CertificateConfig) error {
 	var err error
 	providerName := provider.Name()
@@ -298,23 +240,25 @@ func (cm *CertManager) syncCertificate(ctx context.Context, provider provider.Co
 			cm.processingQueue.Remove(providerName, cert.Name)
 
 			// Re-queue with new config
-			if err := cm.renewCertificate(ctx, providerName, cert, cfg); err != nil {
-				return fmt.Errorf("failed to renew certificate %q from provider %q: %w", cert.Name, providerName, err)
+			if err := cm.provisionCertificate(ctx, providerName, cert, cfg); err != nil {
+				return fmt.Errorf("failed to provision certificate %q from provider %q: %w", cert.Name, providerName, err)
 			}
-			cm.log.Infof("Config changed during processing — re-queued renewal for certificate %q of provider %q", certName, providerName)
+			cm.log.Debugf("Config changed during processing — re-queued provision for certificate %q of provider %q", certName, providerName)
 		}
 		return nil
 	}
 
-	if !cm.shouldRenewCertificate(providerName, cert, cfg) {
+	if !cm.shouldprovisionCertificate(providerName, cert, cfg) {
 		cert.Config = cfg
-		cm.log.Debugf("Certificate %q for provider %q: no renewal required", certName, providerName)
+		cm.log.Debugf("Certificate %q for provider %q: no provision required", certName, providerName)
 		return nil
 	}
-	if err := cm.renewCertificate(ctx, providerName, cert, cfg); err != nil {
-		return fmt.Errorf("failed to renew certificate %q from provider %q: %w", cert.Name, providerName, err)
+
+	if err := cm.provisionCertificate(ctx, providerName, cert, cfg); err != nil {
+		return fmt.Errorf("failed to provision certificate %q from provider %q: %w", cert.Name, providerName, err)
 	}
-	cm.log.Infof("Renewal triggered for certificate %q of provider %q", certName, providerName)
+
+	cm.log.Debugf("Provision triggered for certificate %q of provider %q", certName, providerName)
 	return nil
 }
 
@@ -354,67 +298,28 @@ func (cm *CertManager) createCertificate(ctx context.Context, provider provider.
 	return cert
 }
 
-// shouldRenewCertificate determines whether a certificate needs renewal based on
-// expiration time, configuration changes, retry failures, and renewal settings.
-func (cm *CertManager) shouldRenewCertificate(providerName string, cert *certificate, cfg provider.CertificateConfig) bool {
-	// Missing critical cert info — force first provision.
+// shouldprovisionCertificate determines whether a certificate needs provisioning.
+func (cm *CertManager) shouldprovisionCertificate(providerName string, cert *certificate, cfg provider.CertificateConfig) bool {
+	// Missing critical cert info — first provision.
 	if cert.Info.NotAfter == nil || cert.Info.NotBefore == nil {
-		cm.log.Debugf("Certificate %q for provider %q: missing NotBefore/NotAfter — needs initial provisioning", cert.Name, providerName)
-		return true
-	}
-
-	// Print expiry info early so it's visible even if renewal is disabled.
-	remaining := time.Until(*cert.Info.NotAfter)
-	if remaining <= 0 {
-		cm.log.Infof("Certificate %q for provider %q: already expired", cert.Name, providerName)
-	} else if remaining <= 24*time.Hour {
-		cm.log.Infof("Certificate %q for provider %q: about to expire in %s", cert.Name, providerName, remaining)
-	}
-
-	if cfg.AllowRenew != nil && !*cfg.AllowRenew {
-		cm.log.Debugf("Certificate %q for provider %q: renewal explicitly disabled by configuration", cert.Name, providerName)
-		return false
-	}
-
-	if cert.RetryFailures > 0 {
-		cm.log.Debugf("Certificate %q for provider %q: retry failures detected — forcing re-provision", cert.Name, providerName)
+		cm.log.Debugf("Certificate %q for provider %q: missing NotBefore/NotAfter — initial provisioning", cert.Name, providerName)
 		return true
 	}
 
 	if !cert.Config.Provisioner.Equal(cfg.Provisioner) || !cert.Config.Storage.Equal(cfg.Storage) {
-		cm.log.Debugf("Certificate %q for provider %q: provisioner or storage changed — forcing renewal", cert.Name, providerName)
+		cm.log.Debugf("Certificate %q for provider %q: provisioner or storage changed - needs provisioning", cert.Name, providerName)
 		return true
 	}
 
-	lifetime := cert.Info.NotAfter.Sub(*cert.Info.NotBefore)
-	renewalThreshold := lifetime / 3
-
-	// If user explicitly configured a RenewalThreshold, override default
-	if cfg.RenewalThreshold != nil {
-		renewalThreshold = time.Duration(*cfg.RenewalThreshold)
-		cm.log.Debugf("Certificate %q for provider %q: using custom renewal threshold: %s", cert.Name, providerName, renewalThreshold)
-	}
-
-	const minSafetyMargin = 1 * time.Minute
-	effectiveMargin := cm.syncInterval + minSafetyMargin
-
-	if renewalThreshold < effectiveMargin {
-		cm.log.Debugf("Certificate %q for provider %q: adjusted renewal threshold from %s to effective margin %s (sync interval %s + safety %s)",
-			cert.Name, providerName, renewalThreshold, effectiveMargin, cm.syncInterval, minSafetyMargin)
-		renewalThreshold = effectiveMargin
-	}
-
-	cm.log.Debugf("Certificate %q for provider %q: remaining lifetime %s, renewal threshold %s", cert.Name, providerName, remaining, renewalThreshold)
-	return remaining < renewalThreshold
+	return false
 }
 
-// renewCertificate queues a certificate for renewal by adding it to the processing queue.
-func (cm *CertManager) renewCertificate(ctx context.Context, providerName string, cert *certificate, cfg provider.CertificateConfig) error {
-	return cm.processingQueue.Process(ctx, providerName, cert, cfg)
+// provisionCertificate queues a certificate for provisioning by adding it to the processing queue.
+func (cm *CertManager) provisionCertificate(_ context.Context, providerName string, cert *certificate, cfg provider.CertificateConfig) error {
+	return cm.processingQueue.Process(providerName, cert, cfg)
 }
 
 // ensureCertificate is the main certificate processing function called by the processing queue.
-// It handles certificate provisioning, renewal, and error recovery with retry logic.
 func (cm *CertManager) ensureCertificate(ctx context.Context, providerName string, cert *certificate, cfg *provider.CertificateConfig) *time.Duration {
 	cert.mu.Lock()
 	defer cert.mu.Unlock()
@@ -426,23 +331,21 @@ func (cm *CertManager) ensureCertificate(ctx context.Context, providerName strin
 		}
 	}()
 
-	// Attempt to ensure certificate (provision or renew)
+	// Attempt to ensure certificate (provision)
 	retryDelay, err := cm.ensureCertificate_do(ctx, providerName, cert, cfg)
 	if err != nil {
+		cm.log.Errorf("failed to ensure certificate %q from provider %q: %v", cert.Name, providerName, err)
+
 		// On failure, reset provisioner and storage to force re-init next time
 		cert.Provisioner = nil
 		cert.Storage = nil
-		cert.RetryFailures++
-		cert.Err = err.Error()
 		return nil
 	}
 
-	// If no retry delay is returned, we consider it "final success" and reset counters
+	// If no retry delay is returned, we consider it "final success"
 	if retryDelay == nil {
 		cert.Provisioner = nil
 		cert.Storage = nil
-		cert.RetryFailures = 0
-		cert.Err = ""
 	}
 
 	return retryDelay
@@ -494,7 +397,7 @@ func (cm *CertManager) ensureCertificate_do(ctx context.Context, providerName st
 
 	// check storage drift
 	if !cert.Config.Storage.Equal(cfg.Storage) {
-		cm.log.Infof("Certificate %q for provider %q: storage configuration changed, deleting old storage", certName, providerName)
+		cm.log.Debugf("Certificate %q for provider %q: storage configuration changed, deleting old storage", certName, providerName)
 		if err := cm.purgeStorage(ctx, providerName, cert); err != nil {
 			cm.log.Error(err.Error())
 		}
@@ -505,11 +408,7 @@ func (cm *CertManager) ensureCertificate_do(ctx context.Context, providerName st
 	}
 
 	cm.addCertificateInfo(cert, crt)
-	if cert.Info.LastProvisioned != nil {
-		cert.Info.RenewalCount++
-	}
 
-	cert.Info.LastProvisioned = lo.ToPtr(time.Now())
 	cert.Config = config
 	cert.Provisioner = nil
 	cert.Storage = nil
@@ -520,8 +419,6 @@ func (cm *CertManager) ensureCertificate_do(ctx context.Context, providerName st
 func (cm *CertManager) addCertificateInfo(cert *certificate, parsedCert *x509.Certificate) {
 	cert.Info.NotBefore = &parsedCert.NotBefore
 	cert.Info.NotAfter = &parsedCert.NotAfter
-	cert.Info.CommonName = &parsedCert.Subject.CommonName
-	cert.Info.SerialNumber = lo.ToPtr(parsedCert.SerialNumber.String())
 }
 
 // cleanupUntrackedProviders removes certificate providers that are no longer configured.
@@ -559,7 +456,7 @@ func (cm *CertManager) cleanupUntrackedProviders(keepProviders []string) error {
 			continue
 		}
 
-		cm.log.Infof("Removed untracked provider %q and all associated certificates", providerName)
+		cm.log.Debugf("Removed untracked provider %q and all associated certificates", providerName)
 	}
 
 	return nil
@@ -596,7 +493,7 @@ func (cm *CertManager) cleanupUntrackedCertificates(providerName string, keepCer
 			continue
 		}
 
-		cm.log.Infof("Removed untracked certificate %q from provider %q", cert.Name, providerName)
+		cm.log.Debugf("Removed untracked certificate %q from provider %q", cert.Name, providerName)
 	}
 
 	return nil
@@ -605,7 +502,11 @@ func (cm *CertManager) cleanupUntrackedCertificates(providerName string, keepCer
 // initProvisionerProvider creates a provisioner provider from the certificate configuration.
 // It validates the configuration and returns a provisioner capable of generating certificates.
 func (cm *CertManager) initProvisionerProvider(cfg provider.CertificateConfig) (provider.ProvisionerProvider, error) {
-	p, ok := cm.provisioners[cfg.Provisioner.Type]
+	if strings.TrimSpace(string(cfg.Provisioner.Type)) == "" {
+		return nil, fmt.Errorf("provisioner type is not set for certificate %q", cfg.Name)
+	}
+
+	p, ok := cm.provisioners[string(cfg.Provisioner.Type)]
 	if !ok {
 		return nil, fmt.Errorf("provisioner type %q not registered", cfg.Provisioner.Type)
 	}
@@ -620,7 +521,11 @@ func (cm *CertManager) initProvisionerProvider(cfg provider.CertificateConfig) (
 // initStorageProvider creates a storage provider from the certificate configuration.
 // It validates the configuration and returns a storage provider capable of writing certificates.
 func (cm *CertManager) initStorageProvider(cfg provider.CertificateConfig) (provider.StorageProvider, error) {
-	p, ok := cm.storages[cfg.Storage.Type]
+	if strings.TrimSpace(string(cfg.Storage.Type)) == "" {
+		return nil, fmt.Errorf("storage type is not set for certificate %q", cfg.Name)
+	}
+
+	p, ok := cm.storages[string(cfg.Storage.Type)]
 	if !ok {
 		return nil, fmt.Errorf("storage type %q not registered", cfg.Storage.Type)
 	}

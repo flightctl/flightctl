@@ -18,17 +18,23 @@ type HandlerFunc[T any] func(ctx context.Context, item T, attempt int) *time.Dur
 // supports delayed requeue for failed operations, and stops gracefully on context cancellation.
 // It provides at-least-once delivery semantics with exponential backoff capabilities.
 type RetryQueue[T any] struct {
-	mu      sync.Mutex      // Mutex for thread-safe access to queue state
-	cond    *sync.Cond      // Condition variable for signaling queue state changes
-	items   []queuedItem[T] // Queue of items awaiting processing
-	handler HandlerFunc[T]  // Handler function to process items
+	// Mutex for thread-safe access to queue state
+	mu sync.Mutex
+	// Condition variable for signaling queue state changes
+	cond *sync.Cond
+	// Queue of items awaiting processing
+	items []queuedItem[T]
+	// Handler function to process items
+	handler HandlerFunc[T]
 }
 
 // queuedItem represents an item in the retry queue with its attempt count.
 // The attempt count is used to implement exponential backoff or attempt-based logic.
 type queuedItem[T any] struct {
-	value   T   // The item to be processed
-	attempt int // Number of processing attempts (0 for first attempt)
+	// The item to be processed
+	value T
+	// Number of processing attempts (0 for first attempt)
+	attempt int
 }
 
 // NewRetryQueue creates a new RetryQueue with the given handler function.
@@ -73,10 +79,17 @@ func (q *RetryQueue[T]) RunWorker(ctx context.Context) {
 
 		delay := q.handler(ctx, item.value, item.attempt)
 		if delay != nil {
-			go func(it queuedItem[T], d time.Duration) {
-				time.Sleep(d)
-				q.addWithAttempt(it.value, it.attempt+1)
-			}(item, *delay)
+			d := *delay
+			go func(ctx context.Context, it queuedItem[T], d time.Duration) {
+				select {
+				case <-time.After(d):
+					if ctx.Err() == nil {
+						q.addWithAttempt(it.value, it.attempt+1)
+					}
+				case <-ctx.Done():
+					// Drop on cancellation to avoid re-enqueue after shutdown
+				}
+			}(ctx, item, d)
 		}
 	}
 }

@@ -1,8 +1,6 @@
 package certmanager
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -10,70 +8,49 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 )
 
-// certificate represents a managed certificate with its configuration, state, and metadata.
+// certificate represents a managed certificate with its configuration.
 // It includes provisioner and storage providers for certificate lifecycle management,
-// retry tracking, and detailed certificate information for renewal decisions.
 type certificate struct {
-	mu            sync.RWMutex                 `json:"-"`              // Mutex for thread-safe access to certificate fields
-	Provisioner   provider.ProvisionerProvider `json:"-"`              // Provisioner instance for certificate generation (not persisted)
-	Storage       provider.StorageProvider     `json:"-"`              // Storage instance for certificate persistence (not persisted)
-	Name          string                       `json:"name"`           // Certificate name/identifier
-	Config        provider.CertificateConfig   `json:"config"`         // Certificate configuration including provisioner and storage settings
-	Info          CertificateInfo              `json:"info,omitempty"` // Certificate metadata and validity information
-	RetryFailures int                          `json:"retry_failures"` // Number of consecutive provisioning failures
-	Err           string                       `json:"error"`          // Last error message from failed provisioning attempts
+	// Mutex for thread-safe access to certificate fields
+	mu sync.RWMutex `json:"-"`
+	// Provisioner instance for certificate generation
+	Provisioner provider.ProvisionerProvider `json:"-"`
+	// Storage instance for certificate persistence
+	Storage provider.StorageProvider `json:"-"`
+	// Certificate name/identifier
+	Name string `json:"name"`
+	// Certificate configuration including provisioner and storage settings
+	Config provider.CertificateConfig `json:"config"`
+	// Certificate metadata and validity information
+	Info CertificateInfo `json:"info,omitempty"`
 }
 
-// CertificateInfo contains parsed certificate metadata used for renewal decisions
-// and monitoring certificate lifecycle status.
+// CertificateInfo contains parsed certificate metadata.
 type CertificateInfo struct {
-	LastProvisioned *time.Time `json:"last_provisioned,omitempty"` // Timestamp of last successful provisioning
-	NotBefore       *time.Time `json:"not_before,omitempty"`       // Certificate validity start time
-	NotAfter        *time.Time `json:"not_after,omitempty"`        // Certificate validity end time (expiration)
-	CommonName      *string    `json:"common_name,omitempty"`      // Subject common name from certificate
-	SerialNumber    *string    `json:"serial_number,omitempty"`    // Certificate serial number
-	RenewalCount    int        `json:"renewal_count"`              // Number of times certificate has been renewed
+	// Certificate validity start time
+	NotBefore *time.Time `json:"not_before,omitempty"`
+	// Certificate validity end time (expiration)
+	NotAfter *time.Time `json:"not_after,omitempty"`
 }
 
 // certificateProvider groups certificates from a single configuration provider
-// with tracking of last synchronization time for cleanup purposes.
 type certificateProvider struct {
-	Certificates map[string]*certificate `json:"certificates"`   // Map of certificate name to certificate object
-	LastSyncedAt time.Time               `json:"last_synced_at"` // Last time this provider was synchronized
+	// Map of certificate name to certificate object
+	Certificates map[string]*certificate `json:"certificates"`
 }
 
-// certStorage manages in-memory certificate state with optional persistent backing.
+// certStorage manages in-memory certificate state.
 // It provides thread-safe access to certificate data organized by provider.
 type certStorage struct {
 	mu        sync.RWMutex                    // Mutex for thread-safe access to storage
-	state     provider.StateStorageProvider   // Optional persistent storage backend
 	providers map[string]*certificateProvider // Map of provider name to provider data
 }
 
-// newCertStorage creates a new certificate storage instance with optional state persistence.
-// If a state storage provider is provided, it attempts to load existing state on creation.
-func newCertStorage(state provider.StateStorageProvider) (*certStorage, error) {
-	ct := &certStorage{
-		state:     state,
+// newCertStorage creates a new certificate storage.
+func newCertStorage() *certStorage {
+	return &certStorage{
 		providers: make(map[string]*certificateProvider),
 	}
-	return ct, ct.LoadState()
-}
-
-// LoadState loads certificate state from the persistent storage backend if configured.
-// This is called during storage initialization to restore previous state.
-func (s *certStorage) LoadState() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loadState()
-}
-
-// StoreState persists current certificate state to the storage backend if configured.
-// This is called after state changes to maintain persistence across restarts.
-func (s *certStorage) StoreState() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.storeState()
 }
 
 // ReadCertificate retrieves a specific certificate by provider and certificate name.
@@ -122,7 +99,7 @@ func (s *certStorage) ReadCertificates(providerName string) ([]*certificate, err
 	return certs, nil
 }
 
-// RemoveCertificate removes a specific certificate from storage and persists the change.
+// RemoveCertificate removes a specific certificate from storage.
 // Returns an error if the provider or certificate is not found.
 func (s *certStorage) RemoveCertificate(providerName, certName string) error {
 	s.mu.Lock()
@@ -142,17 +119,10 @@ func (s *certStorage) RemoveCertificate(providerName, certName string) error {
 	}
 
 	delete(provider.Certificates, certName)
-
-	// Save new state
-	if err := s.storeState(); err != nil {
-		return fmt.Errorf("failed to store state after certificate removal: %w", err)
-	}
-
 	return nil
 }
 
-// StoreCertificate stores or updates a certificate in the storage and persists the change.
-// It updates the provider's last synced timestamp and saves state if persistence is enabled.
+// StoreCertificate stores or updates a certificate in the storage.
 func (s *certStorage) StoreCertificate(providerName string, cert *certificate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -161,26 +131,27 @@ func (s *certStorage) StoreCertificate(providerName string, cert *certificate) e
 		return fmt.Errorf("certificate is nil")
 	}
 
+	if cert.Name == "" {
+		return fmt.Errorf("certificate name is empty")
+	}
+
 	provider, ok := s.providers[providerName]
 	if !ok {
 		return fmt.Errorf("provider %q not found", providerName)
 	}
 
 	provider.Certificates[cert.Name] = cert
-	provider.LastSyncedAt = time.Now()
-
-	if err := s.storeState(); err != nil {
-		return fmt.Errorf("failed to store state after certificate store: %w", err)
-	}
-
 	return nil
 }
 
 // EnsureProvider ensures that a certificate provider with the given name exists in the storage.
 // If the provider does not exist, it creates a new one.
-// If it already exists, it updates its LastSyncedAt timestamp.
 // Returns the existing or newly created provider.
 func (s *certStorage) EnsureProvider(providerName string) (*certificateProvider, error) {
+	if providerName == "" {
+		return nil, fmt.Errorf("provider name is empty")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -188,17 +159,9 @@ func (s *certStorage) EnsureProvider(providerName string) (*certificateProvider,
 	if !exists {
 		provider = &certificateProvider{
 			Certificates: make(map[string]*certificate),
-			LastSyncedAt: time.Now(),
 		}
 		s.providers[providerName] = provider
-	} else {
-		provider.LastSyncedAt = time.Now()
 	}
-
-	if err := s.storeState(); err != nil {
-		return nil, fmt.Errorf("failed to store state after ensuring provider: %w", err)
-	}
-
 	return provider, nil
 }
 
@@ -216,11 +179,6 @@ func (s *certStorage) RemoveProvider(providerName string) error {
 	}
 
 	delete(s.providers, providerName)
-
-	if err := s.storeState(); err != nil {
-		return fmt.Errorf("failed to store state after removing provider: %w", err)
-	}
-
 	return nil
 }
 
@@ -235,50 +193,4 @@ func (s *certStorage) ListProviderNames() ([]string, error) {
 	}
 
 	return names, nil
-}
-
-// loadState loads certificate state from the persistent storage backend.
-// This is an internal method called with the storage mutex already held.
-func (s *certStorage) loadState() error {
-	if s.state == nil {
-		return nil // No backing state, nothing to do
-	}
-
-	var buf bytes.Buffer
-
-	if err := s.state.LoadState(&buf); err != nil {
-		return fmt.Errorf("failed to load state: %w", err)
-	}
-
-	// If state is empty (e.g., file doesn't exist or is empty), nothing to decode
-	if buf.Len() == 0 {
-		return nil
-	}
-
-	var snapshot map[string]*certificateProvider
-	if err := json.NewDecoder(&buf).Decode(&snapshot); err != nil {
-		return fmt.Errorf("failed to decode state: %w", err)
-	}
-
-	s.providers = snapshot
-	return nil
-}
-
-// storeState persists current certificate state to the persistent storage backend.
-// This is an internal method called with the storage mutex already held.
-func (s *certStorage) storeState() error {
-	if s.state == nil {
-		return nil // No backing state, nothing to do
-	}
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(s.providers); err != nil {
-		return fmt.Errorf("failed to encode state: %w", err)
-	}
-
-	if err := s.state.StoreState(&buf); err != nil {
-		return fmt.Errorf("failed to store state: %w", err)
-	}
-
-	return nil
 }

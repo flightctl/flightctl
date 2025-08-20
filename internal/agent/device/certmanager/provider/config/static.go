@@ -6,7 +6,8 @@ import "github.com/flightctl/flightctl/internal/agent/device/certmanager/provide
 // This is useful for testing, development, or scenarios where certificate configurations
 // are known at compile time and don't need to change dynamically.
 type StaticConfigProvider struct {
-	Certificates []provider.CertificateConfig // Static list of certificate configurations
+	// Static list of certificate configurations
+	Certificates []provider.CertificateConfig
 }
 
 // NewStaticConfigProvider creates a new static configuration provider with the given

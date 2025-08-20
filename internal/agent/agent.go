@@ -10,10 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager"
-	cm_config "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/config"
-	cm_provisioner "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/provisioner"
-	cm_state "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/state"
-	cm_storage "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/storage"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
@@ -264,20 +260,22 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("bootstrap failed: %w", err)
 	}
 
-	// Initialize certificate
-	certManager, err := certmanager.NewManager(a.log,
-		certmanager.WithStateStorageProvider(cm_state.NewFileStorage(filepath.Join(agent_config.DefaultConfigDir, "cert-state.json"))),
-		certmanager.WithConfigProvider(bootstrap),
-		certmanager.WithConfigProvider(cm_config.NewAgentConfigProvider(ctx, a.config, a.configFile)),
-		certmanager.WithProvisionerProvider(cm_provisioner.NewCSRProvisionerFactory(deviceName, bootstrap.ManagementClient())),
-		certmanager.WithStorageProvider(cm_storage.NewFileSystemStorageFactory(deviceReadWriter)),
-
-		// Empty providers for testing and placeholder scenarios
-		certmanager.WithProvisionerProvider(cm_provisioner.NewEmptyProvisionerFactory()),
-		certmanager.WithStorageProvider(cm_storage.NewEmptyStorageFactory()),
+	// Initialize certificate manager
+	certManager, err := certmanager.NewManager(
+		ctx, a.log,
+		certmanager.WithBuiltins(
+			deviceName,
+			bootstrap.ManagementClient(),
+			deviceReadWriter,
+			a.config,
+		),
 	)
 	if err != nil {
-		return fmt.Errorf("certificate manager initialization failed: %w", err)
+		return fmt.Errorf("failed to initialize certificate manager: %w", err)
+	}
+
+	if err := certManager.Sync(ctx, a.config); err != nil {
+		a.log.Warnf("Failed to sync certificate manager: %v", err)
 	}
 
 	// create the gRPC client this must be done after bootstrap
@@ -341,12 +339,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	reloadManager.Register(agent.ReloadConfig)
 	reloadManager.Register(systemInfoManager.ReloadConfig)
 	reloadManager.Register(statusManager.ReloadCollect)
+	reloadManager.Register(certManager.Sync)
 
 	go shutdownManager.Run(ctx)
 	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
 	go prefetchManager.Run(ctx)
-	go certManager.Run(ctx)
 
 	return agent.Run(ctx)
 }

@@ -6,10 +6,10 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 )
@@ -18,26 +18,38 @@ import (
 // This provisioner creates a temporary certificate authority and uses it to sign certificates
 // for testing, development, or bootstrap scenarios where no external CA is available.
 type SelfSignedProvisionerConfig struct {
-	CommonName        string `json:"common-name"`                  // Common name for the certificate
-	ExpirationSeconds int    `json:"expiration-seconds,omitempty"` // Certificate validity period in seconds
+	// Common name for the certificate
+	CommonName string `json:"common-name"`
+	// Certificate validity period in seconds
+	ExpirationSeconds int `json:"expiration-seconds,omitempty"`
 }
 
 // SelfSignedProvisioner creates self-signed certificates using a temporary certificate authority.
 // It generates a new CA for each certificate request and uses it to sign the client certificate.
 // This is primarily intended for testing and development scenarios.
 type SelfSignedProvisioner struct {
-	name   string                       // Name identifier for this provisioner
-	cfg    *SelfSignedProvisionerConfig // Configuration for self-signed certificate generation
-	keyPEM []byte                       // Generated private key in PEM format
-	cert   *x509.Certificate            // Generated certificate
+	// Name identifier for this provisioner
+	name string
+	// Configuration for self-signed certificate generation
+	cfg *SelfSignedProvisionerConfig
+	// File I/O for temp dirs and paths (test-friendly)
+	rw fileio.ReadWriter
+	// Logger for diagnostics
+	log provider.Logger
+	// Generated private key in PEM format
+	keyPEM []byte
+	// Generated certificate
+	cert *x509.Certificate
 }
 
 // NewSelfSignedProvisioner creates a new self-signed provisioner with the specified configuration.
 // It initializes the provisioner but doesn't generate the certificate until Provision is called.
-func NewSelfSignedProvisioner(cfg *SelfSignedProvisionerConfig) (*SelfSignedProvisioner, error) {
+func NewSelfSignedProvisioner(cfg *SelfSignedProvisionerConfig, rw fileio.ReadWriter, log provider.Logger) (*SelfSignedProvisioner, error) {
 	return &SelfSignedProvisioner{
 		name: cfg.CommonName,
 		cfg:  cfg,
+		rw:   rw,
+		log:  log,
 	}, nil
 }
 
@@ -49,13 +61,19 @@ func (p *SelfSignedProvisioner) Provision(ctx context.Context) (bool, *x509.Cert
 		return false, nil, nil, fmt.Errorf("common name must be set for self-signed certificate")
 	}
 
-	tmpDir, err := os.MkdirTemp("", "self-signed-ca-*")
+	// create temp dir under writer root
+	tmpDir, err := p.rw.MkdirTemp("self-signed-ca-")
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to create temporary CA directory: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := p.rw.RemoveAll(tmpDir); err != nil && p.log != nil {
+			p.log.Warnf("failed to cleanup temporary directory %s: %v", tmpDir, err)
+		}
+	}()
 
-	ca, err := fcrypto.MakeSelfSignedCA(filepath.Join(tmpDir, "ca.crt"), filepath.Join(tmpDir, "ca.key"), "", "self-signed-ca", 365)
+	fullTmp := p.rw.PathFor(tmpDir)
+	ca, err := fcrypto.MakeSelfSignedCA(filepath.Join(fullTmp, "ca.crt"), filepath.Join(fullTmp, "ca.key"), "", "self-signed-ca", 365)
 	if err != nil {
 		return false, nil, nil, err
 	}
@@ -102,17 +120,17 @@ func (p *SelfSignedProvisioner) Provision(ctx context.Context) (bool, *x509.Cert
 
 // SelfSignedProvisionerFactory implements ProvisionerFactory for self-signed provisioners.
 // It creates self-signed provisioners that generate certificates using temporary certificate authorities.
-type SelfSignedProvisionerFactory struct{}
+type SelfSignedProvisionerFactory struct{ rw fileio.ReadWriter }
 
 // NewSelfSignedProvisionerFactory creates a new self-signed provisioner factory.
 // This factory is stateless and requires no external dependencies.
-func NewSelfSignedProvisionerFactory() *SelfSignedProvisionerFactory {
-	return &SelfSignedProvisionerFactory{}
+func NewSelfSignedProvisionerFactory(rw fileio.ReadWriter) *SelfSignedProvisionerFactory {
+	return &SelfSignedProvisionerFactory{rw: rw}
 }
 
 // Type returns the provisioner type string used as map key in the certificate manager.
 func (f *SelfSignedProvisionerFactory) Type() string {
-	return "self-signed"
+	return string(provider.ProvisionerTypeSelfSigned)
 }
 
 // New creates a new SelfSignedProvisioner based on the provided certificate config.
@@ -129,7 +147,7 @@ func (f *SelfSignedProvisionerFactory) New(log provider.Logger, cc provider.Cert
 		cfg.CommonName = cc.Name
 	}
 
-	return NewSelfSignedProvisioner(&cfg)
+	return NewSelfSignedProvisioner(&cfg, f.rw, log)
 }
 
 // Validate checks whether the provided config is valid for a self-signed provisioner.
@@ -137,7 +155,7 @@ func (f *SelfSignedProvisionerFactory) New(log provider.Logger, cc provider.Cert
 func (f *SelfSignedProvisionerFactory) Validate(log provider.Logger, cc provider.CertificateConfig) error {
 	prov := cc.Provisioner
 
-	if prov.Type != "self-signed" {
+	if prov.Type != provider.ProvisionerTypeSelfSigned {
 		return fmt.Errorf("not a self-signed provisioner")
 	}
 

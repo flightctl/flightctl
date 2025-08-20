@@ -16,21 +16,30 @@ type processHandlerFunc func(ctx context.Context, providerName string, cert *cer
 
 // certificateProcess represents an active certificate processing task.
 type certificateProcess struct {
-	ctx      context.Context            // Context for this processing task, can be canceled
-	cancel   context.CancelFunc         // Cancel function to stop processing
-	provider string                     // Name of the configuration provider
-	cert     *certificate               // Certificate being processed
-	cfg      provider.CertificateConfig // Configuration for certificate processing
+	// Context for this processing task, can be canceled
+	ctx context.Context
+	// Cancel function to stop processing
+	cancel context.CancelFunc
+	// Name of the configuration provider
+	provider string
+	// Certificate being processed
+	cert *certificate
+	// Configuration for certificate processing
+	cfg provider.CertificateConfig
 }
 
 // CertificateProcessingQueue manages and processes certificate provisioning and storage tasks.
 // It uses a retry queue to handle failed operations and tracks in-progress certificates
 // to prevent duplicate processing.
 type CertificateProcessingQueue struct {
-	queue     *RetryQueue[*certificateProcess] // Underlying retry queue for processing tasks
-	inProcess map[string]*certificateProcess   // Map of currently processing certificates
-	handler   processHandlerFunc               // Function to handle certificate processing
-	mu        sync.RWMutex                     // Mutex for thread-safe access to inProcess map
+	// Underlying retry queue for processing tasks
+	queue *RetryQueue[*certificateProcess]
+	// Map of currently processing certificates
+	inProcess map[string]*certificateProcess
+	// Function to handle certificate processing
+	handler processHandlerFunc
+	// Mutex for thread-safe access to inProcess map
+	mu sync.RWMutex
 }
 
 // NewCertificateProcessingQueue creates a new CertificateProcessingQueue with the given handler.
@@ -48,7 +57,7 @@ func NewCertificateProcessingQueue(handler processHandlerFunc) *CertificateProce
 // Run starts the certificate processing queue worker.
 // This method should be called in a goroutine as it runs until the context is canceled.
 func (q *CertificateProcessingQueue) Run(ctx context.Context) {
-	go q.queue.RunWorker(ctx)
+	q.queue.RunWorker(ctx)
 }
 
 // Len returns the number of certificates currently being processed.
@@ -86,7 +95,7 @@ func (q *CertificateProcessingQueue) Remove(providerName, certName string) {
 // Process adds a certificate to the processing queue using the provided context,
 // or cancels and replaces an existing one if already in process.
 // This is the main entry point for certificate processing requests.
-func (q *CertificateProcessingQueue) Process(ctx context.Context, providerName string, cert *certificate, cfg provider.CertificateConfig) error {
+func (q *CertificateProcessingQueue) Process(providerName string, cert *certificate, cfg provider.CertificateConfig) error {
 	if q.handler == nil {
 		return fmt.Errorf("no handler configured for processing certificates")
 	}
@@ -98,10 +107,7 @@ func (q *CertificateProcessingQueue) Process(ctx context.Context, providerName s
 		q.remove(providerName, cert.Name)
 	}
 
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	c := &certificateProcess{
 		ctx:      ctx,
@@ -118,21 +124,25 @@ func (q *CertificateProcessingQueue) Process(ctx context.Context, providerName s
 
 // process is the internal callback invoked by the retry queue to process a certificate.
 // It calls the configured handler and manages the retry logic based on the returned delay.
-func (q *CertificateProcessingQueue) process(ctx context.Context, cp *certificateProcess, attempt int) *time.Duration {
-	if q.handler == nil || cp.ctx.Err() != nil {
+func (q *CertificateProcessingQueue) process(_ context.Context, cp *certificateProcess, attempt int) *time.Duration {
+	if q.handler == nil {
+		q.Remove(cp.provider, cp.cert.Name)
+		return nil
+	}
+	if cp.ctx.Err() != nil {
+		q.Remove(cp.provider, cp.cert.Name)
 		return nil
 	}
 
-	if retry := q.handler(ctx, cp.provider, cp.cert, &cp.cfg); retry != nil {
+	if retry := q.handler(cp.ctx, cp.provider, cp.cert, &cp.cfg); retry != nil {
+		if cp.ctx.Err() != nil {
+			q.Remove(cp.provider, cp.cert.Name)
+			return nil
+		}
 		return retry
 	}
 
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	// Remove from in-process map and cancel context automatically
-	q.remove(cp.provider, cp.cert.Name)
-
+	q.Remove(cp.provider, cp.cert.Name)
 	return nil
 }
 
