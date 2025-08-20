@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 )
@@ -100,19 +102,9 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	// This saves massive disk space while working around libvirt session mode security restrictions
 	sharedBaseDisk := filepath.Join(p.config.TempDir, "shared-base-disk.qcow2")
 
-	// Use sync.Once to ensure the shared base disk is created exactly once
+	// Use sync.Once to ensure the shared base disk is created exactly once within this process
 	p.sharedDiskOnce.Do(func() {
-		fmt.Printf("🔄 [VMPool] Worker %d: Creating shared base disk at %s\n", workerID, sharedBaseDisk)
-		cmd := exec.Command("cp", "--sparse=always", p.config.BaseDiskPath, sharedBaseDisk) //nolint:gosec
-		if output, err := cmd.CombinedOutput(); err != nil {
-			p.sharedDiskError = fmt.Errorf("failed to create shared base disk: %w, output: %s", err, string(output))
-			return
-		}
-		if err := os.Chmod(sharedBaseDisk, 0644); err != nil {
-			p.sharedDiskError = fmt.Errorf("failed to set permissions on shared base disk: %w", err)
-			return
-		}
-		fmt.Printf("✅ [VMPool] Worker %d: Shared base disk created successfully\n", workerID)
+		p.sharedDiskError = p.createSharedBaseDisk(workerID, sharedBaseDisk)
 	})
 
 	// Check if there was an error during shared disk creation
@@ -383,5 +375,85 @@ func removeVMFromPoolByVM(targetVM vm.TestVMInterface) error {
 	}
 
 	// VM not found in pool - this is fine, it might not have been from the pool
+	return nil
+}
+
+// createSharedBaseDisk creates the shared base disk with cross-process synchronization
+func (p *VMPool) createSharedBaseDisk(workerID int, sharedBaseDisk string) error {
+	// First check if the shared base disk already exists (cross-process check)
+	if _, err := os.Stat(sharedBaseDisk); err == nil {
+		fmt.Printf("✅ [VMPool] Worker %d: Shared base disk already exists at %s, skipping creation\n", workerID, sharedBaseDisk)
+		return nil
+	}
+
+	// Create lockfile path
+	lockFile := sharedBaseDisk + ".lock"
+
+	// Try to acquire the lock with retries
+	const maxRetries = 30
+	const retryDelay = 1 * time.Second
+
+	var lockFd int
+	var lockAcquired bool
+
+	for i := 0; i < maxRetries; i++ {
+		// Try to create the lock file exclusively
+		fd, err := syscall.Open(lockFile, syscall.O_CREAT|syscall.O_EXCL|syscall.O_WRONLY, 0644)
+		if err == nil {
+			lockFd = fd
+			lockAcquired = true
+			fmt.Printf("🔒 [VMPool] Worker %d: Acquired lock for shared base disk creation\n", workerID)
+			break
+		}
+
+		// If lock file exists, another process is creating the disk
+		if err == syscall.EEXIST {
+			fmt.Printf("⏳ [VMPool] Worker %d: Waiting for another process to create shared base disk (attempt %d/%d)\n", workerID, i+1, maxRetries)
+			time.Sleep(retryDelay)
+
+			// Check if the shared disk was created while we were waiting
+			if _, statErr := os.Stat(sharedBaseDisk); statErr == nil {
+				fmt.Printf("✅ [VMPool] Worker %d: Shared base disk created by another process\n", workerID)
+				return nil
+			}
+			continue
+		}
+
+		// Other error occurred
+		return fmt.Errorf("failed to create lock file: %w", err)
+	}
+
+	if !lockAcquired {
+		return fmt.Errorf("timeout waiting to acquire lock for shared base disk creation")
+	}
+
+	// Ensure we clean up the lock file
+	defer func() {
+		syscall.Close(lockFd)
+		if err := os.Remove(lockFile); err != nil {
+			fmt.Printf("⚠️ [VMPool] Worker %d: Failed to remove lock file %s: %v\n", workerID, lockFile, err)
+		} else {
+			fmt.Printf("🔓 [VMPool] Worker %d: Released lock for shared base disk creation\n", workerID)
+		}
+	}()
+
+	// Double-check that the disk doesn't exist now that we have the lock
+	if _, err := os.Stat(sharedBaseDisk); err == nil {
+		fmt.Printf("✅ [VMPool] Worker %d: Shared base disk already exists (created while acquiring lock)\n", workerID)
+		return nil
+	}
+
+	// Create the shared base disk
+	fmt.Printf("🔄 [VMPool] Worker %d: Creating shared base disk at %s\n", workerID, sharedBaseDisk)
+	cmd := exec.Command("cp", "--sparse=always", p.config.BaseDiskPath, sharedBaseDisk) //nolint:gosec
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create shared base disk: %w, output: %s", err, string(output))
+	}
+
+	if err := os.Chmod(sharedBaseDisk, 0644); err != nil {
+		return fmt.Errorf("failed to set permissions on shared base disk: %w", err)
+	}
+
+	fmt.Printf("✅ [VMPool] Worker %d: Shared base disk created successfully\n", workerID)
 	return nil
 }

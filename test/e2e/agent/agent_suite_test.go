@@ -3,6 +3,7 @@ package agent_test
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/shared"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -31,6 +32,10 @@ func (m Message) String() string {
 
 func TestAgent(t *testing.T) {
 	RegisterFailHandler(Fail)
+
+	// Setup distributed reporting if running in distributed mode
+	shared.SetupDistributedReporting()
+
 	RunSpecs(t, "Agent E2E Suite")
 }
 

@@ -3,6 +3,7 @@ package basic_operations
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/shared"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -11,6 +12,10 @@ import (
 
 func TestBasicOperations(t *testing.T) {
 	RegisterFailHandler(Fail)
+
+	// Setup distributed reporting if running in distributed mode
+	shared.SetupDistributedReporting()
+
 	RunSpecs(t, "Basic Operations E2E Suite")
 }
 

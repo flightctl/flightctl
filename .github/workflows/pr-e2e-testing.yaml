@@ -62,10 +62,25 @@ jobs:
             docs/**
             .github/**
             examples/**
+      - name: Disable man-db to make package install and removal faster
+        run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null
+          sudo dpkg-reconfigure man-db
+      - name: Install apt-fast
+        run: |
+          sudo add-apt-repository ppa:apt-fast/stable -y
+          sudo apt-get update
+          sudo apt-get install apt-fast -y
+
+      - name: Override apt-get with apt-fast for the entire job
+        run: |
+          # Create a symbolic link in a high-priority path directory
+          # This tricks the system into running apt-fast when apt-get is called
+          sudo ln -sf /usr/bin/apt-fast /usr/local/bin/apt-get
 
       - name: Free Disk Space (Ubuntu)
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: jlumbroso/free-disk-space@main
+        uses: ./.github/actions/optimized_free_space
         with:
           tool-cache: false
 

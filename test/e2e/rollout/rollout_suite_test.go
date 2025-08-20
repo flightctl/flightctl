@@ -3,6 +3,7 @@ package rollout_test
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/shared"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -15,6 +16,9 @@ const LONGTIMEOUT = "10m"
 
 func TestRollout(t *testing.T) {
 	RegisterFailHandler(Fail)
+
+	// Setup distributed reporting if running in distributed mode
+	shared.SetupDistributedReporting()
 	RunSpecs(t, "Rollout Suite")
 }
 
