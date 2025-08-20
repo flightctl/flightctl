@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -51,13 +52,12 @@ func main() {
 		}
 	}()
 
-	// Create store with migration database connection
-	migrationStore := store.NewStore(migrationDB, log.WithField("pkg", "migration-store"))
-	defer migrationStore.Close()
-
-	// Run migrations using the public interface method
 	log.Println("Running database migrations with migration user")
-	if err := migrationStore.RunMigrations(ctx); err != nil {
+	// Run all schema changes atomically so that a failure leaves the DB unchanged.
+	if err := migrationDB.Transaction(func(tx *gorm.DB) error {
+		// Create a temporary store bound to the transaction and run migrations
+		return store.NewStore(tx, log.WithField("pkg", "migration-store-tx")).RunMigrations(ctx)
+	}); err != nil {
 		log.Fatalf("running database migrations: %v", err)
 	}
 
