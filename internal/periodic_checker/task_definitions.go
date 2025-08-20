@@ -10,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
@@ -75,7 +74,6 @@ func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.Field
 }
 
 type ResourceSyncExecutor struct {
-	callbackManager       tasks_client.CallbackManager
 	serviceHandler        service.Service
 	log                   logrus.FieldLogger
 	ignoreResourceUpdates []string
@@ -83,7 +81,7 @@ type ResourceSyncExecutor struct {
 
 func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync, orgID)
-	resourceSync := tasks.NewResourceSync(e.callbackManager, e.serviceHandler, e.log, e.ignoreResourceUpdates)
+	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.ignoreResourceUpdates)
 	resourceSync.Poll(taskCtx)
 }
 
@@ -99,26 +97,24 @@ func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.Fie
 }
 
 type RolloutDeviceSelectionExecutor struct {
-	serviceHandler  service.Service
-	callbackManager tasks_client.CallbackManager
-	log             logrus.FieldLogger
+	serviceHandler service.Service
+	log            logrus.FieldLogger
 }
 
 func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection, orgID)
-	rolloutDeviceSelection := device_selection.NewReconciler(e.serviceHandler, e.callbackManager, e.log)
+	rolloutDeviceSelection := device_selection.NewReconciler(e.serviceHandler, e.log)
 	rolloutDeviceSelection.Reconcile(taskCtx)
 }
 
 type DisruptionBudgetExecutor struct {
-	serviceHandler  service.Service
-	callbackManager tasks_client.CallbackManager
-	log             logrus.FieldLogger
+	serviceHandler service.Service
+	log            logrus.FieldLogger
 }
 
 func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget, orgID)
-	disruptionBudget := disruption_budget.NewReconciler(e.serviceHandler, e.callbackManager, e.log)
+	disruptionBudget := disruption_budget.NewReconciler(e.serviceHandler, e.log)
 	disruptionBudget.Reconcile(taskCtx)
 }
 
@@ -134,14 +130,13 @@ func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 	eventCleanup.Poll(taskCtx)
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, cfg *config.Config) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config) map[PeriodicTaskType]PeriodicTaskExecutor {
 	return map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
 			serviceHandler: serviceHandler,
 		},
 		PeriodicTaskTypeResourceSync: &ResourceSyncExecutor{
-			callbackManager:       callbackManager,
 			serviceHandler:        serviceHandler,
 			log:                   log.WithField("pkg", "resource-sync"),
 			ignoreResourceUpdates: cfg.GitOps.IgnoreResourceUpdates,
@@ -151,14 +146,12 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			serviceHandler: serviceHandler,
 		},
 		PeriodicTaskTypeRolloutDeviceSelection: &RolloutDeviceSelectionExecutor{
-			serviceHandler:  serviceHandler,
-			callbackManager: callbackManager,
-			log:             log.WithField("pkg", "rollout-device-selection"),
+			serviceHandler: serviceHandler,
+			log:            log.WithField("pkg", "rollout-device-selection"),
 		},
 		PeriodicTaskTypeDisruptionBudget: &DisruptionBudgetExecutor{
-			serviceHandler:  serviceHandler,
-			callbackManager: callbackManager,
-			log:             log.WithField("pkg", "disruption-budget"),
+			serviceHandler: serviceHandler,
+			log:            log.WithField("pkg", "disruption-budget"),
 		},
 		PeriodicTaskTypeEventCleanup: &EventCleanupExecutor{
 			log:                  log.WithField("pkg", "event-cleanup"),

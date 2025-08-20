@@ -128,10 +128,10 @@ func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, name str
 
 // callbackResourceSyncUpdated is the resource sync-specific callback that handles resource sync events
 func (h *ServiceHandler) callbackResourceSyncUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleResourceSyncUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleResourceSyncUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackResourceSyncDeleted is the resource sync-specific callback that handles resource sync deletion events
 func (h *ServiceHandler) callbackResourceSyncDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

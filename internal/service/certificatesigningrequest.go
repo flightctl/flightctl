@@ -186,7 +186,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	result, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj, h.callbackCertificateSigningRequestDeleted)
+	result, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj, h.callbackCertificateSigningRequestUpdated)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 	}
@@ -358,12 +358,12 @@ func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *api.Certificat
 
 // callbackCertificateSigningRequestUpdated is the certificate signing request-specific callback that handles CSR events
 func (h *ServiceHandler) callbackCertificateSigningRequestUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleCertificateSigningRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleCertificateSigningRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackCertificateSigningRequestDeleted is the certificate signing request-specific callback that handles CSR deletion events
 func (h *ServiceHandler) callbackCertificateSigningRequestDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // setCSRFailedCondition sets the Failed condition on the provided CSR, persists the change, and logs any error during persistence.

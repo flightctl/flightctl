@@ -54,13 +54,13 @@ func (m *MockRepository) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]st
 
 // Implement other required methods with empty implementations
 func (m *MockRepository) InitialMigration(context.Context) error { return nil }
-func (m *MockRepository) Create(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback, store.EventCallback) (*api.Repository, error) {
+func (m *MockRepository) Create(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, error) {
 	return nil, nil
 }
-func (m *MockRepository) Update(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback, store.EventCallback) (*api.Repository, error) {
+func (m *MockRepository) Update(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, error) {
 	return nil, nil
 }
-func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *api.Repository, store.RepositoryStoreCallback, store.EventCallback) (*api.Repository, bool, error) {
+func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, bool, error) {
 	return nil, false, nil
 }
 func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*api.Repository, error) {
@@ -69,7 +69,7 @@ func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*api.Repositor
 func (m *MockRepository) List(context.Context, uuid.UUID, store.ListParams) (*api.RepositoryList, error) {
 	return nil, nil
 }
-func (m *MockRepository) Delete(context.Context, uuid.UUID, string, store.RepositoryStoreCallback, store.EventCallback) error {
+func (m *MockRepository) Delete(context.Context, uuid.UUID, string, store.EventCallback) error {
 	return nil
 }
 func (m *MockRepository) UpdateStatus(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, error) {

@@ -90,20 +90,20 @@ func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) e
 
 // Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error) {
-	csr, err := s.genericStore.Create(ctx, orgId, resource, nil)
+	csr, err := s.genericStore.Create(ctx, orgId, resource)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, csr, true, err)
 	return csr, err
 }
 
 // Warning: this is a user-facing function and will set the Status to nil
 func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error) {
-	newCsr, oldCsr, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	newCsr, oldCsr, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCsr, newCsr, false, err)
 	return newCsr, err
 }
 
 func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, bool, error) {
-	newCsr, oldCsr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
+	newCsr, oldCsr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCsr, newCsr, created, err)
 	return newCsr, created, err
 }
@@ -117,7 +117,7 @@ func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UU
 }
 
 func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) error {
-	deleted, err := s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}, nil)
+	deleted, err := s.genericStore.Delete(ctx, model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}})
 	if deleted {
 		s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, nil, false, err)
 	}

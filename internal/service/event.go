@@ -11,16 +11,7 @@ import (
 )
 
 func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
-	if event == nil {
-		return
-	}
-
-	orgId := getOrgIdFromContext(ctx)
-
-	err := h.store.Event().Create(ctx, orgId, event)
-	if err != nil {
-		h.log.Errorf("failed emitting <%s> resource updated %s event for %s %s/%s: %v", *event.Metadata.Name, event.Reason, event.InvolvedObject.Kind, orgId, event.InvolvedObject.Name, err)
-	}
+	h.eventHandler.CreateEvent(ctx, event)
 }
 
 func (h *ServiceHandler) ListEvents(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status) {
