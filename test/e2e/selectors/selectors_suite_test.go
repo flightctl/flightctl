@@ -1,19 +1,32 @@
-package decommission_test
+package selectors
 
 import (
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-const SUITE_TIMEOUT = "2m"
-
-func TestCLIDecommission(t *testing.T) {
+func TestFieldSelectors(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Decommission E2E Suite")
+	RunSpecs(t, "Field Selectors E2E Suite")
+}
+
+const (
+	// Eventually polling timeout/interval constants
+	TIMEOUT      = time.Minute
+	LONG_TIMEOUT = 10 * time.Minute
+	POLLING      = time.Second
+	LONG_POLLING = 10 * time.Second
+)
+
+// Initialize suite-specific settings
+func init() {
+	SetDefaultEventuallyTimeout(TIMEOUT)
+	SetDefaultEventuallyPollingInterval(POLLING)
 }
 
 var _ = BeforeSuite(func() {
@@ -31,7 +44,7 @@ var _ = BeforeEach(func() {
 	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
 
 	// Create test-specific context for proper tracing
-	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
 
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
