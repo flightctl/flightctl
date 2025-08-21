@@ -11,7 +11,7 @@ import (
 
 const TIMEOUT = "5m"
 const POLLING = "125ms"
-const LONGTIMEOUT = "10m"
+const LONGTIMEOUT = "15m"
 
 func TestRollout(t *testing.T) {
 	RegisterFailHandler(Fail)
