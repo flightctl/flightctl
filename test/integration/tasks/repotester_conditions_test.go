@@ -13,7 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -59,7 +59,7 @@ func createRepository(ctx context.Context, repostore store.Repository, log *logr
 	}
 
 	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	repo, err = repostore.Create(ctx, orgId, &resource, nil, callback)
+	repo, err = repostore.Create(ctx, orgId, &resource, callback)
 	return repo, err
 }
 
@@ -84,10 +84,10 @@ var _ = Describe("RepoTester", func() {
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockPublisher(ctrl)
 		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		callbackManager := tasks_client.NewCallbackManager(publisher, log)
+		workerClient := worker_client.NewWorkerClient(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(stores, callbackManager, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(stores, workerClient, kvStore, nil, log, "", "", []string{})
 		repotestr = tasks.NewRepoTester(log, serviceHandler)
 		repotestr.TypeSpecificRepoTester = &MockRepoTester{}
 	})

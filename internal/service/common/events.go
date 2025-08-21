@@ -67,17 +67,12 @@ func formatDeviceMultipleOwnersResolvedMessage(resolutionType api.DeviceMultiple
 	}
 }
 
-// formatInternalTaskFailedMessage creates a standardized message for internal task failures
-func formatInternalTaskFailedMessage(resourceKind api.ResourceKind, taskType, errorMessage string) string {
-	return fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, taskType, errorMessage)
-}
-
 func getBaseEvent(ctx context.Context, resourceEvent resourceEvent) *api.Event {
 	return api.GetBaseEvent(ctx, resourceEvent.resourceKind, resourceEvent.resourceName, resourceEvent.reason, resourceEvent.message, resourceEvent.details)
 }
 
 // GetResourceCreatedOrUpdatedSuccessEvent creates an event for successful resource creation or update
-func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, updates *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
+func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, updates *api.ResourceUpdatedDetails, log logrus.FieldLogger, annotations map[string]string) *api.Event {
 	if !created && (updates == nil || len(updates.UpdatedFields) == 0) {
 		return nil
 	}
@@ -109,6 +104,7 @@ func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, 
 			details:      details,
 		})
 	}
+	event.Metadata.Annotations = &annotations
 
 	return event
 }
@@ -309,32 +305,6 @@ func GetFleetSpecInvalidEvent(ctx context.Context, fleetName string, message str
 		reason:       api.EventReasonFleetInvalid,
 		message:      msg,
 		details:      nil,
-	})
-}
-
-// GetInternalTaskFailedEvent creates an event for internal task failures
-func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, taskType string, errorMessage string, retryCount *int, taskParameters map[string]string, log logrus.FieldLogger) *api.Event {
-	message := formatInternalTaskFailedMessage(resourceKind, taskType, errorMessage)
-
-	details := api.EventDetails{}
-	detailsStruct := api.InternalTaskFailedDetails{
-		DetailType:     api.InternalTaskFailed,
-		TaskType:       taskType,
-		ErrorMessage:   errorMessage,
-		RetryCount:     retryCount,
-		TaskParameters: &taskParameters,
-	}
-	if err := details.FromInternalTaskFailedDetails(detailsStruct); err != nil {
-		log.WithError(err).Error("Failed to serialize internal task failed event details")
-		return nil
-	}
-
-	return getBaseEvent(ctx, resourceEvent{
-		resourceKind: resourceKind,
-		resourceName: resourceName,
-		reason:       api.EventReasonInternalTaskFailed,
-		message:      message,
-		details:      &details,
 	})
 }
 

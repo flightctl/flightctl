@@ -49,13 +49,14 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.F
 	}
 
 	testStore := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := &ServiceHandler{
-		EventHandler:    NewEventHandler(testStore, log.InitLogs()),
-		store:           testStore,
-		callbackManager: dummyCallbackManager(),
+		eventHandler: NewEventHandler(testStore, wc, log.InitLogs()),
+		store:        testStore,
+		workerClient: wc,
 	}
 	ctx := context.Background()
-	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, nil, serviceHandler.callbackFleetUpdated)
+	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, serviceHandler.callbackFleetUpdated)
 	require.NoError(err)
 	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
@@ -207,10 +208,11 @@ func TestFleetNonExistingResource(t *testing.T) {
 	}
 
 	testStore := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := &ServiceHandler{
-		EventHandler:    NewEventHandler(testStore, log.InitLogs()),
-		store:           testStore,
-		callbackManager: dummyCallbackManager(),
+		eventHandler: NewEventHandler(testStore, wc, log.InitLogs()),
+		store:        testStore,
+		workerClient: wc,
 	}
 	ctx := context.Background()
 	resp, status := serviceHandler.PatchFleet(ctx, "doesnotexist", pr)

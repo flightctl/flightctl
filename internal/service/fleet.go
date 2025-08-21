@@ -26,7 +26,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, fleet api.Fleet) (*api
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Fleet().Create(ctx, orgId, &fleet, h.callbackManager.FleetUpdatedCallback, h.callbackFleetUpdated)
+	result, err := h.store.Fleet().Create(ctx, orgId, &fleet, h.callbackFleetUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.FleetKind, fleet.Metadata.Name)
 }
 
@@ -80,7 +80,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet ap
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackManager.FleetUpdatedCallback, h.callbackFleetUpdated)
+	result, created, err := h.store.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, !isInternal, h.callbackFleetUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.FleetKind, &name)
 }
 
@@ -99,7 +99,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, name string) api.Statu
 		return api.StatusConflict("unauthorized to delete fleet because it is owned by another resource")
 	}
 
-	err = h.store.Fleet().Delete(ctx, orgId, name, h.callbackManager.FleetUpdatedCallback, h.callbackFleetDeleted)
+	err = h.store.Fleet().Delete(ctx, orgId, name, h.callbackFleetDeleted)
 	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
@@ -143,12 +143,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	var updateCallback func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet)
-
-	if h.callbackManager != nil {
-		updateCallback = h.callbackManager.FleetUpdatedCallback
-	}
-	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, updateCallback, h.callbackFleetUpdated)
+	result, err := h.store.Fleet().Update(ctx, orgId, newObj, nil, true, h.callbackFleetUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
@@ -195,10 +190,10 @@ func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, name string
 
 // callbackFleetUpdated is the fleet-specific callback that handles fleet events
 func (h *ServiceHandler) callbackFleetUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleFleetUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleFleetUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackFleetDeleted is the fleet-specific callback that handles fleet deletion events
 func (h *ServiceHandler) callbackFleetDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

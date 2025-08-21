@@ -5483,6 +5483,7 @@ components:
         - version
     Event:
       type: object
+      description: Event represents a single event that occurred in the system.
       required:
         - apiVersion
         - kind
@@ -5739,27 +5740,21 @@ components:
       type: object
       required:
         - detailType
-        - taskType
         - errorMessage
+        - originalEvent
       properties:
         detailType:
           type: string
           enum: [InternalTaskFailed]
           description: The type of detail for discriminator purposes.
-        taskType:
-          type: string
-          description: The type of internal task that failed.
         errorMessage:
           type: string
           description: The error message describing the failure.
         retryCount:
           type: integer
           description: Number of times the task has been retried.
-        taskParameters:
-          type: object
-          additionalProperties:
-            type: string
-          description: Parameters needed to retry the task.
+        originalEvent:
+          $ref: '#/components/schemas/Event'
     ResourceSyncCompletedDetails:
       type: object
       required:
