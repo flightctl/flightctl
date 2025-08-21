@@ -41,7 +41,7 @@ func CreateAuthProvider(authInfo AuthInfo, insecure bool) (login.AuthProvider, e
 	case common.AuthTypeK8s:
 		return login.NewK8sOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
 	case common.AuthTypeOIDC:
-		return login.NewOIDCConfig(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
+		return login.NewOIDCConfig(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], authInfo.OrganizationsEnabled, insecure), nil
 	case common.AuthTypeAAP:
 		return login.NewAAPOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
 	default:

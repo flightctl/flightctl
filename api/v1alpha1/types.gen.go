@@ -420,11 +420,20 @@ type ApplicationsSummaryStatusType string
 
 // AuthConfig Auth config.
 type AuthConfig struct {
+	// AuthOrganizationsConfig Auth related organizations configuration.
+	AuthOrganizationsConfig AuthOrganizationsConfig `json:"authOrganizationsConfig"`
+
 	// AuthType Auth type.
 	AuthType string `json:"authType"`
 
 	// AuthURL Auth URL.
 	AuthURL string `json:"authURL"`
+}
+
+// AuthOrganizationsConfig Auth related organizations configuration.
+type AuthOrganizationsConfig struct {
+	// Enabled If true, support for IdP provided organizations is enabled.
+	Enabled bool `json:"enabled"`
 }
 
 // Batch Batch is an element in batch sequence.
