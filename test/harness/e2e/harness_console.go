@@ -5,9 +5,9 @@ import (
 	"io"
 	"time"
 
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gbytes"
-	"github.com/sirupsen/logrus"
 )
 
 // ConsoleSession represents a PTY console session to a device
@@ -33,14 +33,14 @@ func (h *Harness) NewConsoleSession(deviceID string) *ConsoleSession {
 // MustSend sends a command to the console session
 func (cs *ConsoleSession) MustSend(cmd string) {
 	Expect(cs.Stdout.Clear()).To(Succeed())
-	logrus.Infof("console> %s", cmd)
+	GinkgoWriter.Printf("console> %s\n", cmd)
 	_, err := io.WriteString(cs.Stdin, cmd+"\n")
 	Expect(err).NotTo(HaveOccurred())
 }
 
 // MustExpect waits for a pattern to appear in the console output
 func (cs *ConsoleSession) MustExpect(pattern string) {
-	logrus.Infof("console EXPECT %q", pattern)
+	GinkgoWriter.Printf("console EXPECT %q\n", pattern)
 	Eventually(cs.Stdout).Should(Say(pattern))
 	Expect(cs.Stdout.Clear()).To(Succeed())
 }
@@ -51,10 +51,10 @@ func (cs *ConsoleSession) Close() {
 	Consistently(cs.Stdout, 2*time.Second).ShouldNot(Say(".*panic:"))
 
 	if err := cs.Stdin.Close(); err != nil {
-		logrus.WithError(err).Warn("failed to close console stdin")
+		GinkgoWriter.Printf("failed to close console stdin: %v\n", err)
 	}
 	if err := cs.Stdout.Close(); err != nil {
-		logrus.WithError(err).Warn("failed to close console stdout")
+		GinkgoWriter.Printf("failed to close console stdout: %v\n", err)
 	}
 }
 

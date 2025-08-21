@@ -1,15 +1,15 @@
 apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:
-  name: fleet-b
+  name: fleet-b-{{test_id}}
 spec:
   selector:
     matchLabels:
-      fleet: fleet-b
+      fleet: fleet-b-{{test_id}}
   template:
     metadata:
       labels:
-        fleet: fleet-b
+        fleet: fleet-b-{{test_id}}
     spec:
       os:
         image: quay.io/redhat/rhde:9.2
