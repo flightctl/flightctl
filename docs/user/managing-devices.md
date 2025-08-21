@@ -766,18 +766,16 @@ The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib
 You can set up monitors for device resources and define alerts when the utilization of these resources crosses a defined threshold. When the agent alerts the Flight Control
 service, the service sets the device status to "degraded" or "error" (depending on the severity level) and may suspend the rollout of updates and alarm the user as a result.
 
-The resource monitoring system is integrated with Flight Control's update management to provide **resource-aware update control**. This means that OS updates and application
-deployments are intelligently managed based on available system resources, helping prevent update failures due to insufficient storage, memory, or CPU capacity.
+Flight Control also includes a **non-blocking prefetch management system** that downloads OS images and application artifacts in the background, improving update reliability by handling large downloads intelligently.
 
-### Resource-Aware Update Features
+### Download Management Features
 
-* **Immediate Alert Propagation**: Resource alerts trigger instant status updates rather than waiting for the next scheduled sync
-* **Storage Threshold Enforcement**: Updates can be prevented when disk usage exceeds critical thresholds
-* **Large Image Layer Handling**: Special handling for OS images with very large layers (common with bootc images)
-* **Prefetch Intelligence**: Background downloading of OS images with automatic retry and cleanup of failed partial downloads
-* **Memory Pressure Protection**: Updates can be coordinated with available memory to prevent out-of-memory conditions
+* **Background Downloads**: OS images and applications download in the background without blocking device operations
+* **Automatic Retry**: Failed downloads are automatically retried with exponential backoff  
+* **Partial Download Cleanup**: Failed partial downloads are automatically cleaned up to prevent disk space exhaustion
+* **Progress Reporting**: Regular status updates during long-running downloads
 
-For comprehensive documentation on configuring and using resource-aware update control, see [Resource-Aware Update Control](resource-aware-updates.md).
+For detailed information on download management and troubleshooting, see [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md).
 
 Note this is not meant to replace an observability solution. If your use case requires streaming logs and metrics from devices into an observability stack and the device's network
 bandwidth allows this, see [Adding Device Observability](adding-device-observability.md) for ways to approach that.
@@ -833,8 +831,8 @@ spec:
 ```
 
 > [!TIP]
-> For production deployments, consider monitoring multiple paths (such as `/` and `/var/lib/containers`) and integrating resource monitoring with update scheduling policies.
-> See [Resource-Aware Update Control](resource-aware-updates.md) for comprehensive configuration examples and best practices.
+> For production deployments, consider monitoring writable filesystem paths such as `/var/lib/containers` (for container storage) and `/var` (for logs and temporary files). 
+> OS images are downloaded in the background using the non-blocking prefetch system. See [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) for download troubleshooting.
 
 ## Accessing Devices Remotely
 

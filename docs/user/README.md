@@ -21,17 +21,17 @@ Welcome to the Flight Control user documentation.
     * [Provisioning on Red Hat OpenShift Virtualization](provisioning-devices.md#provisioning-on-red-hat-openshift-virtualization)
     * [Provisioning on VMware vSphere](provisioning-devices.md#provisioning-on-vmware-vsphere)
 * **[Managing Devices](managing-devices.md)** - How to manage individual devices.
-    * [Enrolling Devices](managing-devices.md#enrolling-devices)
-    * [Viewing the Device Inventory and Device Details](managing-devices.md#viewing-the-device-inventory-and-device-details)
-    * [Organizing Devices](managing-devices.md#organizing-devices)
-    * [Updating the OS](managing-devices.md#updating-the-os)
-    * [Managing OS Configuration](managing-devices.md#managing-configuration)
-    * [Managing Applications](managing-devices.md#managing-applications)
-    * [Using Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks)
-    * [Monitoring Device Resources](managing-devices.md#monitoring-device-resources)
-    * [Resource-Aware Update Control](resource-aware-updates.md) - Comprehensive guide to configuring intelligent update control based on system resources
-    * [Accessing Devices Remotely](managing-devices.md#accessing-devices-remotely)
-    * [Scheduling Updates and Downloads](managing-devices.md#scheduling-updates-and-downloads)
+  * [Enrolling Devices](managing-devices.md#enrolling-devices)
+  * [Viewing the Device Inventory and Device Details](managing-devices.md#viewing-the-device-inventory-and-device-details)
+  * [Organizing Devices](managing-devices.md#organizing-devices)
+  * [Updating the OS](managing-devices.md#updating-the-os)
+  * [Managing OS Configuration](managing-devices.md#managing-configuration)
+  * [Managing Applications](managing-devices.md#managing-applications)
+  * [Using Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks)
+  * [Monitoring Device Resources](managing-devices.md#monitoring-device-resources)
+  * [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) - Guide to understanding and troubleshooting background image downloads
+  * [Accessing Devices Remotely](managing-devices.md#accessing-devices-remotely)
+  * [Scheduling Updates and Downloads](managing-devices.md#scheduling-updates-and-downloads)
 * **[Alerts and Monitoring](alerts.md)** - How to monitor device health and manage alerts.
 * **[Metrics Configuration](metrics.md)** - How to configure and use the metrics system for monitoring Flight Control.
 * **[Managing Device Fleets](managing-fleets.md)** - How to manage fleets of devices.

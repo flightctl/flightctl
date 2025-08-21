@@ -324,11 +324,18 @@ flightctl console device/${device_name} -- dd if=/dev/zero of=/tmp/testfile bs=1
 flightctl console device/${device_name} -- rm /tmp/testfile
 ```
 
-**Memory usage test**:
+**Memory usage test** (requires installing stress tool):
 
 ```console
-flightctl console device/${device_name} -- stress --vm 1 --vm-bytes 512M --timeout 60s
+# First install stress tool
+flightctl console device/${device_name} -- dnf install stress --assumeyes
+
+# Then run memory test (use caution with test size)
+flightctl console device/${device_name} -- stress --vm 1 --vm-bytes 256M --timeout 30s
 ```
+
+> [!WARNING]
+> Use caution with memory stress tests. Start with smaller values (256M) and shorter durations (30s) to avoid system instability.
 
 #### Validate Configuration Syntax
 
