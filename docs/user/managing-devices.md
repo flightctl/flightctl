@@ -312,7 +312,8 @@ updates both a devices OS and configuration set at the same time, the Flight Con
 
 > [!Important] After the Flight Control Agent has updated the configuration on disk, this configuration still needs to be *activated*. That means, running services need to reload
 > the new configuration into memory for it to become effective. If the update involves a reboot, services will be restarted by systemd in the right order with the new configuration
-> automatically. If the update does not involve a reboot, many services can detect changes to their configuration files and automatically reload them. When a service does not support
+> automatically. If the update does not involve a reboot, many services can detect changes to their configuration files and automatically reload them. When a service does not
+> support
 > this, you [use Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks) to specify rules like "if configuration file X has changed, run command Y". Also refer to
 > this section for the set of default rules that the Flight Control Agent applies.
 
@@ -766,12 +767,13 @@ The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib
 You can set up monitors for device resources and define alerts when the utilization of these resources crosses a defined threshold. When the agent alerts the Flight Control
 service, the service sets the device status to "degraded" or "error" (depending on the severity level) and may suspend the rollout of updates and alarm the user as a result.
 
-Flight Control also includes a **non-blocking prefetch management system** that downloads OS images and application artifacts in the background, improving update reliability by handling large downloads intelligently.
+Flight Control also includes a **non-blocking prefetch management system** that downloads OS images and application artifacts in the background, improving update reliability by
+handling large downloads intelligently.
 
 ### Download Management Features
 
 * **Background Downloads**: OS images and applications download in the background without blocking device operations
-* **Automatic Retry**: Failed downloads are automatically retried with exponential backoff  
+* **Automatic Retry**: Failed downloads are automatically retried with exponential backoff
 * **Partial Download Cleanup**: Failed partial downloads are automatically cleaned up to prevent disk space exhaustion
 * **Progress Reporting**: Regular status updates during long-running downloads
 
@@ -815,24 +817,25 @@ metadata:
 spec:
   [ ... ]
   resources:
-  - monitorType: Disk
-    samplingInterval: 5s
-    path: /application_data
-    alertRules:
-      - severity: Warning
-        duration: 30m
-        percentage: 75
-        description: Disk space for application data is >75% full for over 30m.
-      - severity: Critical
-        duration: 10m
-        percentage: 90
-        description: Disk space for application data is >90% full over 10m.
-[...]
+    - monitorType: Disk
+      samplingInterval: 5s
+      path: /application_data
+      alertRules:
+        - severity: Warning
+          duration: 30m
+          percentage: 75
+          description: Disk space for application data is >75% full for over 30m.
+        - severity: Critical
+          duration: 10m
+          percentage: 90
+          description: Disk space for application data is >90% full over 10m.
+  [ ... ]
 ```
 
 > [!TIP]
-> For production deployments, consider monitoring writable filesystem paths such as `/var/lib/containers` (for container storage) and `/var` (for logs and temporary files). 
-> OS images are downloaded in the background using the non-blocking prefetch system. See [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) for download troubleshooting.
+> For production deployments, consider monitoring writable filesystem paths such as `/var/lib/containers` (for container storage) and `/var` (for logs and temporary files).
+> OS images are downloaded in the background using the non-blocking prefetch system. See [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) for download
+> troubleshooting.
 
 ## Accessing Devices Remotely
 

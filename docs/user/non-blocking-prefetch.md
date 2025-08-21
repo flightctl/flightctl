@@ -1,6 +1,7 @@
 # Non-Blocking Image Prefetch Management
 
-Flight Control provides a non-blocking prefetch management system that improves the reliability of OS and application updates by intelligently downloading OCI images and artifacts in the background. This system helps reduce update times and provides better retry handling for large image downloads.
+Flight Control provides a non-blocking prefetch management system that improves the reliability of OS and application updates by intelligently downloading OCI images and artifacts
+in the background. This system helps reduce update times and provides better retry handling for large image downloads.
 
 ## Overview
 
@@ -8,7 +9,7 @@ The prefetch management system provides:
 
 1. **Background Downloads**: OS images and application artifacts are downloaded in the background without blocking device operations
 2. **Retry Logic**: Failed downloads are automatically retried with exponential backoff
-3. **Partial Download Cleanup**: Failed partial downloads are automatically cleaned up to prevent disk space exhaustion  
+3. **Partial Download Cleanup**: Failed partial downloads are automatically cleaned up to prevent disk space exhaustion
 4. **Progress Reporting**: Regular status updates during long-running downloads
 5. **Concurrent Management**: Multiple downloads can be managed concurrently with proper resource coordination
 
@@ -16,7 +17,8 @@ This documentation covers how to monitor and troubleshoot the prefetch system.
 
 ## Understanding the Prefetch System
 
-The prefetch manager is automatically integrated into the Flight Control agent and operates transparently during device updates. When the agent receives a new device specification, it:
+The prefetch manager is automatically integrated into the Flight Control agent and operates transparently during device updates. When the agent receives a new device specification,
+it:
 
 1. **Identifies Required Images**: Determines which OS images and application artifacts need to be downloaded
 2. **Schedules Downloads**: Queues downloads in the background prefetch manager
@@ -78,8 +80,9 @@ pull-timeout: 20m
 ```
 
 This timeout applies to:
+
 - OS image downloads
-- Application container image downloads  
+- Application container image downloads
 - OCI artifact downloads for application volumes
 
 ### Monitoring Prefetch Status
@@ -91,13 +94,14 @@ status:
   updated:
     status: OutOfDate              # Update available but not yet applied
   conditions:
-     - type: DeviceUpdating
-       status: "True"
-       reason: Preparing
-       message: "Downloading OS image in background"
+    - type: DeviceUpdating
+      status: "True"
+      reason: Preparing
+      message: "Downloading OS image in background"
 ```
 
 Common prefetch status messages:
+
 - `"Downloading OS image in background"` - OS image download in progress
 - `"Prefetch not ready"` - Downloads still in progress or failed
 - `"Ready to apply update"` - All required images have been downloaded
@@ -115,17 +119,17 @@ Common prefetch status messages:
    pull-timeout: 10m
    ```
 
-2. **Network Considerations**: 
-   - Schedule downloads during off-peak hours when possible
-   - Account for multiple devices downloading simultaneously
-   - Consider bandwidth limitations at edge locations
+2. **Network Considerations**:
+    - Schedule downloads during off-peak hours when possible
+    - Account for multiple devices downloading simultaneously
+    - Consider bandwidth limitations at edge locations
 
 ### Disk Space Management
 
 1. **Monitor Available Space**: Ensure adequate disk space for image downloads:
-   - OS images can be 1-2 GB or larger
-   - Application images add additional space requirements
-   - Allow for temporary space during downloads
+    - OS images can be 1-2 GB or larger
+    - Application images add additional space requirements
+    - Allow for temporary space during downloads
 
 2. **Regular Cleanup**: Clean up unused images periodically:
    ```bash
@@ -133,10 +137,10 @@ Common prefetch status messages:
    ```
 
 3. **Storage Planning**: Plan storage capacity for:
-   - Current OS image
-   - New OS image during updates  
-   - Application container images
-   - Temporary download space
+    - Current OS image
+    - New OS image during updates
+    - Application container images
+    - Temporary download space
 
 ## Troubleshooting
 
@@ -147,12 +151,14 @@ Common prefetch status messages:
 **Symptom**: Device shows `Preparing` state for extended periods
 
 **Potential Causes**:
+
 - Large OS image downloads taking time to complete
 - Network connectivity issues during download
 - Insufficient disk space preventing download completion
 - Download timeouts causing repeated retries
 
 **Resolution**:
+
 1. Check agent logs for download progress:
    ```bash
    journalctl -u flightctl-agent | grep -i prefetch
@@ -178,11 +184,13 @@ Common prefetch status messages:
 **Symptom**: Updates fail with "oci prefetch not ready" errors
 
 **Potential Causes**:
+
 - Downloads still in progress
 - Download failures requiring retry
 - Network issues preventing downloads
 
 **Resolution**:
+
 1. Wait for current downloads to complete (check logs for progress)
 2. Clean up disk space if low:
    ```bash
@@ -198,6 +206,7 @@ Common prefetch status messages:
 **Symptom**: Disk space fills up with incomplete downloads
 
 **Resolution**:
+
 1. The system should automatically clean up partial downloads, but if needed:
    ```bash
    podman system reset  # Warning: removes all images
@@ -285,7 +294,7 @@ spec:
       startGraceDuration: "2h"     # Allow 2-hour download window
     updateSchedule:
       at: "0 4 * * 0"              # Apply updates Sunday at 4 AM
-      timeZone: "UTC" 
+      timeZone: "UTC"
       startGraceDuration: "1h"     # Allow 1-hour update window
   os:
     image: quay.io/flightctl/rhel:9.5
@@ -318,6 +327,7 @@ spec:
 ```
 
 This configuration ensures that:
+
 - All devices in the fleet download updates during a designated maintenance window
 - Downloads have adequate time to complete before the update window
 - Updates are applied consistently across the fleet
@@ -381,4 +391,5 @@ flightctl get devices -o wide
 flightctl get device/<device-name> -o yaml | grep -A 10 conditions
 ```
 
-The non-blocking prefetch management system ensures reliable image downloads and improves update success rates by handling large bootc images and network connectivity issues gracefully.
+The non-blocking prefetch management system ensures reliable image downloads and improves update success rates by handling large bootc images and network connectivity issues
+gracefully.

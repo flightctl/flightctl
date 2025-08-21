@@ -96,20 +96,23 @@ flightctl console device/${device_name} -- podman system df
 #### Resolution
 
 1. **Free up disk space** if storage is critically low:
+
    ```console
    flightctl console device/${device_name} -- podman system prune -a
    flightctl console device/${device_name} -- journalctl --vacuum-time=7d
    ```
 
 2. **Restart the agent** to retry failed downloads:
-   ```console
-   flightctl console device/${device_name} -- systemctl restart flightctl-agent
+
+    ```console
+    flightctl console device/${device_name} -- systemctl restart flightctl-agent
    ```
 
 3. **Check network connectivity** and retry:
-   ```console
-   flightctl console device/${device_name} -- ping -c 3 registry.example.com
-   ```
+
+    ```console
+    flightctl console device/${device_name} -- ping -c 3 registry.example.com
+    ```
 
 ### Resource Alerts Not Resolving
 
@@ -175,6 +178,7 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
    ```
 
 2. **Adjust resource thresholds** to allow more storage usage during updates:
+
    ```yaml
    resources:
    - monitorType: Disk
@@ -185,6 +189,7 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
    ```
 
 3. **Use scheduled downloads** during low-usage periods:
+
    ```yaml
    updatePolicy:
      downloadSchedule:
