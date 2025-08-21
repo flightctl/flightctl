@@ -303,7 +303,7 @@ flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep 
    flightctl console device/${device_name} -- timedatectl status
    ```
 
-2. **Test cron expressions** using online tools like [crontab.guru](https://crontab.guru/)
+2. Check cron schedule format with online validation tools
 
 3. **Add grace duration** to account for timing variations:
 
