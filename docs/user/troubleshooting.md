@@ -143,6 +143,7 @@ Resource monitors use duration-based thresholds, so alerts may persist briefly a
 1. **Wait for the duration period** specified in your alert rules
 2. **Verify thresholds are appropriate** for your device's normal usage patterns
 3. **Restart the agent** if alerts seem stuck:
+
    ```console
    flightctl console device/${device_name} -- systemctl restart flightctl-agent
    ```
@@ -172,6 +173,7 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
 #### Resolution
 
 1. **Increase available storage**:
+
    ```console
    flightctl console device/${device_name} -- podman system prune -a --volumes
    flightctl console device/${device_name} -- docker system prune -a  # if using Docker
@@ -244,6 +246,7 @@ flightctl console device/${device_name} -- watch "free -h && echo '---' && ps au
 #### Resolution
 
 1. **Configure memory monitoring** with appropriate thresholds:
+
    ```yaml
    resources:
    - monitorType: Memory
@@ -258,6 +261,7 @@ flightctl console device/${device_name} -- watch "free -h && echo '---' && ps au
    ```
 
 2. **Schedule updates during low-memory periods**:
+
    ```yaml
    updatePolicy:
      updateSchedule:
@@ -265,6 +269,7 @@ flightctl console device/${device_name} -- watch "free -h && echo '---' && ps au
    ```
 
 3. **Stop non-essential services** before major updates:
+
    ```yaml
    # Use device lifecycle hooks
    # /etc/flightctl/hooks.d/beforeupdating/stop-services.yaml
@@ -293,6 +298,7 @@ flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep 
 #### Resolution
 
 1. **Verify time zone configuration**:
+
    ```console
    flightctl console device/${device_name} -- timedatectl status
    ```
@@ -300,6 +306,7 @@ flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep 
 2. **Test cron expressions** using online tools like [crontab.guru](https://crontab.guru/)
 
 3. **Add grace duration** to account for timing variations:
+
    ```yaml
    updatePolicy:
      updateSchedule:

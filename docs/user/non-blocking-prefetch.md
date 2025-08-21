@@ -111,6 +111,7 @@ Common prefetch status messages:
 ### Download Optimization
 
 1. **Appropriate Timeouts**: Configure pull timeouts based on your network conditions and image sizes:
+
    ```yaml
    # For slow networks or large images
    pull-timeout: 30m
@@ -132,6 +133,7 @@ Common prefetch status messages:
     - Allow for temporary space during downloads
 
 2. **Regular Cleanup**: Clean up unused images periodically:
+
    ```bash
    podman system prune -a
    ```
@@ -160,21 +162,25 @@ Common prefetch status messages:
 **Resolution**:
 
 1. Check agent logs for download progress:
+
    ```bash
    journalctl -u flightctl-agent | grep -i prefetch
    ```
 
 2. Check available disk space:
+
    ```bash
    df -h
    ```
 
 3. Verify network connectivity to registry:
+
    ```bash
    ping registry.example.com
    ```
 
 4. Check if images are being downloaded:
+
    ```bash
    podman images
    ```
@@ -193,10 +199,13 @@ Common prefetch status messages:
 
 1. Wait for current downloads to complete (check logs for progress)
 2. Clean up disk space if low:
+
    ```bash
    podman system prune -a
    ```
+
 3. Restart agent to retry failed downloads:
+
    ```bash
    systemctl restart flightctl-agent
    ```
@@ -208,9 +217,11 @@ Common prefetch status messages:
 **Resolution**:
 
 1. The system should automatically clean up partial downloads, but if needed:
+
    ```bash
    podman system reset  # Warning: removes all images
    ```
+
 2. Check pull timeout configuration - very short timeouts may cause repeated partial downloads
 
 ### Diagnostic Commands
