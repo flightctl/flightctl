@@ -4481,6 +4481,8 @@ components:
         - "Rebooting"
         - "PoweredOff"
         - "Unknown"
+        - "AwaitingReconnect"
+        - "ConflictPaused"
       x-enum-varnames:
         - "DeviceSummaryStatusOnline"
         - "DeviceSummaryStatusDegraded"
@@ -4488,6 +4490,8 @@ components:
         - "DeviceSummaryStatusRebooting"
         - "DeviceSummaryStatusPoweredOff"
         - "DeviceSummaryStatusUnknown"
+        - "DeviceSummaryStatusAwaitingReconnect"
+        - "DeviceSummaryStatusConflictPaused"
     DeviceUpdatedStatus:
       type: object
       description: Current status of the device update.
@@ -5544,6 +5548,7 @@ components:
             - DeviceApplicationHealthy
             - DeviceDisconnected
             - DeviceIsRebooting
+            - DeviceConflictPaused
             - DeviceConnected
             - DeviceContentUpToDate
             - DeviceContentOutOfDate

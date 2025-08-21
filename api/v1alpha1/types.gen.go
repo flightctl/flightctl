@@ -131,12 +131,14 @@ const (
 
 // Defines values for DeviceSummaryStatusType.
 const (
-	DeviceSummaryStatusDegraded   DeviceSummaryStatusType = "Degraded"
-	DeviceSummaryStatusError      DeviceSummaryStatusType = "Error"
-	DeviceSummaryStatusOnline     DeviceSummaryStatusType = "Online"
-	DeviceSummaryStatusPoweredOff DeviceSummaryStatusType = "PoweredOff"
-	DeviceSummaryStatusRebooting  DeviceSummaryStatusType = "Rebooting"
-	DeviceSummaryStatusUnknown    DeviceSummaryStatusType = "Unknown"
+	DeviceSummaryStatusAwaitingReconnect DeviceSummaryStatusType = "AwaitingReconnect"
+	DeviceSummaryStatusConflictPaused    DeviceSummaryStatusType = "ConflictPaused"
+	DeviceSummaryStatusDegraded          DeviceSummaryStatusType = "Degraded"
+	DeviceSummaryStatusError             DeviceSummaryStatusType = "Error"
+	DeviceSummaryStatusOnline            DeviceSummaryStatusType = "Online"
+	DeviceSummaryStatusPoweredOff        DeviceSummaryStatusType = "PoweredOff"
+	DeviceSummaryStatusRebooting         DeviceSummaryStatusType = "Rebooting"
+	DeviceSummaryStatusUnknown           DeviceSummaryStatusType = "Unknown"
 )
 
 // Defines values for DeviceUpdatedStatusType.
@@ -161,6 +163,7 @@ const (
 	EventReasonDeviceCPUCritical               EventReason = "DeviceCPUCritical"
 	EventReasonDeviceCPUNormal                 EventReason = "DeviceCPUNormal"
 	EventReasonDeviceCPUWarning                EventReason = "DeviceCPUWarning"
+	EventReasonDeviceConflictPaused            EventReason = "DeviceConflictPaused"
 	EventReasonDeviceConnected                 EventReason = "DeviceConnected"
 	EventReasonDeviceContentOutOfDate          EventReason = "DeviceContentOutOfDate"
 	EventReasonDeviceContentUpToDate           EventReason = "DeviceContentUpToDate"
