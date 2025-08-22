@@ -105,14 +105,14 @@ apiVersion: flightctl.io/v1alpha1
 kind: Device
 metadata:
   name: 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
-  labels: # <-- user-defined labels assigned to this device
+  labels:                                    # <-- user-defined labels assigned to this device
     region: eu-west-1
     site: factory-berlin
 spec:
   os:
     image: quay.io/flightctl/rhel:9.5        # <-- the device's target OS image version
   config:
-    - name: my-os-configuration                # <-- the device's target OS configuration (here: read from a git repo)
+    - name: my-os-configuration              # <-- the device's target OS configuration (here: read from a git repo)
       configType: GitConfigProviderSpec
       gitRef:
         path: /configuration
@@ -124,14 +124,14 @@ status:
   config:
     renderedVersion: "1"                     # <-- the device's current OS configuration version
   applications:
-    data: { }                                 # <-- the device's current list of deployed applications
+    data: { }                                # <-- the device's current list of deployed applications
     summary:
       status: Unknown                        # <-- health status of applications on the device
-  resources: # <-- whether sufficient CPU/disk/memory resources are available
+  resources:                                 # <-- whether sufficient CPU/disk/memory resources are available
     cpu: Healthy
     disk: Healthy
     memory: Healthy
-  systemInfo: # <-- basic information about the system
+  systemInfo:                                # <-- basic information about the system
     architecture: amd64
     bootID: 037750f7-f293-4c5b-b06e-481eef4e883f
     operatingSystem: linux

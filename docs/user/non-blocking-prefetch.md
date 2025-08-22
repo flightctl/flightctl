@@ -322,9 +322,11 @@ spec:
       updatePolicy:
         downloadSchedule:
           at: "0 2 * * *"              # Staggered downloads at 2 AM
+          timeZone: "UTC"              # Explicit timezone
           startGraceDuration: "4h"     # Long window for large downloads
         updateSchedule:
           at: "0 4 * * 0"              # Apply updates Sunday at 4 AM  
+          timeZone: "UTC"              # Explicit timezone
           startGraceDuration: "2h"     # Allow time for updates
       os:
         image: quay.io/flightctl/rhel:9.5

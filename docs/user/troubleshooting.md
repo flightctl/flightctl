@@ -179,7 +179,6 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
 
    ```console
    flightctl console device/${device_name} -- podman system prune -a --volumes
-   flightctl console device/${device_name} -- docker system prune -a  # if using Docker
    ```
 
    > [!WARNING]
@@ -190,7 +189,7 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
    ```yaml
    resources:
    - monitorType: Disk
-     path: /
+     path: /sysroot
      alertRules:
      - severity: Critical
        percentage: 85  # Was 75, increased to allow more space for downloads
@@ -201,31 +200,10 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
    ```yaml
    updatePolicy:
      downloadSchedule:
-       at: "0 2 * * *"      # Download at 2 AM when usage is typically low
-       timeZone: "UTC"      # Set explicitly; adjust per fleet locale
+       at: "0 2 * * *"           # Download at 2 AM when usage is typically low
+       timeZone: "UTC"           # Set explicitly; adjust per fleet locale
+       startGraceDuration: "2h"  # Allow 2-hour download window
    ```
-
-### Prefetch Status Shows "Buffer Full"
-
-#### Symptoms
-
-- Prefetch operations fail with "buffer full" messages
-- Multiple large images queued simultaneously
-- Agent logs show prefetch scheduling failures
-
-#### Diagnosis
-
-Check the number of concurrent prefetch operations:
-
-```console
-flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep -Ei 'prefetch.*(queue|buffer)'
-```
-
-#### Resolution
-
-1. **Wait for current downloads** to complete before queuing more
-2. **Stagger updates** across devices in a fleet to reduce load
-3. **Monitor and adjust** the agent's pull timeout configuration
 
 ### Memory Pressure During Updates
 
@@ -247,7 +225,7 @@ flightctl console device/${device_name} -- free -h
 Monitor memory during update process:
 
 ```console
-flightctl console device/${device_name} -- watch "free -h && echo '---' && ps aux --sort=-%mem | head -10"
+flightctl console device/${device_name} -- "top -o %MEM"
 ```
 
 #### Resolution
@@ -272,8 +250,9 @@ flightctl console device/${device_name} -- watch "free -h && echo '---' && ps au
    ```yaml
    updatePolicy:
      updateSchedule:
-       at: "0 3 * * 0"  # Sunday 3 AM when fewer processes are running
+       at: "0 3 * * 0"           # Sunday 3 AM when fewer processes are running
        timeZone: "UTC"
+       startGraceDuration: "1h"  # Allow 1-hour update window
    ```
 
 3. **Stop non-essential services** before major updates:
