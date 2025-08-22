@@ -64,7 +64,7 @@ When an OS update gets stuck in the preparing state, this usually indicates issu
 #### Symptoms
 
 - Device status shows `status.updated.status: OutOfDate` for extended periods
-- Update conditions show `Preparing` or `PrefetchNotReady` states
+- Update conditions show `Preparing` or `WaitingForResources` states
 - Large OS images fail to download completely
 
 #### Diagnosis
@@ -363,7 +363,9 @@ flightctl console device/${device_name} -- stress --vm 1 --vm-bytes 256M --timeo
 Ensure resource monitor configuration is valid:
 
 ```console
-flightctl get device/${device_name} -o yaml \
-  | yq '.spec.resources' \
-  | flightctl apply --dry-run -f -
+# Check configuration structure 
+flightctl get device/${device_name} -o yaml | yq '.spec.resources' > /dev/null
+
+# Validate semantic behavior from agent logs
+flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep -Ei 'resource|monitor|alert|error'
 ```

@@ -740,11 +740,11 @@ be replaced with the absolute path(s) to the changed files:
 
 | Variable            | Description                                                                                                                                                     |
 |---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `${ Path }`         | The absolute path to the file or directory specified in the path condition.                                                                                     |
-| `${ Files }`        | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
-| `${ CreatedFiles }` | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
-| `${ UpdatedFiles }` | A space-separated list of absolute paths of the files that were updated during the update and are covered by the path condition.                                |
-| `${ RemovedFiles }` | A space-separated list of absolute paths of the files that were removed during the update and are covered by the path condition.                                |
+| `${Path}`           | The absolute path to the file or directory specified in the path condition.                                                                                     |
+| `${Files}`          | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `${CreatedFiles}`   | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `${UpdatedFiles}`   | A space-separated list of absolute paths of the files that were updated during the update and are covered by the path condition.                                |
+| `${RemovedFiles}`   | A space-separated list of absolute paths of the files that were removed during the update and are covered by the path condition.                                |
 
 The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml`:
 
@@ -778,8 +778,8 @@ Resource monitors take the following parameters:
 
 | Parameter        | Description                                                                                                                                                                |
 |------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| MonitorType      | The resource to monitor. Currently supported resources are "CPU", "Memory", and "Disk". **[TODO: Check whether the "Custom" resource type is implemented.]**               |
-| SamplingInterval | The interval in which the monitor samples utilization, specified as positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours).            |
+| MonitorType      | The resource to monitor. Currently supported resources are "CPU", "Memory", and "Disk".                                                                                    |
+| SamplingInterval | The interval in which the monitor samples utilization, specified as a positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours).         |
 | AlertRules       | A list of alert rules.                                                                                                                                                     |
 | Path             | (Disk monitor only) The absolute path to the directory to monitor. Utilization reflects the filesystem containing the path, similar to df, even if it’s not a mount point. |
 
@@ -787,10 +787,10 @@ Alert rules take the following parameters:
 
 | Parameter   | Description                                                                                                                                                                                                                                |
 |-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Severity    | The alert rule's severity level out of "Info", "Warning", or "Critical". Only one alert rule is allowed per severity level and monitor.                                                                                                    |
-| Duration    | The duration that resource utilization is measured and averaged over when sampling, specified as positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours). Must be smaller than the sampling interval.   |
-| Percentage  | The utilization threshold that triggers the alert, as percentage value (range 0 to 100 without the "%" sign).                                                                                                                              |
-| Description | A human-readable description of the alert. This is useful for adding details about the alert that might help with debugging. By default it populates the alert as <severity>: <type> load is above <percentage>>% for more than <duration> |
+| Severity    | The alert rule's severity level: one of "Info", "Warning", or "Critical". Only one alert rule is allowed per severity level and monitor.                                                                                                   |
+| Duration    | The averaging window to measure utilization, specified as a positive integer followed by a time unit ('s','m','h'); must be smaller than the SamplingInterval.                                                                                |
+| Percentage  | The utilization threshold that triggers the alert, as a percentage value (range 0 to 100 without the "%" sign).                                                                                                                            |
+| Description | A human-readable description of the alert. This is useful for adding details about the alert that might help with debugging. By default it populates the alert as <severity>: <type> load is above <percentage>% for more than <duration> |
 
 ### Monitoring Device Resources on the Web UI
 
