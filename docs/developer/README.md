@@ -46,6 +46,11 @@ To deploy with auth enabled:
 AUTH=true make deploy
 ```
 
+To deploy with IdP provided organizations configured:
+```
+AUTH=true ORGS=true make deploy
+```
+
 Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
 and the client configuration in `$HOME/.flightctl/client.yaml`.
 
