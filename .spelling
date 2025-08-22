@@ -149,6 +149,7 @@ webhooks
 workflows
 X.509
 YAML
+yq
 openshift
 acm
 namespaces
@@ -205,6 +206,7 @@ resourceVersion
 emea
 hw-generation
 hw-model
+hw-model=jetson
 jetson
 orin
  - docs/user/getting-started.md
@@ -220,7 +222,12 @@ PVs
 k8s
  - docs/user/managing-devices.md
 AlertRules
+autonomous-forklift
 base32-encoded
+device-type
+factory-berlin
+hw-generation=orin
+hw-model=jetson
 ClusterRole
 ClusterRoleBinding
 ContentEncoding
@@ -355,3 +362,5 @@ ormat
 30s
 256M
 - docs/user/non-blocking-prefetch.md
+image1
+image2

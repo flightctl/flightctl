@@ -146,9 +146,7 @@ status:
 
 ## Organizing Devices
 
-You can organize your devices by assigning them labels, for example to record their location ( ("region=emea", "site=factory-berlin"), hardware type ("hw-model=jetson", "
-hw-generation=orin"), or purpose ("device-type=autonomous-forklift"). This then allows you select devices by these labels when viewing the device inventory or applying operations
-to them.
+You can organize your devices by assigning labels, for example to record their location (`region=emea`, `site=factory-berlin`), hardware type (`hw-model=jetson`, `hw-generation=orin`), or purpose (`device-type=autonomous-forklift`). This lets you select devices by these labels when viewing the inventory or applying operations to them.
 
 As good practice, labels should take the form of `key=value` pairs, whereby the key is the criterion you want to group by. However, labels that only consist of keys are also
 allowed.
@@ -266,8 +264,8 @@ metadata:
   name: some_device_name
 spec:
   [ ... ]
-os:
-  image: quay.io/flightctl/rhel:9.5
+  os:
+    image: quay.io/flightctl/rhel:9.5
   [ ... ]
 ```
 
@@ -310,12 +308,8 @@ Conceptually, this set of configuration files can be thought of as an additional
 layer transactionally, ensuring that either all files have been successfully updated in the file system or have been returned to their pre-update state. Further, if the user
 updates both a devices OS and configuration set at the same time, the Flight Control Agent will first update the OS, then apply the specified configuration set on top.
 
-> [!Important] After the Flight Control Agent has updated the configuration on disk, this configuration still needs to be *activated*. That means, running services need to reload
-> the new configuration into memory for it to become effective. If the update involves a reboot, services will be restarted by systemd in the right order with the new configuration
-> automatically. If the update does not involve a reboot, many services can detect changes to their configuration files and automatically reload them. When a service does not
-> support
-> this, you [use Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks) to specify rules like "if configuration file X has changed, run command Y". Also refer to
-> this section for the set of default rules that the Flight Control Agent applies.
+> [!IMPORTANT]
+> After the agent updates configuration on disk, it still must be activated. Many services auto-reload; otherwise a reboot activates changes. If a service does not support reloads, use [Device Lifecycle Hooks](#using-device-lifecycle-hooks) to run commands when specific files change.
 
 Users can specify a list of configurations sets, in which case the Flight Control Agent applies the sets in sequence and on top of each other, such that in case of conflict the "
 last one wins".
@@ -350,8 +344,7 @@ Using non-existent or read-only directories may result in errors due to insuffic
 
 #### Example
 
-A assume a Git repository `github.com/flightctl/flightctl-demos` that in its branch `production` stores device network and time server configuration organized by deployment site as
-follows:
+Assume a Git repository `github.com/flightctl/flightctl-demos` that in its branch `production` stores device network and time server configuration organized by deployment site as follows:
 
 ```console
 .
@@ -447,7 +440,7 @@ spec:
 Create the Repository resource by applying the file:
 
 ```console
-flightctl apply -f site-settings-repo.yaml`
+flightctl apply -f site-settings-repo.yaml
 ```
 
 Verify the resource has been correctly created and is accessible by Fight Control by running:
@@ -693,18 +686,17 @@ The following device lifecycle hooks are supported:
 | Lifecycle Hook    | Description                                                                                                                                                                                                                                   |
 |-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `beforeUpdating`  | This hook is called after the agent completed preparing for the update and before actually making changes to the system. If an action in this hook returns with failure, the agent aborts the update.                                         |
-| `afterUpdating`   | This hook is called after the agent has written the update to disk. If an action in this hook returns with failure,the agent will abort and roll back the update.                                                                             |
+| `afterUpdating`   | This hook is called after the agent has written the update to disk. If an action in this hook returns with failure, the agent will abort and roll back the update.                                                                          |
 | `beforeRebooting` | This hook is called before the agent reboots the device. The agent will block the reboot until running the action has completed or timed out. If any action in this hook returns with failure, the agent will abort and roll back the update. |
 | `afterRebooting`  | This hook is called when the agent first starts after a reboot. If any action in this hook returns with failure, the agent will report this but continue starting up.                                                                         |
 
-Refer to the [Device API status reference](device-api-statuses.md) a state diagram defining when each device lifecycle hook is called by the agent.
+Refer to the [Device API status reference](device-api-statuses.md) for a state diagram defining when each lifecycle hook is called by the agent.
 
 Device lifecycle hooks can be defined by adding rule files to one of two locations in the device's filesystem, whereby `${lifecyclehook}` is the all-lower-case name of the hook to
 be defined:
 
 * Rules in the `/usr/lib/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-only and thus have to be added to the OS image during [image building](building-images.md).
-* Rules in the `/etc/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-writable and can thus be updated at runtime using the methods described
-  in [Managing OS Configuration](#managing-os-configuration).
+* Rules in the `/etc/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-write and can thus be updated at runtime using the methods described in [Managing OS Configuration](#managing-os-configuration).
 
 If rules are defined in both locations they will be merged, whereby files under `/etc` take precedence over files of the same name under `/usr`. If multiple rule files are added to
 a hook's directory, they are processed in lexical order of their file names.
@@ -719,7 +711,7 @@ A run action takes the following parameters:
 | Run       | The absolute path to the command to run, followed by any flags or arguments.<br/><br/>Example: `/usr/bin/nmcli connection reload`.<br/><br/>Note that the command is not executed in a shell, so you cannot use shell variables like `$FOO_PATH` or chain commands (`\|` or `;`). However, it is possible to start a shell yourself if necessary by specifying the shell as command to run.<br/><br/>Example: `/usr/bin/bash -c 'echo foo'` |
 | EnvVars   | (Optional) A list of key/value-pairs to set as environment variables for the command.                                                                                                                                                                                                                                                                                                                                                       |
 | WorkDir   | (Optional) The directory the command will be run from.                                                                                                                                                                                                                                                                                                                                                                                      |
-| Timeout   | (Optional) The maximum duration allowed for the action to complete. The duration must be be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours.<br/><br/>Default: 10s                                                                                                                                                                             |
+| Timeout   | (Optional) The maximum duration allowed for the action to complete. The duration must be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours.<br/><br/>Default: 10s                                                                                                                                                                             |
 | If        | (Optional) A list of conditions that must be true for the action to be run (see below). If not provided, actions will run unconditionally.                                                                                                                                                                                                                                                                                                  |
 
 > [!NOTE]
@@ -806,8 +798,7 @@ Alert rules take the following parameters:
 
 To monitor resource utilization, add resource monitors in the `resources:` section of the device's specification.
 
-For example, to monitor disk utilization on the filesystem associated with the path /applications, which can trigger a warning alert if the average utilization exceeds 75% for more
-than 30 minutes and a critical alert if it exceeds 90% for over 10 minutes with a sampling interval of 5 seconds.
+For example, to monitor disk utilization on the filesystem associated with the path `/application_data`, triggering a warning if the average exceeds 75% for more than 30 minutes and a critical alert if it exceeds 90% for over 10 minutes, with a 5‑second sampling interval.
 
 ```yaml
 apiVersion: flightctl.io/v1alpha1
@@ -833,9 +824,7 @@ spec:
 ```
 
 > [!TIP]
-> For production deployments, consider monitoring writable filesystem paths such as `/var/lib/containers` (for container storage) and `/var` (for logs and temporary files).
-> OS images are downloaded in the background using the non-blocking prefetch system. See [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) for download
-> troubleshooting.
+> For production deployments, consider monitoring writable filesystem paths such as `/var/lib/containers` (for container storage) and `/var` (for logs and temporary files). OS images are downloaded in the background using the non-blocking prefetch system. See [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) for download troubleshooting.
 
 ## Accessing Devices Remotely
 
@@ -964,11 +953,11 @@ updatePolicy:
 ```yaml
 updatePolicy:
   updateSchedule:
-    at: "0 5 14 5 *"              # May 15th at 5:00 AM
+    at: "0 5 15 5 *"              # May 15th at 5:00 AM
     timeZone: "America/New_York"
     startGraceDuration: "2h"      # allow update until 7:00 AM
 ```
 
 > [!NOTE]
 > It’s best practice to define a `startGraceDuration` to allow for potential delays in agent execution. Without it, the update window may be missed.
-> Once an update begins within the allowed window, there is no enforced timeout the update may continue running beyond the grace period.
+> Once an update begins within the allowed window, there is no enforced timeout; the update may continue running beyond the grace period.

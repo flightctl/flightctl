@@ -11,14 +11,12 @@ The prefetch management system provides:
 2. **Retry Logic**: Failed downloads are automatically retried with exponential backoff
 3. **Partial Download Cleanup**: Failed partial downloads are automatically cleaned up to prevent disk space exhaustion
 4. **Progress Reporting**: Regular status updates during long-running downloads
-5. **Concurrent Management**: Multiple downloads can be managed concurrently with proper resource coordination
 
 This documentation covers how to monitor and troubleshoot the prefetch system.
 
 ## Understanding the Prefetch System
 
-The prefetch manager is automatically integrated into the Flight Control agent and operates transparently during device updates. When the agent receives a new device specification,
-it:
+The prefetch manager is automatically integrated into the Flight Control agent and operates transparently during device updates. When the agent receives a new device specification, it performs the following steps:
 
 1. **Identifies Required Images**: Determines which OS images and application artifacts need to be downloaded
 2. **Schedules Downloads**: Queues downloads in the background prefetch manager
@@ -28,18 +26,7 @@ it:
 
 ### Prefetch Status Indicators
 
-You can monitor prefetch progress through device status conditions:
-
-```yaml
-status:
-  updated:
-    status: OutOfDate              # Update available but not yet ready
-  conditions:
-    - type: DeviceUpdating
-      status: "True"
-      reason: Preparing
-      message: "Downloading OS image in background"
-```
+You can monitor prefetch progress through device status conditions and update states. See [Monitoring Prefetch Status](#monitoring-prefetch-status) for detailed examples and status message descriptions.
 
 ## Download Management Features
 
@@ -102,8 +89,8 @@ status:
 
 Common prefetch status messages:
 
-- `"Downloading OS image in background"` - OS image download in progress
-- `"Prefetch not ready"` - Downloads still in progress or failed
+- `"Downloading OS image in background"` - OS image download in progress  
+- `"2/3 images complete, pending: image1, image2"` - Multiple downloads with progress tracking
 - `"Ready to apply update"` - All required images have been downloaded
 
 ## Best Practices
@@ -115,8 +102,8 @@ Common prefetch status messages:
    ```yaml
    # For slow networks or large images
    pull-timeout: 30m
-   
-   # For fast networks or smaller images  
+
+   # For fast networks or smaller images
    pull-timeout: 10m
    ```
 
@@ -137,6 +124,9 @@ Common prefetch status messages:
    ```bash
    podman system prune -a
    ```
+
+   > [!WARNING]
+   > This removes all unused images, including successfully downloaded images awaiting deployment.
 
 3. **Storage Planning**: Plan storage capacity for:
     - Current OS image
@@ -185,9 +175,9 @@ Common prefetch status messages:
    podman images
    ```
 
-#### "Prefetch Not Ready" Errors
+#### Prefetch Progress Status
 
-**Symptom**: Updates fail with "oci prefetch not ready" errors
+**Symptom**: Updates show prefetch progress messages like "2/3 images complete, pending: image1, image2"
 
 **Potential Causes**:
 
@@ -203,6 +193,9 @@ Common prefetch status messages:
    ```bash
    podman system prune -a
    ```
+
+   > [!WARNING]
+   > This command removes all unused images, including successfully downloaded images that haven't been applied yet. Those images will need to be re-downloaded.
 
 3. Restart agent to retry failed downloads:
 
@@ -249,7 +242,7 @@ journalctl -u flightctl-agent -f
 journalctl -u flightctl-agent | grep -i prefetch
 
 # Monitor download progress
-journalctl -u flightctl-agent | grep -i "downloading\|oci target"
+journalctl -u flightctl-agent | grep -Ei 'downloading|oci target'
 ```
 
 #### Container Image Management
@@ -261,7 +254,7 @@ podman images
 # Check image download history
 podman history <image-name>
 
-# Clean up unused images and free space
+# Clean up unused images and free space (WARNING: removes downloaded images)
 podman system prune -a
 
 # Reset all container storage (drastic - removes everything)
@@ -393,7 +386,7 @@ Monitor prefetch performance across your device fleet:
 
 ```bash
 # Check devices with pending downloads
-flightctl get devices -o yaml | grep -B 5 -A 5 "Preparing\|prefetch"
+flightctl get devices -o yaml | grep -E -B 5 -A 5 'Preparing|prefetch'
 
 # View devices by update status
 flightctl get devices -o wide

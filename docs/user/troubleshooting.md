@@ -9,10 +9,10 @@ flightctl get device/${device_name} -o yaml
 ```
 
 the output contains the device specification as specified by the user or the fleet controller based on the fleet's device template. That specification may contain references to
-configuration or secrets stored on external systems, such a Git or a Kubernetes cluster.
+configuration or secrets stored on external systems, such as Git or a Kubernetes cluster.
 
-Only when the device agent queries the service, the service replaces these references with the actual configuration and secret data. While this better protects potentially
-sensitive data, it also makes troubleshooting faulty configurations hard.
+Only when the device agent queries the service does the service resolve these references to the actual configuration and secret data. While this better protects potentially
+sensitive data, it can make troubleshooting faulty configurations harder.
 
 Users with the `GetRenderedDevice` permission can run the following command to view the effective configuration as rendered by the service to the device agent:
 
@@ -102,6 +102,9 @@ flightctl console device/${device_name} -- podman system df
    flightctl console device/${device_name} -- journalctl --vacuum-time=7d
    ```
 
+   > [!WARNING]
+   > `podman system prune -a` removes all unused images, including downloaded images awaiting deployment.
+
 2. **Restart the agent** to retry failed downloads:
 
     ```console
@@ -179,6 +182,9 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
    flightctl console device/${device_name} -- docker system prune -a  # if using Docker
    ```
 
+   > [!WARNING]
+   > These commands remove all unused images, including downloaded images awaiting deployment.
+
 2. **Adjust resource thresholds** to allow more storage usage during updates:
 
    ```yaml
@@ -195,7 +201,8 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
    ```yaml
    updatePolicy:
      downloadSchedule:
-       at: "0 2 * * *"  # Download at 2 AM when usage is typically low
+       at: "0 2 * * *"      # Download at 2 AM when usage is typically low
+       timeZone: "UTC"      # Set explicitly; adjust per fleet locale
    ```
 
 ### Prefetch Status Shows "Buffer Full"
@@ -211,7 +218,7 @@ flightctl console device/${device_name} -- podman manifest inspect registry.exam
 Check the number of concurrent prefetch operations:
 
 ```console
-flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep -i "prefetch.*queue\|buffer"
+flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep -Ei 'prefetch.*(queue|buffer)'
 ```
 
 #### Resolution
@@ -233,7 +240,7 @@ flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep 
 Check memory usage and OOM events:
 
 ```console
-flightctl console device/${device_name} -- dmesg | grep -i "killed\|oom"
+flightctl console device/${device_name} -- dmesg | grep -Ei 'killed|oom'
 flightctl console device/${device_name} -- free -h
 ```
 
@@ -266,6 +273,7 @@ flightctl console device/${device_name} -- watch "free -h && echo '---' && ps au
    updatePolicy:
      updateSchedule:
        at: "0 3 * * 0"  # Sunday 3 AM when fewer processes are running
+       timeZone: "UTC"
    ```
 
 3. **Stop non-essential services** before major updates:
@@ -311,6 +319,7 @@ flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep 
    updatePolicy:
      updateSchedule:
        at: "0 4 * * 0"
+       timeZone: "UTC"
        startGraceDuration: "2h"  # Allow 2-hour window
    ```
 
@@ -321,7 +330,7 @@ flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep 
 Check if resource monitors are properly configured and running:
 
 ```console
-flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep -i "resource\|monitor\|alert"
+flightctl console device/${device_name} -- journalctl -u flightctl-agent | grep -Ei 'resource|monitor|alert'
 ```
 
 #### Test Resource Threshold Triggers
@@ -354,5 +363,7 @@ flightctl console device/${device_name} -- stress --vm 1 --vm-bytes 256M --timeo
 Ensure resource monitor configuration is valid:
 
 ```console
-flightctl get device/${device_name} -o yaml | grep -A 50 "resources:" | flightctl apply --dry-run -f -
+flightctl get device/${device_name} -o yaml \
+  | yq '.spec.resources' \
+  | flightctl apply --dry-run -f -
 ```
