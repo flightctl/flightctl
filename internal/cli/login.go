@@ -140,6 +140,7 @@ func (o *LoginOptions) Init(args []string) error {
 				client.AuthClientIdKey: o.ClientId,
 			},
 		},
+		OrganizationsEnabled: o.authConfig.AuthOrganizationsConfig.Enabled,
 	}, o.InsecureSkipVerify)
 	return err
 }
