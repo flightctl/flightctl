@@ -105,10 +105,13 @@ flightctl console device/${device_name} -- podman system df
    > [!WARNING]
    > `podman system prune -a` removes all unused images, including downloaded images awaiting deployment.
 
-2. **Restart the agent** to retry failed downloads:
+2. **Restart the agent (last resort)** to retry failed downloads:
 
-    ```console
-    flightctl console device/${device_name} -- systemctl restart flightctl-agent
+   > [!WARNING]
+   > Restarting the agent can interrupt workloads and may restart applications. Prefer freeing disk space and verifying connectivity first.
+
+   ```console
+   flightctl console device/${device_name} -- systemctl restart flightctl-agent
    ```
 
 3. **Check network connectivity** and retry:
@@ -116,6 +119,8 @@ flightctl console device/${device_name} -- podman system df
     ```console
     flightctl console device/${device_name} -- ping -c 3 registry.example.com
     ```
+
+See also: [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) for detailed download behavior and troubleshooting.
 
 ### Resource Alerts Not Resolving
 

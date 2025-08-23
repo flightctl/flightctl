@@ -72,8 +72,7 @@ Here are key considerations when using this feature:
 * **Reboot Awareness**: The agent tracks boot time and boot ID, allowing Flight Control to detect whether the device has rebooted. This is useful for update coordination and
   lifecycle monitoring.
 
-* **Partial Data**: Not all fields may be available on every device or on every process start. Collection is best-effort missing values errors or timeouts will result in empty
-  values.
+* **Partial Data**: Not all fields are available on every device or every process start. Collection is best-effort; missing values, errors, or timeouts result in empty values.
 
 ### Viewing using the Web UI
 
@@ -338,9 +337,8 @@ The Git Config Provider takes the following parameters:
 The Repository resource definition tells Flight Control the Git repository to connect to and which protocol and access credentials to use. It needs to be set up once (see Setting
 Up Repositories) and can then be used to configure multiple devices or fleets.
 
-The subdirectory of the repository (pointed to by Path) will be mounted to the root of the device. When specifying a Path, make sure the directories in it already exist with
-writable access on the system (the application cannot write to the root).  
-Using non-existent or read-only directories may result in errors due to insufficient permissions or read-only file systems.
+The subdirectory of the repository (Path) is synchronized into the device filesystem relative to "/". On bootc-based systems, some locations are read-only; prefer writable paths such as `/etc` or `/var`.  
+Ensure target directories exist and are writable, otherwise updates may fail due to permissions or read-only filesystems.
 
 #### Example
 
@@ -443,7 +441,7 @@ Create the Repository resource by applying the file:
 flightctl apply -f site-settings-repo.yaml
 ```
 
-Verify the resource has been correctly created and is accessible by Fight Control by running:
+Verify the resource has been correctly created and is accessible by Flight Control by running:
 
 ```console
 flightctl get repository/site-settings
@@ -631,7 +629,7 @@ spec:
     - name: my-inline
       appType: compose
       inline:
-        - path: docker-compose.yaml
+        - path: podman-compose.yaml
           content: |
             version: "3.8"
             services:
@@ -742,7 +740,7 @@ be replaced with the absolute path(s) to the changed files:
 |---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `${Path}`           | The absolute path to the file or directory specified in the path condition.                                                                                     |
 | `${Files}`          | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
-| `${CreatedFiles}`   | A space-separated list of absolute paths of the files that were changed (created, updated, or removed) during the update and are covered by the path condition. |
+| `${CreatedFiles}`   | A space-separated list of absolute paths of the files that were created during the update and are covered by the path condition.                                |
 | `${UpdatedFiles}`   | A space-separated list of absolute paths of the files that were updated during the update and are covered by the path condition.                                |
 | `${RemovedFiles}`   | A space-separated list of absolute paths of the files that were removed during the update and are covered by the path condition.                                |
 

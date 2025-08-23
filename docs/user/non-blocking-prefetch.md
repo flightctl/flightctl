@@ -35,7 +35,7 @@ You can monitor prefetch progress through device status conditions and update st
 The prefetch manager operates in the background without blocking device operations:
 
 - **Non-blocking Downloads**: Images download while the device continues normal operations
-- **Queue Management**: Multiple downloads are queued and processed systematically
+- **Queue Management**: Multiple downloads are queued and processed serially to avoid resource contention
 - **Timeout Handling**: Configurable timeouts prevent hung downloads
 - **Error Handling**: Network errors and timeouts are treated as retryable conditions
 
@@ -71,6 +71,8 @@ This timeout applies to:
 - OS image downloads
 - Application container image downloads
 - OCI artifact downloads for application volumes
+
+> See [configuring-agent.md](configuring-agent.md) for the full list of agent settings and defaults.
 
 ### Monitoring Prefetch Status
 
@@ -197,7 +199,17 @@ Common prefetch status messages:
    > [!WARNING]
    > This command removes all unused images, including successfully downloaded images that haven't been applied yet. Those images will need to be re-downloaded.
 
-3. Restart agent to retry failed downloads:
+3. Verify network connectivity and registry reachability:
+
+   ```bash
+   ping registry.example.com
+   ```
+
+4. As a last resort, restart the agent to retry failed downloads:
+
+   > [!WARNING]
+   > Restarting the agent may interrupt workloads and restart applications managed on the device.
+   > Use only after verifying space and connectivity, and during a maintenance window.
 
    ```bash
    systemctl restart flightctl-agent
