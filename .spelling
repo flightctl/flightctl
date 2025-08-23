@@ -161,7 +161,7 @@ reachability
 acm
 namespaces
 USB
-quay.io.
+quay.io
 API_URL
 madrid
 paris
@@ -362,10 +362,6 @@ TN1330
 sloMax
 SLO
 - docs/user/troubleshooting.md
-ntax
-erns
-va
-ormat
 WaitingForResources
 30s
 256M

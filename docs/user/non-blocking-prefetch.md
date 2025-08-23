@@ -35,7 +35,7 @@ You can monitor prefetch progress through device status conditions and update st
 The prefetch manager operates in the background without blocking device operations:
 
 - **Non-blocking Downloads**: Images download while the device continues normal operations
-- **Queue Management**: Multiple downloads are queued and processed serially to avoid resource contention
+- **Queue Management**: Multiple downloads are queued and processed serially (no concurrent pulls) to avoid disk and network contention
 - **Timeout Handling**: Configurable timeouts prevent hung downloads
 - **Error Handling**: Network errors and timeouts are treated as retryable conditions
 
@@ -376,7 +376,7 @@ spec:
 ```
 
 ```yaml
-# US devices - download at 2 AM local time (8 hours later)
+# US devices - download at 2 AM local time
 apiVersion: flightctl.io/v1alpha1
 kind: Fleet
 metadata:

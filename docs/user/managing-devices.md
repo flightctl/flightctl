@@ -758,7 +758,7 @@ You can set up monitors for device resources and define alerts when the utilizat
 service, the service sets the device status to "degraded" or "error" (depending on the severity level) and may suspend the rollout of updates and alarm the user as a result.
 
 Flight Control also includes a **non-blocking prefetch management system** that downloads OS images and application artifacts in the background, improving update reliability by
-handling large downloads intelligently.
+handling large downloads intelligently (see [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md)).
 
 ### Download Management Features
 
@@ -822,7 +822,8 @@ spec:
 ```
 
 > [!TIP]
-> For production deployments, consider monitoring writable filesystem paths such as `/var/lib/containers` (for container storage) and `/var` (for logs and temporary files). OS images are downloaded in the background using the non-blocking prefetch system. See [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) for download troubleshooting.
+> For production deployments, consider monitoring writable filesystem paths such as `/var/lib/containers` (container storage) and `/var` (logs and temporary files).  
+> For background OS/application downloads and related troubleshooting, see [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md).
 
 ## Accessing Devices Remotely
 

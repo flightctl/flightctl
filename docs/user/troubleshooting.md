@@ -337,6 +337,9 @@ flightctl console device/${device_name} -- dnf install stress --assumeyes
 
 # Then run memory test (use caution with test size)
 flightctl console device/${device_name} -- stress --vm 1 --vm-bytes 256M --timeout 30s
+
+# (Optional) Remove the tool after testing
+flightctl console device/${device_name} -- dnf remove stress --assumeyes
 ```
 
 > [!WARNING]
