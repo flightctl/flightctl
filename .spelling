@@ -237,6 +237,8 @@ hw-generation=orin
 hw-model=jetson
 ClusterRole
 ClusterRoleBinding
+Role
+RoleBinding
 ContentEncoding
 EnvVars
 FilePath

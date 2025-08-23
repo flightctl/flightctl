@@ -3,14 +3,14 @@
 ## Enrolling Devices
 
 The first time the Flight Control Agent runs, it generates a cryptographic key pair that serves as the device's unique cryptographic identity. The pair's private key never leaves
-the device, so that the device cannot be duplicated or impersonated. The cryptographic identity is registered with the Flight Control Service during enrollment and gets wiped
+the device, so the device cannot be duplicated or impersonated. The cryptographic identity is registered with the Flight Control Service during enrollment and is wiped
 during device decommissioning.
 
 When the device is not yet enrolled, the agent performs service discovery to find its Flight Control Service instance. It then establishes a secure, mTLS-protected network
 connection to the Service using the X.509 enrollment certificate it has been provided with during image building or device provisioning. Next, it submits an Enrollment Request to
 the service that includes a description of the device's hardware and operating system as well as an X.509 Certificate Signing Request (CSR) including its cryptographic identity to
 obtain its initial management certificate. At this point, the device is not yet considered trusted and therefore remains quarantined in a "device lobby" until its Enrollment
-Request has been approved or denied by an authorized user (e.g. a administrator, an installer persona, or an auto-approver process).
+Request has been approved or denied by an authorized user (e.g., an administrator, an installer persona, or an auto-approver process).
 
 ### Enrolling using the Web UI
 
@@ -51,7 +51,7 @@ Once approved, the device will get issued its initial management certificate and
 ## Viewing and Customizing the Device System Information
 
 Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field.
-Fields can optionally be promoted to labels during the enrollment process, this must be done manually or through external automation. Promoting fields to labels enables powerful
+Fields can optionally be promoted to labels during the enrollment process; this must be done manually or through external automation. Promoting fields to labels enables powerful
 grouping and querying capabilities, such as filtering devices by region or OS version. You can also define your own fields in `status.systemInfo.customInfo`, allowing the agent to
 collect user-defined metadata through custom commands.
 
@@ -152,7 +152,7 @@ allowed.
 
 Labels must follow certain rules to be valid (in fact, these are the same as for [Kubernetes](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)):
 
-* Keys and value must each be 63 characters or less. Value may be omitted.
+* Keys and values must each be 63 characters or fewer. The value may be omitted.
 * Keys and values may consist of alphanumeric characters (`a-z`, `A-Z`, `0-9`). They may also contain dashes (`-`), underscores (`_`), dots (`.`), but not as the first or last
   character.
 
@@ -167,7 +167,7 @@ Once devices are labeled, you can select a subset of devices by writing a "label
 You can specify multiple label selectors in a comma-separated list, for example `site=factory-berlin,device-type=autonomous-forklift`, to have a device selected only if all
 selectors in the list match.
 
-There are multiple ways when and how to apply labels to devices:
+There are multiple ways to apply labels to devices and multiple points in time when you might do so:
 
 * You can define a set of default labels during image building that get automatically applied to all devices deploying that image.
 * You can assign initial labels during enrollment (see [Enrolling Devices](managing-devices.md#enrolling-devices)).
@@ -240,7 +240,7 @@ hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  U
 
 You can update a device's OS by updating the target OS image name or version in the device's specification. The next time the agent checks in, it learns of the requested update and
 automatically starts downloading and verifying the new OS version in the background. It then schedules the actual system update to be performed according to the update policy. When
-the time has come to update, it installs the new version in parallel and performs a reboot into the new version.
+the update window opens, it stages the new version and reboots into it.
 
 Flight Control currently supports the following image types and image references formats:
 
@@ -275,7 +275,7 @@ repository, [authentication credentials](https://docs.redhat.com/en/documentatio
 pull secrets) must be placed in the appropriate system paths.
 
 * **OS Image:** Uses `/etc/ostree/auth.json`
-* **Container Images:** Uses the system default for Podman, `/root/.config/containers/auth.json`
+* **Container Images:** For rootful Podman, use `/root/.config/containers/auth.json`. For rootless Podman, use `${HOME}/.config/containers/auth.json`.
 
 #### Auth File Format
 
@@ -291,8 +291,8 @@ The authentication file should follow this format:
 }
 ```
 
-> [!NOTE]
-> Authentication must exist on the device before it can be consumed.
+> [!NOTE]  
+> Authentication must exist on the device before it can be consumed, and must be placed in the correct location for the Podman mode (rootful vs. rootless).
 
 ## Managing OS Configuration
 
@@ -305,13 +305,12 @@ system.
 
 Conceptually, this set of configuration files can be thought of as an additional, dynamic layer on top of the OS image's layers. The Flight Control Agent applies updates to this
 layer transactionally, ensuring that either all files have been successfully updated in the file system or have been returned to their pre-update state. Further, if the user
-updates both a devices OS and configuration set at the same time, the Flight Control Agent will first update the OS, then apply the specified configuration set on top.
+updates both a device's OS and configuration set at the same time, the Flight Control Agent will first update the OS, then apply the specified configuration set on top.
 
-> [!IMPORTANT]
+> [!IMPORTANT]  
 > After the agent updates configuration on disk, it still must be activated. Many services auto-reload; otherwise a reboot activates changes. If a service does not support reloads, use [Device Lifecycle Hooks](#using-device-lifecycle-hooks) to run commands when specific files change.
 
-Users can specify a list of configurations sets, in which case the Flight Control Agent applies the sets in sequence and on top of each other, such that in case of conflict the "
-last one wins".
+Users can specify a list of configuration sets; the Flight Control Agent applies the sets in sequence, such that in case of conflict the "last one wins".
 
 Configuration can come from multiple sources, called "configuration providers" in Flight Control. Flight Control currently supports the following configuration providers:
 
@@ -334,8 +333,8 @@ The Git Config Provider takes the following parameters:
 | TargetRevision | The branch, tag, or commit of the repository to checkout.           |
 | Path           | The subdirectory of the repository that contains the configuration. |
 
-The Repository resource definition tells Flight Control the Git repository to connect to and which protocol and access credentials to use. It needs to be set up once (see Setting
-Up Repositories) and can then be used to configure multiple devices or fleets.
+The Repository resource definition tells Flight Control the Git repository to connect to and which protocol and access credentials to use. It needs to be set up once (see
+[Managing Configuration on the CLI](#managing-configuration-on-the-cli)) and can then be used to configure multiple devices or fleets.
 
 The subdirectory of the repository (Path) is synchronized into the device filesystem relative to "/". On bootc-based systems, some locations are read-only; prefer writable paths such as `/etc` or `/var`.  
 Ensure target directories exist and are writable, otherwise updates may fail due to permissions or read-only filesystems.
@@ -382,11 +381,11 @@ The Kubernetes Secret Provider takes the following parameters:
 | Parameter | Description                                                                 |
 |-----------|-----------------------------------------------------------------------------|
 | Name      | The name of the Secret.                                                     |
-| NameSpace | The namespace of the Secret.                                                |
+| Namespace | The namespace of the Secret.                                                |
 | MountPath | The directory in the device's file system to write the secret's content to. |
 
-Note that Flight Control needs to have the permissions access Secrets in that namespace, for example by creating a ClusterRole and ClusterRoleBinding allowing the
-`flightctl-worker` service account "get" and "list" Secrets in that namespace.
+Note that Flight Control needs permissions to access Secrets in that namespace, for example by creating a Role/ClusterRole and corresponding RoleBinding/ClusterRoleBinding to allow the
+`flightctl-worker` service account to "get" and "list" Secrets in that namespace.
 
 ### Getting Configuration from an HTTP Server
 
@@ -400,8 +399,8 @@ The HTTP Config Provider takes the following parameters:
 | Suffix     | The suffix to append to the base URL defined in the Repository resource. It can include path and query parameters such as `/path/to/endpoint?query=param` |
 | FilePath   | The path to the file on the device's file system in which to store the returned value of the HTTP Server.                                                 |
 
-The Repository resource definition tells Flight Control the HTTP server to connect to and which protocol and access credentials to use. It needs to be set up once (see Setting Up
-Repositories) and can then be used to configure multiple devices or fleets.
+The Repository resource definition tells Flight Control the HTTP server to connect to and which protocol and access credentials to use. It needs to be set up once (see
+[Managing Configuration on the CLI](#managing-configuration-on-the-cli)) and can then be used to configure multiple devices or fleets.
 
 ### Specifying Configuration Inline in the Device Spec
 
@@ -488,13 +487,13 @@ The following table shows the application runtimes and formats supported by Flig
 | Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose)) | OCI image         | OCI registry                   |
 | Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose)) | Unpackaged inline | Inline in device specification |
 
-> [!NOTE]
+> [!NOTE]  
 > Requires `podman-compose` to be installed on the device.
 
-> [!NOTE]
+> [!NOTE]  
 > Image downloads adhere to the `pull-timeout` [configuration](configuring-agent.md#agent-configyaml-configuration-file).
 
-> [!TIP]
+> [!TIP]  
 > Short image names (e.g., `nginx`) are not supported. Use fully qualified references like `docker.io/nginx` to avoid ambiguity.
 
 To deploy an application to a device, create a new entry in the "applications" section of the device's specification, specifying the following parameters:
@@ -547,12 +546,12 @@ applications:
 Define the application's functionality with the [Compose specification](https://github.com/compose-spec/compose-spec/blob/main/spec.md) and embed the compose file in a scratch
 container. Add the `appType=compose` label, then build and push the container to your OCI registry. Finally, reference the image in `spec.applications[]`.
 
-```yaml
+```Dockerfile
 FROM scratch
 
 COPY podman-compose.yaml /podman-compose.yaml
 
-  # required
+# required
 LABEL appType="compose"
 
 ```
@@ -590,12 +589,12 @@ applications:
   [ ... ]
 ```
 
-> [!NOTE]
+> [!NOTE]  
 > Inline compose applications can have at most two paths. The first should be named `podman-compose.yaml`, and the second (override) must be named `podman-compose.override.yaml`.
 
 ### Adding Application Volumes
 
-> [!NOTE]
+> [!NOTE]  
 > This feature requires the Flight Control Agent to run with **Podman version 5.5 or higher**.
 
 Applications can declare persistent data volumes that are populated from OCI artifacts. This allows delivering large datasets (such as ML models or static assets) as part of the
@@ -613,7 +612,7 @@ Each volume definition includes:
 | `image.reference`  | Fully qualified OCI artifact reference containing the volume contents.                                               |
 | `image.pullPolicy` | (Optional) Defines pull behavior: `Always`, `IfNotPresent`, or `Never`. Defaults to `IfNotPresent` if not specified. |
 
-> [!IMPORTANT]
+> [!IMPORTANT]  
 > In the Compose file, volumes must be declared as `external: true` to allow the agent to handle preparation and mounting.
 
 #### Example Inline Application with Volume
@@ -656,14 +655,14 @@ Volume images must follow the OCI artifact specification:
 * Contain one or more layers representing the volume file contents.
 * Hosted on any OCI-compatible registry accessible by the device.
 
-> [!TIP]
+> [!TIP]  
 > If the artifact contains more than one layer, the mount path should be an already existing
 > directory, into which the layers will each be copied as a separate file using the name specified
 > in the layer's `org.opencontainers.image.title` field. For single layer archives if the mount path
 > does not exist as a directory the single layer will be extracted as a file at that path, otherwise
 > it will be placed into the existing directory using the file name in the name field for the layer.
 
-> [!NOTE]
+> [!NOTE]  
 > Artifact downloads adhere to the `pull-timeout` [configuration](configuring-agent.md#agent-configyaml-configuration-file).
 
 #### Device Requirements
@@ -712,7 +711,7 @@ A run action takes the following parameters:
 | Timeout   | (Optional) The maximum duration allowed for the action to complete. The duration must be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours.<br/><br/>Default: 10s                                                                                                                                                                             |
 | If        | (Optional) A list of conditions that must be true for the action to be run (see below). If not provided, actions will run unconditionally.                                                                                                                                                                                                                                                                                                  |
 
-> [!NOTE]
+> [!NOTE]  
 > When using a shell with `run`, the executed environment does not inherit the system environment, any required environment variables must be provided explicitly via the `envVars`
 > field in the API.
 >
@@ -730,7 +729,7 @@ In particular, to only run an action if a given file or directory has changed du
 
 | Parameter | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 |-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Path      | An absolute path to a file or directory that must have changed during the update as condition for the action to be performed. Paths must be specified using forward slashes (`/`) and if the path is to a directory it must terminate with a forward slash `/`.<br/></br>If you specify a path to a file, the file must have changed to satisfy the condition.</br>If you specify a path to a directory, a file in that directory or any of its subdirectories must have changed to satisfy the condition. |
+| Path      | An absolute path to a file or directory that must have changed during the update as condition for the action to be performed. Paths must be specified using forward slashes (`/`) and if the path is to a directory it must terminate with a forward slash `/`.<br/><br/>If you specify a path to a file, the file must have changed to satisfy the condition.<br/>If you specify a path to a directory, a file in that directory or any of its subdirectories must have changed to satisfy the condition. |
 | Op        | A list of file operations (`created`, `updated`, `removed`) to further limit the kind of changes to the specified path as condition for the action to be performed.                                                                                                                                                                                                                                                                                                                                        |
 
 If you have specified a "path condition" for an action in the `afterUpdating` hook, you have the following variables that you can include in arguments to your command and that will
@@ -777,7 +776,7 @@ Resource monitors take the following parameters:
 | Parameter        | Description                                                                                                                                                                |
 |------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | MonitorType      | The resource to monitor. Currently supported resources are "CPU", "Memory", and "Disk".                                                                                    |
-| SamplingInterval | The interval in which the monitor samples utilization, specified as a positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours).         |
+| SamplingInterval | The interval at which the monitor samples utilization, specified as a positive integer followed by a time unit ('s' for seconds, 'm' for minutes, 'h' for hours).          |
 | AlertRules       | A list of alert rules.                                                                                                                                                     |
 | Path             | (Disk monitor only) The absolute path to the directory to monitor. Utilization reflects the filesystem containing the path, similar to df, even if it’s not a mount point. |
 
@@ -786,9 +785,9 @@ Alert rules take the following parameters:
 | Parameter   | Description                                                                                                                                                                                                                                |
 |-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Severity    | The alert rule's severity level: one of "Info", "Warning", or "Critical". Only one alert rule is allowed per severity level and monitor.                                                                                                   |
-| Duration    | The averaging window to measure utilization, specified as a positive integer followed by a time unit ('s','m','h'); must be strictly greater than the SamplingInterval.                                                                     |
+| Duration    | The averaging window to measure utilization, specified as a positive integer followed by a time unit ('s','m','h'); must be strictly greater than the SamplingInterval.                                                                    |
 | Percentage  | The utilization threshold that triggers the alert, as a percentage value (range 0 to 100 without the "%" sign).                                                                                                                            |
-| Description | A human-readable description of the alert. This is useful for adding details about the alert that might help with debugging. By default it populates the alert as <severity>: <type> load is above <percentage>% for more than <duration> |
+| Description | A human-readable description of the alert. This is useful for adding details about the alert that might help with debugging. By default it populates the alert as <severity>: <type> load is above <percentage>% for more than <duration>. |
 
 ### Monitoring Device Resources on the Web UI
 
@@ -821,7 +820,7 @@ spec:
   [ ... ]
 ```
 
-> [!TIP]
+> [!TIP]  
 > For production deployments, consider monitoring writable filesystem paths such as `/var/lib/containers` (container storage) and `/var` (logs and temporary files).  
 > For background OS/application downloads and related troubleshooting, see [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md).
 
@@ -932,7 +931,7 @@ Each schedule supports:
 The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update
 window the device status will read `OutOfDate`. For more details please see [Device API Statuses](device-api-statuses.md#device-api-statuses).
 
-> [!TIP]
+> [!TIP]  
 > Use [crontab guru](https://crontab.guru/) to create and test cron expressions interactively.
 
 ### Examples
@@ -957,6 +956,6 @@ updatePolicy:
     startGraceDuration: "2h"      # allow update until 7:00 AM
 ```
 
-> [!NOTE]
+> [!NOTE]  
 > It’s best practice to define a `startGraceDuration` to allow for potential delays in agent execution. Without it, the update window may be missed.
 > Once an update begins within the allowed window, there is no enforced timeout; the update may continue running beyond the grace period.
