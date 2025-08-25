@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/shared"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -12,6 +13,10 @@ import (
 
 func TestFieldSelectors(t *testing.T) {
 	RegisterFailHandler(Fail)
+
+	// Setup distributed reporting if running in distributed mode
+	shared.SetupDistributedReporting()
+
 	RunSpecs(t, "Field Selectors E2E Suite")
 }
 

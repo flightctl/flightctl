@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/shared"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -73,5 +74,9 @@ var _ = AfterEach(func() {
 // TestCLI is the single entry-point that runs the whole spec set.
 func TestCLI(t *testing.T) {
 	RegisterFailHandler(Fail)
+
+	// Setup distributed reporting if running in distributed mode
+	shared.SetupDistributedReporting()
+
 	RunSpecs(t, "CLI E2E Suite")
 }

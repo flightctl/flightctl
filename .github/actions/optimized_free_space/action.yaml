@@ -1,0 +1,183 @@
+name: "Free Disk Space (Ubuntu)"
+description: "A configurable GitHub Action to free up disk space on an Ubuntu GitHub Actions runner."
+branding:
+  icon: "trash-2"
+  color: "green"
+inputs:
+  android:
+    description: "Remove Android runtime"
+    required: false
+    default: "true"
+  dotnet:
+    description: "Remove .NET runtime"
+    required: false
+    default: "true"
+  haskell:
+    description: "Remove Haskell runtime"
+    required: false
+    default: "true"
+  large-packages:
+    description: "Remove large packages"
+    required: false
+    default: "true"
+  docker-images:
+    description: "Remove Docker images"
+    required: false
+    default: "true"
+  tool-cache:
+    description: "Remove image tool cache"
+    required: false
+    default: "false"
+  swap-storage:
+    description: "Remove swap storage"
+    required: false
+    default: "true"
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: |
+        # Exit on error for script robustness, but individual commands can override this with `|| true`
+        set -eo pipefail
+
+        # ======
+        # HELPER FUNCTIONS
+        # ======
+
+        # More efficient way to print a separation line
+        printSeparationLine() {
+          char=${1:-=}
+          num=${2:-80}
+          printf "%${num}s\n" | tr " " "${char}"
+        }
+
+        # No changes needed for these functions
+        getAvailableSpace() { echo $(df -k --output=avail / | tail -n1); }
+        formatByteCount() { echo $(numfmt --to=iec-i --suffix=B --padding=7 "${1}K"); }
+        printSavedSpace() {
+          saved_kb=${1}
+          title=${2:-}
+          echo ""
+          printSeparationLine '*'
+          if [[ -n "${title}" ]]; then
+            echo "=> ${title}: Freed up $(formatByteCount "$saved_kb")"
+          else
+            echo "=> Freed up $(formatByteCount "$saved_kb")"
+          fi
+          printSeparationLine '*'
+          echo ""
+        }
+        printDH() {
+          caption=${1:-}
+          printSeparationLine
+          echo "${caption}"
+          df -h /
+          printSeparationLine
+        }
+
+        # ======
+        # SCRIPT START
+        # ======
+
+        echo "Starting disk space cleanup..."
+        printDH "BEFORE CLEAN-UP:"
+
+        INITIAL_SPACE=$(getAvailableSpace)
+        LAST_SPACE_CHECK=$INITIAL_SPACE
+
+        # Helper function to run a cleanup step and report space saved
+        run_cleanup_step() {
+          local title="$1"
+          shift # Remove the title from arguments, leaving only the command
+          
+          echo "##[group]Cleaning up ${title}"
+          "$@" # Execute the command with its arguments
+          echo "##[endgroup]"
+
+          local current_space=$(getAvailableSpace)
+          local saved_space=$((current_space - LAST_SPACE_CHECK))
+          
+          if (( saved_space > 0 )); then
+            printSavedSpace "$saved_space" "$title"
+          fi
+          
+          LAST_SPACE_CHECK=$current_space
+        }
+
+        # Option: Remove Android library
+        if [[ ${{ inputs.android }} == 'true' ]]; then
+          run_cleanup_step "Android library" sudo rm -rf /usr/local/lib/android
+        fi
+
+        # Option: Remove .NET runtime
+        if [[ ${{ inputs.dotnet }} == 'true' ]]; then
+          run_cleanup_step ".NET runtime" sudo rm -rf /usr/share/dotnet
+        fi
+
+        # Option: Remove Haskell runtime (combined rm)
+        if [[ ${{ inputs.haskell }} == 'true' ]]; then
+          run_cleanup_step "Haskell runtime" sudo rm -rf /opt/ghc /usr/local/.ghcup
+        fi
+
+        # Option: Remove large packages (consolidated apt-get call)
+        if [[ ${{ inputs.large-packages }} == 'true' ]]; then
+          echo "##[group]Cleaning up large packages"
+          
+          # Combine all removals into a single, efficient transaction
+          sudo eatmydata apt-get remove -y --fix-missing \
+            '^aspnetcore-.*' \
+            '^dotnet-.*' \
+            '^llvm-.*' \
+            'php.*' \
+            '^mongodb-.*' \
+            '^mysql-.*' \
+            azure-cli \
+            google-chrome-stable \
+            firefox \
+            powershell \
+            mono-devel \
+            libgl1-mesa-dri \
+            google-cloud-sdk \
+            google-cloud-cli || echo "::warning::The main package removal command failed to complete successfully. Proceeding..."
+          
+          # These should run after the removal to clean up dependencies and cache
+          sudo eatmydata apt-get autoremove -y || echo "::warning::Autoremove failed. Proceeding..."
+          sudo eatmydata apt-get clean || echo "::warning::Clean failed. Proceeding..."
+          
+          echo "##[endgroup]"
+
+          current_space=$(getAvailableSpace)
+          saved_space=$((current_space - LAST_SPACE_CHECK))
+          if (( saved_space > 0 )); then
+            printSavedSpace "$saved_space" "Large misc. packages"
+          fi
+          LAST_SPACE_CHECK=$current_space
+        fi
+
+        # Option: Remove Docker images
+        if [[ ${{ inputs.docker-images }} == 'true' ]]; then
+          run_cleanup_step "Docker images" sudo docker image prune --all --force
+        fi
+
+        # Option: Remove tool cache
+        if [[ ${{ inputs.tool-cache }} == 'true' ]]; then
+          run_cleanup_step "Tool cache" sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        fi
+
+        # Option: Remove Swap storage
+        if [[ ${{ inputs.swap-storage }} == 'true' ]]; then
+          run_cleanup_step "Swap storage" sudo swapoff -a
+          run_cleanup_step "Swap file" sudo rm -f /mnt/swapfile
+        fi
+
+        # ======
+        # FINAL REPORT
+        # ======
+
+        printDH "AFTER CLEAN-UP:"
+        
+        FINAL_SPACE=$(getAvailableSpace)
+        TOTAL_SAVED=$((FINAL_SPACE - INITIAL_SPACE))
+
+        echo "Cleanup complete."
+        printSavedSpace "$TOTAL_SAVED" "Total disk space freed"

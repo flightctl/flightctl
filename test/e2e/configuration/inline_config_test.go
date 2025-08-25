@@ -39,7 +39,7 @@ var _ = Describe("Inline configuration tests", func() {
 			GinkgoWriter.Printf("The configuration file should have the online config, the content is empty.\n")
 			stdout, err := harness.VM.RunSSH([]string{"cat", inlinePath}, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(stdout.String()).To(ContainSubstring(""))
+			Expect(stdout.String()).To(BeEmpty())
 
 			GinkgoWriter.Printf("The deconfiguration file should have the default owner permissions:root.\n")
 			owner, err := harness.VM.RunSSH([]string{"stat --format='%U %G'", inlinePath}, nil)
