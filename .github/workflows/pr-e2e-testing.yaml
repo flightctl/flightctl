@@ -62,6 +62,7 @@ jobs:
             docs/**
             .github/**
             examples/**
+            packaging/rpm/**
 
       - name: Free Disk Space (Ubuntu)
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
