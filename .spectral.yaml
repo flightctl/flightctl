@@ -480,7 +480,7 @@ rules:
     description: Description required for properties.
     severity: error
     type: style
-    given: $.components..properties[*]
+    given: $.components..properties[?(!@.$ref)]
     then:
       field: description
       function: truthy

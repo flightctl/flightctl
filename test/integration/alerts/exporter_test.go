@@ -16,7 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -51,7 +51,7 @@ var _ = Describe("Alert Exporter", func() {
 		cfg               *config.Config
 		db                *gorm.DB
 		dbName            string
-		callbackManager   tasks_client.CallbackManager
+		workerClient      worker_client.WorkerClient
 		mockPublisher     *queues.MockPublisher
 		ctrl              *gomock.Controller
 		checkpointManager *alert_exporter.CheckpointManager
@@ -65,11 +65,11 @@ var _ = Describe("Alert Exporter", func() {
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
+		workerClient = worker_client.NewWorkerClient(mockPublisher, log)
 		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
 		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler)
 		alertSender = alert_exporter.NewAlertSender(log, cfg.Alertmanager.Hostname, cfg.Alertmanager.Port, cfg)

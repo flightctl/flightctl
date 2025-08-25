@@ -99,19 +99,19 @@ func (s *ResourceSyncStore) InitialMigration(ctx context.Context) error {
 }
 
 func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, eventCallback EventCallback) (*api.ResourceSync, error) {
-	rs, err := s.genericStore.Create(ctx, orgId, resource, nil)
+	rs, err := s.genericStore.Create(ctx, orgId, resource)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, rs, true, err)
 	return rs, err
 }
 
 func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, eventCallback EventCallback) (*api.ResourceSync, error) {
-	newRs, oldRs, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil, nil)
+	newRs, oldRs, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, false, err)
 	return newRs, err
 }
 
 func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, eventCallback EventCallback) (*api.ResourceSync, bool, error) {
-	newRs, oldRs, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil, nil)
+	newRs, oldRs, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRs, newRs, created, err)
 	return newRs, created, err
 }
@@ -140,7 +140,9 @@ func (s *ResourceSyncStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 		return callback(ctx, innerTx, orgId, *owner)
 	})
 
-	s.eventCallbackCaller(ctx, callbackEvent, orgId, name, nil, nil, false, err)
+	if err == nil && callbackEvent != nil {
+		s.eventCallbackCaller(ctx, callbackEvent, orgId, name, nil, nil, false, err)
+	}
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil

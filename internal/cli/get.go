@@ -275,6 +275,11 @@ func (o *GetOptions) handleList(
 func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind string, requestedLimit int32) error {
 	var printedCount int32 = 0
 	o.Limit = 0 // Request server-side maximum (0 == capped)
+	summary := o.Summary
+	if kind == DeviceKind {
+		o.Summary = false // Disable summary for device batching, will be handled in the final output
+	}
+
 	for {
 		remaining := requestedLimit - printedCount
 		if requestedLimit > 0 && remaining <= maxRequestLimit {
@@ -305,6 +310,15 @@ func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.O
 
 		o.Continue = *listMetadata.Continue
 	}
+
+	if summary && kind == DeviceKind {
+		o.Continue = ""      // Reset continue for summary output
+		o.Limit = 0          // Reset limit for summary output
+		o.SummaryOnly = true // Re-enable summary-only for the final output
+		_, err := o.listOnce(ctx, formatter, c, DeviceKind)
+		return err
+	}
+
 	return nil
 }
 

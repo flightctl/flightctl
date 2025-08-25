@@ -20,16 +20,9 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, templateVers
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	var callback store.TemplateVersionStoreCallback = func(ctx context.Context, u uuid.UUID, before *api.TemplateVersion, after *api.TemplateVersion) {
-		h.log.Infof("fleet %s: template version %s created with rollout device selection, not executing task for immediate rollout", templateVersion.Spec.Fleet, lo.FromPtr(templateVersion.Metadata.Name))
-	}
-	if immediateRollout {
-		callback = h.callbackManager.TemplateVersionCreatedCallback
-	}
-
-	result, err := h.store.TemplateVersion().Create(ctx, orgId, &templateVersion, callback, h.callbackTemplateVersionUpdated)
+	result, err := h.store.TemplateVersion().Create(ctx, orgId, &templateVersion, h.callbackTemplateVersionUpdated)
 	if err == nil {
-		h.EmitFleetRolloutStartedEvent(ctx, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
+		h.eventHandler.EmitFleetRolloutStartedEvent(ctx, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
 	}
 	return result, StoreErrorToApiStatus(err, true, api.TemplateVersionKind, templateVersion.Metadata.Name)
 }
@@ -107,10 +100,10 @@ func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, fleet str
 
 // callbackTemplateVersionUpdated is the template version-specific callback that handles template version events
 func (h *ServiceHandler) callbackTemplateVersionUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleTemplateVersionUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleTemplateVersionUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackTemplateVersionDeleted is the template version-specific callback that handles template version deletion events
 func (h *ServiceHandler) callbackTemplateVersionDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

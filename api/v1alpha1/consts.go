@@ -1,6 +1,14 @@
 package v1alpha1
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+var (
+	NullOrgId = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+)
 
 const (
 	APIGroup = "flightctl.io"
@@ -69,6 +77,8 @@ const (
 	EventAPIVersion = "v1alpha1"
 	EventKind       = "Event"
 	EventListKind   = "EventList"
+
+	EventAnnotationDelayDeviceRender = "fleet-controller/delayDeviceRender"
 
 	OrganizationAPIVersion = "v1alpha1"
 	OrganizationKind       = "Organization"

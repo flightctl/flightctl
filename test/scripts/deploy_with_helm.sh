@@ -92,12 +92,17 @@ if [ "$AUTH" ]; then
   AUTH_ARGS="--set global.auth.type=builtin"
 fi
 
+ORGS_ARGS=""
+if [ "$ORGS" ]; then
+  ORGS_ARGS="--set global.organizations.enabled=true"
+fi
+
 helm dependency build ./deploy/helm/flightctl
 
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${ORGS_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 kubectl rollout status statefulset flightctl-kv -n flightctl-internal -w --timeout=300s

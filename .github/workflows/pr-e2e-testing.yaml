@@ -24,7 +24,7 @@ env:
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
   # Define the total number of parallel nodes for Ginkgo
-  GINKGO_TOTAL_NODES: 1
+  GINKGO_TOTAL_NODES: 4
   # Set the registry for container caching
   QUAY_ORG: quay.io/flightctl
   REGISTRY: quay.io
@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ginkgo_node: [1]
+        ginkgo_node: [1,2,3,4]
 
     steps:
       - name: Checkout

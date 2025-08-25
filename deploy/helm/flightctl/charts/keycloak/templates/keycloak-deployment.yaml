@@ -24,7 +24,8 @@ spec:
         args:
         - start-dev
         - --http-port=8081
-        - --proxy=edge
+        - --proxy-headers=xforwarded
+        - --http-enabled=true
         - --import-realm
         env:
           - name: KEYCLOAK_ADMIN

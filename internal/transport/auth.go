@@ -21,6 +21,9 @@ func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	conf := api.AuthConfig{
 		AuthType: authConfig.Type,
 		AuthURL:  authConfig.Url,
+		AuthOrganizationsConfig: api.AuthOrganizationsConfig{
+			Enabled: authConfig.OrganizationsConfig.Enabled,
+		},
 	}
 	SetResponse(w, conf, api.StatusOK())
 }

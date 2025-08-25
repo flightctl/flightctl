@@ -1,7 +1,7 @@
 
 bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
 
-bin/.e2e-agent-images: rpm bin/flightctl-agent bin/e2e-certs
+bin/.e2e-agent-images: deploy-e2e-extras rpm bin/flightctl-agent bin/e2e-certs
 	./test/scripts/agent-images/prepare_agent_config.sh
 	BUILD_TYPE=$(BUILD_TYPE) ./test/scripts/agent-images/create_agent_images.sh
 	./test/scripts/agent-images/create_application_image.sh

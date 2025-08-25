@@ -6,8 +6,8 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 
 // WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status within a timeout.
 func WaitForApplicationRunningStatus(h *e2e.Harness, deviceId string, applicationImage string) {
-	logrus.Infof("Waiting for the application ready status")
+	GinkgoWriter.Printf("Waiting for the application ready status\n")
 	h.WaitForDeviceContents(deviceId, ApplicationRunningStatus,
 		func(device *v1alpha1.Device) bool {
 			for _, application := range device.Status.Applications {
@@ -62,7 +62,7 @@ func updateDevice(harness *e2e.Harness, deviceID string, updateFunc func(device 
 	err = harness.UpdateDeviceWithRetries(deviceID, updateFunc)
 	Expect(err).ToNot(HaveOccurred())
 
-	logrus.Infof("Waiting for the device to pick the config")
+	GinkgoWriter.Printf("Waiting for the device to pick the config\n")
 	err = harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
 	Expect(err).ToNot(HaveOccurred())
 }

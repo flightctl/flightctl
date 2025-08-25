@@ -420,11 +420,20 @@ type ApplicationsSummaryStatusType string
 
 // AuthConfig Auth config.
 type AuthConfig struct {
+	// AuthOrganizationsConfig Auth related organizations configuration.
+	AuthOrganizationsConfig AuthOrganizationsConfig `json:"authOrganizationsConfig"`
+
 	// AuthType Auth type.
 	AuthType string `json:"authType"`
 
 	// AuthURL Auth URL.
 	AuthURL string `json:"authURL"`
+}
+
+// AuthOrganizationsConfig Auth related organizations configuration.
+type AuthOrganizationsConfig struct {
+	// Enabled If true, support for IdP provided organizations is enabled.
+	Enabled bool `json:"enabled"`
 }
 
 // Batch Batch is an element in batch sequence.
@@ -1074,7 +1083,7 @@ type EnrollmentServiceService struct {
 	Server string `json:"server"`
 }
 
-// Event defines model for Event.
+// Event Event represents a single event that occurred in the system.
 type Event struct {
 	// Actor The name of the user or service that triggered the event. The value will be prefixed by either user: (for human users) or service: (for automated services).
 	Actor string `json:"actor"`
@@ -1531,14 +1540,11 @@ type InternalTaskFailedDetails struct {
 	// ErrorMessage The error message describing the failure.
 	ErrorMessage string `json:"errorMessage"`
 
+	// OriginalEvent Event represents a single event that occurred in the system.
+	OriginalEvent Event `json:"originalEvent"`
+
 	// RetryCount Number of times the task has been retried.
 	RetryCount *int `json:"retryCount,omitempty"`
-
-	// TaskParameters Parameters needed to retry the task.
-	TaskParameters *map[string]string `json:"taskParameters,omitempty"`
-
-	// TaskType The type of internal task that failed.
-	TaskType string `json:"taskType"`
 }
 
 // InternalTaskFailedDetailsDetailType The type of detail for discriminator purposes.

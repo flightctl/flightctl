@@ -90,8 +90,8 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 
 func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
-	callback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
-	_, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback, nil)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := deviceStore.Create(ctx, orgId, &resource, callback)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
@@ -126,8 +126,8 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 	if selector != nil {
 		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
-	callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-	_, err := fleetStore.Create(ctx, orgId, &resource, callback, nil)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
 	}
@@ -159,9 +159,8 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		resource.Status = status
 	}
 
-	callback := store.TemplateVersionStoreCallback(func(context.Context, uuid.UUID, *api.TemplateVersion, *api.TemplateVersion) {})
-	eventCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := tvStore.Create(ctx, orgId, &resource, callback, eventCallback)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := tvStore.Create(ctx, orgId, &resource, callback)
 
 	return err
 }
@@ -195,7 +194,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 		}
 
 		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, &resource, nil, callback)
+		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			return err
 		}

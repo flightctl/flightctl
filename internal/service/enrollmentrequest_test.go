@@ -47,8 +47,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 func TestNotFoundReplaceEnrollmentRequestStatus(t *testing.T) {
 	require := require.New(t)
 	serviceHandler := ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store: &TestStore{},
 	}
 	ctx := context.Background()
 
@@ -129,8 +128,7 @@ func createTestEnrollmentRequest(require *require.Assertions, name string, statu
 		Status: status,
 	}
 	serviceHandler := ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store: &TestStore{},
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)

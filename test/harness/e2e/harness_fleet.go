@@ -5,7 +5,9 @@ import (
 	"strconv"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -62,6 +64,9 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 		},
 	}
 
+	// Add test label to fleet metadata
+	h.addTestLabelToResource(&testFleet.Metadata)
+
 	switch spec := fleetSpecOrSelector.(type) {
 	case v1alpha1.FleetSpec:
 		testFleet.Spec = spec
@@ -106,63 +111,81 @@ func (h *Harness) DeleteFleet(testFleetName string) error {
 	return err
 }
 
-func (h *Harness) WaitForFleetUpdateToFail(fleetName string) error {
-	logrus.Infof("Waiting for fleet update to fail for fleet %s", fleetName)
-	Eventually(func() (bool, error) {
-		rolloutStatus, err := h.GetRolloutStatus(fleetName)
-		if err != nil {
-			return false, err
-		}
-
-		if rolloutStatus.Type == v1alpha1.ConditionTypeFleetRolloutInProgress &&
-			rolloutStatus.Status == v1alpha1.ConditionStatusFalse &&
-			rolloutStatus.Reason == v1alpha1.RolloutSuspendedReason {
-			logrus.Infof("Fleet update failed for fleet %s: status=%s, reason=%s",
-				fleetName, rolloutStatus.Status, rolloutStatus.Reason)
-			return true, nil
-		}
-
-		return false, nil
-	}, LONGTIMEOUT, POLLING).Should(BeTrue(),
-		fmt.Sprintf("Timed out waiting for fleet %s update to fail", fleetName))
-	return nil
+// HaveReason returns a type-safe Gomega matcher for the Condition's Reason field.
+func HaveReason(expected string) types.GomegaMatcher {
+	return WithTransform(
+		// This part is checked by the compiler!
+		func(c v1alpha1.Condition) string { return c.Reason },
+		Equal(expected),
+	)
 }
+
+// HaveStatus returns a type-safe Gomega matcher for the Condition's Status field.
+func HaveStatus(expected v1alpha1.ConditionStatus) types.GomegaMatcher {
+	return WithTransform(
+		// This part is also checked by the compiler!
+		func(c v1alpha1.Condition) v1alpha1.ConditionStatus { return c.Status },
+		Equal(expected),
+	)
+}
+
+// cHaveType returns a type-safe Gomega matcher for the Condition's Type field.
+func cHaveType(expected v1alpha1.ConditionType) types.GomegaMatcher {
+	return WithTransform(
+		// This part is also checked by the compiler!
+		func(c v1alpha1.Condition) v1alpha1.ConditionType { return c.Type },
+		Equal(expected),
+	)
+}
+
+func (h *Harness) WaitForFleetUpdateToFail(fleetName string) {
+	logrus.Infof("Waiting for fleet update to fail for fleet %s", fleetName)
+	Eventually(h.GetRolloutStatus, LONGTIMEOUT, POLLING).
+		WithArguments(fleetName).
+		Should(SatisfyAll(
+			cHaveType(v1alpha1.ConditionTypeFleetRolloutInProgress),
+			HaveStatus(v1alpha1.ConditionStatusFalse),
+			HaveReason(v1alpha1.RolloutSuspendedReason),
+		), fmt.Sprintf("Timed out waiting for fleet %s update to fail", fleetName))
+
+}
+
 func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 	Eventually(func() int {
 		response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
 		if err != nil {
-			logrus.Debugf("failed to get fleet with response: %s", err)
+			GinkgoWriter.Printf("failed to get fleet with response: %s\n", err)
 			return -2
 		}
 		if response == nil {
-			logrus.Debugf("fleet response is nil")
+			GinkgoWriter.Printf("fleet response is nil\n")
 			return -2
 		}
 		fleet := response.JSON200
 		if fleet == nil {
-			logrus.Debugf("fleet is nil")
+			GinkgoWriter.Printf("fleet is nil\n")
 			return -2
 		}
 
 		annotations := fleet.Metadata.Annotations
 		if annotations == nil {
-			logrus.Debugf("annotations are nil")
+			GinkgoWriter.Printf("annotations are nil\n")
 			return -2
 		}
 
 		batchNumberStr, ok := (*annotations)[v1alpha1.FleetAnnotationBatchNumber]
 		if !ok {
-			logrus.Debugf("batch number not found in annotations - available annotations: %v", *annotations)
+			GinkgoWriter.Printf("batch number not found in annotations - available annotations: %v\n", *annotations)
 			return -2
 		}
 
 		batchNumberInt, err := strconv.Atoi(batchNumberStr)
 		if err != nil {
-			logrus.Debugf("failed to convert batch number to int: %s", err)
+			GinkgoWriter.Printf("failed to convert batch number to int: %s\n", err)
 			return -2
 		}
 
-		logrus.Debugf("Current batch number: %d, waiting for  %d", batchNumberInt, batchNumber)
+		GinkgoWriter.Printf("Current batch number: %d, waiting for  %d\n", batchNumberInt, batchNumber)
 
 		return batchNumberInt
 	}, LONGTIMEOUT, POLLINGLONG).Should(Equal(batchNumber))
