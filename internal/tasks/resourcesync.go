@@ -12,7 +12,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-billy/v5"
@@ -26,7 +25,6 @@ const ResourceSyncTaskName = "resourcesync"
 type ResourceSync struct {
 	log                   logrus.FieldLogger
 	serviceHandler        service.Service
-	callbackManager       tasks_client.CallbackManager
 	ignoreResourceUpdates []string
 }
 
@@ -35,11 +33,10 @@ type GenericResourceMap map[string]interface{}
 var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{api.FleetKind}
 
-func NewResourceSync(callbackManager tasks_client.CallbackManager, serviceHandler service.Service, log logrus.FieldLogger, ignoreResourceUpdates []string) *ResourceSync {
+func NewResourceSync(serviceHandler service.Service, log logrus.FieldLogger, ignoreResourceUpdates []string) *ResourceSync {
 	return &ResourceSync{
 		log:                   log,
 		serviceHandler:        serviceHandler,
-		callbackManager:       callbackManager,
 		ignoreResourceUpdates: ignoreResourceUpdates,
 	}
 }

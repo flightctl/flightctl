@@ -18,8 +18,8 @@ import (
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	transport "github.com/flightctl/flightctl/internal/transport/agent"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -80,7 +80,7 @@ func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
 func (s *AgentServer) Run(ctx context.Context) error {
 	s.log.Println("Initializing Agent-side API server")
 
-	publisher, err := tasks_client.TaskQueuePublisher(s.queuesProvider)
+	publisher, err := worker_client.QueuePublisher(s.queuesProvider)
 	if err != nil {
 		return err
 	}
@@ -88,10 +88,10 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
+	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
+		service.NewServiceHandler(s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
 
 	httpAPIHandler, err := s.prepareHTTPHandler(serviceHandler)
 	if err != nil {
@@ -112,6 +112,9 @@ func (s *AgentServer) Run(ctx context.Context) error {
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
 		s.orgResolver.Close()
+		kvStore.Close()
+		s.queuesProvider.Stop()
+		s.queuesProvider.Wait()
 	}()
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())

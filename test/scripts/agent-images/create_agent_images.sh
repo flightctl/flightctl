@@ -53,7 +53,21 @@ build_single_image() {
       args="${args:+${args} }--build-arg=REGISTRY_ADDRESS=${REGISTRY_ADDRESS}"
     fi
 
-    podman build ${args:+${args}} -f "${containerfile_path}" -t "${container_name}" .
+    # Add standard build arguments for caching and versioning
+    args="${args:+${args} }--build-arg=SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "latest")}"
+    args="${args:+${args} }--build-arg=SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )}"
+    args="${args:+${args} }--build-arg=SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
+
+    # Use GitHub Actions cache when GITHUB_ACTIONS=true, otherwise no caching
+    if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+        REGISTRY="${REGISTRY:-localhost}"
+        REGISTRY_OWNER="${REGISTRY_OWNER:-flightctl}"
+        CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER}/flightctl-device")
+    else
+        CACHE_FLAGS=()
+    fi
+
+    podman build ${args:+${args}} "${CACHE_FLAGS[@]}" -f "${containerfile_path}" -t "${container_name}" .
     podman tag "${container_name}" "${FINAL_REF}"
     podman push "${FINAL_REF}"
 }
@@ -99,27 +113,71 @@ build_qcow2_image() {
     echo -e "\033[32mProducing qcow2 image for ${REGISTRY_ADDRESS}/flightctl-device:base \033[m"
 
     mkdir -p bin/output
+    
     # Check if qcow2 is already up to date
-    CONTAINER_CREATE_DATE=$(podman inspect -f '{{.Created}}' ${REGISTRY_ADDRESS}/flightctl-device:base)
-    if [[ -f bin/output/qcow2/disk.qcow2 ]]; then
-        QCOW_CREATE_DATE=$(date -u -r bin/output/qcow2/disk.qcow2 "+%Y-%m-%d %H:%M:%S")
+    # Also check if the touch file is newer than the qcow2 (indicating a forced rebuild)
+    if [[ -f bin/output/qcow2/disk.qcow2 ]] && [[ -f bin/.e2e-agent-images ]]; then
+        TOUCH_FILE_DATE=$(date -u -r bin/.e2e-agent-images "+%Y-%m-%d %H:%M:%S")
+        QCOW_FILE_DATE=$(date -u -r bin/output/qcow2/disk.qcow2 "+%Y-%m-%d %H:%M:%S")
+        
+        # Convert to timestamps for comparison
+        TOUCH_TIMESTAMP=$(date -d "${TOUCH_FILE_DATE}" +%s 2>/dev/null || echo "0")
+        QCOW_FILE_TIMESTAMP=$(date -d "${QCOW_FILE_DATE}" +%s 2>/dev/null || echo "0")
+        
+        # If qcow2 is newer than the touch file, we can skip rebuilding
+        if [[ ${QCOW_FILE_TIMESTAMP} -gt ${TOUCH_TIMESTAMP} ]]; then
+            echo -e "\033[32mqcow2 is newer than touch file, skipping rebuild (touch: ${TOUCH_FILE_DATE}, qcow2: ${QCOW_FILE_DATE})\033[m"
+            return
+        fi
     fi
-
-    if [[ -n "${QCOW_CREATE_DATE}" && "${CONTAINER_CREATE_DATE}" < "${QCOW_CREATE_DATE}" ]]; then
-        echo -e "\033[32mqcow2 is already up to date with the container \033[m"
-        return
+    
+    if [[ -f bin/output/qcow2/disk.qcow2 ]]; then
+        # Get container image ID and creation date
+        CONTAINER_ID=$(podman images --format "table {{.ID}}" --noheading ${REGISTRY_ADDRESS}/flightctl-device:base 2>/dev/null | head -1)
+        if [[ -n "${CONTAINER_ID}" ]]; then
+            CONTAINER_CREATE_DATE=$(podman inspect -f '{{.Created}}' ${CONTAINER_ID} 2>/dev/null || echo "")
+            if [[ -n "${CONTAINER_CREATE_DATE}" ]]; then
+                QCOW_CREATE_DATE=$(date -u -r bin/output/qcow2/disk.qcow2 "+%Y-%m-%d %H:%M:%S")
+                
+                # Convert dates to timestamps for proper comparison
+                # Handle the container date format: "2025-07-30 16:40:33.146810998 +0000 UTC"
+                CONTAINER_DATE_CLEAN=$(echo "${CONTAINER_CREATE_DATE}" | sed 's/\.[0-9]* +0000 UTC//')
+                CONTAINER_TIMESTAMP=$(date -d "${CONTAINER_DATE_CLEAN}" +%s 2>/dev/null || echo "0")
+                QCOW_TIMESTAMP=$(date -d "${QCOW_CREATE_DATE}" +%s 2>/dev/null || echo "0")
+                
+                if [[ ${QCOW_TIMESTAMP} -gt ${CONTAINER_TIMESTAMP} ]]; then
+                    echo -e "\033[32mqcow2 is already up to date with the container (container: ${CONTAINER_CREATE_DATE}, qcow2: ${QCOW_CREATE_DATE})\033[m"
+                    return
+                else
+                    echo -e "\033[33mqcow2 is older than container, rebuilding (container: ${CONTAINER_CREATE_DATE}, qcow2: ${QCOW_CREATE_DATE})\033[m"
+                fi
+            else
+                echo -e "\033[33mCould not get container creation date, rebuilding\033[m"
+            fi
+        else
+            echo -e "\033[33mContainer image not found, rebuilding\033[m"
+        fi
+    else
+        echo -e "\033[33mqcow2 file not found, building\033[m"
     fi
 
     # Pull the image and build the qcow2
     echo -e "\033[32mPulling ${REGISTRY_ADDRESS}/flightctl-device:base to /var/lib/containers/storage\033[m"
     sudo podman pull "${REGISTRY_ADDRESS}/flightctl-device:base"
     echo -e "\033[32m Producing qcow image for ${REGISTRY_ADDRESS}/flightctl-device:base \033[m"
+    
+    # Create cache directories if they don't exist
+    mkdir -p "$(pwd)/bin/dnf-cache"
+    mkdir -p "$(pwd)/bin/osbuild-cache"
+    
     sudo podman run --rm \
                     -it \
                     --privileged \
                     --pull=newer \
                     --security-opt label=type:unconfined_t \
                     -v "$(pwd)"/bin/output:/output \
+                    -v "$(pwd)"/bin/dnf-cache:/var/cache/dnf:Z \
+                    -v "$(pwd)"/bin/osbuild-cache:/var/cache/osbuild:Z \
                     -v /var/lib/containers/storage:/var/lib/containers/storage \
                     quay.io/centos-bootc/bootc-image-builder:latest \
                     build \

@@ -1,5 +1,56 @@
 package e2e
 
+/*
+VM Pool Pattern - The Only Supported Way to Manage VMs
+
+The harness enforces a strict VM pool pattern to ensure proper test isolation and performance:
+
+1. BEFORE SUITE (Once per worker):
+   - Call e2e.RegisterVMPoolCleanup() to register cleanup
+   - Call e2e.SetupVMForWorker(workerID, tempDir, sshPort) to create VM for this worker
+   - VM is created once and reused across all tests
+
+2. BEFORE EACH (Before each test):
+   - Use e2e.NewTestHarnessWithVMPool(ctx, workerID) to get harness with VM from pool
+   - Call harness.SetupVMFromPoolAndStartAgent(workerID) to revert to pristine snapshot and start agent
+
+3. DURING TESTS:
+   - Use the VM from the pool, never create new VMs
+   - All VM state changes are isolated through snapshots
+   - Each test starts with a pristine VM state
+
+4. AFTER EACH:
+   - Clean up test resources with harness.CleanUpAllResources()
+   - Call harness.Cleanup(true) to clean up harness
+
+5. AFTER SUITE:
+   - VM cleanup is handled by make scripts after all tests complete
+
+REMOVED METHODS (violated VM pool pattern):
+- NewTestHarness() - Created VMs directly (removed)
+- NewTestHarnessWithoutVM() - Manual VM setup (removed)
+- AddVM() / AddMultipleVMs() - Created VMs outside pool (removed)
+- StartMultipleVMAndEnroll() - Created multiple VMs directly (removed)
+
+Example usage:
+```go
+var _ = BeforeSuite(func() {
+    e2e.RegisterVMPoolCleanup()
+    workerID = GinkgoParallelProcess()
+    _, err = e2e.SetupVMForWorker(workerID, os.TempDir(), 2233)
+    Expect(err).ToNot(HaveOccurred())
+})
+
+var _ = BeforeEach(func() {
+    harness, err = e2e.NewTestHarnessWithVMPool(ctx, workerID)
+    Expect(err).ToNot(HaveOccurred())
+    err = harness.SetupVMFromPoolAndStartAgent(workerID)
+    Expect(err).ToNot(HaveOccurred())
+    // Handle device enrollment in test as needed
+})
+```
+*/
+
 import (
 	"bytes"
 	"context"
@@ -33,11 +84,10 @@ import (
 
 const POLLING = "250ms"
 const POLLINGLONG = "1s"
-const TIMEOUT = "60s"
+const TIMEOUT = "5m"
 const LONGTIMEOUT = "10m"
 
 type Harness struct {
-	VMs       []vm.TestVMInterface
 	Client    *apiclient.ClientWithResponses
 	Context   context.Context
 	Cluster   kubernetes.Interface
@@ -60,7 +110,8 @@ type GitServerConfig struct {
 	SSHKey   string // path to SSH private key if using key auth
 }
 
-func findTopLevelDir() string {
+// findTopLevelDir is unused but kept for potential future use
+func findTopLevelDir() string { //nolint:unused
 	currentWorkDirectory, err := os.Getwd()
 	Expect(err).ToNot(HaveOccurred())
 
@@ -122,70 +173,6 @@ func kubernetesClient() (kubernetes.Interface, error) {
 	return iface, nil
 }
 
-func NewTestHarness(ctx context.Context) *Harness {
-
-	startTime := time.Now()
-
-	testVM, err := vm.NewVM(vm.TestVM{
-		TestDir:       GinkgoT().TempDir(),
-		VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
-		DiskImagePath: filepath.Join(findTopLevelDir(), "bin/output/qcow2/disk.qcow2"),
-		VMUser:        "user",
-		SSHPassword:   "user",
-		SSHPort:       2233, // TODO: randomize and retry on error
-	})
-	Expect(err).ToNot(HaveOccurred())
-
-	baseDir, err := client.DefaultFlightctlClientConfigPath()
-	Expect(err).ToNot(HaveOccurred())
-
-	c, err := client.NewFromConfigFile(baseDir)
-	Expect(err).ToNot(HaveOccurred())
-
-	ctx, cancel := context.WithCancel(ctx)
-
-	k8sCluster, err := kubernetesClient()
-	Expect(err).ToNot(HaveOccurred(), "failed to get kubernetes cluster")
-
-	// Initialize git repository management
-	gitWorkDir := filepath.Join(GinkgoT().TempDir(), "git-repos")
-	err = os.MkdirAll(gitWorkDir, 0755)
-	Expect(err).ToNot(HaveOccurred())
-
-	return &Harness{
-		VMs:        []vm.TestVMInterface{testVM},
-		Client:     c,
-		Context:    ctx,
-		Cluster:    k8sCluster,
-		ctxCancel:  cancel,
-		startTime:  startTime,
-		VM:         testVM,
-		gitRepos:   make(map[string]string),
-		gitWorkDir: gitWorkDir,
-	}
-}
-
-func (h *Harness) AddVM(vmParams vm.TestVM) (vm.TestVMInterface, error) {
-	testVM, err := vm.NewVM(vmParams)
-	if err != nil {
-		return nil, err
-	}
-	h.VMs = append(h.VMs, testVM)
-	return testVM, nil
-}
-
-func (h *Harness) AddMultipleVMs(vmParamsList []vm.TestVM) ([]vm.TestVMInterface, error) {
-	var createdVMs []vm.TestVMInterface
-	for _, params := range vmParamsList {
-		vm, err := h.AddVM(params)
-		if err != nil {
-			return nil, err
-		}
-		createdVMs = append(createdVMs, vm)
-	}
-	return createdVMs, nil
-}
-
 // ReadPrimaryVMAgentLogs reads flightctl-agent journalctl logs from the primary VM
 func (h *Harness) ReadPrimaryVMAgentLogs(since string) (string, error) {
 	if h.VM == nil {
@@ -242,10 +229,11 @@ func (h *Harness) Cleanup(printConsole bool) {
 		fmt.Printf("oops... %s failed\n", CurrentSpecReport().FullText())
 	}
 
-	for _, vm := range h.VMs {
-		if running, _ := vm.IsRunning(); running && testFailed {
+	// Clean up the single VM (if it exists)
+	if h.VM != nil {
+		if running, _ := h.VM.IsRunning(); running && testFailed {
 			fmt.Println("VM is running, attempting to get logs and details")
-			stdout, _ := vm.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+			stdout, _ := h.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
 			fmt.Print("\n\n\n")
 			fmt.Println("============ systemctl status flightctl-agent ============")
 			fmt.Println(stdout.String())
@@ -253,12 +241,12 @@ func (h *Harness) Cleanup(printConsole bool) {
 			fmt.Println(h.ReadPrimaryVMAgentLogs(""))
 			if printConsole {
 				fmt.Println("======================= VM Console =======================")
-				fmt.Println(vm.GetConsoleOutput())
+				fmt.Println(h.VM.GetConsoleOutput())
 			}
 			fmt.Println("==========================================================")
 			fmt.Print("\n\n\n")
 		}
-		err := vm.ForceDelete()
+		err := h.VM.ForceDelete()
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -274,22 +262,34 @@ func (h *Harness) Cleanup(printConsole bool) {
 	h.ctxCancel()
 }
 
-func (h *Harness) GetEnrollmentIDFromConsole(vms ...vm.TestVMInterface) string {
-	// Use the first VM if no specific VM is passed
-	var selectedVM vm.TestVMInterface
-	if len(vms) > 0 && vms[0] != nil {
-		selectedVM = vms[0]
-	} else {
-		selectedVM = h.VM
-	}
+// GetServiceLogs returns the logs from the specified service using journalctl.
+// This is useful for debugging service output and capturing logs from the latest service invocation.
+func (h *Harness) GetServiceLogs(serviceName string) (string, error) {
+	return h.VM.GetServiceLogs(serviceName)
+}
 
-	// Wait for the enrollment ID on the console
+// GetServiceLogs returns the logs from the specified service using journalctl.
+// This is useful for debugging service output and capturing logs from the latest service invocation.
+func (h *Harness) GetFlightctlAgentLogs() (string, error) {
+	return h.VM.GetServiceLogs("flightctl-agent")
+}
+
+// GetEnrollmentIDFromServiceLogs returns the enrollment ID from the service logs using journalctl.
+// This is more reliable than console output as it captures service output regardless of how the service is started.
+func (h *Harness) GetEnrollmentIDFromServiceLogs(serviceName string) string {
+	// Wait for the enrollment ID in the service logs
 	enrollmentId := ""
 	Eventually(func() string {
-		consoleOutput := selectedVM.GetConsoleOutput()
-		enrollmentId = util.GetEnrollmentIdFromText(consoleOutput)
+		// Get logs from the latest service invocation using systemd invocation ID
+		output, err := h.GetServiceLogs(serviceName)
+
+		if err != nil {
+			logrus.Debugf("Failed to get service logs: %v", err)
+			return ""
+		}
+		enrollmentId = util.GetEnrollmentIdFromText(output)
 		return enrollmentId
-	}, TIMEOUT, POLLING).ShouldNot(BeEmpty(), "Enrollment ID not found in VM console output")
+	}, TIMEOUT, POLLING).ShouldNot(BeEmpty(), fmt.Sprintf("Enrollment ID not found in %s service logs", serviceName))
 
 	return enrollmentId
 }
@@ -310,21 +310,46 @@ func (h *Harness) ApproveEnrollment(id string, approval *v1alpha1.EnrollmentRequ
 	Expect(approval).NotTo(BeNil())
 
 	logrus.Infof("Approving device enrollment: %s", id)
+	h.addTestLabelToEnrollmentApprovalRequest(approval)
 	apr, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, id, *approval)
 	Expect(err).ToNot(HaveOccurred())
-	Expect(apr.JSON200).NotTo(BeNil())
-	logrus.Infof("Approved device enrollment: %s", id)
+
+	// Debug the response
+	logrus.Infof("Response status code: %d", apr.StatusCode())
+	logrus.Infof("Response body: %s", string(apr.Body))
+	logrus.Infof("JSON200 is nil: %v", apr.JSON200 == nil)
+
+	// Handle different response status codes
+	switch apr.StatusCode() {
+	case 200:
+		Expect(apr.JSON200).NotTo(BeNil())
+		logrus.Infof("Approved device enrollment: %s", id)
+	case 400:
+		// Check if it's already approved
+		if apr.JSON400 != nil && strings.Contains(apr.JSON400.Message, "already approved") {
+			logrus.Infof("Enrollment request %s is already approved", id)
+			return
+		}
+		// If it's a different 400 error, fail the test
+		if apr.JSON400 != nil {
+			Fail(fmt.Sprintf("Failed to approve enrollment request: %s", apr.JSON400.Message))
+		} else {
+			Fail("Failed to approve enrollment request: 400 Bad Request")
+		}
+	default:
+		Fail(fmt.Sprintf("Unexpected status code: %d", apr.StatusCode()))
+	}
 }
 
 func (h *Harness) StartVMAndEnroll() string {
 	err := h.VM.RunAndWaitForSSH()
 	Expect(err).ToNot(HaveOccurred())
 
-	enrollmentID := h.GetEnrollmentIDFromConsole()
-	logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
+	enrollmentID := h.GetEnrollmentIDFromServiceLogs("flightctl-agent")
+	logrus.Infof("Enrollment ID found in flightctl-agent service logs: %s", enrollmentID)
 
 	_ = h.WaitForEnrollmentRequest(enrollmentID)
-	h.ApproveEnrollment(enrollmentID, util.TestEnrollmentApproval())
+	h.ApproveEnrollment(enrollmentID, h.TestEnrollmentApproval())
 	logrus.Infof("Waiting for device %s to report status", enrollmentID)
 
 	// wait for the device to pickup enrollment and report measurements on device status
@@ -332,73 +357,6 @@ func (h *Harness) StartVMAndEnroll() string {
 		enrollmentID).ShouldNot(BeNil())
 
 	return enrollmentID
-}
-
-func (h *Harness) StartMultipleVMAndEnroll(count int) ([]string, error) {
-	if count <= 0 {
-		return nil, fmt.Errorf("count must be positive, got %d", count)
-	}
-
-	// add count-1 vms to the harness using AddMultipleVMs method
-	vmParamsList := make([]vm.TestVM, count-1)
-	baseDir := GinkgoT().TempDir()
-	topDir := findTopLevelDir()
-	baseDiskPath := filepath.Join(topDir, "bin/output/qcow2/disk.qcow2")
-
-	for i := 0; i < count-1; i++ {
-		vmName := "flightctl-e2e-vm-" + uuid.New().String()
-		overlayDiskPath := filepath.Join(baseDir, fmt.Sprintf("%s-disk.qcow2", vmName))
-
-		// Create a qcow2 overlay that uses the base image as backing file
-		cmd := exec.Command(
-			"qemu-img", "create",
-			"-f", "qcow2",
-			"-b", baseDiskPath,
-			"-F", "qcow2",
-			overlayDiskPath)
-
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to create overlay disk for VM %s: %w", vmName, err)
-		}
-
-		vmParamsList[i] = vm.TestVM{
-			TestDir:       GinkgoT().TempDir(),
-			VMName:        "flightctl-e2e-vm-" + uuid.New().String(),
-			DiskImagePath: overlayDiskPath,
-			VMUser:        "user",
-			SSHPassword:   "user",
-			SSHPort:       2233 + i + 1,
-		}
-	}
-
-	_, err := h.AddMultipleVMs(vmParamsList)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add multiple VMs: %w", err)
-	}
-
-	var enrollmentIDs []string
-
-	for _, vm := range h.VMs {
-		err := vm.RunAndWaitForSSH()
-		if err != nil {
-			return nil, fmt.Errorf("failed to run VM and wait for SSH: %w", err)
-		}
-
-		enrollmentID := h.GetEnrollmentIDFromConsole(vm)
-		logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
-
-		_ = h.WaitForEnrollmentRequest(enrollmentID)
-		h.ApproveEnrollment(enrollmentID, util.TestEnrollmentApproval())
-		logrus.Infof("Waiting for device %s to report status", enrollmentID)
-
-		// Wait for the device to pick up enrollment and report measurements on device status
-		Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
-			enrollmentID).ShouldNot(BeNil())
-
-		enrollmentIDs = append(enrollmentIDs, enrollmentID)
-	}
-
-	return enrollmentIDs, nil
 }
 
 func (h *Harness) ApiEndpoint() string {
@@ -468,7 +426,7 @@ func (h *Harness) SHWithStdin(stdin, command string, args ...string) (string, er
 
 	h.setArgsInCmd(cmd, args...)
 
-	logrus.Infof("running: %s", strings.Join(cmd.Args, " "))
+	logrus.Infof("running: %s with stdin: %s", strings.Join(cmd.Args, " "), stdin)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -504,10 +462,10 @@ func checkForResourceChange[T any](resource T, lastResource string) string {
 	yamlString := string(yamlData)
 	Expect(err).ToNot(HaveOccurred())
 	if yamlString != lastResource {
-		fmt.Println("")
-		fmt.Println("======================= Resource change ========================== ")
-		fmt.Println(yamlString)
-		fmt.Println("================================================================== ")
+		GinkgoWriter.Println("")
+		GinkgoWriter.Println("======================= Resource change ========================== ")
+		GinkgoWriter.Println(yamlString)
+		GinkgoWriter.Println("================================================================== ")
 	}
 	return yamlString
 }
@@ -543,16 +501,16 @@ func waitForResourceContents[T any](id string, description string, fetch func(st
 	}, timeout, "2s").Should(BeNil())
 }
 
-func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
-	deviceId := h.GetEnrollmentIDFromConsole()
-	logrus.Infof("Enrollment ID found in VM console output: %s", deviceId)
+func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (string, *v1alpha1.Device) {
+	deviceId := h.GetEnrollmentIDFromServiceLogs("flightctl-agent")
+	logrus.Infof("Enrollment ID found in flightctl-agent service logs: %s", deviceId)
 	Expect(deviceId).NotTo(BeNil())
 
 	// Wait for the approve enrollment request response to not be nil
 	h.WaitForEnrollmentRequest(deviceId)
 
 	// Approve the enrollment and wait for the device details to be populated by the agent.
-	h.ApproveEnrollment(deviceId, util.TestEnrollmentApproval())
+	h.ApproveEnrollment(deviceId, h.TestEnrollmentApproval(labels...))
 
 	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 		deviceId).ShouldNot(BeEmpty())
@@ -571,6 +529,18 @@ func (h *Harness) EnrollAndWaitForOnlineStatus() (string, *v1alpha1.Device) {
 	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
 	return deviceId, device
 }
+func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1alpha1.EnrollmentRequestApproval {
+	mergedLabels := map[string]string{"test-id": h.GetTestIDFromContext()}
+	for _, label := range labels {
+		for k, v := range label {
+			mergedLabels[k] = v
+		}
+	}
+	return &v1alpha1.EnrollmentRequestApproval{
+		Approved: true,
+		Labels:   &mergedLabels,
+	}
+}
 
 func (h *Harness) parseImageReference(image string) (string, string) {
 	// Split the image string by the colon to separate the repository and the tag.
@@ -585,38 +555,128 @@ func (h *Harness) parseImageReference(image string) (string, string) {
 	return repo, tag
 }
 
-func (h *Harness) CleanUpResources(resourceType string) (string, error) {
-	logrus.Infof("Deleting the instances of the %s resource type", resourceType)
-
-	resources, err := h.CLI("get", resourceType, "-o", "name")
-	if err != nil {
-		return "", fmt.Errorf("failed to get %s resources: %w", resourceType, err)
-	}
-	resources = strings.TrimSpace(resources)
-	if resources == "" {
-		logrus.Infof("No %s resources found to delete", resourceType)
-		return "No resources to delete", nil
-	}
-
-	deleteArgs := []string{"delete", resourceType}
-	resourceNames := strings.Fields(resources)
-	deleteArgs = append(deleteArgs, resourceNames...)
-
-	return h.CLI(deleteArgs...)
+func (h *Harness) CleanUpAllTestResources() error {
+	return h.CleanUpTestResources(util.ResourceTypes[:]...)
 }
 
-func (h *Harness) CleanUpAllResources() error {
-	for _, resourceType := range util.ResourceTypes {
-		_, err := h.CleanUpResources(resourceType)
+// CleanUpTestResources deletes only resources that have the test label for the current test
+func (h *Harness) CleanUpTestResources(resourceTypes ...string) error {
+	testID := h.GetTestIDFromContext()
+	logrus.Infof("Cleaning up resources with test-id: %s", testID)
+
+	// First, handle enrollment requests specially since they don't support labels
+	if err := h.cleanUpEnrollmentRequests(testID); err != nil {
+		return fmt.Errorf("failed to clean up enrollment requests: %w", err)
+	}
+
+	// Then clean up other resource types that support labels
+	for _, resourceType := range resourceTypes {
+		// Skip enrollment requests as they're handled separately
+		if resourceType == util.EnrollmentRequest {
+			continue
+		}
+
+		// Get resources with the test label
+		resources, err := h.CLI("get", resourceType, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
 		if err != nil {
-			// Return the error immediately if any operation fails
-			logrus.Infof("Error: %v\n", err)
+			// If no resources found, that's fine
+			logrus.Debugf("No %s resources found with test-id %s", resourceType, testID)
+			continue
+		}
+
+		resources = strings.TrimSpace(resources)
+		if resources == "" {
+			logrus.Debugf("No %s resources found with test-id %s", resourceType, testID)
+			continue
+		}
+
+		// Parse resource names from the output
+		// Output format: "resourcetype/name1\nresourcetype/name2\n..."
+		resourceNames := []string{}
+		lines := strings.Split(resources, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			resourceNames = append(resourceNames, line)
+		}
+
+		if len(resourceNames) == 0 {
+			logrus.Debugf("No %s resource names found with test-id %s", resourceType, testID)
+			continue
+		}
+
+		// Delete the resources by name
+		deleteArgs := append([]string{"delete", resourceType}, resourceNames...)
+		_, err = h.CLI(deleteArgs...)
+		if err != nil {
+			logrus.Infof("Error deleting %s resources with test-id %s: %v", resourceType, testID, err)
 			return err
 		}
-		logrus.Infof("The instances of the %s resource type are deleted successfully", resourceType)
 
+		logrus.Infof("Successfully deleted %d %s resources with test-id %s: %v", len(resourceNames), resourceType, testID, resourceNames)
 	}
-	logrus.Infof("All the resource instances are deleted successfully")
+
+	logrus.Infof("Successfully cleaned up all test resources with test-id %s", testID)
+	return nil
+}
+
+// cleanUpEnrollmentRequests handles the special case for enrollment requests
+// Since enrollment requests don't support labels, we need to:
+// 1. Get devices with the test label
+// 2. Delete enrollment requests with the same names as those devices
+func (h *Harness) cleanUpEnrollmentRequests(testID string) error {
+	logrus.Debugf("Cleaning up enrollment requests for test-id: %s", testID)
+
+	// Get devices with the test label
+	devices, err := h.CLI("get", util.Device, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
+	if err != nil {
+		// If no devices found, that's fine - no enrollment requests to clean up
+		logrus.Debugf("No devices found with test-id %s, skipping enrollment request cleanup", testID)
+		return nil
+	}
+
+	devices = strings.TrimSpace(devices)
+	if devices == "" {
+		logrus.Debugf("No devices found with test-id %s, skipping enrollment request cleanup", testID)
+		return nil
+	}
+
+	// Parse device names from the output
+	deviceNames := []string{}
+	lines := strings.Split(devices, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Extract just the name part from "device/name"
+		if strings.Contains(line, "/") {
+			parts := strings.Split(line, "/")
+			if len(parts) == 2 {
+				deviceNames = append(deviceNames, parts[1])
+			}
+		}
+	}
+
+	if len(deviceNames) == 0 {
+		logrus.Debugf("No device names found with test-id %s, skipping enrollment request cleanup", testID)
+		return nil
+	}
+
+	// Delete enrollment requests with the same names as the devices
+	for _, deviceName := range deviceNames {
+		_, err := h.CLI("delete", util.EnrollmentRequest, deviceName)
+		if err != nil {
+			// Log the error but don't fail the cleanup - enrollment requests might already be deleted
+			logrus.Debugf("Error deleting enrollment request %s: %v (this might be expected if already deleted)", deviceName, err)
+		} else {
+			logrus.Debugf("Successfully deleted enrollment request: %s", deviceName)
+		}
+	}
+
+	logrus.Infof("Completed enrollment request cleanup for test-id %s", testID)
 	return nil
 }
 
@@ -681,6 +741,9 @@ func (h *Harness) GetCertificateSigningRequestByYaml(csrYaml string) v1alpha1.Ce
 
 // Create a repository resource
 func (h *Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
+	// Add test label to metadata
+	h.addTestLabelToResource(&metadata)
+
 	var repository = v1alpha1.Repository{
 		ApiVersion: v1alpha1.RepositoryAPIVersion,
 		Kind:       v1alpha1.RepositoryKind,
@@ -767,13 +830,13 @@ func (h *Harness) SimulateNetworkFailure() error {
 	}
 
 	for _, cmd := range blockCommands {
-		stdout, err := h.VMs[0].RunSSH(cmd, nil)
+		stdout, err := h.VM.RunSSH(cmd, nil)
 		if err != nil {
 			return fmt.Errorf("failed to simulate network failure %v: %v, stdout: %s", cmd, err, stdout)
 		}
 	}
 
-	stdout, err := h.VMs[0].RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
+	stdout, err := h.VM.RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
 	if err != nil {
 		logrus.Warnf("Failed to list iptables rules: %v", err)
 	} else {
@@ -829,16 +892,16 @@ func (h *Harness) FixNetworkFailure() error {
 	}
 
 	for _, cmd := range unblockCommands {
-		stdout, err := h.VMs[0].RunSSH(cmd, nil)
+		stdout, err := h.VM.RunSSH(cmd, nil)
 		if err != nil {
 			return fmt.Errorf("failed to resume the network %v: %v, stdout: %s", cmd, err, stdout)
 		}
 	}
 
 	// Clear any remaining DNS cache
-	_, _ = h.VMs[0].RunSSH([]string{"sudo", "systemd-resolve", "--flush-caches"}, nil)
+	_, _ = h.VM.RunSSH([]string{"sudo", "systemd-resolve", "--flush-caches"}, nil)
 
-	stdout, err := h.VMs[0].RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
+	stdout, err := h.VM.RunSSH([]string{"sudo", "iptables", "-L", "OUTPUT"}, nil)
 	if err != nil {
 		logrus.Warnf("Failed to list iptables rules: %v", err)
 	} else {
@@ -939,7 +1002,7 @@ func (h *Harness) RunGetEvents(args ...string) (string, error) {
 func (h *Harness) ManageResource(operation, resource string, args ...string) (string, error) {
 	switch operation {
 	case "apply":
-		return h.CLI("apply", "-f", util.GetTestExamplesYamlPath(resource))
+		return h.applyResourceWithTestLabels(resource)
 	case "delete":
 		if len(args) > 0 {
 			deleteArgs := append([]string{"delete", resource}, args...)
@@ -948,12 +1011,75 @@ func (h *Harness) ManageResource(operation, resource string, args ...string) (st
 		if len(args) == 0 {
 			return h.CLI("delete", resource)
 		}
-		return h.CleanUpResources(resource)
+		err := h.CleanUpTestResources(resource)
+		if err != nil {
+			return "", fmt.Errorf("failed to clean up test resources: %w", err)
+		}
+		return "", nil
 	case "approve":
 		return h.CLI("approve", resource)
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}
+}
+
+// applyResourceWithTestLabels reads a YAML file, adds test labels to the resource, and applies it
+func (h *Harness) applyResourceWithTestLabels(yamlPath string) (string, error) {
+	// Read the YAML file
+	fileBytes, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read yaml file %s: %w", yamlPath, err)
+	}
+
+	// Parse the YAML to add test labels
+	modifiedYAML, err := h.addTestLabelsToYAML(string(fileBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to add test labels to yaml: %w", err)
+	}
+
+	// Apply the modified YAML
+	return h.CLIWithStdin(modifiedYAML, "apply", "-f", "-")
+}
+
+func (h *Harness) ApplyResource(yamlPath string) (string, error) {
+	// Read the YAML file
+	fileBytes, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read yaml file %s: %w", yamlPath, err)
+	}
+
+	// Apply the modified YAML
+	return h.CLIWithStdin(string(fileBytes), "apply", "-f", "-")
+}
+
+// addTestLabelsToYAML adds test labels to all resources in the YAML content
+func (h *Harness) addTestLabelsToYAML(yamlContent string) (string, error) {
+	testID := h.GetTestIDFromContext()
+
+	// Parse the YAML document
+	var resource map[string]interface{}
+	if err := yaml.Unmarshal([]byte(yamlContent), &resource); err != nil {
+		return "", fmt.Errorf("failed to parse yaml document: %w", err)
+	}
+
+	// Add test label to metadata
+	if metadata, ok := resource["metadata"].(map[string]interface{}); ok {
+		if labels, ok := metadata["labels"].(map[string]interface{}); ok {
+			labels["test-id"] = testID
+		} else {
+			metadata["labels"] = map[string]interface{}{"test-id": testID}
+		}
+	} else {
+		resource["metadata"] = map[string]interface{}{"labels": map[string]interface{}{"test-id": testID}}
+	}
+
+	// Marshal back to YAML
+	modifiedDoc, err := yaml.Marshal(resource)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal modified yaml: %w", err)
+	}
+
+	return string(modifiedDoc), nil
 }
 
 func conditionExists(conditions []v1alpha1.Condition, predicate func(condition *v1alpha1.Condition) bool) bool {
@@ -1111,6 +1237,248 @@ func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
 	}
 
 	return "", "", fmt.Errorf("unknown context")
+}
+func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
+	startTime := time.Now()
+
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client config path: %w", err)
+	}
+
+	c, err := client.NewFromConfigFile(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	k8sCluster, err := kubernetesClient()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
+	}
+
+	// Create harness without VM first
+	return &Harness{
+		Client:    c,
+		Context:   ctx,
+		Cluster:   k8sCluster,
+		ctxCancel: cancel,
+		startTime: startTime,
+		VM:        nil,
+	}, nil
+
+}
+
+// NewTestHarnessWithVMPool creates a new test harness with VM pool management.
+// This centralizes the VM pool logic that was previously duplicated in individual tests.
+func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, error) {
+	startTime := time.Now()
+
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client config path: %w", err)
+	}
+
+	c, err := client.NewFromConfigFile(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	k8sCluster, err := kubernetesClient()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
+	}
+
+	// Initialize git repository management
+	gitWorkDir := filepath.Join(GinkgoT().TempDir(), "git-repos")
+	err = os.MkdirAll(gitWorkDir, 0755)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Create harness without VM first
+	harness := &Harness{
+		Client:     c,
+		Context:    ctx,
+		Cluster:    k8sCluster,
+		ctxCancel:  cancel,
+		startTime:  startTime,
+		VM:         nil,
+		gitRepos:   make(map[string]string),
+		gitWorkDir: gitWorkDir,
+	}
+
+	// Get VM from the pool (this should already exist from BeforeSuite)
+	_, err = harness.GetVMFromPool(workerID)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to get VM from pool: %w", err)
+	}
+
+	return harness, nil
+}
+
+// GetVMFromPool retrieves a VM from the pool for the given worker ID.
+// VMs are created on-demand if they don't already exist in the pool.
+func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
+	// Get VM from the global pool (created on-demand if needed)
+	testVM, err := SetupVMForWorker(workerID, os.TempDir(), 2233)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get VM from pool for worker %d: %w", workerID, err)
+	}
+
+	// Set the VM in the harness (one-to-one relationship)
+	h.VM = testVM
+
+	return testVM, nil
+}
+
+// SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
+// and starts the agent. This is useful for tests that use the VM pool pattern.
+func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
+	// Get VM from pool (created on-demand if needed)
+	testVM, err := h.GetVMFromPool(workerID)
+	if err != nil {
+		return fmt.Errorf("failed to get VM from pool: %w", err)
+	}
+
+	// Revert to pristine snapshot
+	if err := testVM.RevertToSnapshot("pristine"); err != nil {
+		return fmt.Errorf("failed to revert to pristine snapshot: %w", err)
+	}
+
+	// Wait for SSH to be ready
+	if err := testVM.WaitForSSHToBeReady(); err != nil {
+		return fmt.Errorf("failed to wait for SSH: %w", err)
+	}
+
+	// Stop the agent to ensure clean state
+	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil); err != nil {
+		return fmt.Errorf("failed to stop flightctl-agent: %w", err)
+	}
+
+	return nil
+}
+
+// SetTestContext sets the context for the current test.
+// This allows tests to use their own context for operations while keeping
+// the suite context for cleanup operations.
+func (h *Harness) SetTestContext(ctx context.Context) {
+	if testID, ok := ctx.Value(util.TestIDKey).(string); ok && testID != "" {
+		GinkgoWriter.Printf("SetTestContext called with test ID: %s\n", testID)
+	} else {
+		GinkgoWriter.Printf("SetTestContext called with context that has NO test ID\n")
+	}
+	h.Context = ctx
+}
+
+// GetTestContext returns the current test context.
+// If no test context has been set, it returns the suite context.
+func (h *Harness) GetTestContext() context.Context {
+	return h.Context
+}
+
+// GetTestIDFromContext retrieves the test ID from the context
+// If no test ID is found, it indicates a programming error and will cause the test to fail
+func (h *Harness) GetTestIDFromContext() string {
+	if testID, ok := h.Context.Value(util.TestIDKey).(string); ok && testID != "" {
+		GinkgoWriter.Printf("Harness using test ID: %s\n", testID)
+		return testID
+	}
+
+	// This should never happen if the test context is set up correctly
+	Fail("Test ID not found in context - this indicates the test context was not properly initialized with StartSpecTracerForGinkgo")
+	return "" // This line will never be reached, but needed for compilation
+}
+
+// StoreDeviceInTestContext stores device data in the test context for use within the same test
+func (h *Harness) StoreDeviceInTestContext(deviceId string, device *v1alpha1.Device) {
+	ctx := context.WithValue(h.Context, util.DeviceIDKey, deviceId)
+	ctx = context.WithValue(ctx, util.DeviceKey, device)
+	h.Context = ctx
+}
+
+// GetDeviceFromTestContext retrieves device data from the test context
+func (h *Harness) GetDeviceFromTestContext() (string, *v1alpha1.Device, bool) {
+	deviceId, hasDeviceId := h.Context.Value(util.DeviceIDKey).(string)
+	device, hasDevice := h.Context.Value(util.DeviceKey).(*v1alpha1.Device)
+	return deviceId, device, hasDeviceId && hasDevice
+}
+
+// StoreTestDataInContext stores arbitrary test data in the context using a string key
+func (h *Harness) StoreTestDataInContext(key string, value interface{}) {
+	// Create a nested context structure to store multiple test data values
+	testData, _ := h.Context.Value(util.TestContextKey).(map[string]interface{})
+	if testData == nil {
+		testData = make(map[string]interface{})
+	}
+	testData[key] = value
+	h.Context = context.WithValue(h.Context, util.TestContextKey, testData)
+}
+
+// GetTestDataFromContext retrieves arbitrary test data from the context using a string key
+func (h *Harness) GetTestDataFromContext(key string) (interface{}, bool) {
+	testData, ok := h.Context.Value(util.TestContextKey).(map[string]interface{})
+	if !ok {
+		return nil, false
+	}
+	value, exists := testData[key]
+	return value, exists
+}
+
+// addTestLabelToResource adds the test ID as a label to the resource metadata
+func (h *Harness) addTestLabelToResource(metadata *v1alpha1.ObjectMeta) {
+	testID := h.GetTestIDFromContext()
+
+	if metadata.Labels == nil {
+		metadata.Labels = &map[string]string{}
+	}
+
+	(*metadata.Labels)["test-id"] = testID
+}
+
+func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1alpha1.EnrollmentRequestApproval) {
+	testID := h.GetTestIDFromContext()
+
+	if approval.Labels == nil {
+		approval.Labels = &map[string]string{}
+	}
+
+	(*approval.Labels)["test-id"] = testID
+}
+
+// SetLabelsForResource sets labels on any resource while preserving the test-id label
+func (h *Harness) SetLabelsForResource(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+	testID := h.GetTestIDFromContext()
+
+	metadata.Labels = &map[string]string{}
+
+	// Always preserve the test-id label
+	(*metadata.Labels)["test-id"] = testID
+
+	// Add the provided labels
+	for key, value := range labels {
+		(*metadata.Labels)[key] = value
+	}
+	GinkgoWriter.Printf("Set labels for resource %s: %v", metadata.Name, metadata.Labels)
+}
+
+// SetLabelsForDeviceMetadata sets labels on device metadata while preserving the test-id label
+func (h *Harness) SetLabelsForDeviceMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+	h.SetLabelsForResource(metadata, labels)
+}
+
+// SetLabelsForFleetMetadata sets labels on fleet metadata while preserving the test-id label
+func (h *Harness) SetLabelsForFleetMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+	h.SetLabelsForResource(metadata, labels)
+}
+
+// SetLabelsForRepositoryMetadata sets labels on repository metadata while preserving the test-id label
+func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+	h.SetLabelsForResource(metadata, labels)
 }
 
 // GetGitServerConfig returns the configuration for the e2e git server

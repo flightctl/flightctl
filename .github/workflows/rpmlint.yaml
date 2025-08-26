@@ -1,0 +1,31 @@
+name: "RPM Spec Lint"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  rpmlint:
+    runs-on: "ubuntu-24.04"
+    container:
+      image: fedora:latest
+    steps:
+      - name: Install dependencies
+        run: |
+          dnf update -y
+          dnf install -y rpmlint rpm-build go-rpm-macros make
+
+      - uses: actions/checkout@v4
+
+      - name: Running RPM Spec Lint
+        run: |
+          echo "Running rpmlint directly to avoid any make/git interactions"
+          rpmlint packaging/rpm/flightctl.spec
