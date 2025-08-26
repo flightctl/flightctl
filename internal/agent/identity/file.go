@@ -83,7 +83,7 @@ func (f *fileProvider) HasCertificate() bool {
 	return exists
 }
 
-func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
+func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metricsCallback client.RPCMetricsCallback, deviceNotFoundCallback client.DeviceNotFoundCallback) (client.Management, error) {
 	// check if management certificate exists
 	managementCertExists, err := f.rw.PathExists(config.GetClientCertificatePath())
 	if err != nil {
@@ -94,7 +94,7 @@ func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metrics
 		return nil, fmt.Errorf("management client certificate does not exist at %q - device needs re-enrollment", config.GetClientCertificatePath())
 	}
 
-	httpClient, err := client.NewFromConfig(config)
+	httpClient, err := client.NewFromConfig(config, deviceNotFoundCallback)
 	if err != nil {
 		return nil, fmt.Errorf("create management client: %w", err)
 	}
@@ -141,6 +141,18 @@ func (f *fileProvider) WipeCredentials() error {
 	}
 
 	f.log.Info("Successfully wiped file-based credentials")
+	return nil
+}
+
+func (f *fileProvider) WipeCertificate() error {
+	if f.clientCertPath != "" {
+		f.log.Infof("Wiping certificate file %s (keeping private key)", f.clientCertPath)
+		if err := f.rw.OverwriteAndWipe(f.clientCertPath); err != nil {
+			return fmt.Errorf("failed to wipe certificate file %s: %w", f.clientCertPath, err)
+		}
+	}
+
+	f.log.Info("Successfully wiped certificate file (private key preserved)")
 	return nil
 }
 

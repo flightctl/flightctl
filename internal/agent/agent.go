@@ -238,6 +238,20 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// Create device not found callback for HTTP client level handling
+	deviceNotFoundCallback := func(ctx context.Context) error {
+		a.log.Warn("Device not found on server - wiping certificate and rebooting for fresh enrollment")
+
+		// Get current device status for the wipe operation
+		currentStatus := statusManager.Get(ctx)
+		if currentStatus == nil {
+			a.log.Warn("Device status is nil during certificate wipe, continuing anyway")
+		}
+
+		// Wipe only the certificate (preserving private key/CSR) and reboot
+		return lifecycleManager.WipeCertificateAndReboot(ctx)
+	}
+
 	bootstrap := device.NewBootstrap(
 		deviceName,
 		executer,
@@ -250,6 +264,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		&a.config.ManagementService.Config,
 		systemInfoManager,
 		a.config.GetManagementMetricsCallback(),
+		deviceNotFoundCallback,
 		podmanClient,
 		identityProvider,
 		a.log,
@@ -350,7 +365,9 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
-	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
+	// For enrollment client, we don't need device 404 handling since enrollment
+	// is for creating new devices, not managing existing ones
+	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config, nil)
 	if err != nil {
 		return nil, err
 	}

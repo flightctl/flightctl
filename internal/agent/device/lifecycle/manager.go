@@ -225,6 +225,29 @@ func (m *LifecycleManager) IsInitialized() bool {
 	return m.identityProvider.HasCertificate()
 }
 
+// WipeCertificateAndReboot wipes only the device certificate (keeping private key/CSR) and reboots.
+// This is used when the device is not found on the server but we want to preserve the key for re-enrollment.
+func (m *LifecycleManager) WipeCertificateAndReboot(ctx context.Context) error {
+	m.log.Warn("Device not found on server - wiping certificate and restarting for fresh enrollment")
+
+	var errs []error
+
+	// Use identity provider to wipe only the certificate
+	if err := m.identityProvider.WipeCertificate(); err != nil {
+		m.log.Errorf("Failed to wipe certificate via identity provider: %v", err)
+		errs = append(errs, fmt.Errorf("failed to wipe certificate via identity provider: %w", err))
+	}
+
+	// TODO: incorporate before-reboot hooks
+	if err := m.systemdClient.Restart(ctx, "flightctl-agent"); err != nil {
+		errs = append(errs, fmt.Errorf("failed to restart flightctl-agetn: %w", err))
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
 func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 	enrollmentRequest, err := m.enrollmentClient.GetEnrollmentRequest(ctx, m.deviceName)
 	if err != nil {
