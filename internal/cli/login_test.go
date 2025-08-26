@@ -42,6 +42,16 @@ func TestLoginOptions_Validate(t *testing.T) {
 			errMsg:  "the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again",
 		},
 		{
+			name:    "uppercase HTTPS scheme",
+			url:     "HTTPS://api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "leading/trailing whitespace",
+			url:     "   https://api.example.com  ",
+			wantErr: false,
+		},
+		{
 			name:    "missing protocol",
 			url:     "api.example.com",
 			wantErr: true,
@@ -54,14 +64,32 @@ func TestLoginOptions_Validate(t *testing.T) {
 			errMsg:  "API URL is missing the protocol. Please ensure the API URL starts with 'https://'",
 		},
 		{
+			name:    "missing hostname but port present",
+			url:     "https://:8443",
+			wantErr: true,
+			errMsg:  "API URL is missing a valid hostname. Please provide a complete URL with hostname",
+		},
+		{
 			name:    "URL with double slashes in hostname",
 			url:     "https://api//example.com",
 			wantErr: true,
 			errMsg:  "API URL contains an unexpected path component '//example.com'. The API URL should only contain the hostname and optionally a port. Try: https://api",
 		},
 		{
+			name:    "URL with embedded credentials (userinfo)",
+			url:     "https://user:pass@api.example.com",
+			wantErr: true,
+			errMsg:  "must not include username or password",
+		},
+		{
 			name:    "empty hostname",
 			url:     "https://",
+			wantErr: true,
+			errMsg:  "API URL is missing a valid hostname. Please provide a complete URL with hostname",
+		},
+		{
+			name:    "URL with only port",
+			url:     "https://:8443",
 			wantErr: true,
 			errMsg:  "API URL is missing a valid hostname. Please provide a complete URL with hostname",
 		},
@@ -82,6 +110,34 @@ func TestLoginOptions_Validate(t *testing.T) {
 			url:     "https://api.example.com?foo=bar#section",
 			wantErr: true,
 			errMsg:  "API URL contains unexpected query parameters '?foo=bar'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
+		},
+		{
+			name:    "IPv6 URL with port",
+			url:     "https://[2001:db8::1]:8443",
+			wantErr: false,
+		},
+		{
+			name:    "IPv6 URL with path component",
+			url:     "https://[2001:db8::1]:8443/api/v1",
+			wantErr: true,
+			errMsg:  "API URL contains an unexpected path component '/api/v1'. The API URL should only contain the hostname and optionally a port. Try: https://[2001:db8::1]:8443",
+		},
+		{
+			name:    "IPv6 URL with query parameters",
+			url:     "https://[2001:db8::1]:8443?param=value",
+			wantErr: true,
+			errMsg:  "API URL contains unexpected query parameters '?param=value'. The API URL should only contain the hostname and optionally a port. Try: https://[2001:db8::1]:8443",
+		},
+		{
+			name:    "IPv6 with port and extra path (corrected URL should preserve brackets)",
+			url:     "https://[2001:db8::1]:8443/devices",
+			wantErr: true,
+			errMsg:  "Try: https://[2001:db8::1]:8443",
+		},
+		{
+			name:    "trailing slash is allowed",
+			url:     "https://api.example.com/",
+			wantErr: false,
 		},
 	}
 
