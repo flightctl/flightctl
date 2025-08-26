@@ -1261,12 +1261,12 @@ func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
 
 	// Create harness without VM first
 	return &Harness{
-		Client:    c,
-		Context:   ctx,
-		Cluster:   k8sCluster,
-		ctxCancel: cancel,
-		startTime: startTime,
-		VM:        nil,
+		Client    : c,
+		Context   : ctx,
+		Cluster   : k8sCluster,
+		ctxCancel : cancel,
+		startTime : startTime,
+		VM        : nil,
 	}, nil
 
 }
@@ -1301,14 +1301,14 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 
 	// Create harness without VM first
 	harness := &Harness{
-		Client:     c,
-		Context:    ctx,
-		Cluster:    k8sCluster,
-		ctxCancel:  cancel,
-		startTime:  startTime,
-		VM:         nil,
-		gitRepos:   make(map[string]string),
-		gitWorkDir: gitWorkDir,
+		Client     : c,
+		Context    : ctx,
+		Cluster    : k8sCluster,
+		ctxCancel  : cancel,
+		startTime  : startTime,
+		VM         : nil,
+		gitRepos   : make(map[string]string),
+		gitWorkDir : gitWorkDir,
 	}
 
 	// Get VM from the pool (this should already exist from BeforeSuite)
@@ -1928,3 +1928,4 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 
 	return nil
 }
+
