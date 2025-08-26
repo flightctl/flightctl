@@ -69,19 +69,19 @@ func TestLoginOptions_Validate(t *testing.T) {
 			name:    "URL with query parameters",
 			url:     "https://api.example.com?foo=bar&baz=qux",
 			wantErr: true,
-			errMsg:  "API URL contains an unexpected path component '?foo=bar&baz=qux'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
+			errMsg:  "API URL contains unexpected query parameters '?foo=bar&baz=qux'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
 		},
 		{
 			name:    "URL with fragment",
 			url:     "https://api.example.com#section",
 			wantErr: true,
-			errMsg:  "API URL contains an unexpected path component '#section'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
+			errMsg:  "API URL contains an unexpected fragment '#section'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
 		},
 		{
 			name:    "URL with query parameters and fragment",
 			url:     "https://api.example.com?foo=bar#section",
 			wantErr: true,
-			errMsg:  "API URL contains an unexpected path component '?foo=bar'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
+			errMsg:  "API URL contains unexpected query parameters '?foo=bar'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
 		},
 	}
 

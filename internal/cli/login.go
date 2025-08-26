@@ -187,7 +187,7 @@ func (o *LoginOptions) Validate(args []string) error {
 		if parsedUrl.Port() != "" {
 			correctedURL = fmt.Sprintf("https://%s:%s", parsedUrl.Hostname(), parsedUrl.Port())
 		}
-		return fmt.Errorf("API URL contains an unexpected path component '?%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.RawQuery, correctedURL)
+		return fmt.Errorf("API URL contains unexpected query parameters '?%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.RawQuery, correctedURL)
 	}
 
 	// Check for fragments
@@ -197,7 +197,7 @@ func (o *LoginOptions) Validate(args []string) error {
 		if parsedUrl.Port() != "" {
 			correctedURL = fmt.Sprintf("https://%s:%s", parsedUrl.Hostname(), parsedUrl.Port())
 		}
-		return fmt.Errorf("API URL contains an unexpected path component '#%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Fragment, correctedURL)
+		return fmt.Errorf("API URL contains an unexpected fragment '#%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Fragment, correctedURL)
 	}
 
 	// Check for common URL format issues

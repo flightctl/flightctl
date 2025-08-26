@@ -15,7 +15,7 @@ This guide helps you resolve common issues when using the Flight Control CLI (`f
 
 ### Common Login Error Messages
 
-#### "API URL contains an unexpected path component"
+#### "API URL contains an unexpected path component '%s'. The API URL should only contain the hostname and optionally a port. Try: %s"
 
 **Problem**: You've included a path component in the API URL that shouldn't be there.
 
@@ -34,7 +34,7 @@ flightctl login https://api.example.com
 
 **Why this happens**: The Flight Control API is served from the root path of the server, not from subdirectories.
 
-#### "the API URL must use HTTPS for secure communication"
+#### "the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again"
 
 **Problem**: You're trying to use HTTP instead of HTTPS.
 
@@ -51,7 +51,7 @@ flightctl login http://api.example.com
 flightctl login https://api.example.com
 ```
 
-#### "API URL is missing a valid hostname"
+#### "API URL is missing a valid hostname. Please provide a complete URL with hostname"
 
 **Problem**: The URL doesn't contain a valid hostname.
 
@@ -82,7 +82,7 @@ flightctl login https://api.example.com
 flightctl login https://api.example.com:8443
 
 # HTTPS URL with custom port (non-standard)
-flightctl login https://api.example.com:3443
+flightctl login https://api.example.com:9443
 ```
 
 ### Invalid URL Formats
@@ -201,6 +201,9 @@ flightctl login https://api.example.com#section
    # Default Flight Control ports
    flightctl login https://api.example.com:3443  # API port (default)
    flightctl login https://api.example.com:7443  # Agent port (default)
+   
+   # Custom port example
+   flightctl login https://api.example.com:9443  # Custom port
    ```
 
    > Note: These are the default ports (configured in `internal/config/config.go`); your installation may use different ports.
