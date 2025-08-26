@@ -147,6 +147,9 @@ func (m *MockDevice) ListDevicesByServiceCondition(ctx context.Context, orgId uu
 	return nil, nil
 }
 func (m *MockDevice) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {}
+func (m *MockDevice) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
+	return 0, nil
+}
 
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 	// Provide mock SQL results for org/status aggregation

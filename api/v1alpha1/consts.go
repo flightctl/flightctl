@@ -151,4 +151,7 @@ const (
 	PreliminaryBatchName = "preliminary batch"
 	// The name of the final implicit batch
 	FinalImplicitBatchName = "final implicit batch"
+
+	// System-level resource name for events
+	FlightCtlSystemResourceName = "flightctl-system"
 )

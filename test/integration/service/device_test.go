@@ -4,6 +4,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -710,6 +711,62 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(pausedEvent).ToNot(BeNil(), "DeviceConflictPaused event should be generated when transitioning from Online to ConflictPaused")
 			Expect(pausedEvent.Type).To(Equal(api.Normal))
 			Expect(pausedEvent.Message).To(ContainSubstring("Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required."))
+		})
+	})
+
+	Context("PrepareDevicesAfterRestore", func() {
+		It("should emit SystemRestored event when restore preparation completes", func() {
+			// Create a test device first
+			deviceName := "restore-test-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+			}
+
+			// Create the device through the service
+			createdDevice, status := suite.Handler.CreateDevice(suite.Ctx, *device)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(createdDevice).ToNot(BeNil())
+
+			// Get initial event count
+			initialEvents, err := suite.Store.Event().List(suite.Ctx, orgId, store.ListParams{Limit: 1000})
+			Expect(err).ToNot(HaveOccurred())
+			initialEventCount := len(initialEvents.Items)
+
+			// Call PrepareDevicesAfterRestore (cast to concrete type to access the method)
+			serviceHandler, ok := suite.Handler.(*service.ServiceHandler)
+			Expect(ok).To(BeTrue(), "Handler should be a *ServiceHandler")
+
+			err = serviceHandler.PrepareDevicesAfterRestore(suite.Ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Check that SystemRestored event was created
+			finalEvents, err := suite.Store.Event().List(suite.Ctx, orgId, store.ListParams{Limit: 1000})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Should have at least one more event than before
+			Expect(len(finalEvents.Items)).To(BeNumerically(">", initialEventCount))
+
+			// Find the SystemRestored event
+			var systemRestoredEvent *api.Event
+			for _, event := range finalEvents.Items {
+				if event.Reason == api.EventReasonSystemRestored {
+					systemRestoredEvent = &event
+					break
+				}
+			}
+
+			// Verify the SystemRestored event was created
+			Expect(systemRestoredEvent).ToNot(BeNil(), "SystemRestored event should be created")
+			Expect(systemRestoredEvent.Type).To(Equal(api.Normal))
+			Expect(systemRestoredEvent.InvolvedObject.Kind).To(Equal(api.FleetKind))
+			Expect(systemRestoredEvent.InvolvedObject.Name).To(Equal("flightctl-system"))
+			Expect(systemRestoredEvent.Message).To(ContainSubstring("System restored successfully"))
+			Expect(systemRestoredEvent.Message).To(ContainSubstring("devices for post-restoration preparation"))
 		})
 	})
 })
