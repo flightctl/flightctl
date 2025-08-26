@@ -108,7 +108,6 @@ OpenTelemetry Collector for metric collection. All components run in Podman cont
 managed by systemd and can be installed independently without requiring core FlightCtl
 services to be running. This package automatically includes the flightctl-otel-collector package.
 
-
 %files otel-collector
 # OpenTelemetry Collector specific files
 /etc/otelcol/otelcol-config.yaml
