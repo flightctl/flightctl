@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -238,6 +239,19 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// Create device not found callback for HTTP client level handling
+	var deviceNotFoundOnce sync.Once
+	var deviceNotFoundErr error
+	deviceNotFoundCallback := func(ctx context.Context) error {
+		deviceNotFoundOnce.Do(func() {
+			a.log.Warn("Device not found on server - wiping certificate and restarting service for fresh enrollment")
+
+			// Wipe only the certificate (preserving private key/CSR) and restart service
+			deviceNotFoundErr = lifecycleManager.WipeCertificateAndRestartService(ctx)
+		})
+		return deviceNotFoundErr
+	}
+
 	bootstrap := device.NewBootstrap(
 		deviceName,
 		executer,
@@ -250,6 +264,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		&a.config.ManagementService.Config,
 		systemInfoManager,
 		a.config.GetManagementMetricsCallback(),
+		deviceNotFoundCallback,
 		podmanClient,
 		identityProvider,
 		a.log,
@@ -350,7 +365,9 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
-	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
+	// For enrollment client, we don't need device 404 handling since enrollment
+	// is for creating new devices, not managing existing ones
+	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config, nil)
 	if err != nil {
 		return nil, err
 	}

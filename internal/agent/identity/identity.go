@@ -42,11 +42,13 @@ type Provider interface {
 	// HasCertificate returns true if the provider has a certificate available
 	HasCertificate() bool
 	// CreateManagementClient creates a fully configured management client with this identity
-	CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error)
+	CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback, deviceNotFoundCallback client.DeviceNotFoundCallback) (client.Management, error)
 	// CreateGRPCClient creates a fully configured gRPC client with this identity
 	CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error)
 	// WipeCredentials securely removes all stored credentials (certificates and keys)
 	WipeCredentials() error
+	// WipeCertificate removes only the certificate, keeping the private key and CSR capability
+	WipeCertificate() error
 	// Close cleans up any resources used by the provider
 	Close(ctx context.Context) error
 }

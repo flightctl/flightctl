@@ -142,7 +142,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 
 		// if we have a console request we ignore the rendered version
 		// TODO: bump the rendered version instead?
-		if len(consoles) == 0 && apiOpts.knownRenderedVersion != nil && renderedVersion == *apiOpts.knownRenderedVersion {
+		if len(consoles) == 0 && apiOpts.knownRenderedVersion != nil && renderedVersion <= *apiOpts.knownRenderedVersion {
 			return nil, nil
 		}
 		// TODO: handle multiple consoles, for now we just encapsulate our one console in a list

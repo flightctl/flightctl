@@ -13,7 +13,6 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	agent_client "github.com/flightctl/flightctl/internal/api/client/agent"
 	base_client "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -106,7 +105,7 @@ func (t *tpmProvider) createCertificate() (*tls.Certificate, error) {
 	return tlsCert, nil
 }
 
-func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
+func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback, deviceNotFoundCallback client.DeviceNotFoundCallback) (client.Management, error) {
 	tlsCert, err := t.createCertificate()
 	if err != nil {
 		return nil, err
@@ -148,7 +147,7 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 		}
 	}
 
-	clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
+	clientWithResponses, err := client.NewFromConfigWithHTTPClient(configCopy, httpClient, deviceNotFoundCallback)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -218,6 +217,13 @@ func (t *tpmProvider) WipeCredentials() error {
 		return fmt.Errorf("clearing TPM client: %w", err)
 	}
 	t.log.Info("Wiped TPM-stored certificate data from memory")
+	return nil
+}
+
+func (t *tpmProvider) WipeCertificate() error {
+	// clear only certificate data from memory, keeping TPM key intact
+	t.certificateData = nil
+	t.log.Info("Wiped certificate data from memory (TPM key preserved)")
 	return nil
 }
 
