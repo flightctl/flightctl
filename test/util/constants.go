@@ -41,6 +41,17 @@ const (
 	DeviceContentOutOfDate   = "DeviceContentOutOfDate"
 	DeviceContentUpToDate    = "DeviceContentUpToDate"
 	DeviceUpdateFailed       = "DeviceUpdateFailed"
+
+	// Eventually polling timeout/interval constants
+	TIMEOUT      = time.Minute
+	LONG_TIMEOUT = 10 * time.Minute
+	POLLING      = time.Second
+	LONG_POLLING = 10 * time.Second
+
+	DURATION_TIMEOUT = 5 * time.Minute
+	SHORT_POLLING    = "250ms"
+	TIMEOUT_5M       = "5m"
+	LONGTIMEOUT      = "10m"
 )
 
 var ResourceTypes = [...]string{
@@ -65,11 +76,6 @@ var DefaultSystemInfo = []string{
 	"netIpDefault",
 	"netMacDefault",
 }
-
-const TIMEOUT = "5m"
-const POLLING = "250ms"
-const LONGTIMEOUT = "10m"
-const DURATION_TIMEOUT = 5 * time.Minute
 
 const E2E_NAMESPACE = "flightctl-e2e"
 const E2E_REGISTRY_NAME = "registry"

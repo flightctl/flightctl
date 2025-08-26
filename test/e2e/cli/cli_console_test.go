@@ -14,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/onsi/gomega/types"
 )
 
 // Test constants
@@ -99,7 +98,7 @@ var _ = Describe("CLI - device console", func() {
 		}
 
 		By("waiting for the update to finish")
-		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 
@@ -159,7 +158,7 @@ var _ = Describe("CLI - device console", func() {
 			Since:    logLookbackDuration,
 			LastBoot: true,
 		}
-		eventuallySlow(harness.VM.JournalLogs).
+		util.EventuallySlow(harness.VM.JournalLogs).
 			WithArguments(opts).
 			Should(And(
 				ContainSubstring("No new template version from management service"),
@@ -199,7 +198,7 @@ var _ = Describe("CLI - device console", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for image pull activity\n")
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
+		util.EventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(ContainSubstring("Pulling image"))
 
@@ -214,7 +213,7 @@ var _ = Describe("CLI - device console", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Network disruption fixed. Waiting for the device to finish updating\n")
-		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
@@ -236,12 +235,12 @@ var _ = Describe("CLI - device console", func() {
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
+		util.EventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(ContainSubstring("Pulling image"))
 
 		GinkgoWriter.Printf("Waiting for image pull failure. It will take a while...\n")
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
+		util.EventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(And(
 				ContainSubstring("Error"),
@@ -257,7 +256,7 @@ var _ = Describe("CLI - device console", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for the device to finish updating\n")
-		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
@@ -302,10 +301,6 @@ var _ = Describe("CLI - device console", func() {
 		Expect(out).To(ContainSubstring("Error:"))
 	})
 })
-
-func eventuallySlow(actual any) types.AsyncAssertion {
-	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
-}
 
 // -----------------------------------------------------------------------------
 // Helper functions
