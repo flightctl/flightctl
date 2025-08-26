@@ -135,6 +135,24 @@ func TestLoginOptions_Validate(t *testing.T) {
 			errMsg:  "Try: https://[2001:db8::1]:8443",
 		},
 		{
+			name:    "IPv6 URL without port (should be bracketed in error)",
+			url:     "https://[2001:db8::1]/api/v1",
+			wantErr: true,
+			errMsg:  "Try: https://[2001:db8::1]",
+		},
+		{
+			name:    "IPv6 URL without port with query (should be bracketed in error)",
+			url:     "https://[2001:db8::1]?param=value",
+			wantErr: true,
+			errMsg:  "Try: https://[2001:db8::1]",
+		},
+		{
+			name:    "IPv6 URL without port with fragment (should be bracketed in error)",
+			url:     "https://[2001:db8::1]#section",
+			wantErr: true,
+			errMsg:  "Try: https://[2001:db8::1]",
+		},
+		{
 			name:    "trailing slash is allowed",
 			url:     "https://api.example.com/",
 			wantErr: false,

@@ -153,9 +153,14 @@ func (o *LoginOptions) Validate(args []string) error {
 	// Check for extra path components that might indicate user error
 	if parsedUrl.Path != "" && parsedUrl.Path != "/" {
 		// Suggest removing the path component
-		correctedURL := "https://" + parsedUrl.Hostname()
+		host := parsedUrl.Hostname()
+		// Bracket IPv6 when no port is present
+		correctedURL := "https://" + host
+		if strings.Count(host, ":") > 1 {
+			correctedURL = "https://[" + host + "]"
+		}
 		if parsedUrl.Port() != "" {
-			correctedURL = "https://" + net.JoinHostPort(parsedUrl.Hostname(), parsedUrl.Port())
+			correctedURL = "https://" + net.JoinHostPort(host, parsedUrl.Port())
 		}
 		return fmt.Errorf("API URL contains an unexpected path component '%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Path, correctedURL)
 	}
@@ -163,9 +168,14 @@ func (o *LoginOptions) Validate(args []string) error {
 	// Check for query parameters
 	if parsedUrl.RawQuery != "" {
 		// Suggest removing the query parameters
-		correctedURL := "https://" + parsedUrl.Hostname()
+		host := parsedUrl.Hostname()
+		// Bracket IPv6 when no port is present
+		correctedURL := "https://" + host
+		if strings.Count(host, ":") > 1 {
+			correctedURL = "https://[" + host + "]"
+		}
 		if parsedUrl.Port() != "" {
-			correctedURL = "https://" + net.JoinHostPort(parsedUrl.Hostname(), parsedUrl.Port())
+			correctedURL = "https://" + net.JoinHostPort(host, parsedUrl.Port())
 		}
 		return fmt.Errorf("API URL contains unexpected query parameters '?%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.RawQuery, correctedURL)
 	}
@@ -173,9 +183,14 @@ func (o *LoginOptions) Validate(args []string) error {
 	// Check for fragments
 	if parsedUrl.Fragment != "" {
 		// Suggest removing the fragment
-		correctedURL := "https://" + parsedUrl.Hostname()
+		host := parsedUrl.Hostname()
+		// Bracket IPv6 when no port is present
+		correctedURL := "https://" + host
+		if strings.Count(host, ":") > 1 {
+			correctedURL = "https://[" + host + "]"
+		}
 		if parsedUrl.Port() != "" {
-			correctedURL = "https://" + net.JoinHostPort(parsedUrl.Hostname(), parsedUrl.Port())
+			correctedURL = "https://" + net.JoinHostPort(host, parsedUrl.Port())
 		}
 		return fmt.Errorf("API URL contains an unexpected fragment '#%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Fragment, correctedURL)
 	}
