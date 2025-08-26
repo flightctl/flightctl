@@ -42,6 +42,9 @@ type ServerInterface interface {
 	// (PUT /api/v1/certificatesigningrequests/{name}/approval)
 	UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string)
 
+	// (POST /api/v1/deviceactions/resume)
+	ResumeDevices(w http.ResponseWriter, r *http.Request)
+
 	// (GET /api/v1/devices)
 	ListDevices(w http.ResponseWriter, r *http.Request, params ListDevicesParams)
 
@@ -239,6 +242,11 @@ func (_ Unimplemented) ReplaceCertificateSigningRequest(w http.ResponseWriter, r
 
 // (PUT /api/v1/certificatesigningrequests/{name}/approval)
 func (_ Unimplemented) UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/deviceactions/resume)
+func (_ Unimplemented) ResumeDevices(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -746,6 +754,21 @@ func (siw *ServerInterfaceWrapper) UpdateCertificateSigningRequestApproval(w htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCertificateSigningRequestApproval(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// ResumeDevices operation middleware
+func (siw *ServerInterfaceWrapper) ResumeDevices(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResumeDevices(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2399,6 +2422,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/api/v1/certificatesigningrequests/{name}/approval", wrapper.UpdateCertificateSigningRequestApproval)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/deviceactions/resume", wrapper.ResumeDevices)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices", wrapper.ListDevices)

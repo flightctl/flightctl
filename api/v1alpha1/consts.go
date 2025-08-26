@@ -87,6 +87,9 @@ const (
 	OrganizationAPIVersion = "v1alpha1"
 	OrganizationKind       = "Organization"
 	OrganizationListKind   = "OrganizationList"
+
+	SystemKind        = "System"
+	SystemComponentDB = "database"
 )
 
 type UpdateState string

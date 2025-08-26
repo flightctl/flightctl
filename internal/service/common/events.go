@@ -284,6 +284,17 @@ func GetDeviceSpecInvalidEvent(ctx context.Context, deviceName string, message s
 	})
 }
 
+// GetDeviceConflictResolvedEvent creates an event for device conflict being resolved
+func GetDeviceConflictResolvedEvent(ctx context.Context, deviceName string) *api.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.DeviceKind,
+		resourceName: deviceName,
+		reason:       api.EventReasonDeviceConflictResolved,
+		message:      "Device conflict has been resolved and device has been resumed.",
+		details:      nil,
+	})
+}
+
 // GetFleetSpecValidEvent creates an event for fleet spec becoming valid
 func GetFleetSpecValidEvent(ctx context.Context, fleetName string) *api.Event {
 	return getBaseEvent(ctx, resourceEvent{
@@ -572,11 +583,11 @@ func GetReferencedRepositoryUpdatedEvent(ctx context.Context, kind api.ResourceK
 }
 
 // GetSystemRestoredEvent creates an event for system restoration completion
-// Following the pattern of InternalTaskFailed events, this associates the event with a system-level resource
+// Associates the event with a system-level resource using the System kind
 func GetSystemRestoredEvent(ctx context.Context, devicesUpdated int64) *api.Event {
 	return getBaseEvent(ctx, resourceEvent{
-		resourceKind: api.FleetKind,
-		resourceName: api.FlightCtlSystemResourceName,
+		resourceKind: api.SystemKind,
+		resourceName: api.SystemComponentDB,
 		reason:       api.EventReasonSystemRestored,
 		message:      fmt.Sprintf("System restored successfully. Updated %d devices for post-restoration preparation.", devicesUpdated),
 		details:      nil,
