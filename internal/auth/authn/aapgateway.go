@@ -24,14 +24,16 @@ type AAPUserInfo struct {
 type AapGatewayAuth struct {
 	gatewayUrl         string
 	externalGatewayUrl string
+	serviceUrl         string
 	clientTlsConfig    *tls.Config
 	cache              *ttlcache.Cache[string, *AAPUser]
 }
 
-func NewAapGatewayAuth(gatewayUrl string, externalGatewayUrl string, clientTlsConfig *tls.Config) AapGatewayAuth {
+func NewAapGatewayAuth(gatewayUrl string, externalGatewayUrl string, serviceUrl string, clientTlsConfig *tls.Config) AapGatewayAuth {
 	authN := AapGatewayAuth{
 		gatewayUrl:         gatewayUrl,
 		externalGatewayUrl: externalGatewayUrl,
+		serviceUrl:         serviceUrl,
 		clientTlsConfig:    clientTlsConfig,
 		cache:              ttlcache.New[string, *AAPUser](ttlcache.WithTTL[string, *AAPUser](5 * time.Second)),
 	}
@@ -93,8 +95,9 @@ func (a AapGatewayAuth) ValidateToken(ctx context.Context, token string) error {
 
 func (a AapGatewayAuth) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
-		Type: common.AuthTypeAAP,
-		Url:  a.externalGatewayUrl,
+		Type:       common.AuthTypeAAP,
+		Url:        a.externalGatewayUrl,
+		ServiceUrl: a.serviceUrl,
 	}
 }
 

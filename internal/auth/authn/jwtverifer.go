@@ -16,6 +16,7 @@ import (
 type JWTAuth struct {
 	oidcAuthority         string
 	externalOIDCAuthority string
+	serviceUrl            string
 	jwksUri               string
 	clientTlsConfig       *tls.Config
 	client                *http.Client
@@ -27,10 +28,11 @@ type OIDCServerResponse struct {
 	JwksUri       string `json:"jwks_uri"`
 }
 
-func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, clientTlsConfig *tls.Config, orgConfig *common.AuthOrganizationsConfig) (JWTAuth, error) {
+func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, serviceUrl string, clientTlsConfig *tls.Config, orgConfig *common.AuthOrganizationsConfig) (JWTAuth, error) {
 	jwtAuth := JWTAuth{
 		oidcAuthority:         oidcAuthority,
 		externalOIDCAuthority: externalOIDCAuthority,
+		serviceUrl:            serviceUrl,
 		clientTlsConfig:       clientTlsConfig,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -80,6 +82,7 @@ func (j JWTAuth) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
 		Type:                common.AuthTypeOIDC,
 		Url:                 j.externalOIDCAuthority,
+		ServiceUrl:          j.serviceUrl,
 		OrganizationsConfig: orgConfig,
 	}
 }
