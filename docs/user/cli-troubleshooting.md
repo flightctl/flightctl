@@ -117,12 +117,18 @@ flightctl login https://api.example.com#section
 **Troubleshooting steps**:
 
 1. **Verify the server is running**:
+
    ```bash
    # Check if the server is accessible
-   curl -k https://api.example.com/health
+   curl https://api.example.com/health
+   # If your deployment uses a private CA:
+   # curl --cacert /path/to/ca.crt https://api.example.com/health
+   # Development-only fallback (not recommended):
+   # curl -k https://api.example.com/health
    ```
 
 2. **Check network connectivity**:
+
    ```bash
    # Test basic connectivity
    ping api.example.com
@@ -149,18 +155,21 @@ flightctl login https://api.example.com#section
 **Troubleshooting steps**:
 
 1. **Check the hostname**:
+
    ```bash
    # Verify the hostname is correct
    nslookup api.example.com
    ```
 
 2. **Try using IP address temporarily**:
+
    ```bash
    # If DNS is the issue, try using IP directly
    flightctl login https://192.168.1.100
    ```
 
 3. **Check DNS configuration**:
+
    ```bash
    # Check your DNS servers
    cat /etc/resolv.conf
@@ -180,19 +189,24 @@ flightctl login https://api.example.com#section
 **Troubleshooting steps**:
 
 1. **Check network speed**:
+
    ```bash
    # Test network speed to the server
    curl -w "@-" -o /dev/null -s https://api.example.com <<< "time_total: %{time_total}\n"
    ```
 
 2. **Try different ports**:
+
    ```bash
-   # Common Flight Control ports
-   flightctl login https://api.example.com:3443  # API port
-   flightctl login https://api.example.com:7443  # Agent port
+   # Default Flight Control ports
+   flightctl login https://api.example.com:3443  # API port (default)
+   flightctl login https://api.example.com:7443  # Agent port (default)
    ```
 
+   > Note: These are the default ports (configured in `internal/config/config.go`); your installation may use different ports.
+
 3. **Check firewall settings**:
+
    ```bash
    # Test if port is reachable
    nc -zv api.example.com 443
@@ -253,21 +267,21 @@ flightctl login https://api.example.com --token=<your-token>
 
 **Solutions**:
 
-1. **Use insecure flag (development only)**:
-   ```bash
-   flightctl login https://api.example.com --insecure-skip-tls-verify
-   ```
-
-2. **Provide CA certificate**:
+1. **Provide CA certificate** (recommended):
    ```bash
    flightctl login https://api.example.com --certificate-authority=/path/to/ca.crt
    ```
 
-3. **Add CA to system trust store**:
+2. **Add CA to system trust store**:
    ```bash
    # Copy CA certificate to system trust store
    sudo cp ca.crt /usr/local/share/ca-certificates/
    sudo update-ca-certificates
+   ```
+
+3. **Use insecure flag (development only)**:
+   ```bash
+   flightctl login https://api.example.com --insecure-skip-tls-verify
    ```
 
 ### "certificate signed by unknown authority"
@@ -299,27 +313,15 @@ flightctl get --help
 flightctl apply --help
 ```
 
-### Debug Mode
-
-Enable debug output for more detailed error information:
-
-```bash
-# Set debug environment variable
-export FLIGHTCTL_DEBUG=1
-
-# Run your command
-flightctl login https://api.example.com
-```
-
 ### Logs
 
 Check logs for additional information:
 
 ```bash
-# Check CLI logs (if available)
+# Agent logs (if running as a service)
 journalctl -u flightctl-agent
 
-# Check system logs
+# System logs (for network/TLS/systemd issues)
 journalctl -f
 ```
 
@@ -337,7 +339,11 @@ If you continue to experience issues:
 
 2. **Generate SOS report** (if applicable):
    ```bash
-   flightctl console device/<device-name> -- sos report --batch --quiet
+   # Using sos from PATH
+   flightctl console device/1234-abcd -- sos report --batch --quiet
+   
+   # Using full path to sos
+   flightctl console device/1234-abcd -- /usr/sbin/sos report --batch --quiet
    ```
 
 3. **Contact support** with:

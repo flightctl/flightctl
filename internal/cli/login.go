@@ -155,7 +155,12 @@ func (o *LoginOptions) Validate(args []string) error {
 		return fmt.Errorf("API URL is not a valid URL: %w", err)
 	}
 
-	// Check for HTTPS scheme
+	// Check for missing protocol first for clearer guidance
+	if !strings.HasPrefix(args[0], "http") {
+		return fmt.Errorf("API URL is missing the protocol. Please ensure the API URL starts with 'https://'")
+	}
+
+	// Enforce HTTPS scheme
 	if parsedUrl.Scheme != "https" {
 		return fmt.Errorf("the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again")
 	}
@@ -175,14 +180,29 @@ func (o *LoginOptions) Validate(args []string) error {
 		return fmt.Errorf("API URL contains an unexpected path component '%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Path, correctedURL)
 	}
 
+	// Check for query parameters
+	if parsedUrl.RawQuery != "" {
+		// Suggest removing the query parameters
+		correctedURL := fmt.Sprintf("https://%s", parsedUrl.Host)
+		if parsedUrl.Port() != "" {
+			correctedURL = fmt.Sprintf("https://%s:%s", parsedUrl.Hostname(), parsedUrl.Port())
+		}
+		return fmt.Errorf("API URL contains an unexpected path component '?%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.RawQuery, correctedURL)
+	}
+
+	// Check for fragments
+	if parsedUrl.Fragment != "" {
+		// Suggest removing the fragment
+		correctedURL := fmt.Sprintf("https://%s", parsedUrl.Host)
+		if parsedUrl.Port() != "" {
+			correctedURL = fmt.Sprintf("https://%s:%s", parsedUrl.Hostname(), parsedUrl.Port())
+		}
+		return fmt.Errorf("API URL contains an unexpected path component '#%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Fragment, correctedURL)
+	}
+
 	// Check for common URL format issues
 	if strings.Contains(parsedUrl.Host, "//") {
 		return fmt.Errorf("API URL contains double slashes in the hostname. This is likely a formatting error. Please ensure the URL format is: https://hostname[:port]")
-	}
-
-	// Check for missing protocol
-	if !strings.HasPrefix(args[0], "http") {
-		return fmt.Errorf("API URL is missing the protocol. Please ensure the URL starts with 'https://'")
 	}
 
 	if !login.StrIsEmpty(o.AccessToken) && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || o.Web) {
@@ -314,7 +334,7 @@ func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 			return nil, fmt.Errorf("connection to %s timed out. Please check your network connection and try again", o.clientConfig.Service.Server)
 		}
 		if strings.Contains(errMsg, "certificate") || strings.Contains(errMsg, "tls") {
-			return nil, fmt.Errorf("TLS certificate error when connecting to %s. If using a self-signed certificate, try adding the --insecure-skip-tls-verify flag", o.clientConfig.Service.Server)
+			return nil, fmt.Errorf("TLS certificate error when connecting to %s. Provide a CA bundle with --certificate-authority=<path-to-ca.crt> or, for development only, use --insecure-skip-tls-verify", o.clientConfig.Service.Server)
 		}
 		return nil, fmt.Errorf("failed to get auth info from %s: %w", o.clientConfig.Service.Server, err)
 	}

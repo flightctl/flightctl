@@ -45,13 +45,13 @@ func TestLoginOptions_Validate(t *testing.T) {
 			name:    "missing protocol",
 			url:     "api.example.com",
 			wantErr: true,
-			errMsg:  "the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again",
+			errMsg:  "API URL is missing the protocol. Please ensure the API URL starts with 'https://'",
 		},
 		{
 			name:    "invalid URL",
 			url:     "not-a-url",
 			wantErr: true,
-			errMsg:  "the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again",
+			errMsg:  "API URL is missing the protocol. Please ensure the API URL starts with 'https://'",
 		},
 		{
 			name:    "URL with double slashes in hostname",
@@ -64,6 +64,24 @@ func TestLoginOptions_Validate(t *testing.T) {
 			url:     "https://",
 			wantErr: true,
 			errMsg:  "API URL is missing a valid hostname. Please provide a complete URL with hostname",
+		},
+		{
+			name:    "URL with query parameters",
+			url:     "https://api.example.com?foo=bar&baz=qux",
+			wantErr: true,
+			errMsg:  "API URL contains an unexpected path component '?foo=bar&baz=qux'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
+		},
+		{
+			name:    "URL with fragment",
+			url:     "https://api.example.com#section",
+			wantErr: true,
+			errMsg:  "API URL contains an unexpected path component '#section'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
+		},
+		{
+			name:    "URL with query parameters and fragment",
+			url:     "https://api.example.com?foo=bar#section",
+			wantErr: true,
+			errMsg:  "API URL contains an unexpected path component '?foo=bar'. The API URL should only contain the hostname and optionally a port. Try: https://api.example.com",
 		},
 	}
 
