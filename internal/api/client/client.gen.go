@@ -125,6 +125,11 @@ type ClientInterface interface {
 
 	UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ResumeDevicesWithBody request with any body
+	ResumeDevicesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ResumeDevices(ctx context.Context, body ResumeDevicesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListDevices request
 	ListDevices(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -468,6 +473,30 @@ func (c *Client) UpdateCertificateSigningRequestApprovalWithBody(ctx context.Con
 
 func (c *Client) UpdateCertificateSigningRequestApproval(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateCertificateSigningRequestApprovalRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResumeDevicesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResumeDevicesRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResumeDevices(ctx context.Context, body ResumeDevicesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResumeDevicesRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1760,6 +1789,46 @@ func NewUpdateCertificateSigningRequestApprovalRequestWithBody(server string, na
 	}
 
 	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewResumeDevicesRequest calls the generic ResumeDevices builder with application/json body
+func NewResumeDevicesRequest(server string, body ResumeDevicesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewResumeDevicesRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewResumeDevicesRequestWithBody generates requests for ResumeDevices with any type of body
+func NewResumeDevicesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/deviceactions/resume")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -4409,6 +4478,11 @@ type ClientWithResponsesInterface interface {
 
 	UpdateCertificateSigningRequestApprovalWithResponse(ctx context.Context, name string, body UpdateCertificateSigningRequestApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCertificateSigningRequestApprovalResponse, error)
 
+	// ResumeDevicesWithBodyWithResponse request with any body
+	ResumeDevicesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResumeDevicesResponse, error)
+
+	ResumeDevicesWithResponse(ctx context.Context, body ResumeDevicesJSONRequestBody, reqEditors ...RequestEditorFn) (*ResumeDevicesResponse, error)
+
 	// ListDevicesWithResponse request
 	ListDevicesWithResponse(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*ListDevicesResponse, error)
 
@@ -4846,6 +4920,33 @@ func (r UpdateCertificateSigningRequestApprovalResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r UpdateCertificateSigningRequestApprovalResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ResumeDevicesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DeviceResumeResponse
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r ResumeDevicesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResumeDevicesResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6354,6 +6455,23 @@ func (c *ClientWithResponses) UpdateCertificateSigningRequestApprovalWithRespons
 	return ParseUpdateCertificateSigningRequestApprovalResponse(rsp)
 }
 
+// ResumeDevicesWithBodyWithResponse request with arbitrary body returning *ResumeDevicesResponse
+func (c *ClientWithResponses) ResumeDevicesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResumeDevicesResponse, error) {
+	rsp, err := c.ResumeDevicesWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResumeDevicesResponse(rsp)
+}
+
+func (c *ClientWithResponses) ResumeDevicesWithResponse(ctx context.Context, body ResumeDevicesJSONRequestBody, reqEditors ...RequestEditorFn) (*ResumeDevicesResponse, error) {
+	rsp, err := c.ResumeDevices(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResumeDevicesResponse(rsp)
+}
+
 // ListDevicesWithResponse request returning *ListDevicesResponse
 func (c *ClientWithResponses) ListDevicesWithResponse(ctx context.Context, params *ListDevicesParams, reqEditors ...RequestEditorFn) (*ListDevicesResponse, error) {
 	rsp, err := c.ListDevices(ctx, params, reqEditors...)
@@ -7538,6 +7656,67 @@ func ParseUpdateCertificateSigningRequestApprovalResponse(rsp *http.Response) (*
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResumeDevicesResponse parses an HTTP response from a ResumeDevicesWithResponse call
+func ParseResumeDevicesResponse(rsp *http.Response) (*ResumeDevicesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResumeDevicesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceResumeResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status

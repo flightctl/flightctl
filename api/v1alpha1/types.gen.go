@@ -164,6 +164,7 @@ const (
 	EventReasonDeviceCPUNormal                 EventReason = "DeviceCPUNormal"
 	EventReasonDeviceCPUWarning                EventReason = "DeviceCPUWarning"
 	EventReasonDeviceConflictPaused            EventReason = "DeviceConflictPaused"
+	EventReasonDeviceConflictResolved          EventReason = "DeviceConflictResolved"
 	EventReasonDeviceConnected                 EventReason = "DeviceConnected"
 	EventReasonDeviceContentOutOfDate          EventReason = "DeviceContentOutOfDate"
 	EventReasonDeviceContentUpToDate           EventReason = "DeviceContentUpToDate"
@@ -800,6 +801,28 @@ type DeviceResourceStatus struct {
 
 // DeviceResourceStatusType The types of resource statuses.
 type DeviceResourceStatusType string
+
+// DeviceResumeRequest Request to resume devices based on label selector and/or field selector. At least one selector must be provided.
+type DeviceResumeRequest struct {
+	// FieldSelector A selector to restrict the list of devices to resume by their fields. Uses the same format as Kubernetes field selectors (e.g., "metadata.name=device1,status.phase!=Pending").
+	FieldSelector *string `json:"fieldSelector,omitempty"`
+
+	// LabelSelector A selector to restrict the list of devices to resume by their labels. Uses the same format as Kubernetes label selectors (e.g., "key1=value1,key2!=value2").
+	LabelSelector *string `json:"labelSelector,omitempty"`
+	union         json.RawMessage
+}
+
+// DeviceResumeRequest0 defines model for .
+type DeviceResumeRequest0 = interface{}
+
+// DeviceResumeRequest1 defines model for .
+type DeviceResumeRequest1 = interface{}
+
+// DeviceResumeResponse Response from resuming devices.
+type DeviceResumeResponse struct {
+	// ResumedDevices Number of devices that were successfully resumed.
+	ResumedDevices int `json:"resumedDevices"`
+}
 
 // DeviceSpec DeviceSpec describes a device.
 type DeviceSpec struct {
@@ -2262,6 +2285,9 @@ type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 // UpdateCertificateSigningRequestApprovalJSONRequestBody defines body for UpdateCertificateSigningRequestApproval for application/json ContentType.
 type UpdateCertificateSigningRequestApprovalJSONRequestBody = CertificateSigningRequest
 
+// ResumeDevicesJSONRequestBody defines body for ResumeDevices for application/json ContentType.
+type ResumeDevicesJSONRequestBody = DeviceResumeRequest
+
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
 
@@ -2817,6 +2843,116 @@ func (t ConfigProviderSpec) MarshalJSON() ([]byte, error) {
 
 func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsDeviceResumeRequest0 returns the union data inside the DeviceResumeRequest as a DeviceResumeRequest0
+func (t DeviceResumeRequest) AsDeviceResumeRequest0() (DeviceResumeRequest0, error) {
+	var body DeviceResumeRequest0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceResumeRequest0 overwrites any union data inside the DeviceResumeRequest as the provided DeviceResumeRequest0
+func (t *DeviceResumeRequest) FromDeviceResumeRequest0(v DeviceResumeRequest0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceResumeRequest0 performs a merge with any union data inside the DeviceResumeRequest, using the provided DeviceResumeRequest0
+func (t *DeviceResumeRequest) MergeDeviceResumeRequest0(v DeviceResumeRequest0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceResumeRequest1 returns the union data inside the DeviceResumeRequest as a DeviceResumeRequest1
+func (t DeviceResumeRequest) AsDeviceResumeRequest1() (DeviceResumeRequest1, error) {
+	var body DeviceResumeRequest1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceResumeRequest1 overwrites any union data inside the DeviceResumeRequest as the provided DeviceResumeRequest1
+func (t *DeviceResumeRequest) FromDeviceResumeRequest1(v DeviceResumeRequest1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceResumeRequest1 performs a merge with any union data inside the DeviceResumeRequest, using the provided DeviceResumeRequest1
+func (t *DeviceResumeRequest) MergeDeviceResumeRequest1(v DeviceResumeRequest1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t DeviceResumeRequest) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.FieldSelector != nil {
+		object["fieldSelector"], err = json.Marshal(t.FieldSelector)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'fieldSelector': %w", err)
+		}
+	}
+
+	if t.LabelSelector != nil {
+		object["labelSelector"], err = json.Marshal(t.LabelSelector)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'labelSelector': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *DeviceResumeRequest) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["fieldSelector"]; found {
+		err = json.Unmarshal(raw, &t.FieldSelector)
+		if err != nil {
+			return fmt.Errorf("error reading 'fieldSelector': %w", err)
+		}
+	}
+
+	if raw, found := object["labelSelector"]; found {
+		err = json.Unmarshal(raw, &t.LabelSelector)
+		if err != nil {
+			return fmt.Errorf("error reading 'labelSelector': %w", err)
+		}
+	}
+
 	return err
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 // PrepareDevicesAfterRestore performs post-restoration preparation tasks for devices
@@ -517,6 +518,46 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
 	orgId := getOrgIdFromContext(ctx)
 	return common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+}
+
+func (h *ServiceHandler) ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	h.log.Infof("ResumeDevices called with label selector: %v, field selector: %v",
+		request.LabelSelector, request.FieldSelector)
+
+	// Create list params with both label and field selectors
+	listParams, status := prepareListParams(nil, request.LabelSelector, request.FieldSelector, nil)
+	if status.Code != http.StatusOK {
+		return api.DeviceResumeResponse{}, status
+	}
+
+	// Remove conflictPaused annotation from all matching devices in a single SQL query
+	resumedCount, deviceIDs, err := h.store.Device().RemoveConflictPausedAnnotation(ctx, orgId, lo.FromPtr(listParams))
+	if err != nil {
+		var se *selector.SelectorError
+		switch {
+		case selector.AsSelectorError(err, &se):
+			return api.DeviceResumeResponse{}, api.StatusBadRequest(se.Error())
+		default:
+			return api.DeviceResumeResponse{}, api.StatusInternalServerError(fmt.Sprintf("failed to resume devices: %v", err))
+		}
+	}
+
+	h.log.Infof("Resumed %d devices: %v", resumedCount, deviceIDs)
+
+	// Emit DeviceConflictResolved events for each resumed device
+	if h.eventHandler != nil {
+		for _, deviceID := range deviceIDs {
+			event := common.GetDeviceConflictResolvedEvent(ctx, deviceID)
+			h.eventHandler.CreateEvent(ctx, event)
+		}
+		h.log.Infof("Created DeviceConflictResolved events for %d devices", len(deviceIDs))
+	}
+
+	return api.DeviceResumeResponse{
+		ResumedDevices: int(resumedCount),
+	}, api.StatusOK()
 }
 
 // callbackDeviceUpdated is the device-specific callback that handles device events
