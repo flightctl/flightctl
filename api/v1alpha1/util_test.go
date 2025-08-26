@@ -1108,3 +1108,108 @@ func BenchmarkDeviceSpecsAreEqual(b *testing.B) {
 		_ = DeviceSpecsAreEqual(spec1, spec2)
 	}
 }
+
+func TestGetNextDeviceRenderedVersion(t *testing.T) {
+	tests := []struct {
+		name                  string
+		serviceVersion        string
+		deviceReportedVersion string
+		expectedVersion       string
+		expectError           bool
+	}{
+		{
+			name:                  "No versions - start from 1",
+			serviceVersion:        "",
+			deviceReportedVersion: "",
+			expectedVersion:       "1",
+			expectError:           false,
+		},
+		{
+			name:                  "Only service version - increment service version",
+			serviceVersion:        "5",
+			deviceReportedVersion: "",
+			expectedVersion:       "6",
+			expectError:           false,
+		},
+		{
+			name:                  "Only device version - increment device version",
+			serviceVersion:        "",
+			deviceReportedVersion: "3",
+			expectedVersion:       "4",
+			expectError:           false,
+		},
+		{
+			name:                  "Service version higher - increment service version",
+			serviceVersion:        "10",
+			deviceReportedVersion: "5",
+			expectedVersion:       "11",
+			expectError:           false,
+		},
+		{
+			name:                  "Device version higher - increment device version",
+			serviceVersion:        "3",
+			deviceReportedVersion: "8",
+			expectedVersion:       "9",
+			expectError:           false,
+		},
+		{
+			name:                  "Equal versions - increment by 1",
+			serviceVersion:        "7",
+			deviceReportedVersion: "7",
+			expectedVersion:       "8",
+			expectError:           false,
+		},
+		{
+			name:                  "Invalid service version - error",
+			serviceVersion:        "invalid",
+			deviceReportedVersion: "5",
+			expectedVersion:       "",
+			expectError:           true,
+		},
+		{
+			name:                  "Invalid device version - error",
+			serviceVersion:        "5",
+			deviceReportedVersion: "invalid",
+			expectedVersion:       "",
+			expectError:           true,
+		},
+		{
+			name:                  "Large numbers - handle correctly",
+			serviceVersion:        "999999",
+			deviceReportedVersion: "1000000",
+			expectedVersion:       "1000001",
+			expectError:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup annotations
+			annotations := make(map[string]string)
+			if tt.serviceVersion != "" {
+				annotations[DeviceAnnotationRenderedVersion] = tt.serviceVersion
+			}
+
+			// Setup device status
+			var deviceStatus *DeviceStatus
+			if tt.deviceReportedVersion != "" {
+				deviceStatus = &DeviceStatus{
+					Config: DeviceConfigStatus{
+						RenderedVersion: tt.deviceReportedVersion,
+					},
+				}
+			}
+
+			// Call function
+			result, err := GetNextDeviceRenderedVersion(annotations, deviceStatus)
+
+			// Verify results
+			if tt.expectError {
+				require.Error(t, err, "Expected error but got none")
+			} else {
+				require.NoError(t, err, "Unexpected error: %v", err)
+				require.Equal(t, tt.expectedVersion, result, "Version mismatch")
+			}
+		})
+	}
+}

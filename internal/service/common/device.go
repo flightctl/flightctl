@@ -3,11 +3,13 @@ package common
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -16,19 +18,21 @@ import (
 )
 
 const (
-	ApplicationStatusInfoHealthy   = "Device's application workloads are healthy."
-	ApplicationStatusInfoUndefined = "Device has no application workloads defined."
-	DeviceStatusInfoHealthy        = "Device's system resources are healthy."
-	DeviceStatusInfoRebooting      = "Device is rebooting."
-	CPUIsCritical                  = "CPU utilization has reached a critical level."
-	CPUIsWarning                   = "CPU utilization has reached a warning level."
-	CPUIsNormal                    = "CPU utilization has returned to normal."
-	MemoryIsCritical               = "Memory utilization has reached a critical level."
-	MemoryIsWarning                = "Memory utilization has reached a warning level."
-	MemoryIsNormal                 = "Memory utilization has returned to normal."
-	DiskIsCritical                 = "Disk utilization has reached a critical level."
-	DiskIsWarning                  = "Disk utilization has reached a warning level."
-	DiskIsNormal                   = "Disk utilization has returned to normal."
+	ApplicationStatusInfoHealthy      = "Device's application workloads are healthy."
+	ApplicationStatusInfoUndefined    = "Device has no application workloads defined."
+	DeviceStatusInfoHealthy           = "Device's system resources are healthy."
+	DeviceStatusInfoRebooting         = "Device is rebooting."
+	DeviceStatusInfoAwaitingReconnect = "Device has not reconnected since restore to confirm its current state."
+	DeviceStatusInfoConflictPaused    = "Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required."
+	CPUIsCritical                     = "CPU utilization has reached a critical level."
+	CPUIsWarning                      = "CPU utilization has reached a warning level."
+	CPUIsNormal                       = "CPU utilization has returned to normal."
+	MemoryIsCritical                  = "Memory utilization has reached a critical level."
+	MemoryIsWarning                   = "Memory utilization has reached a warning level."
+	MemoryIsNormal                    = "Memory utilization has returned to normal."
+	DiskIsCritical                    = "Disk utilization has reached a critical level."
+	DiskIsWarning                     = "Disk utilization has reached a warning level."
+	DiskIsNormal                      = "Disk utilization has returned to normal."
 )
 
 type DeviceSuccessEvent func(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, updateDetails *api.ResourceUpdatedDetailsUpdatedFields, log logrus.FieldLogger) *api.Event
@@ -73,6 +77,8 @@ func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.D
 		device.Status = lo.ToPtr(api.NewDeviceStatus())
 	}
 
+	deviceAnnotationsChanged := updateServerSideDeviceAnnotations(ctx, device, log)
+
 	deviceStatusChanged := updateServerSideDeviceStatus(device)
 
 	updatedStatusChanged := updateServerSideDeviceUpdatedStatus(device, ctx, st, log, orgId)
@@ -81,7 +87,7 @@ func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.D
 
 	lifecycleStatusChanged := updateServerSideLifecycleStatus(device)
 
-	return deviceStatusChanged || updatedStatusChanged || applicationStatusChanged || lifecycleStatusChanged
+	return deviceStatusChanged || updatedStatusChanged || applicationStatusChanged || lifecycleStatusChanged || deviceAnnotationsChanged
 }
 
 func resourcesCpu(cpu api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string) {
@@ -130,6 +136,7 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	resourcesMemory(device.Status.Resources.Memory, &resourceErrors, &resourceDegradations)
 	resourcesDisk(device.Status.Resources.Disk, &resourceErrors, &resourceDegradations)
 
+	annotations := lo.FromPtr(device.Metadata.Annotations)
 	switch {
 	case len(resourceErrors) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusError
@@ -137,6 +144,12 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	case len(resourceDegradations) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
 		device.Status.Summary.Info = lo.ToPtr(strings.Join(resourceDegradations, ", "))
+	case annotations[api.DeviceAnnotationAwaitingReconnect] == "true":
+		device.Status.Summary.Status = api.DeviceSummaryStatusAwaitingReconnect
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoAwaitingReconnect)
+	case annotations[api.DeviceAnnotationConflictPaused] == "true":
+		device.Status.Summary.Status = api.DeviceSummaryStatusConflictPaused
+		device.Status.Summary.Info = lo.ToPtr(getConflictPausedInfo(device, annotations))
 	default:
 		device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoHealthy)
@@ -330,6 +343,8 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.D
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceIsRebooting, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
 		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusOnline {
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceConnected, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
+		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusConflictPaused {
+			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceConflictPaused, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
 		}
 	}
 
@@ -523,4 +538,105 @@ func EmitSpecValidEvents(ctx context.Context, device *api.Device, oldCondition, 
 		}
 		createEvent(ctx, getDeviceSpecInvalidEvent(ctx, deviceName, message))
 	}
+}
+
+// updateServerSideDeviceAnnotations checks if device should be paused based on:
+// 1. AwaitingReconnect annotation is present
+// 2. Device-reported version is greater than service's known rendered version
+// If both conditions are met, modifies device annotations in memory and returns true
+// Only processes device-reported status updates (not internal updates)
+func updateServerSideDeviceAnnotations(ctx context.Context, device *api.Device, log logrus.FieldLogger) bool {
+	// Only process device-reported status updates, not internal updates
+	if isInternalRequest(ctx) {
+		return false
+	}
+
+	if device.Metadata.Annotations == nil || device.Metadata.Name == nil {
+		return false
+	}
+
+	annotations := *device.Metadata.Annotations
+	deviceName := *device.Metadata.Name
+
+	// Check condition 1: AwaitingReconnect annotation
+	waitingAnnotation, hasWaitingAnnotation := annotations[api.DeviceAnnotationAwaitingReconnect]
+	if !hasWaitingAnnotation || waitingAnnotation != "true" {
+		return false
+	}
+
+	// Remove the awaiting reconnect annotation, since we got a connection
+	delete(*device.Metadata.Annotations, api.DeviceAnnotationAwaitingReconnect)
+
+	// Check condition 2: Device-reported version > service's known rendered version
+	// Treat missing service version as 0 (never rendered)
+	var serviceVersion int64 = 0
+	serviceVersionStr, hasServiceVersion := annotations[api.DeviceAnnotationRenderedVersion]
+	if hasServiceVersion {
+		var err error
+		serviceVersion, err = strconv.ParseInt(serviceVersionStr, 10, 64)
+		if err != nil {
+			log.Warnf("Failed to parse service rendered version '%s' for device %s: %v", serviceVersionStr, deviceName, err)
+			// Still remove waiting annotation even if version parsing fails
+			log.Infof("Device %s: Removed waiting annotation (service version parse error)", deviceName)
+			return true
+		}
+	}
+
+	// Get device-reported version from status
+	if device.Status == nil || device.Status.Config.RenderedVersion == "" {
+		// No device version to compare, just remove awaiting reconnect annotation
+		log.Infof("Device %s: Removed awaiting reconnect annotation (no device version to compare)", deviceName)
+		return true
+	}
+
+	deviceVersion, err := strconv.ParseInt(device.Status.Config.RenderedVersion, 10, 64)
+	if err != nil {
+		log.Warnf("Failed to parse device reported version '%s' for device %s: %v", device.Status.Config.RenderedVersion, deviceName, err)
+		// Still remove awaiting reconnect annotation even if version parsing fails
+		log.Infof("Device %s: Removed awaiting reconnect annotation (device version parse error)", deviceName)
+		return true
+	}
+
+	// If device-reported version > service version, set conflict paused annotation
+	if deviceVersion > serviceVersion {
+		(*device.Metadata.Annotations)[api.DeviceAnnotationConflictPaused] = "true"
+		log.Infof("Device %s: Set conflict paused annotation and removed awaiting reconnect annotation (device version %d > service version %d)",
+			deviceName, deviceVersion, serviceVersion)
+	} else {
+		log.Infof("Device %s: Removed awaiting reconnect annotation (device version %d <= service version %d)",
+			deviceName, deviceVersion, serviceVersion)
+	}
+
+	return true
+}
+
+// getConflictPausedInfo generates detailed info message for ConflictPaused status including version information
+func getConflictPausedInfo(device *api.Device, annotations map[string]string) string {
+	baseInfo := DeviceStatusInfoConflictPaused
+
+	// Get device-reported version from status
+	if device.Status != nil && device.Status.Config.RenderedVersion != "" {
+		deviceVersionStr := device.Status.Config.RenderedVersion
+
+		// Parse service version, defaulting to 0 if not present or invalid
+		var serviceVersion int64 = 0
+		if serviceVersionStr, exists := annotations[api.DeviceAnnotationRenderedVersion]; exists && serviceVersionStr != "" {
+			if parsed, err := strconv.ParseInt(serviceVersionStr, 10, 64); err == nil {
+				serviceVersion = parsed
+			}
+		}
+
+		return fmt.Sprintf("%s (device reported version %s > device version known to service %d)", baseInfo, deviceVersionStr, serviceVersion)
+	}
+
+	// Fallback to base info if version information is not available
+	return baseInfo
+}
+
+// isInternalRequest checks if the request is internal (from the service) vs external (from device agent)
+func isInternalRequest(ctx context.Context) bool {
+	if internal, ok := ctx.Value(consts.InternalRequestCtxKey).(bool); ok && internal {
+		return true
+	}
+	return false
 }

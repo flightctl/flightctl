@@ -595,7 +595,12 @@ func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, na
 
 	// Changing the console annotation requires bumping the renderedVersion annotation
 	if existingConsoleAnnotation != newConsoleAnnotation {
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
+		var deviceStatus *api.DeviceStatus
+		if existingRecord.Status != nil {
+			deviceStatus = &existingRecord.Status.Data
+		}
+
+		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
 		if err != nil {
 			return false, err
 		}
@@ -632,7 +637,12 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
+	var deviceStatus *api.DeviceStatus
+	if existingRecord.Status != nil {
+		deviceStatus = &existingRecord.Status.Data
+	}
+
+	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
 	if err != nil {
 		return false, err
 	}
