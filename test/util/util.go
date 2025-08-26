@@ -29,6 +29,8 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -437,4 +439,8 @@ func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
 		By("Case: " + tc.Description)
 		runFunc(tc.Params)
 	}
+}
+
+func EventuallySlow(actual any) types.AsyncAssertion {
+	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
 }
