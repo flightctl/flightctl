@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -153,11 +154,35 @@ func (o *LoginOptions) Validate(args []string) error {
 	if err != nil {
 		return fmt.Errorf("API URL is not a valid URL: %w", err)
 	}
+
+	// Check for HTTPS scheme
 	if parsedUrl.Scheme != "https" {
 		return fmt.Errorf("the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again")
 	}
+
+	// Check for valid host
 	if parsedUrl.Host == "" {
-		return fmt.Errorf("API URL is not a valid URL")
+		return fmt.Errorf("API URL is missing a valid hostname. Please provide a complete URL with hostname")
+	}
+
+	// Check for extra path components that might indicate user error
+	if parsedUrl.Path != "" && parsedUrl.Path != "/" {
+		// Suggest removing the path component
+		correctedURL := fmt.Sprintf("https://%s", parsedUrl.Host)
+		if parsedUrl.Port() != "" {
+			correctedURL = fmt.Sprintf("https://%s:%s", parsedUrl.Hostname(), parsedUrl.Port())
+		}
+		return fmt.Errorf("API URL contains an unexpected path component '%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Path, correctedURL)
+	}
+
+	// Check for common URL format issues
+	if strings.Contains(parsedUrl.Host, "//") {
+		return fmt.Errorf("API URL contains double slashes in the hostname. This is likely a formatting error. Please ensure the URL format is: https://hostname[:port]")
+	}
+
+	// Check for missing protocol
+	if !strings.HasPrefix(args[0], "http") {
+		return fmt.Errorf("API URL is missing the protocol. Please ensure the URL starts with 'https://'")
 	}
 
 	if !login.StrIsEmpty(o.AccessToken) && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || o.Web) {
@@ -277,7 +302,21 @@ func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 	}
 	resp, err := c.AuthConfigWithResponse(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get auth info: %w", err)
+		// Enhanced error handling for network issues
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "connection refused") {
+			return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. Please verify the URL and try again", o.clientConfig.Service.Server)
+		}
+		if strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "dns") {
+			return nil, fmt.Errorf("cannot resolve hostname for %s. Please check the URL and ensure the hostname is correct", o.clientConfig.Service.Server)
+		}
+		if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline exceeded") {
+			return nil, fmt.Errorf("connection to %s timed out. Please check your network connection and try again", o.clientConfig.Service.Server)
+		}
+		if strings.Contains(errMsg, "certificate") || strings.Contains(errMsg, "tls") {
+			return nil, fmt.Errorf("TLS certificate error when connecting to %s. If using a self-signed certificate, try adding the --insecure-skip-tls-verify flag", o.clientConfig.Service.Server)
+		}
+		return nil, fmt.Errorf("failed to get auth info from %s: %w", o.clientConfig.Service.Server, err)
 	}
 
 	respCode := resp.StatusCode()
@@ -287,11 +326,11 @@ func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 	}
 
 	if respCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected response code: %v", respCode)
+		return nil, fmt.Errorf("unexpected response code %v from %s. Please verify that the API URL is correct and the server is running", respCode, o.clientConfig.Service.Server)
 	}
 
 	if resp.JSON200 == nil {
-		return nil, fmt.Errorf("unexpected response. Please verify that the API URL is correct")
+		return nil, fmt.Errorf("unexpected response from %s. Please verify that the API URL is correct and points to a valid Flight Control API server", o.clientConfig.Service.Server)
 	}
 
 	return resp.JSON200, nil

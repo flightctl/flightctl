@@ -49,7 +49,7 @@ Welcome to the Flight Control user documentation.
   * [Configuring Flight Control to use k8s auth](kubernetes-auth.md)
   * [TPM Device Authentication](tpm-authentication.md)
 * [Installing the Flight Control CLI](install-cli.md)
-* Using the Flight Control CLI
+* [Using the Flight Control CLI](cli-troubleshooting.md) - CLI usage and troubleshooting
 * [Configuring the Flight Control Agent](configuring-agent.md)
 * [Troubleshooting](troubleshooting.md)
 
