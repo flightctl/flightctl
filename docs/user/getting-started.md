@@ -249,12 +249,53 @@ flightctl login ${FC_API_URL} -t $(oc whoami -t)
 
 > 📌 You can also login with your ACM login credentials using the `--web` or `--username` and `--password` flags
 
-### Self-signed certificates
+### Certificate Configuration and Troubleshooting
 
-The CLI uses the host's certificate authority (CA) pool to verify the Flight Control service's identity. When using self-signed certificates, this can lead to a TLS verification error if you have not added your CA's certificate to that pool. You can:
+The CLI uses the host's certificate authority (CA) pool to verify the Flight Control service's identity. When certificate verification fails, the CLI provides user-friendly error messages with specific guidance for resolution.
 
-* add the path for the CA certificate via the `--certificate-authority=<path_to_ca_crt>` flag to your command
-* or bypass the server verification (insecure!) by adding the `--insecure-skip-tls-verify` flag to your command
+#### Common Certificate Issues
+
+#### Certificate Not Trusted
+
+If you see "Cause: certificate not trusted", the server uses a custom certificate authority:
+
+```console
+flightctl login ${FC_API_URL} --certificate-authority=/path/to/ca.crt
+```
+
+#### Self-Signed Certificates
+
+For self-signed certificates, you can either:
+
+```console
+flightctl login ${FC_API_URL} --insecure-skip-tls-verify
+```
+
+or provide the certificate as a CA:
+
+```console
+flightctl login ${FC_API_URL} --certificate-authority=/path/to/self-signed-cert.crt
+```
+
+#### Hostname Mismatch
+
+If the certificate hostname doesn't match the URL, verify you're using the correct API endpoint. The error message will show valid hostnames for the certificate.
+
+#### OAuth Certificate Issues
+
+When OAuth endpoints use different certificates than the main API, use the dedicated OAuth CA flag:
+
+```console
+flightctl login ${FC_API_URL} --auth-certificate-authority=/path/to/oauth-ca.crt
+```
+
+#### Certificate Flags Reference
+
+| Flag | Purpose |
+|------|---------|
+| `--certificate-authority=<path>` | Specify CA certificate for API endpoints |
+| `--auth-certificate-authority=<path>` | Specify CA certificate for OAuth endpoints |
+| `--insecure-skip-tls-verify` | Skip all certificate verification |
 
 ## Building a Bootable Container Image including the Flight Control Agent
 
