@@ -1456,6 +1456,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -1521,6 +1522,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+
   /api/v1/enrollmentconfig:
     get:
       tags:
@@ -3552,6 +3554,7 @@ components:
       required:
         - target
       description: Metadata about a device decommissioning request.
+
     PatchRequest:
       type: array
       items:
@@ -5580,6 +5583,7 @@ components:
             - ResourceSyncParsingFailed
             - ResourceSyncSynced
             - ResourceSyncSyncFailed
+            - SystemRestored
         message:
           type: string
           description: A human-readable description of the status of this operation.

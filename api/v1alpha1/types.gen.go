@@ -211,6 +211,7 @@ const (
 	EventReasonResourceSyncSynced              EventReason = "ResourceSyncSynced"
 	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
 	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
+	EventReasonSystemRestored                  EventReason = "SystemRestored"
 )
 
 // Defines values for EventType.
