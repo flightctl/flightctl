@@ -64,12 +64,12 @@ func (a AapGatewayAuth) loadUserInfo(token string) (*AAPUser, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unexpected error: %w", err)
 	}
+	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %v", res.StatusCode)
 	}
 
-	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)

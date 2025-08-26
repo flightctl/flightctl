@@ -131,7 +131,7 @@ func initAAPAuth(cfg *config.Config, serviceUrl string, log logrus.FieldLogger) 
 
 // getServiceUrl safely extracts the service URL from config
 func getServiceUrl(cfg *config.Config) string {
-	if cfg.Service == nil || cfg.Service.BaseUrl == "" {
+	if cfg == nil || cfg.Service == nil || cfg.Service.BaseUrl == "" {
 		return ""
 	}
 	return strings.TrimSuffix(cfg.Service.BaseUrl, "/")
@@ -146,7 +146,7 @@ func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
 		nilAuth := NewNilAuth(serviceUrl)
 		authZ = nilAuth
 		authN = nilAuth
-	} else if cfg.Auth != nil {
+	} else if cfg != nil && cfg.Auth != nil {
 		var err error
 		if cfg.Auth.K8s != nil {
 			configuredAuthType = AuthTypeK8s
