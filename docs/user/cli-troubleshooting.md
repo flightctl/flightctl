@@ -226,6 +226,7 @@ flightctl login https://api.example.com#section
     - Check if the account has the necessary permissions
 
 2. **Try different authentication methods**:
+
    ```bash
    # Try web-based authentication
    flightctl login https://api.example.com --web
@@ -268,11 +269,13 @@ flightctl login https://api.example.com --token=<your-token>
 **Solutions**:
 
 1. **Provide CA certificate** (recommended):
+
    ```bash
    flightctl login https://api.example.com --certificate-authority=/path/to/ca.crt
    ```
 
 2. **Add CA to system trust store**:
+
    ```bash
    # Copy CA certificate to system trust store
    sudo cp ca.crt /usr/local/share/ca-certificates/
@@ -280,6 +283,7 @@ flightctl login https://api.example.com --token=<your-token>
    ```
 
 3. **Use insecure flag (development only)**:
+
    ```bash
    flightctl login https://api.example.com --insecure-skip-tls-verify
    ```
@@ -304,7 +308,7 @@ flightctl login https://api.example.com --token=<your-token>
 Get help for any command:
 
 ```bash
-# General help
+
 flightctl --help
 
 # Command-specific help
@@ -318,8 +322,8 @@ flightctl apply --help
 Check logs for additional information:
 
 ```bash
+
 # Agent logs (if running as a service)
-journalctl -u flightctl-agent
 
 # System logs (for network/TLS/systemd issues)
 journalctl -f
@@ -330,6 +334,7 @@ journalctl -f
 If you continue to experience issues:
 
 1. **Collect diagnostic information**:
+
    ```bash
    # Get system information
    flightctl version
@@ -338,10 +343,11 @@ If you continue to experience issues:
    ```
 
 2. **Generate SOS report** (if applicable):
+
    ```bash
+
    # Using sos from PATH
    flightctl console device/1234-abcd -- sos report --batch --quiet
-   
    # Using full path to sos
    flightctl console device/1234-abcd -- /usr/sbin/sos report --batch --quiet
    ```
