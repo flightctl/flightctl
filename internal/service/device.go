@@ -18,6 +18,44 @@ import (
 	"github.com/google/uuid"
 )
 
+// PrepareDevicesAfterRestore performs post-restoration preparation tasks for devices
+func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
+	h.log.Info("Starting post-restoration device preparation")
+
+	// 1. Drop the KV store to clear all cached data
+	h.log.Info("Clearing KV store after restoration")
+	if h.kvStore != nil {
+		if err := h.kvStore.DeleteAllKeys(ctx); err != nil {
+			h.log.WithError(err).Error("Failed to clear KV store")
+			return fmt.Errorf("failed to clear KV store: %w", err)
+		}
+		h.log.Info("KV store cleared successfully")
+	} else {
+		h.log.Warn("KV store not available, skipping clear")
+	}
+
+	// 2. Set waitForDeviceToReconnectAfterRestore annotation on all devices and unset lastSeen
+	h.log.Info("Updating device annotations and clearing lastSeen timestamps")
+
+	devicesUpdated, err := h.store.Device().PrepareDevicesAfterRestore(ctx)
+	if err != nil {
+		h.log.WithError(err).Error("Failed to prepare devices after restore")
+		return fmt.Errorf("failed to prepare devices after restore: %w", err)
+	}
+
+	h.log.Infof("Post-restoration device preparation completed successfully. Updated %d devices total.", devicesUpdated)
+
+	// Emit system restored event
+	if h.eventHandler != nil {
+		event := common.GetSystemRestoredEvent(ctx, devicesUpdated)
+		if event != nil {
+			h.eventHandler.CreateEvent(ctx, event)
+			h.log.Info("System restored event created successfully")
+		}
+	}
+	return nil
+}
+
 func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
