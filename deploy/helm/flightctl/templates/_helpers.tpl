@@ -117,7 +117,7 @@
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
   {{- if eq $exposeMethod "nodePort" }}
-    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.alertmanagerProxy }}
+    {{- printf "%s://flightctl-alertmanager-proxy:8443" $scheme }}
   {{- else if eq $exposeMethod "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80))}}
       {{- printf "%s://alertmanager-proxy.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }}
