@@ -8,10 +8,13 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/config"
+	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) (*apiclient.GetDeviceResponse, error) {
@@ -656,4 +659,58 @@ func (h *Harness) ResetAgent() error {
 		return fmt.Errorf("failed to send SIGHUP to agent: %w", err)
 	}
 	return nil
+}
+
+// SetAgentConfig configures the agent by writing the configuration file.
+// This method should be called before starting the agent.
+func (h *Harness) SetAgentConfig(cfg *config.Config) error {
+	// Marshal the config to YAML
+	configBytes, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal agent config: %w", err)
+	}
+
+	// Write the config to the VM
+	stdout, err := h.VM.RunSSH([]string{
+		"sudo", "mkdir", "-p", "/etc/flightctl",
+		"&&",
+		"echo", fmt.Sprintf("'%s'", string(configBytes)),
+		"|",
+		"sudo", "tee", "/etc/flightctl/agent.yaml",
+	}, nil)
+	if err != nil {
+		logrus.Errorf("Failed to write agent config: %v, stdout: %s", err, stdout)
+		return fmt.Errorf("failed to write agent config: %w", err)
+	}
+
+	return nil
+}
+
+// WaitForDeviceOnlineStatus waits for a device to come online and report status after enrollment.
+// Returns the device ID and device object.
+func (h *Harness) WaitForDeviceOnlineStatus(enrollmentID string) (string, *v1alpha1.Device, error) {
+	var device *v1alpha1.Device
+
+	// Wait for the device to report status
+	Eventually(func() error {
+		resp, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
+		if err != nil {
+			return err
+		}
+		if resp == nil || resp.JSON200 == nil {
+			return fmt.Errorf("device not found")
+		}
+		device = resp.JSON200
+
+		// Verify device is online and healthy
+		if device.Status.Summary.Status != v1alpha1.DeviceSummaryStatusOnline ||
+			device.Status.Summary.Info == nil ||
+			*device.Status.Summary.Info != service.DeviceStatusInfoHealthy {
+			return fmt.Errorf("device not online and healthy")
+		}
+
+		return nil
+	}, TIMEOUT, POLLING).ShouldNot(HaveOccurred())
+
+	return enrollmentID, device, nil
 }
