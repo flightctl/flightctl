@@ -78,6 +78,7 @@ details:
 ### System Events
 
 - `InternalTaskFailed`
+- `SystemRestored`
 
 ## Event Severity
 

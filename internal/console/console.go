@@ -63,13 +63,23 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 			return service.ApiStatusToErr(status)
 		}
 		device.Metadata.Annotations = lo.ToPtr(util.EnsureMap(lo.FromPtr(device.Metadata.Annotations)))
-		value, _ := util.GetFromMap(lo.FromPtr(device.Metadata.Annotations), api.DeviceAnnotationConsole)
+
+		// Check if device is in waiting or paused state - prevent console updates
+		annotations := lo.FromPtr(device.Metadata.Annotations)
+		if waitingValue, exists := annotations[api.DeviceAnnotationAwaitingReconnect]; exists && waitingValue == "true" {
+			return fmt.Errorf("cannot update console for device %s: device is awaiting reconnection after restore", deviceName)
+		}
+		if pausedValue, exists := annotations[api.DeviceAnnotationConflictPaused]; exists && pausedValue == "true" {
+			return fmt.Errorf("cannot update console for device %s: device is paused due to conflicts", deviceName)
+		}
+
+		value, _ := util.GetFromMap(annotations, api.DeviceAnnotationConsole)
 		newValue, err = updater(value)
 		if err != nil {
 			return err
 		}
 		(*device.Metadata.Annotations)[api.DeviceAnnotationConsole] = newValue
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations)
+		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
 		if err != nil {
 			return err
 		}

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -575,6 +576,197 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(connectedEvent).ToNot(BeNil(), "DeviceConnected event should be generated when transitioning from Unknown to Online")
 			Expect(connectedEvent.Type).To(Equal(api.Normal))
 			Expect(connectedEvent.Message).To(ContainSubstring("Device's system resources are healthy"))
+		})
+
+		It("should generate DeviceConflictPaused event when device summary status transitions to conflict paused", func() {
+			deviceName := "device-paused-test"
+
+			// Step 1: Create a device (without status - this will have unknown summary status)
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{},
+			}
+
+			// Create the device
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Step 2: First set device status to online
+			deviceWithOnlineStatus := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: time.Now(),
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+						Info:   lo.ToPtr("Device's system resources are healthy."),
+					},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusHealthy,
+						Info:   lo.ToPtr("Device has no application workloads defined."),
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUpToDate,
+					},
+					Lifecycle: api.DeviceLifecycleStatus{
+						Status: api.DeviceLifecycleStatusUnknown,
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusHealthy,
+						Memory: api.DeviceResourceStatusHealthy,
+						Disk:   api.DeviceResourceStatusHealthy,
+					},
+					Integrity: api.DeviceIntegrityStatus{
+						Status: api.DeviceIntegrityStatusUnknown,
+					},
+					Os: api.DeviceOsStatus{
+						Image:       "test-image",
+						ImageDigest: "sha256:1234",
+					},
+					Config: api.DeviceConfigStatus{
+						RenderedVersion: "1",
+					},
+					SystemInfo: api.DeviceSystemInfo{
+						OperatingSystem: "linux",
+						Architecture:    "amd64",
+						BootID:          "boot-123",
+						AgentVersion:    "v1.0.0",
+					},
+				},
+			}
+
+			// Update the device status to online first
+			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithOnlineStatus)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			// Step 3: Set the paused annotation first
+			pausedAnnotations := map[string]string{
+				api.DeviceAnnotationConflictPaused: "true",
+			}
+			err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, deviceName, pausedAnnotations, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Step 4: Update device status (the service should automatically set it to paused due to the annotation)
+			deviceWithUpdatedStatus := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: time.Now(),
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline, // This will be overridden to ConflictPaused by the service
+						Info:   lo.ToPtr("Device's system resources are healthy."),
+					},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusHealthy,
+						Info:   lo.ToPtr("Device has no application workloads defined."),
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUpToDate,
+					},
+					Lifecycle: api.DeviceLifecycleStatus{
+						Status: api.DeviceLifecycleStatusUnknown,
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusHealthy,
+						Memory: api.DeviceResourceStatusHealthy,
+						Disk:   api.DeviceResourceStatusHealthy,
+					},
+					Integrity: api.DeviceIntegrityStatus{
+						Status: api.DeviceIntegrityStatusUnknown,
+					},
+					Os: api.DeviceOsStatus{
+						Image:       "test-image",
+						ImageDigest: "sha256:1234",
+					},
+					Config: api.DeviceConfigStatus{
+						RenderedVersion: "1",
+					},
+					SystemInfo: api.DeviceSystemInfo{
+						OperatingSystem: "linux",
+						Architecture:    "amd64",
+						BootID:          "boot-123",
+						AgentVersion:    "v1.0.0",
+					},
+				},
+			}
+
+			// Update the device status - service should automatically set it to paused
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithUpdatedStatus)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(resultDevice).ToNot(BeNil())
+			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+
+			// Step 5: Verify that DeviceConflictPaused event was generated
+			finalEvents := getEventsForDevice(deviceName)
+			GinkgoWriter.Printf("Events for device %s: %d events\n", deviceName, len(finalEvents))
+			for i, event := range finalEvents {
+				GinkgoWriter.Printf("Event %d: Type=%s, Reason=%s, Message=%s\n", i, event.Type, event.Reason, event.Message)
+			}
+
+			pausedEvent := findEventByReason(finalEvents, api.EventReasonDeviceConflictPaused)
+			Expect(pausedEvent).ToNot(BeNil(), "DeviceConflictPaused event should be generated when transitioning from Online to ConflictPaused")
+			Expect(pausedEvent.Type).To(Equal(api.Normal))
+			Expect(pausedEvent.Message).To(ContainSubstring("Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required."))
+		})
+	})
+
+	Context("PrepareDevicesAfterRestore", func() {
+		It("should emit SystemRestored event when restore preparation completes", func() {
+			// Create a test device first
+			deviceName := "restore-test-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+			}
+
+			// Create the device through the service
+			createdDevice, status := suite.Handler.CreateDevice(suite.Ctx, *device)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(createdDevice).ToNot(BeNil())
+
+			// Get initial event count
+			initialEvents, err := suite.Store.Event().List(suite.Ctx, orgId, store.ListParams{Limit: 1000})
+			Expect(err).ToNot(HaveOccurred())
+			initialEventCount := len(initialEvents.Items)
+
+			// Call PrepareDevicesAfterRestore (cast to concrete type to access the method)
+			serviceHandler, ok := suite.Handler.(*service.ServiceHandler)
+			Expect(ok).To(BeTrue(), "Handler should be a *ServiceHandler")
+
+			err = serviceHandler.PrepareDevicesAfterRestore(suite.Ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Check that SystemRestored event was created
+			finalEvents, err := suite.Store.Event().List(suite.Ctx, orgId, store.ListParams{Limit: 1000})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Should have at least one more event than before
+			Expect(len(finalEvents.Items)).To(BeNumerically(">", initialEventCount))
+
+			// Find the SystemRestored event
+			var systemRestoredEvent *api.Event
+			for _, event := range finalEvents.Items {
+				if event.Reason == api.EventReasonSystemRestored {
+					systemRestoredEvent = &event
+					break
+				}
+			}
+
+			// Verify the SystemRestored event was created
+			Expect(systemRestoredEvent).ToNot(BeNil(), "SystemRestored event should be created")
+			Expect(systemRestoredEvent.Type).To(Equal(api.Normal))
+			Expect(systemRestoredEvent.InvolvedObject.Kind).To(Equal(api.FleetKind))
+			Expect(systemRestoredEvent.InvolvedObject.Name).To(Equal("flightctl-system"))
+			Expect(systemRestoredEvent.Message).To(ContainSubstring("System restored successfully"))
+			Expect(systemRestoredEvent.Message).To(ContainSubstring("devices for post-restoration preparation"))
 		})
 	})
 })

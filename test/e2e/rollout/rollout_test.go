@@ -226,9 +226,12 @@ var _ = Describe("Rollout Policies", func() {
 			}
 
 			By("Simulating a failure in the first batch")
-			DeferCleanup(func() { _ = tc.harness.FixNetworkFailure() })
-			err = tc.harness.SimulateNetworkFailure()
-			Expect(err).ToNot(HaveOccurred())
+			for _, harness := range tc.harnesses {
+				h := harness // capture per-iteration
+				DeferCleanup(func() { _ = h.FixNetworkFailure() })
+				err = h.SimulateNetworkFailure()
+				Expect(err).ToNot(HaveOccurred())
+			}
 
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq2, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
@@ -244,8 +247,11 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(rolloutStatus.Reason).To(Equal(api.RolloutSuspendedReason), "Rollout should be paused when success threshold is not met")
 
 			By("Fixing the failed device and verifying the rollout continues")
-			err = tc.harness.FixNetworkFailure()
-			Expect(err).ToNot(HaveOccurred())
+			for _, harness := range tc.harnesses {
+				h := harness // capture per-iteration
+				err = h.FixNetworkFailure()
+				Expect(err).ToNot(HaveOccurred())
+			}
 
 			// Wait for rollout to continue
 			By("Verifying that the rollout is resumed")

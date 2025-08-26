@@ -313,19 +313,31 @@ func (rd DeviceSpec) GetConsoles() []DeviceConsole {
 	}
 }
 
-func GetNextDeviceRenderedVersion(annotations map[string]string) (string, error) {
-	var currentRenderedVersion int64 = 0
-	var err error
+func GetNextDeviceRenderedVersion(annotations map[string]string, deviceStatus *DeviceStatus) (string, error) {
+	// Get service-side renderedVersion version from annotations
+	var renderedVersion int64 = 0
 	renderedVersionString, ok := annotations[DeviceAnnotationRenderedVersion]
 	if ok {
-		currentRenderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+		var err error
+		renderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
 		if err != nil {
 			return "", err
 		}
 	}
 
-	currentRenderedVersion++
-	return strconv.FormatInt(currentRenderedVersion, 10), nil
+	// Get device-reported version from status (if available)
+	var deviceRenderedVersion int64 = 0
+	if deviceStatus != nil && deviceStatus.Config.RenderedVersion != "" {
+		var err error
+		deviceRenderedVersion, err = strconv.ParseInt(deviceStatus.Config.RenderedVersion, 10, 64)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// max(rendered, device_reported) + 1
+	nextVersion := max(renderedVersion, deviceRenderedVersion) + 1
+	return strconv.FormatInt(nextVersion, 10), nil
 }
 
 type SensitiveDataHider interface {

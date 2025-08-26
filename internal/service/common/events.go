@@ -570,3 +570,15 @@ func GetReferencedRepositoryUpdatedEvent(ctx context.Context, kind api.ResourceK
 		details:      &eventDetails,
 	})
 }
+
+// GetSystemRestoredEvent creates an event for system restoration completion
+// Following the pattern of InternalTaskFailed events, this associates the event with a system-level resource
+func GetSystemRestoredEvent(ctx context.Context, devicesUpdated int64) *api.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.FleetKind,
+		resourceName: api.FlightCtlSystemResourceName,
+		reason:       api.EventReasonSystemRestored,
+		message:      fmt.Sprintf("System restored successfully. Updated %d devices for post-restoration preparation.", devicesUpdated),
+		details:      nil,
+	})
+}
