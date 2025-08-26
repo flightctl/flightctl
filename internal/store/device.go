@@ -61,6 +61,7 @@ type Device interface {
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -929,4 +930,40 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 		return nil, ErrorFromGormError(err)
 	}
 	return results, nil
+}
+
+// PrepareDevicesAfterRestore sets the waitingForConnectionAfterRestore annotation
+// on all devices, clears their lastSeen timestamps, and sets status summary using efficient SQL
+func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
+	db := s.getDB(ctx)
+
+	// Use raw SQL for efficient bulk update that preserves existing annotations
+	// and properly handles the status JSON structure using || operator for merging
+	sql := `
+		UPDATE devices 
+		SET 
+			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
+			status = CASE 
+				WHEN status IS NOT NULL THEN 
+					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+				ELSE 
+					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+			END,
+			resource_version = COALESCE(resource_version, 0) + 1
+		WHERE deleted_at IS NULL 
+			AND (status->'lifecycle'->>'status') != 'Decommissioned'
+			AND (annotations->>$1) IS DISTINCT FROM 'true'
+	`
+
+	result := db.Exec(sql,
+		api.DeviceAnnotationAwaitingReconnect,
+		api.DeviceSummaryStatusAwaitingReconnect,
+		"Device is waiting for connection after restore",
+	)
+
+	if result.Error != nil {
+		return 0, ErrorFromGormError(result.Error)
+	}
+
+	return result.RowsAffected, nil
 }
