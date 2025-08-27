@@ -61,7 +61,7 @@ func main() {
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 
 	processID := fmt.Sprintf("worker-%s-%s", util.GetHostname(), uuid.New().String())
-	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}

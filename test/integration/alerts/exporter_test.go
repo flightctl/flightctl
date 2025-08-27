@@ -66,7 +66,7 @@ var _ = Describe("Alert Exporter", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
 		workerClient = worker_client.NewWorkerClient(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})

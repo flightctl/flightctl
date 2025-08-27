@@ -2,12 +2,16 @@ package tasks
 
 import (
 	"errors"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/util"
 )
 
-const ItemsPerPage = 1000
+const (
+	ItemsPerPage           = 1000
+	EventProcessingTimeout = 10 * time.Second
+)
 
 var (
 	ErrUnknownConfigName      = errors.New("failed to find configuration item name")

@@ -57,21 +57,25 @@ func main() {
 	defer store.Close()
 
 	processID := fmt.Sprintf("alert-exporter-%s-%s", util.GetHostname(), uuid.New().String())
-	queuesProvider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	queuesProvider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		log.Fatalf("initializing queue provider: %v", err)
 	}
-	defer queuesProvider.Stop()
+	defer func() {
+		queuesProvider.Stop()
+		queuesProvider.Wait()
+	}()
 
 	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
 		log.Fatalf("initializing kv store: %v", err)
 	}
 
-	publisher, err := worker_client.QueuePublisher(queuesProvider)
+	publisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
 	if err != nil {
 		log.Fatalf("initializing task queue publisher: %v", err)
 	}
+	defer publisher.Close()
 	workerClient := worker_client.NewWorkerClient(publisher, log)
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}))
 

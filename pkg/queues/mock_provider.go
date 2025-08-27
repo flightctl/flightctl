@@ -12,6 +12,7 @@ package queues
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	gomock "go.uber.org/mock/gomock"
 )
@@ -54,33 +55,63 @@ func (mr *MockProviderMockRecorder) CheckHealth(ctx any) *gomock.Call {
 }
 
 // NewConsumer mocks base method.
-func (m *MockProvider) NewConsumer(queueName string) (Consumer, error) {
+func (m *MockProvider) NewConsumer(ctx context.Context, queueName string) (Consumer, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewConsumer", queueName)
+	ret := m.ctrl.Call(m, "NewConsumer", ctx, queueName)
 	ret0, _ := ret[0].(Consumer)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // NewConsumer indicates an expected call of NewConsumer.
-func (mr *MockProviderMockRecorder) NewConsumer(queueName any) *gomock.Call {
+func (mr *MockProviderMockRecorder) NewConsumer(ctx, queueName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewConsumer", reflect.TypeOf((*MockProvider)(nil).NewConsumer), queueName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewConsumer", reflect.TypeOf((*MockProvider)(nil).NewConsumer), ctx, queueName)
 }
 
 // NewPublisher mocks base method.
-func (m *MockProvider) NewPublisher(queueName string) (Publisher, error) {
+func (m *MockProvider) NewPublisher(ctx context.Context, queueName string) (Publisher, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewPublisher", queueName)
+	ret := m.ctrl.Call(m, "NewPublisher", ctx, queueName)
 	ret0, _ := ret[0].(Publisher)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // NewPublisher indicates an expected call of NewPublisher.
-func (mr *MockProviderMockRecorder) NewPublisher(queueName any) *gomock.Call {
+func (mr *MockProviderMockRecorder) NewPublisher(ctx, queueName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewPublisher", reflect.TypeOf((*MockProvider)(nil).NewPublisher), queueName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewPublisher", reflect.TypeOf((*MockProvider)(nil).NewPublisher), ctx, queueName)
+}
+
+// ProcessTimedOutMessages mocks base method.
+func (m *MockProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(string, []byte) error) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProcessTimedOutMessages", ctx, queueName, timeout, handler)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ProcessTimedOutMessages indicates an expected call of ProcessTimedOutMessages.
+func (mr *MockProviderMockRecorder) ProcessTimedOutMessages(ctx, queueName, timeout, handler any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessTimedOutMessages", reflect.TypeOf((*MockProvider)(nil).ProcessTimedOutMessages), ctx, queueName, timeout, handler)
+}
+
+// RetryFailedMessages mocks base method.
+func (m *MockProvider) RetryFailedMessages(ctx context.Context, queueName string, config RetryConfig) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RetryFailedMessages", ctx, queueName, config)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RetryFailedMessages indicates an expected call of RetryFailedMessages.
+func (mr *MockProviderMockRecorder) RetryFailedMessages(ctx, queueName, config any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryFailedMessages", reflect.TypeOf((*MockProvider)(nil).RetryFailedMessages), ctx, queueName, config)
 }
 
 // Stop mocks base method.
@@ -142,6 +173,20 @@ func (mr *MockConsumerMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockConsumer)(nil).Close))
 }
 
+// Complete mocks base method.
+func (m *MockConsumer) Complete(ctx context.Context, entryID string, body []byte, processingErr error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Complete", ctx, entryID, body, processingErr)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Complete indicates an expected call of Complete.
+func (mr *MockConsumerMockRecorder) Complete(ctx, entryID, body, processingErr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Complete", reflect.TypeOf((*MockConsumer)(nil).Complete), ctx, entryID, body, processingErr)
+}
+
 // Consume mocks base method.
 func (m *MockConsumer) Consume(ctx context.Context, handler ConsumeHandler) error {
 	m.ctrl.T.Helper()
@@ -192,15 +237,15 @@ func (mr *MockPublisherMockRecorder) Close() *gomock.Call {
 }
 
 // Publish mocks base method.
-func (m *MockPublisher) Publish(ctx context.Context, payload []byte) error {
+func (m *MockPublisher) Publish(ctx context.Context, payload []byte, timestamp int64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Publish", ctx, payload)
+	ret := m.ctrl.Call(m, "Publish", ctx, payload, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Publish indicates an expected call of Publish.
-func (mr *MockPublisherMockRecorder) Publish(ctx, payload any) *gomock.Call {
+func (mr *MockPublisherMockRecorder) Publish(ctx, payload, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPublisher)(nil).Publish), ctx, payload)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPublisher)(nil).Publish), ctx, payload, timestamp)
 }

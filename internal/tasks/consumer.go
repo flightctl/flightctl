@@ -22,10 +22,19 @@ import (
 )
 
 func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
-	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {
+	return func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+		// Add timeout for the entire event processing
+		ctx, cancel := context.WithTimeout(ctx, EventProcessingTimeout)
+		defer cancel()
+
 		var eventWithOrgId worker_client.EventWithOrgId
 		if err := json.Unmarshal(payload, &eventWithOrgId); err != nil {
 			log.WithError(err).Error("failed to unmarshal consume payload")
+			// ensure the message is completed with error to avoid being stuck pending
+			ackCtx := context.WithoutCancel(ctx)
+			if ackErr := consumer.Complete(ackCtx, entryID, payload, err); ackErr != nil {
+				log.WithError(ackErr).Errorf("failed to complete message %s after unmarshal error", entryID)
+			}
 			return err
 		}
 
@@ -74,12 +83,21 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 
 		// Emit InternalTaskFailedEvent for any unhandled task failures
 		// This serves as a safety net while preserving specific error handling within tasks
+		var returnErr error
 		if len(errorMessages) > 0 {
 			errorMessage := fmt.Sprintf("%d tasks failed during reconciliation: %s", len(errorMessages), strings.Join(errorMessages, ", "))
 			log.WithError(errors.New(errorMessage)).Error("tasks failed during reconciliation")
 			emitInternalTaskFailedEvent(ctx, errorMessage, eventWithOrgId.Event, serviceHandler)
+			returnErr = errors.New(errorMessage)
 		}
-		return nil
+
+		// Complete the message processing (either successfully or after emitting failure event)
+		if err := consumer.Complete(ctx, entryID, payload, returnErr); err != nil {
+			log.WithError(err).Errorf("failed to complete message %s", entryID)
+			return err
+		}
+
+		return returnErr
 	}
 }
 
@@ -262,7 +280,7 @@ func LaunchConsumers(ctx context.Context,
 	kvStore kvstore.KVStore,
 	numConsumers, threadsPerConsumer int) error {
 	for i := 0; i != numConsumers; i++ {
-		consumer, err := queuesProvider.NewConsumer(consts.TaskQueue)
+		consumer, err := queuesProvider.NewConsumer(ctx, consts.TaskQueue)
 		if err != nil {
 			return err
 		}

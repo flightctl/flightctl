@@ -50,11 +50,14 @@ func (s *Server) Run(ctx context.Context) error {
 	defer cancel()
 
 	processID := fmt.Sprintf("periodic-%s-%s", util.GetHostname(), uuid.New().String())
-	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, processID, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, processID, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		return err
 	}
-	defer queuesProvider.Stop()
+	defer func() {
+		queuesProvider.Stop()
+		queuesProvider.Wait()
+	}()
 
 	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
@@ -62,7 +65,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer kvStore.Close()
 
-	queuePublisher, err := worker_client.QueuePublisher(queuesProvider)
+	queuePublisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
 	if err != nil {
 		return err
 	}
