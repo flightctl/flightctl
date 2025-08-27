@@ -47,13 +47,18 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 		return nil, err
 	}
 
+	appType := lo.FromPtr(spec.AppType)
+	if appType == v1alpha1.AppTypeCompose && provider.Volumes != nil && len(*provider.Volumes) > 0 {
+		return nil, fmt.Errorf("volumes are not supported for compose applications")
+	}
+
 	return &imageProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
 		spec: &ApplicationSpec{
 			Name:          appName,
-			AppType:       lo.FromPtr(spec.AppType),
+			AppType:       appType,
 			Path:          path,
 			EnvVars:       lo.FromPtr(spec.EnvVars),
 			Embedded:      embedded,
