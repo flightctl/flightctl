@@ -60,7 +60,9 @@ func main() {
 		if sqlDB, err := migrationDB.DB(); err != nil {
 			log.Printf("Failed to get database connection for cleanup: %v", err)
 		} else {
-			sqlDB.Close()
+			if err := sqlDB.Close(); err != nil {
+				log.Printf("Failed to close database connection: %v", err)
+			}
 		}
 	}()
 
@@ -72,7 +74,10 @@ func main() {
 	// Run all schema changes atomically so that a failure leaves the DB unchanged.
 	if err := migrationDB.Transaction(func(tx *gorm.DB) error {
 		// Create a temporary store bound to the transaction and run migrations
-		if err := store.NewStore(tx, log.WithField("pkg", "migration-store-tx")).RunMigrations(ctx); err != nil {
+		if err := store.NewStore(tx, log.WithFields(logrus.Fields{
+			"pkg":     "migration-store-tx",
+			"dry_run": *dryRun,
+		})).RunMigrations(ctx); err != nil {
 			return err // rollback
 		}
 		if *dryRun {
