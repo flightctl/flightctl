@@ -118,29 +118,6 @@ func (o *LoginOptions) Validate(args []string) error {
 		return err
 	}
 
-	// Basic URL validation to catch obvious errors early
-	trimmedURL := strings.TrimSpace(args[0])
-	parsedUrl, err := url.Parse(trimmedURL)
-	if err != nil {
-		return fmt.Errorf("API URL is not a valid URL: %w", err)
-	}
-
-	// Check for missing protocol
-	if !strings.HasPrefix(strings.ToLower(trimmedURL), "http://") && !strings.HasPrefix(strings.ToLower(trimmedURL), "https://") {
-		return fmt.Errorf("%s is missing the protocol. Please ensure the API URL starts with 'http://' or 'https://'", trimmedURL)
-	}
-
-	// Check for invalid protocol
-	scheme := strings.ToLower(parsedUrl.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return fmt.Errorf("%s must use HTTP or HTTPS. Please ensure the API URL starts with 'http://' or 'https://'", trimmedURL)
-	}
-
-	// Check for missing hostname
-	if parsedUrl.Hostname() == "" {
-		return fmt.Errorf("%s is missing a valid hostname. Please provide a complete URL with hostname", trimmedURL)
-	}
-
 	// Validate authentication flag conflicts
 	if !login.StrIsEmpty(o.AccessToken) && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || o.Web) {
 		return fmt.Errorf("--token cannot be used along with --username, --password or --web")
@@ -209,7 +186,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 
 	// Validate auth provider
 	validateArgs := login.ValidateArgs{
-		ApiUrl:      args[0],
+		ApiUrl:      o.clientConfig.Service.Server,
 		ClientId:    o.ClientId,
 		AccessToken: o.AccessToken,
 		Username:    o.Username,
