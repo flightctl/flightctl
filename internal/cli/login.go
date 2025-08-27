@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -17,6 +18,118 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+const (
+	tlsUnknownAuthority = "certificate signed by unknown authority"
+	tlsExpiredCert      = "certificate has expired"
+	tlsSelfSigned       = "certificate is self-signed"
+	tlsHostnameMismatch = "certificate is valid for"
+)
+
+type TLSErrorType int
+
+const (
+	TLSErrorUnknown TLSErrorType = iota
+	TLSErrorUnknownAuthority
+	TLSErrorExpired
+	TLSErrorSelfSigned
+	TLSErrorHostnameMismatch
+	TLSErrorGeneric
+)
+
+type TLSErrorInfo struct {
+	Type     TLSErrorType
+	Cause    string
+	RawError string
+}
+
+// classifyTLSError analyzes an error and returns TLS error information
+func classifyTLSError(err error) TLSErrorInfo {
+	if err == nil {
+		return TLSErrorInfo{Type: TLSErrorUnknown}
+	}
+
+	errStr := err.Error()
+
+	switch {
+	case strings.Contains(errStr, tlsUnknownAuthority):
+		return TLSErrorInfo{
+			Type:     TLSErrorUnknownAuthority,
+			Cause:    "certificate not trusted",
+			RawError: errStr,
+		}
+	case strings.Contains(errStr, tlsExpiredCert):
+		return TLSErrorInfo{
+			Type:     TLSErrorExpired,
+			Cause:    "certificate has expired",
+			RawError: errStr,
+		}
+	case strings.Contains(errStr, tlsSelfSigned):
+		return TLSErrorInfo{
+			Type:     TLSErrorSelfSigned,
+			Cause:    "certificate is self-signed",
+			RawError: errStr,
+		}
+	case strings.Contains(errStr, tlsHostnameMismatch) && strings.Contains(errStr, "not "):
+		return TLSErrorInfo{
+			Type:     TLSErrorHostnameMismatch,
+			Cause:    "certificate hostname mismatch",
+			RawError: errStr,
+		}
+	default:
+		return TLSErrorInfo{
+			Type:     TLSErrorGeneric,
+			Cause:    "certificate verification failed",
+			RawError: errStr,
+		}
+	}
+}
+
+// formatTLSErrorForGeneral formats TLS errors for general API endpoints
+func formatTLSErrorForGeneral(errorInfo TLSErrorInfo) string {
+	cause := fmt.Sprintf("Cause: %s", errorInfo.Cause)
+
+	switch errorInfo.Type {
+	case TLSErrorUnknownAuthority:
+		return cause + "\n" +
+			"To resolve this issue, you can:\n" +
+			"  1. --certificate-authority=<path>   (provide the CA certificate file)\n" +
+			"  2. --insecure-skip-tls-verify       (skip certificate verification)"
+
+	case TLSErrorExpired:
+		return cause + "\n" +
+			"To resolve this issue, you can:\n" +
+			"  1. Contact your administrator to renew the certificate\n" +
+			"  2. --insecure-skip-tls-verify       (skip certificate verification)"
+
+	case TLSErrorSelfSigned:
+		return cause + "\n" +
+			"To resolve this issue, you can:\n" +
+			"  1. --insecure-skip-tls-verify       (skip certificate verification)\n" +
+			"  2. --certificate-authority=<path>   (provide the certificate as CA)"
+
+	case TLSErrorHostnameMismatch:
+		return cause + "\n" +
+			"To resolve this issue, you can:\n" +
+			"  1. Check if the URL is correct\n" +
+			"  2. --insecure-skip-tls-verify       (skip certificate verification)"
+
+	default:
+		return fmt.Sprintf("Cause: %s (%s)\n", errorInfo.Cause, errorInfo.RawError) +
+			"To resolve this issue, you can:\n" +
+			"  1. --insecure-skip-tls-verify       (skip certificate verification)"
+	}
+}
+
+// formatTLSErrorForOAuth formats TLS errors for OAuth endpoints
+func formatTLSErrorForOAuth(errorInfo TLSErrorInfo) string {
+	cause := fmt.Sprintf("Cause: %s", errorInfo.Cause)
+
+	return cause + "\n" +
+		"To resolve this issue, you can:\n" +
+		"  1. --auth-certificate-authority=<path>   (provide OAuth CA certificate file)\n" +
+		"  2. --insecure-skip-tls-verify           (skip certificate verification)"
+}
 
 type LoginOptions struct {
 	GlobalOptions
@@ -179,6 +292,7 @@ func (o *LoginOptions) ValidateAuthProvider(args []string) error {
 	if o.authProvider == nil {
 		return nil
 	}
+
 	validateArgs := login.ValidateArgs{
 		ApiUrl:      args[0],
 		ClientId:    o.ClientId,
@@ -222,6 +336,14 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if token == "" {
 		authInfo, err := o.authProvider.Auth(o.Web, o.Username, o.Password)
 		if err != nil {
+			// Check if this is an OAuth certificate issue
+			if o.authConfig != nil && o.authConfig.AuthURL != "" {
+				errorInfo := classifyTLSError(err)
+				if errorInfo.Type != TLSErrorUnknown {
+					oauthErrMsg := formatTLSErrorForOAuth(errorInfo)
+					return fmt.Errorf("OAuth authentication failed\n%s", oauthErrMsg)
+				}
+			}
 			return err
 		}
 		token = authInfo.AccessToken
@@ -251,7 +373,9 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	headerVal := "Bearer " + token
 	res, err := c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
 	if err != nil {
-		return fmt.Errorf("validating token: %w", err)
+		// Translate TLS errors during token validation
+		friendlyErr := getUserFriendlyTLSError(err)
+		return fmt.Errorf("validating token:\n%s", friendlyErr)
 	}
 	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
 		return err
@@ -269,7 +393,9 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 	httpClient, err := client.NewHTTPClientFromConfig(o.clientConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create http client: %w", err)
+		// Translate TLS configuration errors
+		friendlyErr := getUserFriendlyTLSError(err)
+		return nil, fmt.Errorf("failed to create http client:\n%s", friendlyErr)
 	}
 	c, err := apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
 	if err != nil {
@@ -277,7 +403,9 @@ func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 	}
 	resp, err := c.AuthConfigWithResponse(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get auth info: %w", err)
+		// Translate TLS connection errors with user-friendly messages
+		friendlyErr := getUserFriendlyTLSError(err)
+		return nil, fmt.Errorf("failed to get auth info:\n%s", friendlyErr)
 	}
 
 	respCode := resp.StatusCode()
@@ -314,4 +442,10 @@ func (o *LoginOptions) getClientConfig(apiUrl string) (*client.Config, error) {
 	}
 
 	return config, nil
+}
+
+// getUserFriendlyTLSError translates cryptic TLS errors into actionable messages
+func getUserFriendlyTLSError(err error) string {
+	errorInfo := classifyTLSError(err)
+	return formatTLSErrorForGeneral(errorInfo)
 }

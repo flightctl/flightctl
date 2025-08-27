@@ -24,6 +24,7 @@ const (
 type AuthConfig struct {
 	Type                string
 	Url                 string
+	ServiceUrl          string
 	OrganizationsConfig AuthOrganizationsConfig
 }
 

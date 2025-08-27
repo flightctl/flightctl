@@ -5187,11 +5187,15 @@ components:
         authURL:
           type: string
           description: Auth URL.
+        serviceUrl:
+          type: string
+          description: Service URL.
         authOrganizationsConfig:
           $ref: '#/components/schemas/AuthOrganizationsConfig'
       required:
         - authType
         - authURL
+        - serviceUrl
         - authOrganizationsConfig
       description: Auth config.
     AuthOrganizationsConfig:

@@ -432,6 +432,9 @@ type AuthConfig struct {
 
 	// AuthURL Auth URL.
 	AuthURL string `json:"authURL"`
+
+	// ServiceUrl Service URL.
+	ServiceUrl string `json:"serviceUrl"`
 }
 
 // AuthOrganizationsConfig Auth related organizations configuration.

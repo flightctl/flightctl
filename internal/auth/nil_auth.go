@@ -7,7 +7,15 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/common"
 )
 
-type NilAuth struct{}
+type NilAuth struct {
+	serviceUrl string
+}
+
+func NewNilAuth(serviceUrl string) NilAuth {
+	return NilAuth{
+		serviceUrl: serviceUrl,
+	}
+}
 
 func (a NilAuth) ValidateToken(ctx context.Context, token string) error {
 	return nil
@@ -19,8 +27,9 @@ func (a NilAuth) GetIdentity(ctx context.Context, token string) (*common.Identit
 
 func (a NilAuth) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
-		Type: "",
-		Url:  "",
+		Type:       "",
+		Url:        "",
+		ServiceUrl: a.serviceUrl,
 	}
 }
 

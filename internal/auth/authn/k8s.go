@@ -16,13 +16,15 @@ import (
 type K8sAuthN struct {
 	k8sClient               k8sclient.K8SClient
 	externalOpenShiftApiUrl string
+	serviceUrl              string
 	cache                   *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
 }
 
-func NewK8sAuthN(k8sClient k8sclient.K8SClient, externalOpenShiftApiUrl string) (*K8sAuthN, error) {
+func NewK8sAuthN(k8sClient k8sclient.K8SClient, externalOpenShiftApiUrl string, serviceUrl string) (*K8sAuthN, error) {
 	authN := &K8sAuthN{
 		k8sClient:               k8sClient,
 		externalOpenShiftApiUrl: externalOpenShiftApiUrl,
+		serviceUrl:              serviceUrl,
 		cache:                   ttlcache.New[string, *k8sAuthenticationV1.TokenReview](ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
 	}
 	go authN.cache.Start()
@@ -84,7 +86,8 @@ func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (*common.Identi
 
 func (o K8sAuthN) GetAuthConfig() common.AuthConfig {
 	return common.AuthConfig{
-		Type: common.AuthTypeK8s,
-		Url:  o.externalOpenShiftApiUrl,
+		Type:       common.AuthTypeK8s,
+		Url:        o.externalOpenShiftApiUrl,
+		ServiceUrl: o.serviceUrl,
 	}
 }
