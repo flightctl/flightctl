@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}"/functions
 if in_kind; then
     ARGS="--values ./deploy/helm/e2e-extras/values.dev.yaml"
     # in github CI load docker-image does not seem to work for our images
-    kind_load_image localhost/git-server:latest
+    # Note: git-server is built by build-e2e-containers, so we only load the registry here
     kind_load_image quay.io/flightctl/e2eregistry:2
 fi
 

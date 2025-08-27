@@ -33,7 +33,7 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 
 	testStore := &TestStore{}
 	serviceHandler := ServiceHandler{
-		EventHandler: NewEventHandler(testStore, logrus.New()),
+		eventHandler: NewEventHandler(testStore, nil, logrus.New()),
 		store:        testStore,
 		log:          logrus.New(),
 	}
@@ -66,7 +66,7 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 
 	testStore := &TestStore{}
 	serviceHandler := ServiceHandler{
-		EventHandler: NewEventHandler(testStore, logrus.New()),
+		eventHandler: NewEventHandler(testStore, nil, logrus.New()),
 		store:        testStore,
 		log:          logrus.New(),
 	}
@@ -210,7 +210,7 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 
 	testStore := &TestStore{}
 	serviceHandler := ServiceHandler{
-		EventHandler: NewEventHandler(testStore, logrus.New()),
+		eventHandler: NewEventHandler(testStore, nil, logrus.New()),
 		store:        testStore,
 		log:          logrus.New(),
 	}

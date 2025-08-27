@@ -1,6 +1,14 @@
 package v1alpha1
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+var (
+	NullOrgId = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+)
 
 const (
 	APIGroup = "flightctl.io"
@@ -15,6 +23,10 @@ const (
 
 	DeviceAnnotationConsole         = "device-controller/console"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	// Used After database restore , all devices will be marked with this annotation
+	DeviceAnnotationAwaitingReconnect = "device-controller/awaitingReconnect"
+	// After restore when device has a new spec version than what we know,
+	DeviceAnnotationConflictPaused = "device-controller/conflictPaused"
 	// This annotation is populated after a device was rolled out by the fleet-rollout task
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
 	// This annotation is populated after a device was rendered by the device-render task
@@ -69,6 +81,8 @@ const (
 	EventAPIVersion = "v1alpha1"
 	EventKind       = "Event"
 	EventListKind   = "EventList"
+
+	EventAnnotationDelayDeviceRender = "fleet-controller/delayDeviceRender"
 
 	OrganizationAPIVersion = "v1alpha1"
 	OrganizationKind       = "Organization"
@@ -137,4 +151,7 @@ const (
 	PreliminaryBatchName = "preliminary batch"
 	// The name of the final implicit batch
 	FinalImplicitBatchName = "final implicit batch"
+
+	// System-level resource name for events
+	FlightCtlSystemResourceName = "flightctl-system"
 )

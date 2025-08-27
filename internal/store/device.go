@@ -45,13 +45,13 @@ type Device interface {
 	InitialMigration(ctx context.Context) error
 
 	// Exposed to users
-	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error)
-	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, bool, error)
+	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventCallback) (*api.Device, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*api.Device, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*api.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventCallback) (bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventCallback) (*api.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 
@@ -61,6 +61,7 @@ type Device interface {
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -83,10 +84,7 @@ type DeviceStore struct {
 	genericStore *GenericStore[*model.Device, model.Device, api.Device, api.DeviceList]
 }
 
-type DeviceStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device)
 type DeviceStoreValidationCallback func(ctx context.Context, before *api.Device, after *api.Device) error
-type DeviceStoreAllDeletedCallback func(ctx context.Context, orgId uuid.UUID)
-
 type ServiceConditionsCallback func(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition)
 
 // Make sure we conform to Device interface
@@ -299,22 +297,22 @@ func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
 	return nil
 }
 
-func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error) {
-	device, err := s.genericStore.Create(ctx, orgId, resource, callback)
+func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, eventCallback EventCallback) (*api.Device, error) {
+	device, err := s.genericStore.Create(ctx, orgId, resource)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, nil, device, true, err)
 	return device, err
 }
 
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error) {
-	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*api.Device, error) {
+	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, false, err)
 	return device, err
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, bool, error) {
-	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*api.Device, bool, error) {
+	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, created, err)
 	return device, created, err
@@ -360,13 +358,14 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams Li
 	return labelStrings, nil
 }
 
-func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventCallback) (bool, error) {
+func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) (bool, error) {
 	deleted, err := s.genericStore.Delete(
 		ctx,
 		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
-		callback,
 		Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
-	s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
+	if deleted && eventCallback != nil {
+		s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
+	}
 	return deleted, err
 }
 
@@ -597,7 +596,12 @@ func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, na
 
 	// Changing the console annotation requires bumping the renderedVersion annotation
 	if existingConsoleAnnotation != newConsoleAnnotation {
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
+		var deviceStatus *api.DeviceStatus
+		if existingRecord.Status != nil {
+			deviceStatus = &existingRecord.Status.Data
+		}
+
+		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
 		if err != nil {
 			return false, err
 		}
@@ -634,7 +638,12 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
+	var deviceStatus *api.DeviceStatus
+	if existingRecord.Status != nil {
+		deviceStatus = &existingRecord.Status.Data
+	}
+
+	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
 	if err != nil {
 		return false, err
 	}
@@ -921,4 +930,40 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 		return nil, ErrorFromGormError(err)
 	}
 	return results, nil
+}
+
+// PrepareDevicesAfterRestore sets the waitingForConnectionAfterRestore annotation
+// on all devices, clears their lastSeen timestamps, and sets status summary using efficient SQL
+func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
+	db := s.getDB(ctx)
+
+	// Use raw SQL for efficient bulk update that preserves existing annotations
+	// and properly handles the status JSON structure using || operator for merging
+	sql := `
+		UPDATE devices 
+		SET 
+			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
+			status = CASE 
+				WHEN status IS NOT NULL THEN 
+					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+				ELSE 
+					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+			END,
+			resource_version = COALESCE(resource_version, 0) + 1
+		WHERE deleted_at IS NULL 
+			AND (status->'lifecycle'->>'status') != 'Decommissioned'
+			AND (annotations->>$1) IS DISTINCT FROM 'true'
+	`
+
+	result := db.Exec(sql,
+		api.DeviceAnnotationAwaitingReconnect,
+		api.DeviceSummaryStatusAwaitingReconnect,
+		"Device is waiting for connection after restore",
+	)
+
+	if result.Error != nil {
+		return 0, ErrorFromGormError(result.Error)
+	}
+
+	return result.RowsAffected, nil
 }

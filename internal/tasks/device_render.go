@@ -14,10 +14,10 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -40,42 +40,42 @@ import (
 // This design ensures the task can be retried safely, detects mid-write inconsistencies,
 // and avoids unnecessary reprocessing when the output is already up to date.
 
-func deviceRender(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(callbackManager, log, serviceHandler, k8sClient, kvStore, *resourceRef)
-	if resourceRef.Op == tasks_client.DeviceRenderOpUpdate {
+func deviceRender(ctx context.Context, orgId uuid.UUID, event api.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(log, serviceHandler, k8sClient, kvStore, orgId, event)
+	if event.InvolvedObject.Kind == api.DeviceKind {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
-			log.Errorf("failed rendering device %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
+			log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
 		} else {
-			log.Infof("completed rendering device %s/%s", resourceRef.OrgID, resourceRef.Name)
+			log.Infof("completed rendering device %s/%s", orgId, event.InvolvedObject.Name)
 		}
 	} else {
-		log.Errorf("DeviceRender called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
+		log.Errorf("DeviceRender called with unexpected kind %s and op %s", event.InvolvedObject.Kind, event.Reason)
 	}
 	return nil
 }
 
 type DeviceRenderLogic struct {
-	callbackManager tasks_client.CallbackManager
 	log             logrus.FieldLogger
 	serviceHandler  service.Service
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
-	resourceRef     tasks_client.ResourceReference
+	orgId           uuid.UUID
+	event           api.Event
 	ownerFleet      *string
 	templateVersion *string
 	deviceConfig    *[]api.ConfigProviderSpec
 	applications    *[]api.ApplicationProviderSpec
 }
 
-func NewDeviceRenderLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, resourceRef tasks_client.ResourceReference) DeviceRenderLogic {
-	return DeviceRenderLogic{callbackManager: callbackManager, log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, kvStore: kvStore, resourceRef: resourceRef}
+func NewDeviceRenderLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, orgId uuid.UUID, event api.Event) DeviceRenderLogic {
+	return DeviceRenderLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, kvStore: kvStore, orgId: orgId, event: event}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
-	device, status := t.serviceHandler.GetDevice(ctx, t.resourceRef.Name)
+	device, status := t.serviceHandler.GetDevice(ctx, t.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
-		return fmt.Errorf("failed getting device %s/%s: %s", t.resourceRef.OrgID, t.resourceRef.Name, status.Message)
+		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
 
 	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
@@ -83,11 +83,24 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		t.deviceConfig = device.Spec.Config
 		t.applications = device.Spec.Applications
 	}
+	if device.Metadata.Annotations != nil {
+		annotations := lo.FromPtr(device.Metadata.Annotations)
+		if val, ok := annotations[api.DeviceAnnotationAwaitingReconnect]; ok {
+			if val == "true" {
+				return fmt.Errorf("device is awaiting reconnection after restore")
+			}
+		}
+		if val, ok := annotations[api.DeviceAnnotationConflictPaused]; ok {
+			if val == "true" {
+				return fmt.Errorf("device is paused due to conflicts")
+			}
+		}
+	}
 
 	if device.Metadata.Owner != nil {
 		_, owner, err := util.GetResourceOwner(device.Metadata.Owner)
 		if err != nil {
-			return fmt.Errorf("failed getting device owner %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
+			return fmt.Errorf("failed getting device owner %s/%s: %w", t.orgId, t.event.InvolvedObject.Name, err)
 		}
 		t.ownerFleet = &owner
 
@@ -131,7 +144,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setStatus(ctx, err)
 	}
 
-	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.resourceRef.Name, string(renderedConfig), string(renderedApplications))
+	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications))
 	return t.setStatus(ctx, service.ApiStatusToErr(status))
 }
 
@@ -147,9 +160,9 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 		condition.Message = renderErr.Error()
 	}
 
-	status := t.serviceHandler.SetDeviceServiceConditions(ctx, t.resourceRef.Name, []api.Condition{condition})
+	status := t.serviceHandler.SetDeviceServiceConditions(ctx, t.event.InvolvedObject.Name, []api.Condition{condition})
 	if status.Code != http.StatusOK {
-		t.log.Errorf("Failed setting condition for device %s/%s: %s", t.resourceRef.OrgID, t.resourceRef.Name, status.Message)
+		t.log.Errorf("Failed setting condition for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
 	return renderErr
 }
@@ -289,7 +302,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 
 	repo, status := t.serviceHandler.GetRepository(ctx, gitSpec.GitRef.Repository)
 	if status.Code != http.StatusOK {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.resourceRef.OrgID, gitSpec.GitRef.Repository, status.Message)
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, gitSpec.GitRef.Repository, status.Message)
 	}
 
 	var ignition *config_latest_types.Config
@@ -298,12 +311,12 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 	if t.ownerFleet == nil {
 		ignition, _, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path)
 		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.orgId, gitSpec.GitRef.Repository, err)
 		}
 	} else {
 		ignition, err = t.cloneCachedGitRepoToIgnition(ctx, repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path)
 		if err != nil {
-			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified git repository %s/%s: %w", t.resourceRef.OrgID, gitSpec.GitRef.Repository, err)
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified git repository %s/%s: %w", t.orgId, gitSpec.GitRef.Repository, err)
 		}
 	}
 
@@ -328,7 +341,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 
 	if t.ownerFleet != nil {
 		key = kvstore.K8sSecretKey{
-			OrgID:           t.resourceRef.OrgID,
+			OrgID:           t.orgId,
 			Fleet:           *t.ownerFleet,
 			TemplateVersion: *t.templateVersion,
 			Namespace:       k8sSpec.SecretRef.Namespace,
@@ -359,7 +372,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	if needToStoreData {
 		secretDataToStore, err := json.Marshal(secretData)
 		if err != nil {
-			return &k8sSpec.Name, nil, fmt.Errorf("failed marhsalling secret data %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+			return &k8sSpec.Name, nil, fmt.Errorf("failed marshalling secret data %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
 		}
 		updated, err := t.kvStore.SetNX(ctx, key.ComposeKey(), secretDataToStore)
 		if err != nil {
@@ -418,7 +431,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	}
 	repo, status := t.serviceHandler.GetRepository(ctx, httpConfigProviderSpec.HttpRef.Repository)
 	if status.Code != http.StatusOK {
-		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.resourceRef.OrgID, httpConfigProviderSpec.HttpRef.Repository, status.Message)
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, httpConfigProviderSpec.HttpRef.Repository, status.Message)
 	}
 
 	if t.ownerFleet != nil {
@@ -443,7 +456,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 
 	if t.ownerFleet != nil {
 		httpKey = kvstore.HttpKey{
-			OrgID:           t.resourceRef.OrgID,
+			OrgID:           t.orgId,
 			Fleet:           *t.ownerFleet,
 			TemplateVersion: *t.templateVersion,
 			URL:             repoURL,
@@ -491,24 +504,24 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *api.Repository) error {
 	repoURL, err := repo.Spec.GetRepoURL()
 	if err != nil {
-		return fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.resourceRef.OrgID, *repo.Metadata.Name, err)
+		return fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.orgId, *repo.Metadata.Name, err)
 	}
 
 	repoKey := kvstore.RepositoryUrlKey{
-		OrgID:           t.resourceRef.OrgID,
+		OrgID:           t.orgId,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
 		Repository:      *repo.Metadata.Name,
 	}
 	origRepoURL, err := t.kvStore.GetOrSetNX(ctx, repoKey.ComposeKey(), []byte(repoURL))
 	if err != nil {
-		return fmt.Errorf("failed storing repository url for %s/%s: %w", t.resourceRef.OrgID, *repo.Metadata.Name, err)
+		return fmt.Errorf("failed storing repository url for %s/%s: %w", t.orgId, *repo.Metadata.Name, err)
 	}
 	if repoURL != string(origRepoURL) {
-		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.resourceRef.OrgID, *repo.Metadata.Name)
+		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.orgId, *repo.Metadata.Name)
 		err = repo.Spec.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
 		if err != nil {
-			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.resourceRef.OrgID, *repo.Metadata.Name, err)
+			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.orgId, *repo.Metadata.Name, err)
 		}
 	}
 
@@ -524,7 +537,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 
 	// 2. Do we have the mapping of targetRevision -> frozenHash cached?
 	gitRevisionKey := kvstore.GitRevisionKey{
-		OrgID:           t.resourceRef.OrgID,
+		OrgID:           t.orgId,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
 		Repository:      *repo.Metadata.Name,
@@ -537,7 +550,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 
 	// 3. If we have the frozen hash, try to get the git data from the cache
 	gitContentsKey := kvstore.GitContentsKey{
-		OrgID:           t.resourceRef.OrgID,
+		OrgID:           t.orgId,
 		Fleet:           *t.ownerFleet,
 		TemplateVersion: *t.templateVersion,
 		Repository:      *repo.Metadata.Name,

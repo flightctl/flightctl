@@ -108,7 +108,6 @@ OpenTelemetry Collector for metric collection. All components run in Podman cont
 managed by systemd and can be installed independently without requiring core FlightCtl
 services to be running. This package automatically includes the flightctl-otel-collector package.
 
-
 %files otel-collector
 # OpenTelemetry Collector specific files
 /etc/otelcol/otelcol-config.yaml
@@ -415,13 +414,13 @@ echo "Flightctl Observability Stack uninstalled."
     SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'[-~]g' '{print $2}') \
     SOURCE_GIT_TAG_NO_V=%{version} \
     %if 0%{?rhel} == 9
-        make build-cli build-agent
+        %make_build build-cli build-agent
     %else
-        DISABLE_FIPS="true" make build-cli build-agent
+        DISABLE_FIPS="true" %make_build build-cli build-agent
     %endif
 
     # SELinux modules build
-    make --directory packaging/selinux
+    %make_build --directory packaging/selinux
 
 %install
     mkdir -p %{buildroot}/usr/bin

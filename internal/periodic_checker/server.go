@@ -14,7 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
@@ -57,18 +57,19 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer kvStore.Close()
 
-	taskQueuePublisher, err := tasks_client.TaskQueuePublisher(queuesProvider)
+	queuePublisher, err := worker_client.QueuePublisher(queuesProvider)
 	if err != nil {
 		return err
 	}
-	defer taskQueuePublisher.Close()
+	defer queuePublisher.Close()
 
-	callbackManager := tasks_client.NewCallbackManager(taskQueuePublisher, s.log)
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "", []string{}))
+	workerClient := worker_client.NewWorkerClient(queuePublisher, s.log)
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, callbackManager, s.cfg)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

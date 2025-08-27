@@ -14,8 +14,8 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -43,22 +43,22 @@ var _ = BeforeSuite(func() {
 
 var _ = Describe("FleetRollout", func() {
 	var (
-		log             *logrus.Logger
-		ctx             context.Context
-		orgId           uuid.UUID
-		deviceStore     store.Device
-		fleetStore      store.Fleet
-		tvStore         store.TemplateVersion
-		storeInst       store.Store
-		serviceHandler  service.Service
-		cfg             *config.Config
-		db              *gorm.DB
-		dbName          string
-		numDevices      int
-		fleetName       string
-		callbackManager tasks_client.CallbackManager
-		mockPublisher   *queues.MockPublisher
-		ctrl            *gomock.Controller
+		log            *logrus.Logger
+		ctx            context.Context
+		orgId          uuid.UUID
+		deviceStore    store.Device
+		fleetStore     store.Fleet
+		tvStore        store.TemplateVersion
+		storeInst      store.Store
+		serviceHandler service.Service
+		cfg            *config.Config
+		db             *gorm.DB
+		dbName         string
+		numDevices     int
+		fleetName      string
+		workerClient   worker_client.WorkerClient
+		mockPublisher  *queues.MockPublisher
+		ctrl           *gomock.Controller
 	)
 
 	BeforeEach(func() {
@@ -74,11 +74,11 @@ var _ = Describe("FleetRollout", func() {
 		fleetName = "myfleet"
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
 		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		workerClient = worker_client.NewWorkerClient(mockPublisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 	})
 
 	AfterEach(func() {
@@ -94,7 +94,14 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
+			event := api.Event{
+				Reason: api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{
+					Kind: api.FleetKind,
+					Name: fleetName,
+				},
+			}
+			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
 			logic.SetItemsPerPage(2)
 
 			// First update
@@ -129,7 +136,14 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			event := api.Event{
+				Reason: api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{
+					Kind: api.DeviceKind,
+					Name: "mydevice-1",
+				},
+			}
+			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
 			logic.SetItemsPerPage(2)
 
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
@@ -202,7 +216,14 @@ var _ = Describe("FleetRollout", func() {
 				Expect(len(devices.Items)).To(Equal(numDevices))
 
 				// Roll out the devices and check their configs
-				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: *fleet.Metadata.Name})
+				event := api.Event{
+					Reason: api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{
+						Kind: api.FleetKind,
+						Name: fleetName,
+					},
+				}
+				logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
 				err = logic.RolloutFleet(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				for i := 1; i <= numDevices; i++ {
@@ -263,7 +284,14 @@ var _ = Describe("FleetRollout", func() {
 				Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
 				// Roll out to the single device
-				logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+				event := api.Event{
+					Reason: api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{
+						Kind: api.DeviceKind,
+						Name: "mydevice-1",
+					},
+				}
+				logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
 				err = logic.RolloutDevice(ctx)
 				Expect(err).ToNot(HaveOccurred())
 				dev, err := deviceStore.Get(ctx, orgId, "mydevice-1")
@@ -302,7 +330,14 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			event := api.Event{
+				Reason: api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{
+					Kind: api.DeviceKind,
+					Name: "mydevice-1",
+				},
+			}
+			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -345,7 +380,14 @@ var _ = Describe("FleetRollout", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
 
-			logic := tasks.NewFleetRolloutsLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "mydevice-1"})
+			event := api.Event{
+				Reason: api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{
+					Kind: api.DeviceKind,
+					Name: "mydevice-1",
+				},
+			}
+			logic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
 			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", nil)
 			Expect(err).ToNot(HaveOccurred())
 

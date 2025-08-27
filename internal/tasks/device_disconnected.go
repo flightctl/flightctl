@@ -75,11 +75,6 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 				return
 			}
 
-			changed := t.serviceHandler.UpdateServiceSideDeviceStatus(ctx, device)
-			if !changed {
-				continue
-			}
-
 			_, status := t.serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, device)
 			if status.Code != 200 {
 				t.log.Errorf("Failed to replace device status for %s: %s", *device.Metadata.Name, status.Message)
