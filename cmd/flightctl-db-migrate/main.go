@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation"
@@ -11,13 +13,23 @@ import (
 	"gorm.io/gorm"
 )
 
+// errDryRunComplete signals that migrations validated successfully in dry-run mode.
+var errDryRunComplete = errors.New("dry-run complete")
+
 func main() {
+	dryRun := flag.Bool("dry-run", false, "Validate migrations without committing any changes")
+	flag.Parse()
+
 	ctx := context.Background()
 	// Bypass span check for migration operations
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	log := log.InitLogs()
-	log.Println("Starting Flight Control database migration")
+	startMsg := "Starting Flight Control database migration"
+	if *dryRun {
+		startMsg += " in dry-run mode"
+	}
+	log.Println(startMsg)
 	defer log.Println("Flight Control database migration completed")
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
@@ -52,12 +64,26 @@ func main() {
 		}
 	}()
 
-	log.Println("Running database migrations with migration user")
+	if *dryRun {
+		log.Println("Dry-run mode enabled: changes will be rolled back after validation")
+	} else {
+		log.Println("Running database migrations with migration user")
+	}
 	// Run all schema changes atomically so that a failure leaves the DB unchanged.
 	if err := migrationDB.Transaction(func(tx *gorm.DB) error {
 		// Create a temporary store bound to the transaction and run migrations
-		return store.NewStore(tx, log.WithField("pkg", "migration-store-tx")).RunMigrations(ctx)
+		if err := store.NewStore(tx, log.WithField("pkg", "migration-store-tx")).RunMigrations(ctx); err != nil {
+			return err // rollback
+		}
+		if *dryRun {
+			return errDryRunComplete // rollback but indicate success
+		}
+		return nil // commit
 	}); err != nil {
+		if errors.Is(err, errDryRunComplete) {
+			log.Println("Dry-run completed successfully; no changes were committed.")
+			return
+		}
 		log.Fatalf("running database migrations: %v", err)
 	}
 
