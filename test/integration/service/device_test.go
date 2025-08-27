@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -1006,5 +1007,388 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Expect(status.Code).To(Equal(int32(400))) // Bad Request
 			})
 		})
+	})
+
+	Context("CountDevicesByLabels", func() {
+		// Define the device test structure once
+		type testDevice struct {
+			name            string
+			labels          map[string]string
+			status          string
+			renderedVersion string
+			configVersion   string
+		}
+
+		// Define the test case structure once
+		type testCase struct {
+			devices           []testDevice
+			expectedTotal     int64
+			expectedConnected int64
+			expectedBusy      int64
+			groupBy           []string
+			expectedGroups    int
+			groupLabels       map[string]string
+			description       string
+		}
+
+		// Helper function to create and configure devices for testing
+		createTestDevices := func(devices []testDevice) {
+			for _, d := range devices {
+				device := api.Device{
+					Metadata: api.ObjectMeta{
+						Name:   lo.ToPtr(d.name),
+						Labels: &d.labels,
+					},
+					Spec: &api.DeviceSpec{
+						Os: &api.DeviceOsSpec{Image: "test-os"},
+					},
+					Status: &api.DeviceStatus{
+						Summary: api.DeviceSummaryStatus{
+							Status: api.DeviceSummaryStatusType(d.status),
+						},
+						Config: api.DeviceConfigStatus{
+							RenderedVersion: d.configVersion,
+						},
+					},
+				}
+
+				// Create the device
+				_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+				Expect(status.Code).To(Equal(int32(201)))
+
+				// Update the device status after creation since CreateDevice might override it
+				updatedDevice := api.Device{
+					Metadata: api.ObjectMeta{
+						Name:   lo.ToPtr(d.name),
+						Labels: &d.labels,
+					},
+					Spec: &api.DeviceSpec{
+						Os: &api.DeviceOsSpec{Image: "test-os"},
+					},
+					Status: &api.DeviceStatus{
+						Summary: api.DeviceSummaryStatus{
+							Status: api.DeviceSummaryStatusType(d.status),
+						},
+						Config: api.DeviceConfigStatus{
+							RenderedVersion: d.configVersion,
+						},
+					},
+				}
+
+				// Save the updated device using ReplaceDeviceStatus for status updates
+				resultDevice, updateStatus := suite.Handler.ReplaceDeviceStatus(suite.Ctx, d.name, updatedDevice)
+				Expect(updateStatus.Code).To(Equal(int32(200)))
+				Expect(resultDevice).ToNot(BeNil())
+
+				// Add renderedVersion annotation if specified (including empty string)
+				if d.renderedVersion != "" {
+					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, d.name,
+						map[string]string{api.DeviceAnnotationRenderedVersion: d.renderedVersion}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				} else if d.renderedVersion == "" && !strings.HasPrefix(d.name, "missing-annotation-device") {
+					// For empty string, we need to explicitly set it to distinguish from missing annotation
+					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, d.name,
+						map[string]string{api.DeviceAnnotationRenderedVersion: ""}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				}
+				// For missing annotation devices, do nothing (no annotation will be set)
+			}
+		}
+
+		// Helper function to verify count results
+		verifyCountResults := func(result []map[string]any, expectedGroups int, expectedCounts map[string]int64, groupLabels map[string]string) {
+			Expect(result).To(HaveLen(expectedGroups))
+
+			if expectedGroups == 1 {
+				counts := result[0]
+				// Verify label values
+				for key, value := range groupLabels {
+					Expect(counts[key]).To(Equal(value))
+				}
+
+				// Verify counts
+				Expect(counts["total"]).To(Equal(expectedCounts["total"]))
+				Expect(counts["connected"]).To(Equal(expectedCounts["connected"]))
+				Expect(counts["busy_connected"]).To(Equal(expectedCounts["busy_connected"]))
+			} else if expectedGroups > 1 {
+				// For multiple groups, just verify the total count across all groups
+				totalTotal := int64(0)
+				totalConnected := int64(0)
+				totalBusy := int64(0)
+
+				for _, counts := range result {
+					totalTotal += counts["total"].(int64)
+					totalConnected += counts["connected"].(int64)
+					totalBusy += counts["busy_connected"].(int64)
+				}
+
+				Expect(totalTotal).To(Equal(expectedCounts["total"]))
+				Expect(totalConnected).To(Equal(expectedCounts["connected"]))
+				Expect(totalBusy).To(Equal(expectedCounts["busy_connected"]))
+			}
+		}
+
+		DescribeTable("should count devices correctly with different configurations",
+			func(testCase testCase) {
+				// Create all devices for this test case
+				createTestDevices(testCase.devices)
+
+				// Test counting by the specified groups
+				params := api.ListDevicesParams{}
+				result, status := suite.Handler.CountDevicesByLabels(suite.Ctx, params, nil, testCase.groupBy)
+
+				Expect(status.Code).To(Equal(int32(200)))
+
+				// Verify the results
+				verifyCountResults(result, testCase.expectedGroups, map[string]int64{
+					"total":          testCase.expectedTotal,
+					"connected":      testCase.expectedConnected,
+					"busy_connected": testCase.expectedBusy,
+				}, testCase.groupLabels)
+			},
+			Entry("different renderedVersion annotation values", testCase{
+				devices: []testDevice{
+					{
+						name: "device-1",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "device-2",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.1", // Different from renderedVersion
+					},
+					{
+						name: "device-3",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Online",
+						renderedVersion: "v2.0.0",
+						configVersion:   "v2.0.0",
+					},
+					{
+						name: "device-4",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Online",
+						renderedVersion: "", // Empty annotation (will be set to empty string)
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "device-5",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Unknown", // Keep as "Unknown" to test the logic
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+				},
+				expectedTotal:     5,
+				expectedConnected: 5, // All devices are connected (Online) - service sets this
+				expectedBusy:      2, // Devices where config.renderedVersion != annotations.renderedVersion
+				groupBy:           []string{"environment", "region"},
+				expectedGroups:    1,
+				groupLabels: map[string]string{
+					"environment": "prod",
+					"region":      "us-east",
+				},
+				description: "5 devices with different renderedVersion annotations",
+			}),
+			Entry("missing renderedVersion annotation", testCase{
+				devices: []testDevice{
+					{
+						name: "missing-annotation-device-1",
+						labels: map[string]string{
+							"environment": "staging",
+							"zone":        "zone-a",
+						},
+						status:          "Online",
+						renderedVersion: "", // No annotation will be set
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "missing-annotation-device-2",
+						labels: map[string]string{
+							"environment": "staging",
+							"zone":        "zone-a",
+						},
+						status:          "Online",
+						renderedVersion: "", // No annotation will be set
+						configVersion:   "v1.0.1",
+					},
+				},
+				expectedTotal:     2,
+				expectedConnected: 2,
+				expectedBusy:      0, // No devices are busy when annotation is completely missing (NULL comparison)
+				groupBy:           []string{"environment", "zone"},
+				expectedGroups:    1,
+				groupLabels: map[string]string{
+					"environment": "staging",
+					"zone":        "zone-a",
+				},
+				description: "2 devices without renderedVersion annotation",
+			}),
+			Entry("empty renderedVersion annotation", testCase{
+				devices: []testDevice{
+					{
+						name: "empty-annotation-device-1",
+						labels: map[string]string{
+							"environment": "dev",
+							"cluster":     "cluster-1",
+						},
+						status:          "Online",
+						renderedVersion: "", // Empty string annotation
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "empty-annotation-device-2",
+						labels: map[string]string{
+							"environment": "dev",
+							"cluster":     "cluster-1",
+						},
+						status:          "Online",
+						renderedVersion: "", // Empty string annotation
+						configVersion:   "v1.0.1",
+					},
+				},
+				expectedTotal:     2,
+				expectedConnected: 2,
+				expectedBusy:      2, // All devices are busy since empty annotation != config version
+				groupBy:           []string{"environment", "cluster"},
+				expectedGroups:    1,
+				groupLabels: map[string]string{
+					"environment": "dev",
+					"cluster":     "cluster-1",
+				},
+				description: "2 devices with empty renderedVersion annotation",
+			}),
+			Entry("mixed status values", testCase{
+				devices: []testDevice{
+					{
+						name: "mixed-status-device-1",
+						labels: map[string]string{
+							"tier": "frontend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "mixed-status-device-2",
+						labels: map[string]string{
+							"tier": "frontend",
+						},
+						status:          "Offline",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "mixed-status-device-3",
+						labels: map[string]string{
+							"tier": "frontend",
+						},
+						status:          "Unknown", // This will be counted as not connected
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+				},
+				expectedTotal:     3,
+				expectedConnected: 3, // All devices are Online - service sets this regardless of input
+				expectedBusy:      0, // All devices have matching versions
+				groupBy:           []string{"tier"},
+				expectedGroups:    1,
+				groupLabels: map[string]string{
+					"tier": "frontend",
+				},
+				description: "3 devices with mixed status values",
+			}),
+			Entry("multiple groups", testCase{
+				devices: []testDevice{
+					{
+						name: "multi-group-device-1",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-west",
+							"tier":        "backend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.1", // Different from renderedVersion
+					},
+					{
+						name: "multi-group-device-2",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-west",
+							"tier":        "backend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0", // Same as renderedVersion
+					},
+					{
+						name: "multi-group-device-3",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+							"tier":        "frontend",
+						},
+						status:          "Online",
+						renderedVersion: "v2.0.0",
+						configVersion:   "v2.0.0", // Same as renderedVersion
+					},
+					{
+						name: "multi-group-device-4",
+						labels: map[string]string{
+							"environment": "staging",
+							"region":      "us-west",
+							"tier":        "backend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.2", // Different from renderedVersion
+					},
+					{
+						name: "multi-group-device-5",
+						labels: map[string]string{
+							"environment": "staging",
+							"region":      "us-east",
+							"tier":        "frontend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0", // Same as renderedVersion
+					},
+				},
+				expectedTotal:     5,
+				expectedConnected: 5, // All devices are Online
+				expectedBusy:      2, // 2 devices have different versions
+				groupBy:           []string{"environment", "region", "tier"},
+				expectedGroups:    4, // 4 groups: prod/us-west/backend, prod/us-east/frontend, staging/us-west/backend, staging/us-east/frontend
+				groupLabels: map[string]string{
+					"environment": "prod",
+					"region":      "us-west",
+					"tier":        "backend",
+				},
+				description: "5 devices grouped by environment, region, and tier",
+			}),
+		)
+
 	})
 })
