@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -65,9 +64,6 @@ func NewCmdLogin() *cobra.Command {
 			if err := o.Init(args); err != nil {
 				return err
 			}
-			if err := o.ValidateAuthProvider(args); err != nil {
-				return err
-			}
 			ctx, cancel := o.WithTimeout(cmd.Context())
 			defer cancel()
 			return o.Run(ctx, args)
@@ -122,84 +118,30 @@ func (o *LoginOptions) Validate(args []string) error {
 		return err
 	}
 
-	// Trim whitespace from the URL
+	// Basic URL validation to catch obvious errors early
 	trimmedURL := strings.TrimSpace(args[0])
-
 	parsedUrl, err := url.Parse(trimmedURL)
 	if err != nil {
 		return fmt.Errorf("API URL is not a valid URL: %w", err)
 	}
 
-	// Check for missing protocol first for clearer guidance
-	if !strings.HasPrefix(strings.ToLower(trimmedURL), "http") {
-		return fmt.Errorf("API URL is missing the protocol. Please ensure the API URL starts with 'https://'")
+	// Check for missing protocol
+	if !strings.HasPrefix(strings.ToLower(trimmedURL), "http://") && !strings.HasPrefix(strings.ToLower(trimmedURL), "https://") {
+		return fmt.Errorf("%s is missing the protocol. Please ensure the API URL starts with 'http://' or 'https://'", trimmedURL)
 	}
 
-	// Enforce HTTPS scheme (case-insensitive)
-	if strings.ToLower(parsedUrl.Scheme) != "https" {
-		return fmt.Errorf("the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again")
+	// Check for invalid protocol
+	scheme := strings.ToLower(parsedUrl.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("%s must use HTTP or HTTPS. Please ensure the API URL starts with 'http://' or 'https://'", trimmedURL)
 	}
 
-	// Check for valid hostname
+	// Check for missing hostname
 	if parsedUrl.Hostname() == "" {
-		return fmt.Errorf("API URL is missing a valid hostname. Please provide a complete URL with hostname")
+		return fmt.Errorf("%s is missing a valid hostname. Please provide a complete URL with hostname", trimmedURL)
 	}
 
-	// Check for embedded credentials (userinfo)
-	if parsedUrl.User != nil {
-		return fmt.Errorf("API URL must not include username or password. Please provide only the hostname and optionally a port")
-	}
-
-	// Check for extra path components that might indicate user error
-	if parsedUrl.Path != "" && parsedUrl.Path != "/" {
-		// Suggest removing the path component
-		host := parsedUrl.Hostname()
-		// Bracket IPv6 when no port is present
-		correctedURL := "https://" + host
-		if strings.Count(host, ":") > 1 {
-			correctedURL = "https://[" + host + "]"
-		}
-		if parsedUrl.Port() != "" {
-			correctedURL = "https://" + net.JoinHostPort(host, parsedUrl.Port())
-		}
-		return fmt.Errorf("API URL contains an unexpected path component '%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Path, correctedURL)
-	}
-
-	// Check for query parameters
-	if parsedUrl.RawQuery != "" {
-		// Suggest removing the query parameters
-		host := parsedUrl.Hostname()
-		// Bracket IPv6 when no port is present
-		correctedURL := "https://" + host
-		if strings.Count(host, ":") > 1 {
-			correctedURL = "https://[" + host + "]"
-		}
-		if parsedUrl.Port() != "" {
-			correctedURL = "https://" + net.JoinHostPort(host, parsedUrl.Port())
-		}
-		return fmt.Errorf("API URL contains unexpected query parameters '?%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.RawQuery, correctedURL)
-	}
-
-	// Check for fragments
-	if parsedUrl.Fragment != "" {
-		// Suggest removing the fragment
-		host := parsedUrl.Hostname()
-		// Bracket IPv6 when no port is present
-		correctedURL := "https://" + host
-		if strings.Count(host, ":") > 1 {
-			correctedURL = "https://[" + host + "]"
-		}
-		if parsedUrl.Port() != "" {
-			correctedURL = "https://" + net.JoinHostPort(host, parsedUrl.Port())
-		}
-		return fmt.Errorf("API URL contains an unexpected fragment '#%s'. The API URL should only contain the hostname and optionally a port. Try: %s", parsedUrl.Fragment, correctedURL)
-	}
-
-	// Check for common URL format issues
-	if strings.Contains(parsedUrl.Host, "//") {
-		return fmt.Errorf("API URL contains double slashes in the hostname. This is likely a formatting error. Please ensure the URL format is: https://hostname[:port]")
-	}
-
+	// Validate authentication flag conflicts
 	if !login.StrIsEmpty(o.AccessToken) && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || o.Web) {
 		return fmt.Errorf("--token cannot be used along with --username, --password or --web")
 	}
@@ -212,11 +154,6 @@ func (o *LoginOptions) Validate(args []string) error {
 		return fmt.Errorf("both --username and --password need to be provided")
 	}
 
-	return nil
-}
-
-func (o *LoginOptions) ValidateAuthProvider(args []string) error {
-	// Auth provider validation will be done in Run method after auth config is fetched
 	return nil
 }
 
@@ -350,9 +287,19 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1alpha1.AuthConfig,
 		// Enhanced error handling for network issues
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "connection refused") {
+			// Add URL validation suggestions
+			validationErr := o.validateURLFormat(o.clientConfig.Service.Server)
+			if validationErr != nil {
+				return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. %s", o.clientConfig.Service.Server, validationErr.Error())
+			}
 			return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. Please verify the URL and try again", o.clientConfig.Service.Server)
 		}
 		if strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "dns") {
+			// Add URL validation suggestions
+			validationErr := o.validateURLFormat(o.clientConfig.Service.Server)
+			if validationErr != nil {
+				return nil, fmt.Errorf("cannot resolve hostname for %s. %s", o.clientConfig.Service.Server, validationErr.Error())
+			}
 			return nil, fmt.Errorf("cannot resolve hostname for %s. Please check the URL and ensure the hostname is correct", o.clientConfig.Service.Server)
 		}
 		if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline exceeded") {
@@ -398,4 +345,49 @@ func (o *LoginOptions) getClientConfig(apiUrl string) (*client.Config, error) {
 	}
 
 	return config, nil
+}
+
+// validateURLFormat provides helpful suggestions when URL format issues are detected after failed login attempts
+func (o *LoginOptions) validateURLFormat(urlStr string) error {
+	parsedUrl, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("%s format issue detected: %w. Please ensure the URL follows the format: https://hostname[:port]", urlStr, err)
+	}
+
+	// Check for common URL format issues that might not be caught by basic validation
+	if strings.Contains(parsedUrl.Host, "//") {
+		return fmt.Errorf("%s contains double slashes in the hostname. This is likely a formatting error. Please ensure the URL format is: https://hostname[:port]", urlStr)
+	}
+
+	// Check for path components that might indicate user error
+	if parsedUrl.Path != "" && parsedUrl.Path != "/" {
+		host := parsedUrl.Hostname()
+		correctedURL := parsedUrl.Scheme + "://" + host
+		if parsedUrl.Port() != "" {
+			correctedURL = parsedUrl.Scheme + "://" + host + ":" + parsedUrl.Port()
+		}
+		return fmt.Errorf("%s contains path component '%s' which may not be needed. Try: %s", urlStr, parsedUrl.Path, correctedURL)
+	}
+
+	// Check for query parameters that might indicate user error
+	if parsedUrl.RawQuery != "" {
+		host := parsedUrl.Hostname()
+		correctedURL := parsedUrl.Scheme + "://" + host
+		if parsedUrl.Port() != "" {
+			correctedURL = parsedUrl.Scheme + "://" + host + ":" + parsedUrl.Port()
+		}
+		return fmt.Errorf("%s contains query parameters '?%s' which may not be needed. Try: %s", urlStr, parsedUrl.RawQuery, correctedURL)
+	}
+
+	// Check for fragments that might indicate user error
+	if parsedUrl.Fragment != "" {
+		host := parsedUrl.Hostname()
+		correctedURL := parsedUrl.Scheme + "://" + host
+		if parsedUrl.Port() != "" {
+			correctedURL = parsedUrl.Scheme + "://" + host + ":" + parsedUrl.Port()
+		}
+		return fmt.Errorf("%s contains fragment '#%s' which may not be needed. Try: %s", urlStr, parsedUrl.Fragment, correctedURL)
+	}
+
+	return nil
 }
