@@ -559,6 +559,12 @@ func (h *Harness) CleanUpAllTestResources() error {
 	return h.CleanUpTestResources(util.ResourceTypes[:]...)
 }
 
+func (h *Harness) CleanUpResource(resourceType string, resourceName string) (string, error) {
+	logrus.Infof("Deleting resource %s of resource type %s", resourceName, resourceType)
+	resource := resourceType + "/" + resourceName
+	return h.CLI("delete", resource)
+}
+
 // CleanUpTestResources deletes only resources that have the test label for the current test
 func (h *Harness) CleanUpTestResources(resourceTypes ...string) error {
 	testID := h.GetTestIDFromContext()
@@ -1438,6 +1444,36 @@ func (h *Harness) addTestLabelToResource(metadata *v1alpha1.ObjectMeta) {
 	}
 
 	(*metadata.Labels)["test-id"] = testID
+}
+
+// TODO: Modify addTestLabelsToYAML to include other labels and remove addLabelsToYAML
+func (h *Harness) AddLabelsToYAML(yamlContent string, addLabels map[string]string) (string, error) {
+	// Parse the YAML document
+	var resource map[string]interface{}
+	if err := yaml.Unmarshal([]byte(yamlContent), &resource); err != nil {
+		return "", fmt.Errorf("failed to parse yaml document: %w", err)
+	}
+
+	// Add labels to metadata
+	if metadata, ok := resource["metadata"].(map[string]interface{}); ok {
+		if labels, ok := metadata["labels"].(map[string]interface{}); ok {
+			for key, value := range addLabels {
+				labels[key] = value
+			}
+		} else {
+			metadata["labels"] = addLabels
+		}
+	} else {
+		resource["metadata"] = map[string]interface{}{"labels": addLabels}
+	}
+
+	// Marshal back to YAML
+	modifiedDoc, err := yaml.Marshal(resource)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal modified yaml: %w", err)
+	}
+	GinkgoWriter.Printf("🔍 [DEBUG] Modified YAML: %s\n", string(modifiedDoc))
+	return string(modifiedDoc), nil
 }
 
 func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1alpha1.EnrollmentRequestApproval) {
