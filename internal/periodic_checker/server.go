@@ -14,9 +14,11 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,7 +49,8 @@ func (s *Server) Run(ctx context.Context) error {
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	defer cancel()
 
-	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	processID := fmt.Sprintf("periodic-%s-%s", util.GetHostname(), uuid.New().String())
+	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, processID, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}

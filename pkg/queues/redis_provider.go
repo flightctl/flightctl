@@ -24,15 +24,16 @@ import (
 )
 
 type redisProvider struct {
-	client  *redis.Client
-	log     logrus.FieldLogger
-	wg      *sync.WaitGroup
-	queues  []*redisQueue
-	stopped atomic.Bool
-	mu      sync.Mutex
+	client    *redis.Client
+	log       logrus.FieldLogger
+	wg        *sync.WaitGroup
+	queues    []*redisQueue
+	stopped   atomic.Bool
+	mu        sync.Mutex
+	processID string
 }
 
-func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password config.SecureString) (Provider, error) {
+func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, processID string, hostname string, port uint, password config.SecureString) (Provider, error) {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/queues", "RedisProvider")
 	defer span.End()
 
@@ -58,9 +59,10 @@ func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, hostname stri
 	log.Info("successfully connected to the Redis queue")
 
 	return &redisProvider{
-		client: client,
-		log:    log,
-		wg:     &wg,
+		client:    client,
+		log:       log,
+		wg:        &wg,
+		processID: processID,
 	}, nil
 }
 

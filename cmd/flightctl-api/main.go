@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -18,8 +19,10 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -137,7 +140,8 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
-	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	processID := fmt.Sprintf("api-%s-%s", util.GetHostname(), uuid.New().String())
+	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}

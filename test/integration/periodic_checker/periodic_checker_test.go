@@ -2,6 +2,7 @@ package periodic_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -122,7 +123,8 @@ var _ = Describe("Periodic", func() {
 			Fail("No orgs found in database")
 		}
 
-		queuesProvider, err = queues.NewRedisProvider(ctx, log, "localhost", 6379, "adminpass")
+		processID := fmt.Sprintf("periodic-test-%s", uuid.New().String())
+		queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 
 		// Setup kvStore for test
