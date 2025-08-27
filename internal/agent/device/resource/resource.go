@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
@@ -236,7 +237,7 @@ type Alert struct {
 }
 
 func NewAlert(rule v1alpha1.ResourceAlertRule) (*Alert, error) {
-	duration, err := time.ParseDuration(rule.Duration)
+	duration, err := util.ExtendedParseDuration(rule.Duration)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +284,7 @@ func (a *Alert) UpdateRule(rule v1alpha1.ResourceAlertRule) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	duration, err := time.ParseDuration(rule.Duration)
+	duration, err := util.ExtendedParseDuration(rule.Duration)
 	if err != nil {
 		return err
 	}
