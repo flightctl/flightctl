@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const signerDeviceSvcClientExpiryDays int32 = 7
+const signerDeviceSvcClientExpiryDays int32 = 365
 
 type SignerDeviceSvcClient struct {
 	name string
