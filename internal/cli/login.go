@@ -53,8 +53,18 @@ func NewCmdLogin() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login [URL] [flags]",
 		Short: "Login to flight control",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// If no arguments provided, show help
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+
+			// If "help" is provided as an argument, show help
+			if args[0] == "help" {
+				return cmd.Help()
+			}
+
 			if err := o.Complete(cmd, args); err != nil {
 				return err
 			}
