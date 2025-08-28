@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/org/providers"
 	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
@@ -41,7 +40,6 @@ type AuthZMiddleware interface {
 
 var authZ AuthZMiddleware
 var authN AuthNMiddleware
-var orgProvider providers.ExternalOrganizationProvider
 
 func GetAuthZ() AuthZMiddleware {
 	return authZ
@@ -49,10 +47,6 @@ func GetAuthZ() AuthZMiddleware {
 
 func GetAuthN() AuthNMiddleware {
 	return authN
-}
-
-func GetOrgProvider() providers.ExternalOrganizationProvider {
-	return orgProvider
 }
 
 type AuthType string
@@ -119,7 +113,6 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolv
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
 	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
-	orgProvider = &providers.ClaimsProvider{}
 	authZ = authz.NewJWTAuthZ(orgResolver)
 	var err error
 	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
