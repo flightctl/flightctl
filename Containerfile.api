@@ -26,8 +26,10 @@ COPY ./test ./test
 COPY .git .git
 
 # Fix git permissions and clean working tree for version calculation
-RUN git config --global --add safe.directory /app
-RUN git add . && git stash -u && git stash drop || true
+RUN git config --global --add safe.directory /app && \
+    git add . && \
+    git stash -u && \
+    (git stash drop || true)
 
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
