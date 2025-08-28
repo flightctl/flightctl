@@ -7,6 +7,7 @@ on:
 
 env:
   QUAY_ORG: quay.io/flightctl
+  QUAY: quay.io
   # Enable BuildKit for cache mounts
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
@@ -15,7 +16,7 @@ jobs:
   publish-flightctl-e2e-containers:
     strategy:
       matrix:
-        image: 
+        image:
           - {name: 'git-server',   containerfile: 'test/scripts/Containerfile.gitserver'}
           - {name: 'e2e-base',     containerfile: 'test/scripts/agent-images/Containerfile-e2e-base.local'}
           - {name: 'e2e-v2',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v2.local'}
@@ -78,6 +79,13 @@ jobs:
             --ulimit nofile=10000:10000
           containerfiles: ${{ matrix.image.containerfile }}
           context: .
+
+      - name: Login to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: ${{ env.QUAY }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
 
       - name: Push to Quay.io
         id: push
