@@ -212,6 +212,14 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("must provide --token")
 	}
 
+	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
+		Name: o.authConfig.AuthType,
+		Config: map[string]string{
+			client.AuthUrlKey:      o.authConfig.AuthURL,
+			client.AuthClientIdKey: o.ClientId,
+		},
+	}
+
 	token := o.AccessToken
 	if token == "" {
 		authInfo, err := o.authProvider.Auth(o.Web, o.Username, o.Password)
