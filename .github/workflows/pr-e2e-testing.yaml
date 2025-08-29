@@ -27,6 +27,7 @@ env:
   GINKGO_TOTAL_NODES: 4
   # Set the registry for container caching
   QUAY_ORG: quay.io/flightctl
+  QUAY_TESTS_ORG: quay.io/flightctl-tests
   REGISTRY: quay.io
   REGISTRY_OWNER: flightctl
   GITHUB_ACTIONS: true
@@ -146,8 +147,7 @@ jobs:
           podman pull ${{ env.QUAY_ORG }}/flightctl-alertmanager-proxy:cache || true
           podman pull ${{ env.QUAY_ORG }}/flightctl-cli-artifacts:cache || true
           podman pull ${{ env.QUAY_ORG }}/flightctl-userinfo-proxy:cache || true
-          podman pull ${{ env.QUAY_ORG }}/git-server:cache || true
-          podman pull ${{ env.QUAY_ORG }}/sleep-app:cache || true
+          podman pull ${{ env.QUAY_TESTS_ORG }}/git-server:cache || true
 
       - name: Create kind cluster
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
