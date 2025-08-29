@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -57,8 +58,9 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	orgResolver := resolvers.BuildResolver(ctx, s.cfg, s.store.Organization(), s.log)
 	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
+		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, orgResolver))
 
 	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, s.k8sClient, kvStore, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")

@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -148,7 +149,9 @@ func main() {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig)
+	orgResolver := resolvers.BuildResolver(ctx, cfg, store.Organization(), log)
+
+	agentServer := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
@@ -156,7 +159,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, agentserver.GetGRPCServer())
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer(), orgResolver)
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -164,7 +167,7 @@ func main() {
 	}()
 
 	go func() {
-		if err := agentserver.Run(ctx); err != nil {
+		if err := agentServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
 		cancel()

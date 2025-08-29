@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -57,7 +58,8 @@ var _ = Describe("FleetSelector", func() {
 		workerClient = worker_client.NewWorkerClient(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		orgResolver := resolvers.NewDefaultResolver(storeInst.Organization())
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 		event := api.Event{
 			Reason: api.EventReasonResourceUpdated,
 			InvolvedObject: api.ObjectReference{

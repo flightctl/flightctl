@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -78,7 +79,8 @@ var _ = Describe("FleetRollout", func() {
 		workerClient = worker_client.NewWorkerClient(mockPublisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		orgResolver := resolvers.BuildResolver(ctx, cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 	})
 
 	AfterEach(func() {
