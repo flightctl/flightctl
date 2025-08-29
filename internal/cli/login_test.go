@@ -773,19 +773,19 @@ func TestNewCmdLogin_FlagHandling(t *testing.T) {
 		{
 			name:        "with token flag",
 			args:        []string{"https://api.example.com"},
-			flags:       map[string]string{"--token": "test-token"},
+			flags:       map[string]string{"token": "test-token"},
 			expectError: true, // Network failure expected
 		},
 		{
 			name:        "with username password flags",
 			args:        []string{"https://api.example.com"},
-			flags:       map[string]string{"--username": "user", "--password": "pass"},
+			flags:       map[string]string{"username": "user", "password": "pass"},
 			expectError: true, // Network failure expected
 		},
 		{
 			name:        "with web flag",
 			args:        []string{"https://api.example.com"},
-			flags:       map[string]string{"--web": "true"},
+			flags:       map[string]string{"web": "true"},
 			expectError: true, // Network failure expected
 		},
 	}
@@ -797,7 +797,8 @@ func TestNewCmdLogin_FlagHandling(t *testing.T) {
 
 			// Set flags
 			for flag, value := range tt.flags {
-				cmd.Flags().Set(flag, value)
+				err := cmd.Flags().Set(flag, value)
+				assert.NoError(t, err, "failed to set flag %s", flag)
 			}
 
 			// Capture output to avoid printing during tests
