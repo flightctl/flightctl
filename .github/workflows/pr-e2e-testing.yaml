@@ -146,8 +146,6 @@ jobs:
           podman pull ${{ env.QUAY_ORG }}/flightctl-alertmanager-proxy:cache || true
           podman pull ${{ env.QUAY_ORG }}/flightctl-cli-artifacts:cache || true
           podman pull ${{ env.QUAY_ORG }}/flightctl-userinfo-proxy:cache || true
-          podman pull ${{ env.QUAY_ORG }}/git-server:cache || true
-          podman pull ${{ env.QUAY_ORG }}/sleep-app:cache || true
 
       - name: Create kind cluster
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
