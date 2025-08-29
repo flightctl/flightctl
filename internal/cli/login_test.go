@@ -712,6 +712,711 @@ func TestLoginOptions_GetAuthConfig_HTTPResponseErrors(t *testing.T) {
 	}
 }
 
+func TestNewCmdLogin_CommandExecution(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		expectError    bool
+		expectedOutput string
+	}{
+		{
+			name:           "no arguments shows help",
+			args:           []string{},
+			expectError:    false,
+			expectedOutput: "Usage:",
+		},
+		{
+			name:           "help argument shows help",
+			args:           []string{"help"},
+			expectError:    false,
+			expectedOutput: "Usage:",
+		},
+		{
+			name:        "valid URL argument",
+			args:        []string{"https://api.example.com"},
+			expectError: true, // Will fail due to network
+		},
+		{
+			name:        "invalid URL argument",
+			args:        []string{"not-a-url"},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := NewCmdLogin()
+			cmd.SetArgs(tt.args)
+
+			// Capture output to avoid printing during tests
+			cmd.SetOut(nil)
+			cmd.SetErr(nil)
+
+			err := cmd.Execute()
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestNewCmdLogin_FlagHandling(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		flags       map[string]string
+		expectError bool
+	}{
+		{
+			name:        "with token flag",
+			args:        []string{"https://api.example.com"},
+			flags:       map[string]string{"--token": "test-token"},
+			expectError: true, // Network failure expected
+		},
+		{
+			name:        "with username password flags",
+			args:        []string{"https://api.example.com"},
+			flags:       map[string]string{"--username": "user", "--password": "pass"},
+			expectError: true, // Network failure expected
+		},
+		{
+			name:        "with web flag",
+			args:        []string{"https://api.example.com"},
+			flags:       map[string]string{"--web": "true"},
+			expectError: true, // Network failure expected
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := NewCmdLogin()
+			cmd.SetArgs(tt.args)
+
+			// Set flags
+			for flag, value := range tt.flags {
+				cmd.Flags().Set(flag, value)
+			}
+
+			// Capture output to avoid printing during tests
+			cmd.SetOut(nil)
+			cmd.SetErr(nil)
+
+			err := cmd.Execute()
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_Init_ClientConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupOpts   func(*LoginOptions)
+		expectError bool
+	}{
+		{
+			name: "with existing client config",
+			args: []string{"https://api.example.com"},
+			setupOpts: func(o *LoginOptions) {
+				o.clientConfig = &client.Config{
+					Service: client.Service{
+						Server: "https://existing.example.com",
+					},
+				}
+			},
+			expectError: false,
+		},
+		{
+			name:        "without client config",
+			args:        []string{"https://api.example.com"},
+			setupOpts:   nil,
+			expectError: false,
+		},
+		{
+			name:        "with whitespace in URL",
+			args:        []string{"  https://api.example.com  "},
+			setupOpts:   nil,
+			expectError: false,
+		},
+		{
+			name:        "single arg",
+			args:        []string{"https://api.example.com"},
+			setupOpts:   nil,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			if tt.setupOpts != nil {
+				tt.setupOpts(o)
+			}
+
+			err := o.Init(tt.args)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_Init_CAFileHandling(t *testing.T) {
+	tests := []struct {
+		name        string
+		caFile      string
+		expectError bool
+	}{
+		{
+			name:        "valid CA file",
+			caFile:      "/path/to/valid/ca.crt",
+			expectError: true, // File doesn't exist in test
+		},
+		{
+			name:        "empty CA file",
+			caFile:      "",
+			expectError: false,
+		},
+		{
+			name:        "non-existent CA file",
+			caFile:      "/path/to/nonexistent/ca.crt",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			o.CAFile = tt.caFile
+
+			err := o.Init([]string{"https://api.example.com"})
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_GetClientConfig_Basic(t *testing.T) {
+	tests := []struct {
+		name        string
+		apiURL      string
+		setupOpts   func(*LoginOptions)
+		expectError bool
+	}{
+		{
+			name:        "valid API URL",
+			apiURL:      "https://api.example.com",
+			setupOpts:   nil,
+			expectError: false,
+		},
+		{
+			name:        "empty API URL",
+			apiURL:      "",
+			setupOpts:   nil,
+			expectError: false,
+		},
+		{
+			name:        "URL with whitespace",
+			apiURL:      "  https://api.example.com  ",
+			setupOpts:   nil,
+			expectError: false,
+		},
+		{
+			name:        "HTTP URL",
+			apiURL:      "http://api.example.com",
+			setupOpts:   nil,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			if tt.setupOpts != nil {
+				tt.setupOpts(o)
+			}
+
+			config, err := o.getClientConfig(tt.apiURL)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, config)
+				assert.Equal(t, tt.apiURL, config.Service.Server)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_GetClientConfig_CAFile(t *testing.T) {
+	tests := []struct {
+		name        string
+		apiURL      string
+		caFile      string
+		expectError bool
+		errMsg      string
+	}{
+		{
+			name:        "with valid CA file",
+			apiURL:      "https://api.example.com",
+			caFile:      "/path/to/valid/ca.crt",
+			expectError: true, // File doesn't exist in test
+			errMsg:      "failed to read CA file",
+		},
+		{
+			name:        "with empty CA file",
+			apiURL:      "https://api.example.com",
+			caFile:      "",
+			expectError: false,
+		},
+		{
+			name:        "with non-existent CA file",
+			apiURL:      "https://api.example.com",
+			caFile:      "/path/to/nonexistent/ca.crt",
+			expectError: true,
+			errMsg:      "failed to read CA file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			o.CAFile = tt.caFile
+
+			config, err := o.getClientConfig(tt.apiURL)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, config)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_GetClientConfig_InsecureSkipVerify(t *testing.T) {
+	tests := []struct {
+		name               string
+		apiURL             string
+		insecureSkipVerify bool
+		expectedInsecure   bool
+	}{
+		{
+			name:               "insecure skip verify true",
+			apiURL:             "https://api.example.com",
+			insecureSkipVerify: true,
+			expectedInsecure:   true,
+		},
+		{
+			name:               "insecure skip verify false",
+			apiURL:             "https://api.example.com",
+			insecureSkipVerify: false,
+			expectedInsecure:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			o.InsecureSkipVerify = tt.insecureSkipVerify
+
+			config, err := o.getClientConfig(tt.apiURL)
+
+			assert.NoError(t, err)
+			assert.NotNil(t, config)
+			assert.Equal(t, tt.expectedInsecure, config.Service.InsecureSkipVerify)
+		})
+	}
+}
+
+func TestLoginOptions_Validate_AuthCombinations(t *testing.T) {
+	tests := []struct {
+		name        string
+		accessToken string
+		username    string
+		password    string
+		web         bool
+		clientID    string
+		expectError bool
+		errMsg      string
+	}{
+		// Token combinations
+		{
+			name:        "token with username",
+			accessToken: "token123",
+			username:    "user",
+			expectError: true,
+			errMsg:      "--token cannot be used along with --username, --password or --web",
+		},
+		{
+			name:        "token with password",
+			accessToken: "token123",
+			password:    "pass",
+			expectError: true,
+			errMsg:      "--token cannot be used along with --username, --password or --web",
+		},
+		{
+			name:        "token with web",
+			accessToken: "token123",
+			web:         true,
+			expectError: true,
+			errMsg:      "--token cannot be used along with --username, --password or --web",
+		},
+		{
+			name:        "token with client ID",
+			accessToken: "token123",
+			clientID:    "test-client",
+			expectError: false,
+		},
+
+		// Web combinations
+		{
+			name:        "web with username",
+			web:         true,
+			username:    "user",
+			expectError: true,
+			errMsg:      "--web cannot be used along with --username, --password or --token",
+		},
+		{
+			name:        "web with password",
+			web:         true,
+			password:    "pass",
+			expectError: true,
+			errMsg:      "--web cannot be used along with --username, --password or --token",
+		},
+		{
+			name:        "web with token",
+			web:         true,
+			accessToken: "token123",
+			expectError: true,
+			errMsg:      "--token cannot be used along with --username, --password or --web",
+		},
+
+		// Username/Password combinations
+		{
+			name:        "username without password",
+			username:    "user",
+			expectError: true,
+			errMsg:      "both --username and --password need to be provided",
+		},
+		{
+			name:        "password without username",
+			password:    "pass",
+			expectError: true,
+			errMsg:      "both --username and --password need to be provided",
+		},
+		{
+			name:        "valid username and password",
+			username:    "user",
+			password:    "pass",
+			expectError: false,
+		},
+
+		// Valid combinations
+		{
+			name:        "valid token only",
+			accessToken: "token123",
+			expectError: false,
+		},
+		{
+			name:        "valid web only",
+			web:         true,
+			expectError: false,
+		},
+		{
+			name:        "valid username password with client ID",
+			username:    "user",
+			password:    "pass",
+			clientID:    "test-client",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			o.AccessToken = tt.accessToken
+			o.Username = tt.username
+			o.Password = tt.password
+			o.Web = tt.web
+			o.ClientId = tt.clientID
+
+			err := o.Validate([]string{"https://api.example.com"})
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_Validate_URLs(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{
+			name:    "valid HTTPS URL",
+			url:     "https://api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid HTTP URL",
+			url:     "http://api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "URL with port",
+			url:     "https://api.example.com:8443",
+			wantErr: false,
+		},
+		{
+			name:    "invalid URL",
+			url:     "not-a-url",
+			wantErr: false, // Current implementation doesn't validate URLs
+		},
+		{
+			name:    "URL without protocol",
+			url:     "api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "empty URL",
+			url:     "",
+			wantErr: false, // Current implementation doesn't validate empty URLs
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			err := o.Validate([]string{tt.url})
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_ValidateURLFormat_Standard(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid HTTPS URL",
+			url:     "https://api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid HTTP URL",
+			url:     "http://api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "URL with port",
+			url:     "https://api.example.com:8443",
+			wantErr: false,
+		},
+		{
+			name:    "URL with root path",
+			url:     "https://api.example.com/",
+			wantErr: false,
+		},
+		{
+			name:    "URL with path component",
+			url:     "https://api.example.com/api/v1",
+			wantErr: true,
+			errMsg:  "contains path component '/api/v1' which may not be needed",
+		},
+		{
+			name:    "URL with query parameters",
+			url:     "https://api.example.com?param=value",
+			wantErr: true,
+			errMsg:  "contains query parameters '?param=value' which may not be needed",
+		},
+		{
+			name:    "URL with fragment",
+			url:     "https://api.example.com#section",
+			wantErr: true,
+			errMsg:  "contains fragment '#section' which may not be needed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			err := o.validateURLFormat(tt.url)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_ValidateURLFormat_Errors(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "invalid URL format",
+			url:     "not-a-url",
+			wantErr: true,
+			errMsg:  "contains path component",
+		},
+		{
+			name:    "URL with double slashes in hostname",
+			url:     "https://api//example.com",
+			wantErr: true,
+			errMsg:  "contains path component",
+		},
+		{
+			name:    "missing scheme",
+			url:     "api.example.com",
+			wantErr: true,
+			errMsg:  "contains path component",
+		},
+		{
+			name:    "unsupported scheme",
+			url:     "ftp://api.example.com",
+			wantErr: false, // Current implementation allows any scheme
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			err := o.validateURLFormat(tt.url)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_Run_AuthenticationScenarios(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupOpts   func(*LoginOptions)
+		args        []string
+		expectError bool
+		errorType   string
+	}{
+		{
+			name: "token authentication",
+			setupOpts: func(o *LoginOptions) {
+				o.clientConfig = &client.Config{
+					Service: client.Service{Server: "https://api.example.com"},
+				}
+				o.AccessToken = "test-token"
+			},
+			args:        []string{"https://api.example.com"},
+			expectError: true, // Network failure expected
+			errorType:   "network",
+		},
+		{
+			name: "username password authentication",
+			setupOpts: func(o *LoginOptions) {
+				o.clientConfig = &client.Config{
+					Service: client.Service{Server: "https://api.example.com"},
+				}
+				o.Username = "testuser"
+				o.Password = "testpass"
+			},
+			args:        []string{"https://api.example.com"},
+			expectError: true, // Network failure expected
+			errorType:   "network",
+		},
+		{
+			name: "web authentication",
+			setupOpts: func(o *LoginOptions) {
+				o.clientConfig = &client.Config{
+					Service: client.Service{Server: "https://api.example.com"},
+				}
+				o.Web = true
+			},
+			args:        []string{"https://api.example.com"},
+			expectError: true, // Network failure expected
+			errorType:   "network",
+		},
+		{
+			name: "auth disabled scenario",
+			setupOpts: func(o *LoginOptions) {
+				o.clientConfig = &client.Config{
+					Service: client.Service{Server: "https://api.example.com"},
+				}
+			},
+			args:        []string{"https://api.example.com"},
+			expectError: true, // Network failure expected
+			errorType:   "network",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			if tt.setupOpts != nil {
+				tt.setupOpts(o)
+			}
+
+			ctx := context.Background()
+			err := o.Run(ctx, tt.args)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestLoginOptions_Bind(t *testing.T) {
 	o := DefaultLoginOptions()
 	fs := &pflag.FlagSet{}
