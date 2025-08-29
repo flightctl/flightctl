@@ -40,27 +40,37 @@ const (
 )
 
 type testProvider struct {
-	queue   chan []byte
-	stopped atomic.Bool
-	wg      *sync.WaitGroup
-	log     logrus.FieldLogger
+	queue       chan []byte
+	pubsubQueue chan []byte
+	stopped     atomic.Bool
+	wg          *sync.WaitGroup
+	log         logrus.FieldLogger
+}
+
+func (t *testProvider) NewPubSubPublisher(channelName string) (queues.PubSubPublisher, error) {
+	return t, nil
+}
+
+func (t *testProvider) NewPubSubSubscriber(channelName string) (queues.PubSubSubscriber, error) {
+	return t, nil
 }
 
 func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	return &testProvider{
-		queue: make(chan []byte, 20),
-		wg:    &wg,
-		log:   log,
+		queue:       make(chan []byte, 20),
+		pubsubQueue: make(chan []byte, 20),
+		wg:          &wg,
+		log:         log,
 	}
 }
 
-func (t *testProvider) NewPublisher(_ string) (queues.Publisher, error) {
+func (t *testProvider) NewQueueProducer(_ string) (queues.QueueProducer, error) {
 	return t, nil
 }
 
-func (t *testProvider) NewConsumer(_ string) (queues.Consumer, error) {
+func (t *testProvider) NewQueueConsumer(_ string) (queues.QueueConsumer, error) {
 	return t, nil
 }
 
@@ -75,7 +85,7 @@ func (t *testProvider) Wait() {
 	t.wg.Wait()
 }
 
-func (t *testProvider) Publish(_ context.Context, b []byte) error {
+func (t *testProvider) Enqueue(_ context.Context, b []byte) error {
 	t.queue <- b
 	return nil
 }
@@ -102,6 +112,33 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 			}
 		}
 	}()
+	return nil
+}
+
+func (t *testProvider) Subscribe(ctx context.Context, handler queues.PubSubHandler) (queues.Subscription, error) {
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		log := logrus.New()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case b, ok := <-t.pubsubQueue:
+				if !ok {
+					return
+				}
+				if err := handler(ctx, b, log); err != nil {
+					log.WithError(err).Errorf("handling broadcast message: %s", string(b))
+				}
+			}
+		}
+	}()
+	return t, nil
+}
+
+func (t *testProvider) Publish(ctx context.Context, payload []byte) error {
+	t.pubsubQueue <- payload
 	return nil
 }
 

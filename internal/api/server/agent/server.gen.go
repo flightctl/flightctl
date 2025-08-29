@@ -21,6 +21,9 @@ type ServerInterface interface {
 	// (GET /api/v1/certificatesigningrequests/{name})
 	GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
 
+	// (PATCH /api/v1/devices/{name}/healthcheck)
+	HealthcheckDevice(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /api/v1/devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
@@ -48,6 +51,11 @@ func (_ Unimplemented) CreateCertificateSigningRequest(w http.ResponseWriter, r 
 
 // (GET /api/v1/certificatesigningrequests/{name})
 func (_ Unimplemented) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /api/v1/devices/{name}/healthcheck)
+func (_ Unimplemented) HealthcheckDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -117,6 +125,32 @@ func (siw *ServerInterfaceWrapper) GetCertificateSigningRequest(w http.ResponseW
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCertificateSigningRequest(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// HealthcheckDevice operation middleware
+func (siw *ServerInterfaceWrapper) HealthcheckDevice(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HealthcheckDevice(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -374,6 +408,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.GetCertificateSigningRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/devices/{name}/healthcheck", wrapper.HealthcheckDevice)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)

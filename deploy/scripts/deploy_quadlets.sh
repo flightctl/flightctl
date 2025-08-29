@@ -24,7 +24,7 @@ switch_to_local_images() {
     # Update db-setup image in service files to use locally built image
     db_migrate_service="${SYSTEMD_UNIT_OUTPUT_DIR}/flightctl-db-migrate.service"
     if [[ -f "$db_migrate_service" ]] && grep -q "flightctl-db-setup:" "$db_migrate_service"; then
-        sed -i "s|flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_service"
+        sed -i "s|[^ ]*flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_service"
         echo "Updated $db_migrate_service to use local db-setup image"
     else
         echo "Skipping $db_migrate_service (not found or no matching image reference)"
@@ -33,7 +33,7 @@ switch_to_local_images() {
     # Update db-setup image in container files to use locally built image
     db_migrate_container="${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container"
     if [[ -f "$db_migrate_container" ]] && grep -q "flightctl-db-setup:" "$db_migrate_container"; then
-        sed -i "s|flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_container"
+        sed -i "s|[^ ]*flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_container"
         echo "Updated $db_migrate_container to use local db-setup image"
     else
         echo "Skipping $db_migrate_container (not found or no matching image reference)"

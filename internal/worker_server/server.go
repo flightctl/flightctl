@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered_version"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -56,7 +57,9 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
+
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	rendered_version.Bus.GetOrInit(rendered_version.New(kvStore, s.queuesProvider, s.log))
 	serviceHandler := service.WrapWithTracing(
 		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
