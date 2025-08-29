@@ -179,6 +179,14 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
+	// Normalize CA file path to absolute path if provided
+	if o.AuthCAFile != "" {
+		authCAFile, err = filepath.Abs(o.AuthCAFile)
+		if err != nil {
+			return fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
+		}
+	}
+
 	// Set up ClientId if not provided
 	if o.ClientId == "" {
 		switch o.authConfig.AuthType {
@@ -195,7 +203,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 
 	// Create auth provider
 	o.authProvider, err = client.CreateAuthProvider(client.AuthInfo{
-		AuthProvider:         buildAuthProviderConfig(o.authConfig.AuthType, o.authConfig.AuthURL, o.ClientId, o.AuthCAFile),
+		AuthProvider:         buildAuthProviderConfig(o.authConfig.AuthType, o.authConfig.AuthURL, o.ClientId, authCAFile),
 		OrganizationsEnabled: o.authConfig.AuthOrganizationsConfig.Enabled,
 	}, o.InsecureSkipVerify)
 	if err != nil {
@@ -220,7 +228,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("must provide --token")
 	}
 
-	o.clientConfig.AuthInfo.AuthProvider = buildAuthProviderConfig(o.authConfig.AuthType, o.authConfig.AuthURL, o.ClientId, "")
+	o.clientConfig.AuthInfo.AuthProvider = buildAuthProviderConfig(o.authConfig.AuthType, o.authConfig.AuthURL, o.ClientId, authCAFile)
 
 	token := o.AccessToken
 	if token == "" {
@@ -239,12 +247,6 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 	o.clientConfig.AuthInfo.Token = token
 
-	if o.AuthCAFile != "" {
-		authCAFile, err = filepath.Abs(o.AuthCAFile)
-		if err != nil {
-			return fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
-		}
-	}
 	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthCAFileKey] = authCAFile
 
 	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
