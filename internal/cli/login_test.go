@@ -1,14 +1,198 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestBuildAuthProviderConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		authType string
+		authURL  string
+		clientID string
+		caFile   string
+		expected *client.AuthProviderConfig
+	}{
+		{
+			name:     "complete configuration with all parameters",
+			authType: "oidc",
+			authURL:  "https://auth.example.com",
+			clientID: "test-client",
+			caFile:   "/path/to/ca.crt",
+			expected: &client.AuthProviderConfig{
+				Name: "oidc",
+				Config: map[string]string{
+					client.AuthUrlKey:      "https://auth.example.com",
+					client.AuthClientIdKey: "test-client",
+					client.AuthCAFileKey:   "/path/to/ca.crt",
+				},
+			},
+		},
+		{
+			name:     "configuration without auth URL",
+			authType: "k8s",
+			authURL:  "",
+			clientID: "openshift-cli-client",
+			caFile:   "",
+			expected: &client.AuthProviderConfig{
+				Name: "k8s",
+				Config: map[string]string{
+					client.AuthClientIdKey: "openshift-cli-client",
+				},
+			},
+		},
+		{
+			name:     "configuration without CA file",
+			authType: "oidc",
+			authURL:  "https://auth.example.com",
+			clientID: "test-client",
+			caFile:   "",
+			expected: &client.AuthProviderConfig{
+				Name: "oidc",
+				Config: map[string]string{
+					client.AuthUrlKey:      "https://auth.example.com",
+					client.AuthClientIdKey: "test-client",
+				},
+			},
+		},
+		{
+			name:     "configuration with empty client ID",
+			authType: "aap",
+			authURL:  "https://auth.example.com",
+			clientID: "",
+			caFile:   "/path/to/ca.crt",
+			expected: &client.AuthProviderConfig{
+				Name: "aap",
+				Config: map[string]string{
+					client.AuthUrlKey:      "https://auth.example.com",
+					client.AuthClientIdKey: "",
+					client.AuthCAFileKey:   "/path/to/ca.crt",
+				},
+			},
+		},
+		{
+			name:     "token-only configuration (no auth URL)",
+			authType: "oidc",
+			authURL:  "",
+			clientID: "test-client",
+			caFile:   "",
+			expected: &client.AuthProviderConfig{
+				Name: "oidc",
+				Config: map[string]string{
+					client.AuthClientIdKey: "test-client",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildAuthProviderConfig(tt.authType, tt.authURL, tt.clientID, tt.caFile)
+
+			assert.Equal(t, tt.expected.Name, result.Name)
+			assert.Equal(t, tt.expected.Config, result.Config)
+
+			// Verify that empty values are not included in the config
+			if tt.authURL == "" {
+				assert.NotContains(t, result.Config, client.AuthUrlKey)
+			}
+			if tt.caFile == "" {
+				assert.NotContains(t, result.Config, client.AuthCAFileKey)
+			}
+		})
+	}
+}
+
+func TestBuildAuthProviderConfig_EmptyValuesHandling(t *testing.T) {
+	tests := []struct {
+		name     string
+		authType string
+		authURL  string
+		clientID string
+		caFile   string
+	}{
+		{
+			name:     "all empty values",
+			authType: "",
+			authURL:  "",
+			clientID: "",
+			caFile:   "",
+		},
+		{
+			name:     "empty auth URL and CA file",
+			authType: "oidc",
+			authURL:  "",
+			clientID: "test-client",
+			caFile:   "",
+		},
+		{
+			name:     "empty client ID and CA file",
+			authType: "k8s",
+			authURL:  "https://auth.example.com",
+			clientID: "",
+			caFile:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildAuthProviderConfig(tt.authType, tt.authURL, tt.clientID, tt.caFile)
+
+			// Verify the result is not nil
+			assert.NotNil(t, result)
+			assert.NotNil(t, result.Config)
+
+			// Verify empty auth URL is not included
+			if tt.authURL == "" {
+				assert.NotContains(t, result.Config, client.AuthUrlKey)
+			}
+
+			// Verify empty CA file is not included
+			if tt.caFile == "" {
+				assert.NotContains(t, result.Config, client.AuthCAFileKey)
+			}
+
+			// Verify client ID is always included (even if empty)
+			assert.Contains(t, result.Config, client.AuthClientIdKey)
+		})
+	}
+}
+
+func TestBuildAuthProviderConfig_ConfigMapIntegrity(t *testing.T) {
+	// Test that the config map is properly initialized and doesn't contain unexpected keys
+	result := buildAuthProviderConfig("oidc", "https://auth.example.com", "test-client", "/path/to/ca.crt")
+
+	// Verify only expected keys are present
+	expectedKeys := []string{
+		client.AuthUrlKey,
+		client.AuthClientIdKey,
+		client.AuthCAFileKey,
+	}
+
+	for _, key := range expectedKeys {
+		assert.Contains(t, result.Config, key)
+	}
+
+	// Verify no unexpected keys
+	unexpectedKeys := []string{
+		"unexpected-key",
+		"server-url",
+		"ca-file",
+	}
+
+	for _, key := range unexpectedKeys {
+		assert.NotContains(t, result.Config, key)
+	}
+}
 
 func TestLoginOptions_Validate(t *testing.T) {
 	tests := []struct {
@@ -524,6 +708,161 @@ func TestLoginOptions_GetAuthConfig_HTTPResponseErrors(t *testing.T) {
 				assert.Contains(t, errMsg, tt.url)
 				assert.Contains(t, errMsg, fmt.Sprintf("response code %v", tt.statusCode))
 			}
+		})
+	}
+}
+
+func TestLoginOptions_Bind(t *testing.T) {
+	o := DefaultLoginOptions()
+	fs := &pflag.FlagSet{}
+
+	// Test that Bind doesn't panic
+	assert.NotPanics(t, func() {
+		o.Bind(fs)
+	})
+
+	// Verify flags are registered
+	assert.True(t, fs.HasFlags())
+}
+
+func TestLoginOptions_Complete_Comprehensive(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupOpts   func(*LoginOptions)
+		expectError bool
+	}{
+		{
+			name: "with config dir",
+			args: []string{"https://api.example.com"},
+			setupOpts: func(o *LoginOptions) {
+				o.ConfigDir = "/tmp/test-config"
+			},
+			expectError: false,
+		},
+		{
+			name: "with context",
+			args: []string{"https://api.example.com"},
+			setupOpts: func(o *LoginOptions) {
+				o.Context = "test-context"
+			},
+			expectError: false,
+		},
+		{
+			name: "with organization",
+			args: []string{"https://api.example.com"},
+			setupOpts: func(o *LoginOptions) {
+				o.Organization = "test-org"
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			if tt.setupOpts != nil {
+				tt.setupOpts(o)
+			}
+
+			cmd := &cobra.Command{}
+			err := o.Complete(cmd, tt.args)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_Run_Comprehensive(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupOpts   func(*LoginOptions)
+		args        []string
+		expectError bool
+	}{
+		{
+			name: "with token authentication",
+			setupOpts: func(o *LoginOptions) {
+				o.clientConfig = &client.Config{
+					Service: client.Service{
+						Server: "https://api.example.com",
+					},
+				}
+				o.AccessToken = "test-token"
+			},
+			args:        []string{"https://api.example.com"},
+			expectError: true, // will fail due to network issues
+		},
+		{
+			name: "with username password authentication",
+			setupOpts: func(o *LoginOptions) {
+				o.clientConfig = &client.Config{
+					Service: client.Service{
+						Server: "https://api.example.com",
+					},
+				}
+				o.Username = "testuser"
+				o.Password = "testpass"
+			},
+			args:        []string{"https://api.example.com"},
+			expectError: true, // will fail due to network issues
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			if tt.setupOpts != nil {
+				tt.setupOpts(o)
+			}
+
+			ctx := context.Background()
+			err := o.Run(ctx, tt.args)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoginOptions_GetAuthConfig_Comprehensive(t *testing.T) {
+	tests := []struct {
+		name        string
+		serverURL   string
+		expectError bool
+	}{
+		{
+			name:        "unreachable server",
+			serverURL:   "https://unreachable.example.com",
+			expectError: true,
+		},
+		{
+			name:        "invalid URL format",
+			serverURL:   "not-a-url",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			o.clientConfig = &client.Config{
+				Service: client.Service{
+					Server: tt.serverURL,
+				},
+			}
+
+			ctx := context.Background()
+			_, err := o.getAuthConfig(ctx)
+
+			assert.Error(t, err)
 		})
 	}
 }

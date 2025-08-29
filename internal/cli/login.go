@@ -19,6 +19,21 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// buildAuthProviderConfig creates an AuthProviderConfig with the given parameters.
+// It only includes non-empty values to keep the stored config clean and unambiguous.
+func buildAuthProviderConfig(name, authURL, clientID, caFile string) *client.AuthProviderConfig {
+	cfg := map[string]string{
+		client.AuthClientIdKey: clientID,
+	}
+	if authURL != "" {
+		cfg[client.AuthUrlKey] = authURL
+	}
+	if caFile != "" {
+		cfg[client.AuthCAFileKey] = caFile
+	}
+	return &client.AuthProviderConfig{Name: name, Config: cfg}
+}
+
 type LoginOptions struct {
 	GlobalOptions
 	AccessToken        string
@@ -180,14 +195,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 
 	// Create auth provider
 	o.authProvider, err = client.CreateAuthProvider(client.AuthInfo{
-		AuthProvider: &client.AuthProviderConfig{
-			Name: o.authConfig.AuthType,
-			Config: map[string]string{
-				client.AuthUrlKey:      o.authConfig.AuthURL,
-				client.AuthCAFileKey:   o.AuthCAFile,
-				client.AuthClientIdKey: o.ClientId,
-			},
-		},
+		AuthProvider:         buildAuthProviderConfig(o.authConfig.AuthType, o.authConfig.AuthURL, o.ClientId, o.AuthCAFile),
 		OrganizationsEnabled: o.authConfig.AuthOrganizationsConfig.Enabled,
 	}, o.InsecureSkipVerify)
 	if err != nil {
@@ -212,13 +220,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("must provide --token")
 	}
 
-	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
-		Name: o.authConfig.AuthType,
-		Config: map[string]string{
-			client.AuthUrlKey:      o.authConfig.AuthURL,
-			client.AuthClientIdKey: o.ClientId,
-		},
-	}
+	o.clientConfig.AuthInfo.AuthProvider = buildAuthProviderConfig(o.authConfig.AuthType, o.authConfig.AuthURL, o.ClientId, "")
 
 	token := o.AccessToken
 	if token == "" {
