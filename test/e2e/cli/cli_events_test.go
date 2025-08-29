@@ -196,6 +196,14 @@ var _ = Describe("cli events operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).ToNot(ContainSubstring("Normal"))
 
+			By("Querying events with fieldSelector kind=System")
+			out, err = harness.RunGetEvents(fieldSelector, fmt.Sprintf("%s=%s", kind, util.SystemResource))
+			Expect(err).ToNot(HaveOccurred())
+			// System events are only generated during restore operations, so we expect no results in normal CLI tests
+			// But the filter should work without errors and return empty results
+			Expect(out).ToNot(ContainSubstring("Error"))
+			Expect(out).ToNot(ContainSubstring("unable to resolve selector name"))
+
 			By("Deleting the resource")
 			_, err = harness.ManageResource("delete", util.Device, deviceName)
 			Expect(err).ToNot(HaveOccurred())
