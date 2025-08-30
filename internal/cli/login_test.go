@@ -32,7 +32,7 @@ const (
 	testAuthURL                = "https://auth.example.com"
 	testIPv6URL                = "https://[2001:db8::1]"
 	testHTTPIPv6URL            = "http://[2001:db8::1]"
-	testIPv6URLWithCredentials = "https://user:pass@[2001:db8::1]"
+	testIPv6URLWithCredentials = "https://user:pass@[2001:db8::1]" //nolint:gosec
 	testInvalidURL             = "not-a-url"
 	testAPIHostname            = "api.example.com"
 	authConfigPath             = "/api/v1/auth/config"
@@ -58,7 +58,7 @@ const (
 	// JSON response templates
 	authConfigResponseTemplate = `{"authOrganizationsConfig":{"enabled":false},"authType":"%s","authURL":"%s"}`
 	successResponse            = `{"status":"success"}`
-	invalidTokenResponse       = `{"error":"invalid token"}`
+	invalidTokenResponse       = `{"error":"invalid token"}` //nolint:gosec
 	authNotConfiguredResponse  = `{"apiVersion":"v1alpha1","code":418,"kind":"Status","message":"Auth not configured","reason":"Auth not configured","status":"Failure"}`
 
 	// Network error messages
@@ -1640,7 +1640,10 @@ func TestLoginOptions_GetAuthConfig_Comprehensive(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set(contentTypeHeader, applicationJSON)
 				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(tt.responseBody))
+				_, err := w.Write([]byte(tt.responseBody))
+				if err != nil {
+					t.Errorf("failed to write response: %v", err)
+				}
 			}))
 			defer server.Close()
 
@@ -1673,11 +1676,17 @@ func TestLoginOptions_Run_AuthDisabled(t *testing.T) {
 		if r.URL.Path == authConfigPath {
 			w.Header().Set(contentTypeHeader, applicationJSON)
 			w.WriteHeader(http.StatusTeapot)
-			w.Write([]byte(authNotConfiguredResponse))
+			_, err := w.Write([]byte(authNotConfiguredResponse))
+			if err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		} else if r.URL.Path == authValidatePath {
 			w.Header().Set(contentTypeHeader, applicationJSON)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(successResponse))
+			_, err := w.Write([]byte(successResponse))
+			if err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		}
 	}))
 	defer server.Close()
@@ -1703,14 +1712,17 @@ func TestLoginOptions_Run_CAFileHandling(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(contentTypeHeader, applicationJSON)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+		_, err := w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+		if err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
 	// Create a temporary CA file
 	tmpDir := t.TempDir()
 	caFile := filepath.Join(tmpDir, "ca.crt")
-	err := os.WriteFile(caFile, []byte("test CA content"), 0644)
+	err := os.WriteFile(caFile, []byte("test CA content"), 0600)
 	assert.NoError(t, err)
 
 	o := DefaultLoginOptions()
@@ -1770,10 +1782,16 @@ func TestLoginOptions_Run_ClientIdSetup(t *testing.T) {
 				if r.URL.Path == authConfigPath {
 					w.WriteHeader(http.StatusOK)
 					response := fmt.Sprintf(authConfigResponseTemplate, tt.authType, testAuthURL)
-					w.Write([]byte(response))
+					_, err := w.Write([]byte(response))
+					if err != nil {
+						t.Errorf("failed to write response: %v", err)
+					}
 				} else if r.URL.Path == authValidatePath {
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(successResponse))
+					_, err := w.Write([]byte(successResponse))
+					if err != nil {
+						t.Errorf("failed to write response: %v", err)
+					}
 				}
 			}))
 			defer server.Close()
@@ -1874,7 +1892,10 @@ func TestLoginOptions_Run_ErrorScenarios(t *testing.T) {
 				server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set(contentTypeHeader, applicationJSON)
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, "")))
+					_, err := w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, "")))
+					if err != nil {
+						t.Errorf("failed to write response: %v", err)
+					}
 				})
 			},
 			expectError: true,
@@ -1887,7 +1908,10 @@ func TestLoginOptions_Run_ErrorScenarios(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set(contentTypeHeader, applicationJSON)
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+				_, err := w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+				if err != nil {
+					t.Errorf("failed to write response: %v", err)
+				}
 			}))
 			defer server.Close()
 
@@ -1922,16 +1946,25 @@ func TestLoginOptions_Run_TokenValidation(t *testing.T) {
 		w.Header().Set(contentTypeHeader, applicationJSON)
 		if r.URL.Path == authConfigPath {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+			_, err := w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+			if err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		} else if r.URL.Path == authValidatePath {
 			// Simulate token validation
 			authHeader := r.Header.Get(authorizationHeader)
 			if authHeader == "Bearer "+testValidToken {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(successResponse))
+				_, err := w.Write([]byte(successResponse))
+				if err != nil {
+					t.Errorf("failed to write response: %v", err)
+				}
 			} else {
 				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(invalidTokenResponse))
+				_, err := w.Write([]byte(invalidTokenResponse))
+				if err != nil {
+					t.Errorf("failed to write response: %v", err)
+				}
 			}
 		}
 	}))
@@ -1961,10 +1994,16 @@ func TestLoginOptions_Run_ConfigPersistence(t *testing.T) {
 		w.Header().Set(contentTypeHeader, applicationJSON)
 		if r.URL.Path == authConfigPath {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+			_, err := w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+			if err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		} else if r.URL.Path == authValidatePath {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(successResponse))
+			_, err := w.Write([]byte(successResponse))
+			if err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		}
 	}))
 	defer server.Close()
