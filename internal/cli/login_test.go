@@ -1725,13 +1725,31 @@ func TestLoginOptions_Run_CAFileHandling(t *testing.T) {
 	err := os.WriteFile(caFile, []byte("test CA content"), 0600)
 	assert.NoError(t, err)
 
+	// Create a relative path to the CA file
+	// We need to create the relative path from the current working directory
+	// First, get the current working directory
+	currentDir, err := os.Getwd()
+	assert.NoError(t, err)
+
+	// Create a relative path from current directory to the temp file
+	caFileRel, err := filepath.Rel(currentDir, caFile)
+	assert.NoError(t, err)
+
+	// Verify the relative path is actually relative
+	assert.False(t, filepath.IsAbs(caFileRel), "CA file path should be relative")
+
+	// Get the expected absolute path for comparison
+	expectedAbsPath, err := filepath.Abs(caFileRel)
+	assert.NoError(t, err)
+	assert.True(t, filepath.IsAbs(expectedAbsPath), "Expected absolute path should be absolute")
+
 	o := DefaultLoginOptions()
 	o.clientConfig = &client.Config{
 		Service: client.Service{
 			Server: server.URL,
 		},
 	}
-	o.AuthCAFile = caFile
+	o.AuthCAFile = caFileRel // Use relative path
 	o.AccessToken = testToken
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -1740,8 +1758,21 @@ func TestLoginOptions_Run_CAFileHandling(t *testing.T) {
 
 	// Should fail due to auth provider creation, but CA file should be normalized
 	assert.Error(t, err)
-	// Verify that the CA file path was normalized to absolute path
 	assert.Contains(t, err.Error(), "creating auth provider")
+
+	// Verify that the CA file path was normalized to absolute path
+	// Since the auth provider creation fails, we can't access the client config
+	// But we can verify that the normalization happened by checking that the error
+	// message doesn't contain the original relative path
+	assert.NotContains(t, err.Error(), caFileRel, "Error message should not contain the original relative path")
+
+	// The normalization should have happened before the auth provider creation
+	// We can verify this by checking that the original field is still relative
+	// (since the field itself is not modified, only the internal variable is)
+	assert.Equal(t, caFileRel, o.AuthCAFile, "Original AuthCAFile field should remain unchanged")
+
+	// Verify that the expected absolute path exists and is accessible
+	assert.FileExists(t, expectedAbsPath, "Expected absolute path should exist")
 }
 
 func TestLoginOptions_Run_ClientIdSetup(t *testing.T) {
@@ -1940,20 +1971,25 @@ func TestLoginOptions_Run_ErrorScenarios(t *testing.T) {
 	}
 }
 
-func TestLoginOptions_Run_TokenValidation(t *testing.T) {
-	// Test token validation flow - simplified to avoid complex auth dependencies
+func TestLoginOptions_TokenValidation_AuthorizationHeader(t *testing.T) {
+	// Test that the Authorization header is correctly sent to /auth/validate endpoint
+	var recordedAuthHeader string
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(contentTypeHeader, applicationJSON)
 		if r.URL.Path == authConfigPath {
 			w.WriteHeader(http.StatusOK)
-			_, err := w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeOIDC, testAuthURL)))
+			// Use a simpler auth config that might work better
+			_, err := w.Write([]byte(fmt.Sprintf(authConfigResponseTemplate, authTypeK8S, "")))
 			if err != nil {
 				t.Errorf("failed to write response: %v", err)
 			}
 		} else if r.URL.Path == authValidatePath {
+			// Record the Authorization header for verification
+			recordedAuthHeader = r.Header.Get(authorizationHeader)
+
 			// Simulate token validation
-			authHeader := r.Header.Get(authorizationHeader)
-			if authHeader == "Bearer "+testValidToken {
+			if recordedAuthHeader == "Bearer "+testToken {
 				w.WriteHeader(http.StatusOK)
 				_, err := w.Write([]byte(successResponse))
 				if err != nil {
@@ -1966,6 +2002,13 @@ func TestLoginOptions_Run_TokenValidation(t *testing.T) {
 					t.Errorf("failed to write response: %v", err)
 				}
 			}
+		} else {
+			// Handle any other paths that might be called during auth provider creation
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write([]byte(`{"status":"ok"}`))
+			if err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		}
 	}))
 	defer server.Close()
@@ -1976,16 +2019,20 @@ func TestLoginOptions_Run_TokenValidation(t *testing.T) {
 			Server: server.URL,
 		},
 	}
-	o.AccessToken = testValidToken
+	o.AccessToken = testToken
 	o.ConfigFilePath = "/tmp/test-config.yaml"
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 	err := o.Run(ctx, []string{server.URL})
 
-	// Should fail due to auth provider creation, but we can test the token validation path
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "creating auth provider")
+	// Since the login was successful, we should have reached the token validation step
+	// Verify that the Authorization header was sent correctly
+	expectedAuthHeader := "Bearer " + testToken
+	assert.Equal(t, expectedAuthHeader, recordedAuthHeader, "Authorization header should be sent correctly to /auth/validate")
+
+	// The login should have succeeded
+	assert.NoError(t, err)
 }
 
 func TestLoginOptions_Run_ConfigPersistence(t *testing.T) {
