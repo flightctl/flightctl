@@ -365,12 +365,12 @@ lint: tools
 .PHONY: rpmlint
 rpmlint: check-rpmlint
 	@echo "Running rpmlint on RPM spec file"
-	rpmlint packaging/rpm/flightctl.spec
+	cd packaging/rpm && rpmlint flightctl.spec
 
 .PHONY: rpmlint-ci
 rpmlint-ci:
 	@echo "Running rpmlint on RPM spec file (CI mode)"
-	rpmlint packaging/rpm/flightctl.spec
+	cd packaging/rpm && rpmlint flightctl.spec
 
 .PHONY: check-rpmlint
 check-rpmlint:

@@ -27,5 +27,6 @@ jobs:
 
       - name: Running RPM Spec Lint
         run: |
-          echo "Running rpmlint directly to avoid any make/git interactions"
-          rpmlint packaging/rpm/flightctl.spec
+          echo "Running rpmlint from packaging/rpm directory"
+          cd packaging/rpm
+          rpmlint flightctl.spec
