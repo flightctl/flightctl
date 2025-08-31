@@ -20,6 +20,8 @@ tags:
     description: Operations on CertificateSigningRequest resources.
   - name: device
     description: Operations on Device resources.
+  - name: deviceactions
+    description: Operations for device actions.
   - name: enrollmentrequest
     description: Operations on EnrollmentRequest resources.
   - name: event
@@ -1523,6 +1525,55 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
 
+  /api/v1/deviceactions/resume:
+    post:
+      tags:
+        - deviceactions
+      description: Resume devices based on label selector and/or field selector.
+      operationId: resumeDevices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceResumeRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResumeResponse'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentconfig:
     get:
       tags:
@@ -3555,6 +3606,39 @@ components:
         - target
       description: Metadata about a device decommissioning request.
 
+    DeviceResumeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        labelSelector:
+          type: string
+          description: A selector to restrict the list of devices to resume by their labels. Uses the same format as Kubernetes label selectors (e.g., "key1=value1,key2!=value2").
+        fieldSelector:
+          type: string
+          description: A selector to restrict the list of devices to resume by their fields. Uses the same format as Kubernetes field selectors (e.g., "metadata.name=device1,status.phase!=Pending").
+      anyOf:
+        - required:
+            - labelSelector
+        - required:
+            - fieldSelector
+      description: Request to resume devices based on label selector and/or field selector. At least one selector must be provided.
+      example:
+        labelSelector: "environment=production,tier=frontend"
+
+    DeviceResumeResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - resumedDevices
+      properties:
+        resumedDevices:
+          type: integer
+          description: Number of devices that were successfully resumed.
+      description: Response from resuming devices.
+      example:
+        resumedDevices: 3
+
+
     PatchRequest:
       type: array
       items:
@@ -5552,6 +5636,7 @@ components:
             - DeviceDisconnected
             - DeviceIsRebooting
             - DeviceConflictPaused
+            - DeviceConflictResolved
             - DeviceConnected
             - DeviceContentUpToDate
             - DeviceContentOutOfDate

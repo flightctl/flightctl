@@ -150,6 +150,9 @@ func (m *MockDevice) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationT
 func (m *MockDevice) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
 	return 0, nil
 }
+func (m *MockDevice) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {
+	return 0, nil, nil
+}
 
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 	// Provide mock SQL results for org/status aggregation

@@ -15,6 +15,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // DeviceStatusType represents the type of device status to query
@@ -62,6 +63,7 @@ type Device interface {
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
+	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -966,4 +968,47 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 	}
 
 	return result.RowsAffected, nil
+}
+
+// RemoveConflictPausedAnnotation removes the conflictPaused annotation from all devices matching the selector
+// Returns the count of affected devices and their IDs
+func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error) {
+	var affectedRows int64
+	var deviceIDs []string
+
+	err := retryUpdate(func() (bool, error) {
+		// Use RETURNING clause to get the names of actually updated devices
+		var updatedDevices []model.Device
+
+		query, err := ListQuery(&updatedDevices).BuildNoOrder(ctx, s.getDB(ctx), orgId, listParams)
+		if err != nil {
+			return false, err
+		}
+
+		// Only update devices that actually have the conflictPaused annotation
+		query = query.Where("annotations ? ?", gorm.Expr("?"), api.DeviceAnnotationConflictPaused)
+
+		result := query.
+			Clauses(clause.Returning{}).
+			Updates(map[string]any{
+				"annotations":      gorm.Expr("annotations - ?", api.DeviceAnnotationConflictPaused),
+				"resource_version": gorm.Expr("resource_version + 1"),
+			})
+
+		affectedRows = result.RowsAffected
+		err = ErrorFromGormError(result.Error)
+		if err != nil {
+			return strings.Contains(err.Error(), "deadlock"), err
+		}
+
+		// Extract device names from the returned devices
+		deviceIDs = make([]string, len(updatedDevices))
+		for i, device := range updatedDevices {
+			deviceIDs[i] = device.Name
+		}
+
+		return false, nil
+	})
+
+	return affectedRows, deviceIDs, err
 }
