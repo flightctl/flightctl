@@ -229,6 +229,16 @@ func (s *Server) Run(ctx context.Context) error {
 		server.HandlerFromMux(customHandler, r)
 	})
 
+	// health endpoints: bypass OpenAPI + auth, but keep global safety middlewares
+	router.Group(func(r chi.Router) {
+		if s.cfg != nil && s.cfg.Service != nil && s.cfg.Service.HealthChecks != nil && s.cfg.Service.HealthChecks.Enabled {
+			hc := s.cfg.Service.HealthChecks
+			r.Method(http.MethodGet, hc.ReadinessPath,
+				ReadyzHandler(time.Duration(hc.ReadinessTimeout), s.store, s.queuesProvider))
+			r.Method(http.MethodGet, hc.LivenessPath, HealthzHandler())
+		}
+	})
+
 	// Register auth validate endpoint with stricter rate limiting (outside main API group)
 	// This ensures it gets all the necessary middleware with stricter rate limiting
 	router.Group(func(r chi.Router) {
