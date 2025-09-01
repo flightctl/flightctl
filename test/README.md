@@ -87,6 +87,7 @@ a server and an agent together, building any necessary crypto material,
 providing a test database and a mock directory for the agent to interact with.
 
 can be run with:
+
 ```bash
 make integration-test # or run-integration-test if you have a DB/deployment ready
 ```
@@ -96,21 +97,26 @@ make integration-test # or run-integration-test if you have a DB/deployment read
 Integration tests support two database setup strategies:
 
 **Local Strategy (Default):**
+
 ```bash
 make integration-test
 ```
+
 Each test creates an empty database and runs `store.RunMigrations()` locally using GORM automigrate.
 
 **Template Strategy:**
+
 ```bash
 FLIGHTCTL_TEST_DB_STRATEGY=template make integration-test
 ```
-Uses an external migration image to prepare a template database with migrations applied, then tests clone from this pre-migrated template database. This allows testing against different versions of database migrations.
+
+Uses an external migration image to prepare a template database with migrations applied, then the tests clone from a pre-migrated template database. This allows testing against different migration versions.
 
 **Environment Variables:**
+
 ```bash
 FLIGHTCTL_TEST_DB_STRATEGY=local|template                   # Default: local
-MIGRATION_IMAGE=localhost/flightctl-db-setup:latest         # For template strategy
+MIGRATION_IMAGE=localhost/flightctl-db-setup:vx.y.z         # For template strategy (pinned version)
 ```
 
 For mocking specific interfaces please refer to the unit-test mocking section.
@@ -167,7 +173,8 @@ make e2e-test GO_E2E_DIRS=test/e2e/cli
 
 or, if we ran e2e-test before and all the necessary artifacts and deployments are
 in place, we could speed up furter by using the `run-e2e-test` target.
-```
+
+```bash
 make run-e2e-test GO_E2E_DIRS=test/e2e/cli
 ```
 

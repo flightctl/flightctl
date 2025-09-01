@@ -209,6 +209,7 @@ flightctl-db-setup-container: Containerfile.db-setup deploy/scripts/setup_databa
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.db-setup \
 		-t flightctl-db-setup:latest .
+	podman tag flightctl-db-setup:latest flightctl-db-setup:${SOURCE_GIT_TAG}
 
 flightctl-worker-container: Containerfile.worker go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-worker) \

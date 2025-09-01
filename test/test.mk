@@ -48,6 +48,7 @@ unit-test:
 run-integration-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
+# Ensure db-setup image exists; build if needed
 ensure-db-setup-image:
 	@if [ -n "$(MIGRATION_IMAGE)" ]; then \
 		echo "Using provided migration image: $(MIGRATION_IMAGE)"; \
@@ -60,7 +61,6 @@ integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_USER_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD=adminpass
-integration-test: export DB_MIGRATION_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_TEST_DB_STRATEGY?=local
 integration-test:
 	@set -e; \
@@ -73,20 +73,31 @@ integration-test:
 			sleep 2; \
 		done \
 	'; \
-	sudo podman exec flightctl-db psql -U admin -d flightctl -c "ALTER USER flightctl_app CREATEDB;" || true; \
+	# Retry ALTER USER up to 3 times against the postgres meta-database to decouple from application DB readiness. 
+	for i in 1 2 3; do \
+		sudo podman exec flightctl-db psql -U admin -d postgres -c "ALTER USER flightctl_app CREATEDB;" && break; \
+		echo "ALTER USER attempt $$i failed, retrying..."; \
+		sleep 2; \
+		[ $$i -eq 3 ] && echo "ALTER USER command failed after 3 attempts" && exit 1; \
+	done; \
 	if [ "$(FLIGHTCTL_TEST_DB_STRATEGY)" = "template" ]; then \
 		echo "Template strategy: running migration image and creating template database..."; \
 		$(MAKE) ensure-db-setup-image; \
 		mkdir -p $(ROOT_DIR)/bin; \
 		CONFIG_FILE="$(ROOT_DIR)/bin/migration-config.yaml"; \
 		printf "database:\n  hostname: localhost\n  type: pgsql\n  port: 5432\n  name: flightctl\n" > $$CONFIG_FILE; \
-		MIGRATION_IMAGE="$${MIGRATION_IMAGE:-localhost/flightctl-db-setup:latest}" \
+		MIGRATION_IMAGE="$${MIGRATION_IMAGE:-flightctl-db-setup:$(SOURCE_GIT_TAG)}"; \
+		if [ -z "$$MIGRATION_IMAGE" ] || echo "$$MIGRATION_IMAGE" | grep -q ':latest$$' || ! echo "$$MIGRATION_IMAGE" | grep -q ':' ; then \
+			echo "Error: MIGRATION_IMAGE must be set and pinned (no :latest or missing tag): $$MIGRATION_IMAGE"; exit 1; \
+		fi; \
+		echo "Using MIGRATION_IMAGE: $$MIGRATION_IMAGE"; \
 		CONFIG_FILE="$$CONFIG_FILE" \
 		CREATE_TEMPLATE=true \
-		DB_USER=admin \
-		DB_PASSWORD=$$FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD \
-		DB_MIGRATION_USER=admin \
-		DB_MIGRATION_PASSWORD=$$FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD \
+		DB_USER=flightctl_migrator \
+		DB_PASSWORD=$$FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD \
+		DB_MIGRATION_USER=flightctl_migrator \
+		DB_MIGRATION_PASSWORD=$$FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD \
+		MIGRATION_IMAGE="$$MIGRATION_IMAGE" \
 		test/scripts/run_migration.sh; \
 	else \
 		echo "Local strategy: skipping migration image - tests will run local migrations..."; \
