@@ -7,6 +7,7 @@ export BUILDKIT_PROGRESS=plain
 # This allows the CI pipeline to easily override them.
 REGISTRY       ?= localhost
 REGISTRY_OWNER ?= flightctl
+REGISTRY_OWNER_TESTS ?= flightctl-tests
 GITHUB_ACTIONS ?= false
 
 # --- Cache Configuration ---
@@ -120,6 +121,7 @@ help:
 	@echo "Environment Variables for CI:"
 	@echo "    REGISTRY:        container registry (default: localhost)"
 	@echo "    REGISTRY_OWNER:  registry owner/organization (default: flightctl)"
+	@echo "    REGISTRY_OWNER_TESTS:  test registry owner/organization (default: flightctl-tests)"
 	@echo "    REGISTRY_USER:   registry username for login"
 	@echo "    GITHUB_ACTIONS:  set to 'true' to enable container build caching"
 	@echo ""
