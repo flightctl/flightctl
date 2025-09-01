@@ -15,41 +15,6 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func createTestFleet(name string, rolloutPolicy *api.RolloutPolicy) *api.Fleet {
-	fleetName := name
-	generation := int64(1)
-
-	return &api.Fleet{
-		Metadata: api.ObjectMeta{
-			Name:       &fleetName,
-			Generation: &generation,
-		},
-		Spec: api.FleetSpec{
-			RolloutPolicy: rolloutPolicy,
-			Template: struct {
-				Metadata *api.ObjectMeta `json:"metadata,omitempty"`
-				Spec     api.DeviceSpec  `json:"spec"`
-			}{
-				Spec: api.DeviceSpec{
-					Os: &api.DeviceOsSpec{
-						Image: "test-image:latest",
-					},
-				},
-			},
-		},
-	}
-}
-
-func createTestEvent(fleetName string) api.Event {
-	return api.Event{
-		InvolvedObject: api.ObjectReference{
-			Kind: api.FleetKind,
-			Name: fleetName,
-		},
-		Reason: "Updated",
-	}
-}
-
 func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollout(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -89,7 +54,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 
 			fleetName := "test-fleet"
 			fleet := createTestFleet(fleetName, tt.rolloutPolicy)
-			event := createTestEvent(fleetName)
+			event := createTestEvent(api.FleetKind, "some-reason", fleetName)
 			orgId := uuid.New()
 			log := logrus.New()
 
