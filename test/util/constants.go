@@ -17,6 +17,7 @@ const (
 	RepoResource   = "Repository"
 	ErResource     = "EnrollmentRequest"
 	FleetResource  = "Fleet"
+	SystemResource = "System"
 
 	//example yaml names
 	DeviceYAMLName = "device.yaml"

@@ -170,6 +170,10 @@ func (m *MockFleetStoreWrapper) Close() error {
 	return nil
 }
 
+func (m *MockFleetStoreWrapper) CheckHealth(context.Context) error {
+	return nil
+}
+
 func TestFleetCollector(t *testing.T) {
 	// Provide mock SQL results for org/status aggregation
 	mockResults := []store.CountByRolloutStatusResult{

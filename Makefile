@@ -150,7 +150,8 @@ build: bin build-cli
 		./cmd/flightctl-alert-exporter \
 		./cmd/flightctl-alertmanager-proxy \
 		./cmd/flightctl-userinfo-proxy \
-		./cmd/flightctl-db-migrate
+		./cmd/flightctl-db-migrate \
+		./cmd/flightctl-restore 
 
 bin/flightctl-agent: bin $(GO_FILES)
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
