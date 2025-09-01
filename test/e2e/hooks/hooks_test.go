@@ -6,7 +6,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -161,7 +160,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			By("Check that in the device logs the hooks were triggered")
 			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
-				WithArguments("", util.FLIGHTCTL_AGENT_SERVICE).
+				WithArguments("", "").
 				Should(
 					SatisfyAll(
 						ContainSubstring("this is a test message from afterupdating hook"),
@@ -283,7 +282,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			DeferCleanup(func() {
 				if CurrentSpecReport().Failed() {
 					// Print full logs chunked to stdout to avoid Gomega size limits
-					logs, err := harness.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
+					logs, err := harness.ReadPrimaryVMAgentLogs("", "")
 					if err == nil {
 						lines := strings.Split(logs, "\n")
 						GinkgoWriter.Printf("=== SECOND FILE CHECK DEBUG (total %d lines) ===\n", len(lines))
@@ -329,7 +328,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			})
 
 			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
-				WithArguments("", util.FLIGHTCTL_AGENT_SERVICE).
+				WithArguments("", "").
 				Should(
 					SatisfyAll(
 						ContainSubstring(firstFileUpdatedContents),
