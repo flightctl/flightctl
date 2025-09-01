@@ -226,3 +226,58 @@ function get_ocp_nodes_network() {
   done
 }
 
+download_brew_rpms() {
+    local target_dir="$1"
+    local brew_build_id="$2"
+    shift 2
+    local required_patterns=("$@")
+
+    mkdir -p "${target_dir}"
+    echo "🧹 Cleaning ${target_dir} directory of old builds..."
+    rm -f "${target_dir}"/*.rpm "${target_dir}"/flightctl 2>/dev/null || true
+
+    cd "${target_dir}"
+
+    # Fetch and validate brew page
+    echo "Fetching RPM URLs from brew..."
+    local brew_page
+    brew_page=$(curl -k -s "https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=${brew_build_id}")
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to fetch brew page for build ${brew_build_id}"
+        return 1
+    fi
+
+    local rpm_urls
+    rpm_urls=$(echo "${brew_page}" | grep -oP 'https://[^"]+\.rpm')
+
+    if [[ -z "${rpm_urls}" ]]; then
+        echo "ERROR: No RPM URLs found in brew build ${brew_build_id}"
+        echo "Brew page content:"
+        echo "${brew_page}" | head -20
+        return 1
+    fi
+
+    # Download RPMs
+    echo "Downloading RPMs..."
+    while IFS= read -r url; do
+        local filename=$(basename "$url")
+        echo "Downloading $filename..."
+        if wget --no-check-certificate -O "$filename" "$url"; then
+            echo "✅ Successfully downloaded $filename"
+        else
+            echo "❌ Failed to download $filename"
+            return 1
+        fi
+    done <<< "${rpm_urls}"
+
+    # Verify required patterns
+    for pattern in "${required_patterns[@]}"; do
+        if ! ls ${pattern} >/dev/null 2>&1; then
+            echo "ERROR: Required RPM pattern '${pattern}' not found in brew build ${brew_build_id}"
+            return 1
+        fi
+    done
+
+    cd - > /dev/null
+    return 0
+}

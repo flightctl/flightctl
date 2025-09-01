@@ -301,6 +301,24 @@ export FLIGHTCTL_RPM=devel/0.3.0.rc2-1.20241104145530808450.main.19.ga531984
 make in-cluster-e2e-test
 ```
 
+#### Using Brew Registry Builds
+
+You can also use RPMs from the Red Hat Brew registry by specifying a `BREW_BUILD_ID`. This is useful for testing
+specific builds from the Red Hat internal build system.
+
+To use a brew build for both the agent image and CLI, set the `BREW_BUILD_ID` environment variable:
+
+```bash
+export FLIGHTCTL_NS=flightctl
+export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
+export BREW_BUILD_ID=12345678
+
+make in-cluster-e2e-test
+```
+
+The `BREW_BUILD_ID` should be a valid task ID from the Red Hat Brew system. Both the agent image and CLI will be built
+using the RPMs downloaded from `https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=${BREW_BUILD_ID}`.
+
 #### If your host system is not suitable for bootc image builder
 
 * Create a test vm. Note the ssh command in the cmd output.
