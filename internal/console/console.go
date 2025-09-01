@@ -66,12 +66,6 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 
 		// Check if device is in waiting or paused state - prevent console updates
 		annotations := lo.FromPtr(device.Metadata.Annotations)
-		if waitingValue, exists := annotations[api.DeviceAnnotationAwaitingReconnect]; exists && waitingValue == "true" {
-			return fmt.Errorf("cannot update console for device %s: device is awaiting reconnection after restore", deviceName)
-		}
-		if pausedValue, exists := annotations[api.DeviceAnnotationConflictPaused]; exists && pausedValue == "true" {
-			return fmt.Errorf("cannot update console for device %s: device is paused due to conflicts", deviceName)
-		}
 
 		value, _ := util.GetFromMap(annotations, api.DeviceAnnotationConsole)
 		newValue, err = updater(value)
@@ -79,11 +73,6 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 			return err
 		}
 		(*device.Metadata.Annotations)[api.DeviceAnnotationConsole] = newValue
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
-		if err != nil {
-			return err
-		}
-		(*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 		m.log.Infof("About to save annotations %+v", *device.Metadata.Annotations)
 		_, err = m.serviceHandler.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
