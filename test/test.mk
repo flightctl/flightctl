@@ -24,7 +24,7 @@ GO_TEST_INTEGRATION_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/j
 KUBECONFIG_PATH = '/home/kni/clusterconfigs/auth/kubeconfig'
 
 _integration_test: $(REPORTS)
-	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_E2E_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
+	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_INTEGRATION_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
 	$(MAKE) _collect_junit
 
 _e2e_test: $(REPORTS)
@@ -48,22 +48,49 @@ unit-test:
 run-integration-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
+ensure-db-setup-image:
+	@if [ -n "$(MIGRATION_IMAGE)" ]; then \
+		echo "Using provided migration image: $(MIGRATION_IMAGE)"; \
+	else \
+		echo "Building flightctl-db-setup image from current code..."; \
+		sudo $(MAKE) flightctl-db-setup-container; \
+	fi
+
 integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_USER_PASSWORD=adminpass
-integration-test: export DB_APP_PASSWORD=adminpass
+integration-test: export FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD=adminpass
 integration-test: export DB_MIGRATION_PASSWORD=adminpass
+integration-test: export FLIGHTCTL_TEST_DB_STRATEGY?=local
 integration-test:
 	@set -e; \
+	echo "Using $(FLIGHTCTL_TEST_DB_STRATEGY) database strategy..."; \
 	$(MAKE) deploy-db deploy-kv deploy-alertmanager; \
-	echo "Granting migration privileges to flightctl_app user for integration tests..."; \
+	echo "Waiting for database to be ready..."; \
 	timeout --foreground 60s bash -c ' \
-		while ! sudo podman exec flightctl-db psql -U admin -d flightctl -c "SELECT 1" >/dev/null 2>&1; do \
+		while ! sudo podman exec flightctl-db psql -U admin -d postgres -c "SELECT 1" >/dev/null 2>&1; do \
 			echo "Waiting for database to be ready..."; \
 			sleep 2; \
 		done \
 	'; \
-	sudo podman exec flightctl-db psql -U admin -d flightctl -c "ALTER USER flightctl_app CREATEDB; GRANT CREATE ON SCHEMA public TO flightctl_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO flightctl_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO flightctl_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO flightctl_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO flightctl_app;" || true; \
+	sudo podman exec flightctl-db psql -U admin -d flightctl -c "ALTER USER flightctl_app CREATEDB;" || true; \
+	if [ "$(FLIGHTCTL_TEST_DB_STRATEGY)" = "template" ]; then \
+		echo "Template strategy: running migration image and creating template database..."; \
+		$(MAKE) ensure-db-setup-image; \
+		mkdir -p $(ROOT_DIR)/bin; \
+		CONFIG_FILE="$(ROOT_DIR)/bin/migration-config.yaml"; \
+		printf "database:\n  hostname: localhost\n  type: pgsql\n  port: 5432\n  name: flightctl\n" > $$CONFIG_FILE; \
+		MIGRATION_IMAGE="$${MIGRATION_IMAGE:-localhost/flightctl-db-setup:latest}" \
+		CONFIG_FILE="$$CONFIG_FILE" \
+		CREATE_TEMPLATE=true \
+		DB_USER=admin \
+		DB_PASSWORD=$$FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD \
+		DB_MIGRATION_USER=admin \
+		DB_MIGRATION_PASSWORD=$$FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD \
+		test/scripts/run_migration.sh; \
+	else \
+		echo "Local strategy: skipping migration image - tests will run local migrations..."; \
+	fi; \
 	trap '$(MAKE) -k kill-alertmanager kill-kv kill-db' EXIT; \
 	$(MAKE) run-integration-test
 
@@ -113,7 +140,7 @@ view-coverage: $(REPORTS)/unit-coverage.out $(REPORTS)/unit-coverage.out
 
 test: unit-test integration-test e2e-test
 
-run-test: unit-test run-intesgration-test
+run-test: unit-test run-integration-test
 
 # Create E2E certificates and SSH keys
 bin/e2e-certs/ca.pem bin/.ssh/id_rsa.pub:
@@ -133,4 +160,4 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
-.PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm
+.PHONY: unit-test prepare-integration-test integration-test run-integration-test ensure-db-setup-image view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm

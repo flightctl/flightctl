@@ -91,6 +91,28 @@ can be run with:
 make integration-test # or run-integration-test if you have a DB/deployment ready
 ```
 
+### Database Setup Strategies
+
+Integration tests support two database setup strategies:
+
+**Local Strategy (Default):**
+```bash
+make integration-test
+```
+Each test creates an empty database and runs `store.RunMigrations()` locally using GORM automigrate.
+
+**Template Strategy:**
+```bash
+FLIGHTCTL_TEST_DB_STRATEGY=template make integration-test
+```
+Uses an external migration image to prepare a template database with migrations applied, then tests clone from this pre-migrated template database. This allows testing against different versions of database migrations.
+
+**Environment Variables:**
+```bash
+FLIGHTCTL_TEST_DB_STRATEGY=local|template                   # Default: local
+MIGRATION_IMAGE=localhost/flightctl-db-setup:latest         # For template strategy
+```
+
 For mocking specific interfaces please refer to the unit-test mocking section.
 
 ### Note on coverage testing
@@ -151,9 +173,9 @@ make run-e2e-test GO_E2E_DIRS=test/e2e/cli
 
 You can also filter by providing the GINKGO_FOCUS environment variable, which
 will filter the tests by the provided string.
-````
+```
 make e2e-test GINKGO_FOCUS="should create a new project"
-````
+```
 
 Additionally, you can filter tests using Ginkgo labels with the GINKGO_LABEL_FILTER
 environment variable. When running locally with make, all tests run by default (no label filtering).
