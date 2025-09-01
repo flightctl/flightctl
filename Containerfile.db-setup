@@ -4,6 +4,11 @@ ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
 
+# Convert build args to environment variables for make to use
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
+
 # Switch to root for build operations
 USER 0
 
@@ -25,13 +30,6 @@ COPY ./hack ./hack
 COPY ./internal ./internal
 COPY ./pkg ./pkg
 COPY ./test ./test
-# Make sure that version extraction works
-COPY .git .git
-
-# Fix git permissions and clean working tree for version calculation
-RUN git config --global --add safe.directory /app && \
-    git reset --hard HEAD && \
-    git clean -fdx
 
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \

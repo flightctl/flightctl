@@ -39,9 +39,10 @@ GOARCH := $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
-SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
-SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+# Check ENV first; if unset or empty, fallback to git (robust for CI/env quirks)
+SOURCE_GIT_TAG := $(if $(strip $(SOURCE_GIT_TAG)),$(SOURCE_GIT_TAG),$(shell git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown"))
+SOURCE_GIT_TREE_STATE := $(if $(strip $(SOURCE_GIT_TREE_STATE)),$(SOURCE_GIT_TREE_STATE),$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo clean ) || echo dirty))
+SOURCE_GIT_COMMIT := $(if $(strip $(SOURCE_GIT_COMMIT)),$(SOURCE_GIT_COMMIT),$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo unknown))
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
 SOURCE_GIT_TAG_NO_V := $(shell echo $(SOURCE_GIT_TAG) | sed 's/^v//')
 MAJOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
