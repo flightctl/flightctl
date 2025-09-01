@@ -122,12 +122,12 @@ func main() {
 	}()
 
 	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg, log)
+	db, sqlDb, err := store.InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
 
-	store := store.NewStore(db, log.WithField("pkg", "store"))
+	store := store.NewStore(db, sqlDb, log.WithField("pkg", "store"))
 	defer store.Close()
 
 	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)

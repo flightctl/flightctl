@@ -88,11 +88,20 @@ global:
 ## @descriptionEnd
 
 db:
+  # external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one
+  # When enabled, configure hostname, port, name, user credentials to point to your external database
+  external: "disabled"
+  # Database connection parameters (used for both internal and external databases)
+  hostname: ""  # Leave empty for internal DB, set to external DB hostname when external: "enabled"
+  port: 5432
+  name: flightctl
+  # Internal database deployment configuration (ignored when external: "enabled")
   image:
     image: quay.io/sclorg/postgresql-16-c9s
     tag: "20250214"
     pullPolicy: ""
   masterUser: admin
+  migrationUser: flightctl_migrator
   user: flightctl_app
   # password: Leave empty to auto-generate secure password, or set to use a specific password.
   password: ""

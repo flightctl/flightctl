@@ -7,10 +7,14 @@ metadata:
 data:
   config.yaml: |-
     database:
+        {{- if eq .Values.db.external "enabled" }}
+        hostname: {{ required "db.hostname is required when db.external is enabled" .Values.db.hostname }}
+        {{- else }}
         hostname: flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        {{- end }}
         type: pgsql
-        port: 5432
-        name: {{ (default "flightctl" $.Values.db.name) }}
+        port: {{ .Values.db.port }}
+        name: {{ default "flightctl" .Values.db.name }}
     service:
         address: :3443
         agentEndpointAddress: :7443

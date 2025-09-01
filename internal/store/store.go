@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -47,10 +48,11 @@ type DataStore struct {
 	checkpoint                Checkpoint
 	organization              Organization
 
-	db *gorm.DB
+	db    *gorm.DB
+	sqlDb *sql.DB
 }
 
-func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
+func NewStore(db *gorm.DB, sqlDb *sql.DB, log logrus.FieldLogger) Store {
 	return &DataStore{
 		device:                    NewDevice(db, log),
 		enrollmentRequest:         NewEnrollmentRequest(db, log),
@@ -63,6 +65,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		checkpoint:                NewCheckpoint(db, log),
 		organization:              NewOrganization(db),
 		db:                        db,
+		sqlDb:                     sqlDb,
 	}
 }
 
@@ -132,18 +135,13 @@ func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *conf
 	defer span.End()
 
 	// Create migration database connection
-	migrationDB, err := InitMigrationDB(cfg, log)
+	migrationDB, sqlDb, err := InitMigrationDB(cfg, log)
 	if err != nil {
 		return fmt.Errorf("failed to create migration database connection: %w", err)
 	}
-	defer func() {
-		if sqlDB, err := migrationDB.DB(); err == nil {
-			sqlDB.Close()
-		}
-	}()
 
 	// Create migration store with migration user
-	migrationStore := NewStore(migrationDB, log.WithField("pkg", "migration-store"))
+	migrationStore := NewStore(migrationDB, sqlDb, log.WithField("pkg", "migration-store"))
 	defer migrationStore.Close()
 
 	// Run migrations with migration user
@@ -206,11 +204,10 @@ func (s *DataStore) customizeMigration(ctx context.Context) error {
 }
 
 func (s *DataStore) Close() error {
-	sqlDB, err := s.db.DB()
-	if err != nil {
-		return err
+	if s.sqlDb != nil {
+		return s.sqlDb.Close()
 	}
-	return sqlDB.Close()
+	return nil
 }
 
 type SortColumn string
@@ -263,7 +260,7 @@ func ParseContinueString(contStr *string) (*Continue, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(sDec, &cont); err != nil {
+	if err = json.Unmarshal(sDec, &cont); err != nil {
 		return nil, err
 	}
 	if cont.Version != CurrentContinueVersion {

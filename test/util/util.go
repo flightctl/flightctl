@@ -146,11 +146,11 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 // NewTestStore creates a new test store and returns the store and the database name.
 func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
 	// cfg.Database.Name = ""
-	dbTemp, err := store.InitDB(&cfg, log)
+	dbTemp, sqlDb, err := store.InitDB(&cfg, log)
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: error initializing test DB: %w", err)
 	}
-	defer store.CloseDB(dbTemp)
+	defer store.CloseDB(sqlDb)
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)
@@ -160,12 +160,12 @@ func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (s
 	}
 
 	cfg.Database.Name = randomDBName
-	db, err := store.InitDB(&cfg, log)
+	db, sqlDb, err := store.InitDB(&cfg, log)
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: initializing test db %s: %w", randomDBName, err)
 	}
 
-	dbStore := store.NewStore(db, log.WithField("pkg", "store"))
+	dbStore := store.NewStore(db, sqlDb, log.WithField("pkg", "store"))
 	err = dbStore.RunMigrations(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: performing migrations: %w", err)

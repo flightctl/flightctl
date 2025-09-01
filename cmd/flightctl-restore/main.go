@@ -41,17 +41,13 @@ func main() {
 	}()
 
 	log.Println("Initializing database connection for restore operations")
-	db, err := store.InitDB(cfg, log)
+	db, sqlDb, err := store.InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing database: %v", err)
 	}
-	defer func() {
-		if sqlDB, err := db.DB(); err != nil {
-			log.Printf("Failed to get database connection for cleanup: %v", err)
-		} else {
-			sqlDB.Close()
-		}
-	}()
+	log.Println("Creating store")
+	storeInst := store.NewStore(db, sqlDb, log)
+	defer storeInst.Close()
 
 	log.Println("Initializing KV store connection for restore operations")
 	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
@@ -60,8 +56,7 @@ func main() {
 	}
 	defer kvStore.Close()
 
-	log.Println("Creating store and service handler")
-	storeInst := store.NewStore(db, log)
+	log.Println("Creating service handler")
 	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{})
 
 	log.Println("Running post-restoration device preparation")

@@ -45,12 +45,12 @@ func main() {
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
 
 	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg, log)
+	db, sqlDb, err := store.InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
 
-	store := store.NewStore(db, log.WithField("pkg", "store"))
+	store := store.NewStore(db, sqlDb, log.WithField("pkg", "store"))
 	defer store.Close()
 
 	queuesProvider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
