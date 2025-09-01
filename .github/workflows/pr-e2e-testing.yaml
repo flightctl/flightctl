@@ -30,6 +30,7 @@ env:
   QUAY_TESTS_ORG: quay.io/flightctl-tests
   REGISTRY: quay.io
   REGISTRY_OWNER: flightctl
+  REGISTRY_OWNER_TESTS: flightctl-tests
   GITHUB_ACTIONS: true
 
 jobs:
