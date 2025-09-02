@@ -211,7 +211,7 @@ func (r *redisProvider) CheckHealth(ctx context.Context) error {
 	return nil
 }
 
-func (r *redisProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID, body string) error) (int, error) {
+func (r *redisProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
 	// Find existing queue or create a temporary one
 	queue := r.findExistingQueue(queueName)
 
@@ -588,8 +588,10 @@ func (r *redisQueue) Close() {
 	}
 }
 
-// ProcessTimedOutMessages processes timed out pending messages and moves them to the failed messages set
-func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.Duration, handler func(entryID, body string) error) (int, error) {
+// ProcessTimedOutMessages processes timed out pending messages and moves them to the failed messages set.
+// Note: Some pending messages may no longer exist in the stream (e.g., if they were already processed
+// and deleted by another process). In such cases, we acknowledge them to remove them from the pending list.
+func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
 	if r.closed.Load() {
 		return 0, errors.New("queue is closed")
 	}
@@ -626,10 +628,18 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 		msgs, err := r.client.XRange(ctx, r.name, pendingMsg.ID, pendingMsg.ID).Result()
 		if err != nil {
 			r.log.WithField("entryID", pendingMsg.ID).WithError(err).Warn("failed to get timed out message from stream, skipping")
+			// Acknowledge the pending message to remove it from pending list
+			if ackErr := r.client.XAck(ctx, r.name, r.groupName, pendingMsg.ID).Err(); ackErr != nil {
+				r.log.WithField("entryID", pendingMsg.ID).WithError(ackErr).Warn("failed to acknowledge pending message")
+			}
 			continue
 		}
 		if len(msgs) == 0 {
-			r.log.WithField("entryID", pendingMsg.ID).Warn("timed out message not found in stream, skipping")
+			r.log.WithField("entryID", pendingMsg.ID).Debug("timed out message not found in stream, acknowledging pending message")
+			// Message was already deleted from stream, acknowledge it to remove from pending list
+			if ackErr := r.client.XAck(ctx, r.name, r.groupName, pendingMsg.ID).Err(); ackErr != nil {
+				r.log.WithField("entryID", pendingMsg.ID).WithError(ackErr).Warn("failed to acknowledge pending message")
+			}
 			continue
 		}
 

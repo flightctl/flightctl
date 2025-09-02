@@ -75,7 +75,7 @@ func (s *Server) Run(ctx context.Context) error {
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

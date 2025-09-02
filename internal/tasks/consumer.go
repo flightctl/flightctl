@@ -87,12 +87,13 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 		if len(errorMessages) > 0 {
 			errorMessage := fmt.Sprintf("%d tasks failed during reconciliation: %s", len(errorMessages), strings.Join(errorMessages, ", "))
 			log.WithError(errors.New(errorMessage)).Error("tasks failed during reconciliation")
-			emitInternalTaskFailedEvent(ctx, errorMessage, eventWithOrgId.Event, serviceHandler)
+			// ensure emission even if processing ctx timed out
+			EmitInternalTaskFailedEvent(context.WithoutCancel(ctx), errorMessage, eventWithOrgId.Event, serviceHandler)
 			returnErr = errors.New(errorMessage)
 		}
 
 		// Complete the message processing (either successfully or after emitting failure event)
-		if err := consumer.Complete(ctx, entryID, payload, returnErr); err != nil {
+		if err := consumer.Complete(context.WithoutCancel(ctx), entryID, payload, returnErr); err != nil {
 			log.WithError(err).Errorf("failed to complete message %s", entryID)
 			return err
 		}
@@ -106,31 +107,6 @@ func appendErrorMessage(errorMessages []string, taskName string, err error) []st
 		errorMessages = append(errorMessages, fmt.Sprintf("%s: %s", taskName, err.Error()))
 	}
 	return errorMessages
-}
-
-func emitInternalTaskFailedEvent(ctx context.Context, errorMessage string, originalEvent api.Event, serviceHandler service.Service) {
-	resourceKind := api.ResourceKind(originalEvent.InvolvedObject.Kind)
-	resourceName := originalEvent.InvolvedObject.Name
-	reason := originalEvent.Reason
-	message := fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, reason, errorMessage)
-	event := api.GetBaseEvent(ctx,
-		resourceKind,
-		resourceName,
-		api.EventReasonInternalTaskFailed,
-		message,
-		nil)
-
-	details := api.EventDetails{}
-	if detailsErr := details.FromInternalTaskFailedDetails(api.InternalTaskFailedDetails{
-		ErrorMessage:  errorMessage,
-		RetryCount:    nil,
-		OriginalEvent: originalEvent,
-	}); detailsErr == nil {
-		event.Details = &details
-	}
-
-	// Emit the event
-	serviceHandler.CreateEvent(ctx, event)
 }
 
 func shouldRolloutFleet(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
