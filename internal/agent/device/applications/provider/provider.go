@@ -27,6 +27,8 @@ type Provider interface {
 	Verify(ctx context.Context) error
 	// Install the application content to the device.
 	Install(ctx context.Context) error
+	// Update the application content on the device.
+	Update(ctx context.Context) error
 	// Remove the application content from the device.
 	Remove(ctx context.Context) error
 	// Name returns the name of the application.
@@ -156,6 +158,8 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 }
 
 func GetDiff(
+	ctx context.Context,
+	podman *client.Podman,
 	current []Provider,
 	desired []Provider,
 ) (Diff, error) {
@@ -191,7 +195,11 @@ func GetDiff(
 		if currentProvider, exists := currentProviders[name]; !exists {
 			diff.Ensure = append(diff.Ensure, desiredProvider)
 		} else {
-			if isEqual(currentProvider, desiredProvider) {
+			areEqual, err := isEqual(ctx, podman, currentProvider, desiredProvider)
+			if err != nil {
+				return diff, fmt.Errorf("comparing providers: %w", err)
+			}
+			if areEqual {
 				diff.Ensure = append(diff.Ensure, desiredProvider)
 			} else {
 				diff.Changed = append(diff.Changed, desiredProvider)
@@ -242,8 +250,25 @@ func WithProviderTypes(providerTypes ...v1alpha1.ApplicationProviderType) ParseO
 }
 
 // isEqual compares two application providers and returns true if they are equal.
-func isEqual(a, b Provider) bool {
-	return reflect.DeepEqual(a.Spec(), b.Spec())
+func isEqual(ctx context.Context, podman *client.Podman, a, b Provider) (bool, error) {
+	if !reflect.DeepEqual(a.Spec(), b.Spec()) {
+		return false, nil
+	}
+
+	if a.Spec().ImageProvider != nil {
+		imageName := a.Spec().ImageProvider.Image
+		currentDigest, err := podman.GetImageDigest(ctx, imageName)
+		if err != nil {
+			return false, fmt.Errorf("getting current image digest: %w", err)
+		}
+		latestDigest, err := podman.GetLatestImageDigest(ctx, imageName)
+		if err != nil {
+			return false, fmt.Errorf("getting latest image digest: %w", err)
+		}
+		return currentDigest == latestDigest, nil
+	}
+
+	return true, nil
 }
 
 func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (string, error) {

@@ -164,6 +164,10 @@ func (p *imageProvider) Install(ctx context.Context) error {
 	return nil
 }
 
+func (p *imageProvider) Update(ctx context.Context) error {
+	return p.Install(ctx)
+}
+
 func (p *imageProvider) Remove(ctx context.Context) error {
 	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
 		return fmt.Errorf("removing application: %w", err)

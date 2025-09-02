@@ -145,6 +145,10 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 	return nil
 }
 
+func (p *inlineProvider) Update(ctx context.Context) error {
+	return p.Install(ctx)
+}
+
 func (p *inlineProvider) writeInlineContent(appPath string, contents []v1alpha1.ApplicationContent) error {
 	if err := p.readWriter.MkdirAll(appPath, fileio.DefaultDirectoryPermissions); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
