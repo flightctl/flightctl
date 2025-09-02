@@ -55,12 +55,16 @@ func (p *embeddedProvider) OCITargets(pullSecret *client.PullSecret) ([]dependen
 		}
 		// extract images from service
 		var targets []dependency.OCIPullTarget
-		for _, svc := range spec.Services {
-			if svc.Image != "" {
+		for _, service := range spec.Services {
+			if service.Image != "" {
+				policy := v1alpha1.PullAlways
+				if service.PullPolicy != "" {
+					policy = v1alpha1.PullPolicy(service.PullPolicy)
+				}
 				targets = append(targets, dependency.OCIPullTarget{
 					Type:       dependency.OCITypeImage,
-					Reference:  svc.Image,
-					PullPolicy: v1alpha1.PullAlways,
+					Reference:  service.Image,
+					PullPolicy: policy,
 					PullSecret: pullSecret,
 				})
 			}
