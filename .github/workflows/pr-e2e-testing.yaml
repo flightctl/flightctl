@@ -148,6 +148,7 @@ jobs:
           podman pull ${{ env.QUAY_ORG }}/flightctl-alertmanager-proxy:cache || true
           podman pull ${{ env.QUAY_ORG }}/flightctl-cli-artifacts:cache || true
           podman pull ${{ env.QUAY_ORG }}/flightctl-userinfo-proxy:cache || true
+          podman pull ${{ env.QUAY_ORG }}/flightctl-telemetry-gateway:cache || true
           podman pull ${{ env.QUAY_TESTS_ORG }}/git-server:cache || true
 
       - name: Create kind cluster

@@ -1,0 +1,11 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flightctl-prometheus
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]

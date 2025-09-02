@@ -179,7 +179,7 @@ func TestSignerChains(t *testing.T) {
 				if _, err := GetSignerNameExtension(cert); err != nil {
 					t.Fatalf("SignerName extension missing: %v", err)
 				}
-				if _, err := fccrypto.GetCertificateExtensionValueAsStr(cert, OIDDeviceFingerprint); err != nil {
+				if _, err := GetDeviceFingerprintExtension(cert); err != nil {
 					t.Fatalf("Device fingerprint extension missing: %v", err)
 				}
 			},

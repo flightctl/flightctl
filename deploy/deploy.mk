@@ -35,10 +35,10 @@ redeploy-alert-exporter: flightctl-alert-exporter-container
 redeploy-alertmanager-proxy: flightctl-alertmanager-proxy-container
 	test/scripts/redeploy.sh alertmanager-proxy
 
-redeploy-otel-collector: flightctl-otel-collector-container
-	test/scripts/redeploy.sh otel-collector
+redeploy-telemetry-gateway: flightctl-telemetry-gateway-container
+	test/scripts/redeploy.sh telemetry-gateway
 
-deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container
+deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
@@ -70,7 +70,6 @@ deploy-quadlets: build-containers
 	podman save flightctl-alert-exporter:latest | sudo podman load
 	podman save flightctl-cli-artifacts:latest | sudo podman load
 	podman save flightctl-alertmanager-proxy:latest | sudo podman load
-	podman save flightctl-otel-collector:latest | sudo podman load
 	sudo -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:
@@ -84,9 +83,6 @@ kill-alertmanager:
 
 kill-alertmanager-proxy:
 	sudo systemctl stop flightctl-alertmanager-proxy.service
-
-kill-otel-collector:
-	sudo systemctl stop flightctl-otel-collector.service
 
 show-podman-secret:
 	sudo podman secret inspect $(SECRET_NAME) --showsecret | jq '.[] | .SecretData'

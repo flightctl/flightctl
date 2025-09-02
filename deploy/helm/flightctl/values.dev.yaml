@@ -18,9 +18,8 @@ global:
     alertmanager: 9093
     alertmanagerProxy: 8443
     keycloak: 8081
-    prometheus: 9090
-    otelCollector: 9464
-    otelCollectorOtlp: 4317
+    telemetryGatewayOtlp: 4317
+    telemetryGatewayProm: 9464
     gitserver: 3222
     registry: 5000
 
@@ -75,7 +74,7 @@ alertmanagerProxy:
   image:
     image: localhost/flightctl-alertmanager-proxy
     tag: latest
-certManager:
+prometheus:
   enabled: true
 ui:
   enabled: false
@@ -84,10 +83,15 @@ dbSetup:
   image:
     image: localhost/flightctl-db-setup
     tag: latest
-otelCollector:
+
+telemetryGateway:
+  enabled: true
   image:
-    image: localhost/flightctl-otel-collector
+    image: localhost/flightctl-telemetry-gateway
     tag: latest
+  config:
+    listen: { device: "0.0.0.0:4317" }
+    export: { prometheus: "0.0.0.0:9464" }
 
 keycloak:
   realm:
