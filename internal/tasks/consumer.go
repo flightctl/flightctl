@@ -121,6 +121,10 @@ func shouldRolloutFleet(ctx context.Context, event api.Event, log logrus.FieldLo
 		return hasUpdatedFields(event.Details, log, api.Owner, api.Labels)
 	}
 
+	if event.Reason == api.EventReasonFleetRolloutBatchDispatched && event.InvolvedObject.Kind == api.FleetKind {
+		return true
+	}
+
 	// If a device was created, return true
 	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.DeviceKind {
 		return true
@@ -188,13 +192,18 @@ func shouldValidateFleet(ctx context.Context, event api.Event, log logrus.FieldL
 }
 
 func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
-	// If a repository that the device is associated with was updated, return true
-	if event.Reason == api.EventReasonReferencedRepositoryUpdated && event.InvolvedObject.Kind == api.DeviceKind {
+	if event.InvolvedObject.Kind != api.DeviceKind {
+		return false
+	}
+
+	if lo.Contains([]api.EventReason{api.EventReasonReferencedRepositoryUpdated,
+		api.EventReasonResourceCreated,
+		api.EventReasonFleetRolloutDeviceSelected}, event.Reason) {
 		return true
 	}
 
 	// If a device spec was updated and it doesn't have the delayDeviceRender annotation equal to "true", return true
-	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.DeviceKind {
+	if event.Reason == api.EventReasonResourceUpdated {
 		if !hasUpdatedFields(event.Details, log, api.Spec) {
 			return false
 		}
@@ -206,11 +215,6 @@ func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLo
 				return false
 			}
 		}
-		return true
-	}
-
-	// If a device was created, return true
-	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.DeviceKind {
 		return true
 	}
 
