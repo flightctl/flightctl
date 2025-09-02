@@ -2,54 +2,63 @@ package main
 
 import (
 	"context"
-	"flag"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation"
-	otel_collector "github.com/flightctl/flightctl/internal/otel-collector"
-	"github.com/flightctl/flightctl/internal/otel-collector/cnauthenticator"
-	"github.com/flightctl/flightctl/internal/otel-collector/deviceidprocessor"
+	"github.com/flightctl/flightctl/internal/otel-collector/deviceattrs"
+	"github.com/flightctl/flightctl/internal/otel-collector/deviceauth"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/prometheusexporter"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/prometheusremotewriteexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
-	"go.opentelemetry.io/collector/confmap/provider/fileprovider"
-	"go.opentelemetry.io/collector/confmap/provider/yamlprovider"
+	"go.opentelemetry.io/collector/confmap/provider/envprovider"
 	"go.opentelemetry.io/collector/exporter"
+	"go.opentelemetry.io/collector/exporter/otlpexporter"
 	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
 	"go.opentelemetry.io/collector/receiver"
 	"go.opentelemetry.io/collector/receiver/otlpreceiver"
-	"gopkg.in/yaml.v3"
 )
 
 func main() {
 	ctx := context.Background()
-
-	// Parse command line arguments
-	var configFile string
-	flag.StringVar(&configFile, "config", "", "Path to the configuration file")
-	flag.Parse()
-
 	log := log.InitLogs()
-	log.Println("Starting otel collector")
 
-	// Load configuration using FlightCtl pattern
-	configFilePath := config.ConfigFile()
-	if configFile != "" {
-		configFilePath = configFile
+	log.Info("Starting otel collector")
+
+	var otelConfigFile string
+	pflag.StringVar(&otelConfigFile, "config", "", "Path to the OTEL config file")
+	pflag.Parse()
+
+	if len(otelConfigFile) == 0 {
+		log.Info("No otel config specified")
+		return
 	}
-	cfg, err := config.LoadOrGenerate(configFilePath)
+
+	otelConfig, err := os.ReadFile(otelConfigFile)
 	if err != nil {
-		log.Fatalf("reading configuration: %v", err)
+		log.Fatalf("failed to read OTEL config file: %v", err)
 	}
-	log.Printf("Using config: %s", cfg)
+
+	raw := string(otelConfig)
+	log.Infof("OTEL Config:\n%s", raw)
+
+	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	if err != nil {
+		log.WithError(err).Fatal("reading configuration")
+	}
+
+	log.Infof("Using config: %s", cfg)
 
 	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
 	if err != nil {
@@ -60,103 +69,74 @@ func main() {
 	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-otel-collector")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down otel collector: %v", err)
+			log.Fatalf("failed to shut down tracer: %v", err)
 		}
 	}()
 
-	// Convert FlightCtl config to OTEL config
-	otelConfig := otel_collector.ToOTelYAMLConfig(cfg)
-	if otelConfig == nil {
-		log.Fatalf("failed to convert configuration to OTEL format")
+	// Provide config via env var to the collector
+	if err := os.Setenv("OTEL_CONFIG_YAML", raw); err != nil {
+		log.Fatalf("failed to set OTEL_CONFIG_YAML env var: %v", err)
 	}
-
-	// Convert to YAML
-	otelYAML, err := yaml.Marshal(otelConfig)
-	if err != nil {
-		log.Fatalf("failed to marshal OTEL config to YAML: %v", err)
-	}
-
-	log.Printf("OTEL Config: %s", string(otelYAML))
-
-	// Always create a temporary file for the transformed OTEL config
-	tmpFile, err := os.CreateTemp("", "otel-config-*.yaml")
-	if err != nil {
-		log.Fatalf("failed to create temp config file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name())
-	configPath := tmpFile.Name()
-
-	if _, err := tmpFile.Write(otelYAML); err != nil {
-		log.Fatalf("failed to write config to temp file: %v", err)
-	}
-	tmpFile.Close()
-
-	log.Printf("🔧 Config file location: %s", configPath)
-	log.Printf("📄 OTEL YAML content:\n%s", string(otelYAML))
-	log.Printf("🔧 About to create collector settings...")
 
 	// Create collector settings
-
-	// Set the configuration via environment variable
-	os.Setenv("OTEL_CONFIG_YAML", string(otelYAML))
-
 	settings := otelcol.CollectorSettings{
 		BuildInfo: component.BuildInfo{
 			Command:     "flightctl-otel-collector",
 			Description: "FlightCtl OpenTelemetry Collector",
-			Version:     "1.0.0",
+			Version:     version.Get().String(),
 		},
 		ConfigProviderSettings: otelcol.ConfigProviderSettings{
 			ResolverSettings: confmap.ResolverSettings{
-				URIs:              []string{configPath},
-				ProviderFactories: []confmap.ProviderFactory{fileprovider.NewFactory(), yamlprovider.NewFactory()},
+				URIs: []string{
+					"env:OTEL_CONFIG_YAML",
+				},
+				ProviderFactories: []confmap.ProviderFactory{
+					envprovider.NewFactory(),
+				},
 			},
 		},
 		Factories: func() (otelcol.Factories, error) {
-			// Create component factories
 			factories := otelcol.Factories{
 				Receivers: map[component.Type]receiver.Factory{
-					component.MustNewType("otlp"): otlpreceiver.NewFactory(),
+					component.MustNewType("otlp"):       otlpreceiver.NewFactory(),
+					component.MustNewType("prometheus"): prometheusreceiver.NewFactory(),
 				},
 				Processors: map[component.Type]processor.Factory{
-					component.MustNewType("transform"): transformprocessor.NewFactory(),
-					component.MustNewType("deviceid"):  deviceidprocessor.NewFactory(),
+					component.MustNewType("transform"):   transformprocessor.NewFactory(),
+					component.MustNewType("deviceattrs"): deviceattrs.NewFactory(),
 				},
 				Exporters: map[component.Type]exporter.Factory{
-					component.MustNewType("prometheus"): prometheusexporter.NewFactory(),
+					component.MustNewType("otlp"):                  otlpexporter.NewFactory(),
+					component.MustNewType("prometheus"):            prometheusexporter.NewFactory(),
+					component.MustNewType("prometheusremotewrite"): prometheusremotewriteexporter.NewFactory(),
 				},
 				Extensions: map[component.Type]extension.Factory{
-					component.MustNewType("cnauthenticator"): cnauthenticator.NewFactory(),
+					component.MustNewType("deviceauth"): deviceauth.NewFactory(cfg),
 				},
 			}
 			return factories, nil
 		},
 	}
 
-	log.Printf("🔧 URIs: %v", settings.ConfigProviderSettings.ResolverSettings.URIs)
-	log.Printf("🔧 ProviderFactories count: %d", len(settings.ConfigProviderSettings.ResolverSettings.ProviderFactories))
-
-	// Create and run collector
 	collector, err := otelcol.NewCollector(settings)
 	if err != nil {
 		log.Fatalf("failed to create collector: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Handle graceful shutdown
+	sigShutdown := make(chan os.Signal, 1)
+	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-		<-sigCh
-		log.Println("Shutting down the collector...")
-		collector.Shutdown()
+		<-sigShutdown
+		log.Info("Shutdown signal received")
 		cancel()
+		collector.Shutdown()
 	}()
 
-	log.Println("Starting the collector...")
 	if err := collector.Run(ctx); err != nil {
-		log.Fatalf("collector run finished with error: %v", err)
+		log.Fatalf("collector finished with error: %v", err)
 	}
 }

@@ -213,19 +213,17 @@ otelCollector:
         keyFile: "/etc/otel-collector/certs/server.key"
         clientCAFile: "/etc/otel-collector/certs/ca.crt"
       auth:
-        authenticator: "cnauthenticator"
+        authenticator: "deviceauth"
     prometheus:
       endpoint: "0.0.0.0:8889"
     extensions:
-      cnauthenticator:
-        printCN: true
-        logLevel: "info"
+      deviceauth:
     processors:
-      deviceid: {}
+      deviceattrs: {}
     pipelines:
       metrics:
         receivers: ["otlp"]
-        processors: ["deviceid", "transform"]
+        processors: ["deviceattrs"]
         exporters: ["prometheus"]
   prometheus:
     enabled: true  

@@ -263,7 +263,7 @@ flightctl-otel-collector-container: Containerfile.otel-collector go.mod go.sum $
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.otel-collector -t flightctl-otel-collector:latest
 
-.PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
+.PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-otel-collector-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -288,6 +288,7 @@ push-containers: login
 	podman push flightctl-alertmanager-proxy:latest
 	podman push flightctl-cli-artifacts:latest
 	podman push flightctl-userinfo-proxy:latest
+	podman push flightctl-otel-collector:latest
 
 # A convenience target to run the full CI process.
 ci-build: build-containers push-containers

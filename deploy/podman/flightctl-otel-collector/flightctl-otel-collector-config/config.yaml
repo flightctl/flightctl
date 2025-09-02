@@ -12,27 +12,19 @@ otelCollector:
       keyFile: "/etc/otel-collector/certs/server.key"
       clientCAFile: "/etc/otel-collector/certs/ca.crt"
     auth:
-      authenticator: "cnauthenticator"
+      authenticator: "deviceauth"
   
   prometheus:
     endpoint: "0.0.0.0:9464"
   
   extensions:
-    cnauthenticator:
-      printCN: true
-      logLevel: "info"
+    deviceauth:
   
   processors:
-    deviceid: {}
-    transform:
-      metric_statements:
-        - context: datapoint
-          statements:
-            - set(attributes["device_id"], resource.attributes["device_id"])
-            - set(attributes["org_id"], resource.attributes["org_id"])
+    deviceattrs: {}
 
   pipelines:
     metrics:
       receivers: ["otlp"]
-      processors: ["deviceid", "transform"]
+      processors: ["deviceattrs"]
       exporters: ["prometheus"] 

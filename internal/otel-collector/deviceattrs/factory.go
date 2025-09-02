@@ -1,4 +1,4 @@
-package deviceidprocessor
+package deviceattrs
 
 import (
 	"context"
@@ -9,10 +9,9 @@ import (
 	"go.opentelemetry.io/collector/processor/processorhelper"
 )
 
-// NewFactory returns a new processor factory.
 func NewFactory() processor.Factory {
 	return processor.NewFactory(
-		component.MustNewType("deviceid"),
+		component.MustNewType("deviceattrs"),
 		createDefaultConfig,
 		processor.WithMetrics(createMetricsProcessor, component.StabilityLevelAlpha),
 	)
@@ -28,13 +27,8 @@ func createMetricsProcessor(
 	cfg component.Config,
 	next consumer.Metrics,
 ) (processor.Metrics, error) {
-	p := &deviceIdProcessor{}
+	p := &deviceattrs{}
 	return processorhelper.NewMetrics(
-		ctx,
-		set,
-		cfg,
-		next,
-		p.processMetrics,
-		processorhelper.WithCapabilities(consumer.Capabilities{MutatesData: true}),
+		ctx, set, cfg, next, p.processMetrics, processorhelper.WithCapabilities(consumer.Capabilities{MutatesData: true}),
 	)
 }

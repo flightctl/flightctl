@@ -35,18 +35,10 @@ data:
         endpoint: {{ .Values.otelCollector.config.prometheus.endpoint | quote }}
       
       extensions:
-        cnauthenticator:
-          printCN: {{ .Values.otelCollector.config.extensions.cnauthenticator.printCN }}
-          logLevel: {{ .Values.otelCollector.config.extensions.cnauthenticator.logLevel | quote }}
+        deviceauth:
       
       processors:
-        deviceid: {}
-        transform:
-          metric_statements:
-            - context: datapoint
-              statements:
-                - set(attributes["device_id"], resource.attributes["device_id"])
-                - set(attributes["org_id"], resource.attributes["org_id"])
+        deviceattrs: {}
 
       pipelines:
         metrics:
