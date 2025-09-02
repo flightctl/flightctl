@@ -7,6 +7,7 @@ export BUILDKIT_PROGRESS=plain
 # This allows the CI pipeline to easily override them.
 REGISTRY       ?= localhost
 REGISTRY_OWNER ?= flightctl
+REGISTRY_OWNER_TESTS ?= flightctl-tests
 GITHUB_ACTIONS ?= false
 
 # --- Cache Configuration ---
@@ -88,6 +89,7 @@ help:
 	@echo "    generate:        regenerate all generated files"
 	@echo "    tidy:            tidy go mod"
 	@echo "    lint:            run golangci-lint"
+	@echo "    rpmlint:         run rpmlint on RPM spec file"
 	@echo "    lint-openapi:    run spectral to lint and rulecheck the OpenAPI spec"
 	@echo "    lint-docs:       run markdownlint on documentation"
 	@echo "    lint-diagrams:   verify that diagrams from Excalidraw have the source code embedded"
@@ -119,6 +121,7 @@ help:
 	@echo "Environment Variables for CI:"
 	@echo "    REGISTRY:        container registry (default: localhost)"
 	@echo "    REGISTRY_OWNER:  registry owner/organization (default: flightctl)"
+	@echo "    REGISTRY_OWNER_TESTS:  test registry owner/organization (default: flightctl-tests)"
 	@echo "    REGISTRY_USER:   registry username for login"
 	@echo "    GITHUB_ACTIONS:  set to 'true' to enable container build caching"
 	@echo ""
@@ -149,7 +152,8 @@ build: bin build-cli
 		./cmd/flightctl-alert-exporter \
 		./cmd/flightctl-alertmanager-proxy \
 		./cmd/flightctl-userinfo-proxy \
-		./cmd/flightctl-db-migrate
+		./cmd/flightctl-db-migrate \
+		./cmd/flightctl-restore 
 
 bin/flightctl-agent: bin $(GO_FILES)
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
@@ -168,6 +172,9 @@ build-api: bin
 
 build-db-migrate: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-db-migrate
+
+build-restore: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-restore
 
 build-worker: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
@@ -357,6 +364,20 @@ $(GOBIN)/golangci-lint:
 
 lint: tools
 	$(GOBIN)/golangci-lint run -v
+
+.PHONY: rpmlint
+rpmlint: check-rpmlint
+	@echo "Running rpmlint on RPM spec file"
+	rpmlint packaging/rpm/flightctl.spec
+
+.PHONY: rpmlint-ci
+rpmlint-ci:
+	@echo "Running rpmlint on RPM spec file (CI mode)"
+	rpmlint packaging/rpm/flightctl.spec
+
+.PHONY: check-rpmlint
+check-rpmlint:
+	@command -v rpmlint > /dev/null || (echo "rpmlint not found. Install with: sudo apt-get install rpmlint (Ubuntu/Debian) or sudo dnf install rpmlint (Fedora/RHEL)" && exit 1)
 
 .PHONY: lint-openapi
 lint-openapi:

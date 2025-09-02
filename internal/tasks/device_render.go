@@ -83,6 +83,19 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		t.deviceConfig = device.Spec.Config
 		t.applications = device.Spec.Applications
 	}
+	if device.Metadata.Annotations != nil {
+		annotations := lo.FromPtr(device.Metadata.Annotations)
+		if val, ok := annotations[api.DeviceAnnotationAwaitingReconnect]; ok {
+			if val == "true" {
+				return fmt.Errorf("device is awaiting reconnection after restore")
+			}
+		}
+		if val, ok := annotations[api.DeviceAnnotationConflictPaused]; ok {
+			if val == "true" {
+				return fmt.Errorf("device is paused due to conflicts")
+			}
+		}
+	}
 
 	if device.Metadata.Owner != nil {
 		_, owner, err := util.GetResourceOwner(device.Metadata.Owner)

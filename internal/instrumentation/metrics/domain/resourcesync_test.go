@@ -36,6 +36,7 @@ func (m *MockResourceSyncStore) Checkpoint() store.Checkpoint        { return ni
 func (m *MockResourceSyncStore) Organization() store.Organization    { return nil }
 func (m *MockResourceSyncStore) RunMigrations(context.Context) error { return nil }
 func (m *MockResourceSyncStore) Close() error                        { return nil }
+func (m *MockResourceSyncStore) CheckHealth(context.Context) error   { return nil }
 
 type MockResourceSync struct {
 	results []store.CountByResourceSyncOrgAndStatusResult

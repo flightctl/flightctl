@@ -11,6 +11,8 @@ type Provider interface {
 	NewPublisher(queueName string) (Publisher, error)
 	Stop()
 	Wait()
+	// CheckHealth verifies the provider is operational (e.g. Redis PING)
+	CheckHealth(ctx context.Context) error
 }
 
 type ConsumeHandler func(ctx context.Context, payload []byte, log logrus.FieldLogger) error

@@ -166,6 +166,13 @@ func (t *TracedService) DecommissionDevice(ctx context.Context, name string, dec
 	endSpan(span, st)
 	return resp, st
 }
+
+func (t *TracedService) ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {
+	ctx, span := startSpan(ctx, "ResumeDevices")
+	resp, st := t.inner.ResumeDevices(ctx, request)
+	endSpan(span, st)
+	return resp, st
+}
 func (t *TracedService) UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
 	ctx, span := startSpan(ctx, "UpdateDeviceAnnotations")
 	st := t.inner.UpdateDeviceAnnotations(ctx, name, annotations, deleteKeys)

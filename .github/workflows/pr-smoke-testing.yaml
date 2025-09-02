@@ -20,6 +20,7 @@ env:
   QUAY_ORG: quay.io/flightctl
   REGISTRY: quay.io
   REGISTRY_OWNER: flightctl
+  REGISTRY_OWNER_TESTS: flightctl-tests
   GITHUB_ACTIONS: true
 
 jobs:
@@ -43,6 +44,7 @@ jobs:
             docs/**
             .github/**
             examples/**
+            packaging/rpm/**
 
       - name: Setup all dependencies
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}

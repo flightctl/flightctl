@@ -37,6 +37,7 @@ func (m *MockRepositoryStore) Checkpoint() store.Checkpoint                     
 func (m *MockRepositoryStore) Organization() store.Organization                           { return nil }
 func (m *MockRepositoryStore) RunMigrations(context.Context) error                        { return nil }
 func (m *MockRepositoryStore) Close() error                                               { return nil }
+func (m *MockRepositoryStore) CheckHealth(context.Context) error                          { return nil }
 
 type MockRepository struct {
 	count   int64

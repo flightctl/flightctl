@@ -690,6 +690,225 @@ var _ = Describe("DeviceStore create", func() {
 			Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]).To(Equal("2"))
 		})
 
+		Context("Device Resume Operations", func() {
+
+			Describe("RemoveConflictPausedAnnotation", func() {
+				var (
+					labelSelector *selector.LabelSelector
+					listParams    store.ListParams
+					testId        string
+					testDevices   []struct {
+						name        string
+						labels      map[string]string
+						hasConflict bool
+					}
+				)
+
+				BeforeEach(func() {
+					// Generate unique test ID for this test run
+					testId = uuid.New().String()
+
+					// Create test devices with unique names and labels
+					testDevices = []struct {
+						name        string
+						labels      map[string]string
+						hasConflict bool
+					}{
+						{fmt.Sprintf("bulk-test-device-1-%s", testId), map[string]string{fmt.Sprintf("env-%s", testId): "staging", fmt.Sprintf("tier-%s", testId): "web"}, true},
+						{fmt.Sprintf("bulk-test-device-2-%s", testId), map[string]string{fmt.Sprintf("env-%s", testId): "staging", fmt.Sprintf("tier-%s", testId): "api"}, true},
+						{fmt.Sprintf("bulk-test-device-3-%s", testId), map[string]string{fmt.Sprintf("env-%s", testId): "production", fmt.Sprintf("tier-%s", testId): "web"}, true},
+						{fmt.Sprintf("bulk-test-device-4-%s", testId), map[string]string{fmt.Sprintf("env-%s", testId): "staging", fmt.Sprintf("tier-%s", testId): "web"}, false}, // no conflict annotation
+						{fmt.Sprintf("bulk-test-device-5-%s", testId), map[string]string{fmt.Sprintf("env-%s", testId): "development", fmt.Sprintf("tier-%s", testId): "web"}, true},
+					}
+
+					for _, d := range testDevices {
+						device := api.Device{
+							Metadata: api.ObjectMeta{
+								Name:   lo.ToPtr(d.name),
+								Labels: &d.labels,
+							},
+							Spec: &api.DeviceSpec{
+								Os: &api.DeviceOsSpec{Image: "test-os"},
+							},
+						}
+
+						_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, false, nil, callback)
+						Expect(err).ToNot(HaveOccurred())
+
+						if d.hasConflict {
+							err = devStore.UpdateAnnotations(ctx, orgId, d.name,
+								map[string]string{api.DeviceAnnotationConflictPaused: "true"}, nil)
+							Expect(err).ToNot(HaveOccurred())
+						}
+					}
+				})
+
+				It("should remove annotation from devices matching label selector", func() {
+					// Create label selector using the unique test ID
+					var err error
+					labelSelector, err = selector.NewLabelSelector(fmt.Sprintf("env-%s=staging", testId))
+					Expect(err).ToNot(HaveOccurred())
+
+					listParams = store.ListParams{
+						LabelSelector: labelSelector,
+					}
+
+					// Resume devices with env=staging
+					count, _, err := devStore.RemoveConflictPausedAnnotation(ctx, orgId, listParams)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(count).To(Equal(int64(2))) // device-1 and device-2 have annotation
+
+					// Verify correct devices had annotation removed
+					dev1, err := devStore.Get(ctx, orgId, testDevices[0].name) // device-1
+					Expect(err).ToNot(HaveOccurred())
+					_, hasAnnotation := (*dev1.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+					Expect(hasAnnotation).To(BeFalse())
+
+					dev2, err := devStore.Get(ctx, orgId, testDevices[1].name) // device-2
+					Expect(err).ToNot(HaveOccurred())
+					_, hasAnnotation = (*dev2.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+					Expect(hasAnnotation).To(BeFalse())
+
+					// Verify devices not matching selector still have annotation
+					dev3, err := devStore.Get(ctx, orgId, testDevices[2].name) // device-3 (production)
+					Expect(err).ToNot(HaveOccurred())
+					_, hasAnnotation = (*dev3.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+					Expect(hasAnnotation).To(BeTrue())
+
+					// Verify device without annotation was not affected
+					dev4, err := devStore.Get(ctx, orgId, testDevices[3].name) // device-4 (no annotation)
+					Expect(err).ToNot(HaveOccurred())
+					_, hasAnnotation = (*dev4.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+					Expect(hasAnnotation).To(BeFalse())
+				})
+
+				It("should return zero count when no devices match selector", func() {
+					labelSelector, err := selector.NewLabelSelector(fmt.Sprintf("env-%s=nonexistent", testId))
+					Expect(err).ToNot(HaveOccurred())
+
+					listParams = store.ListParams{
+						LabelSelector: labelSelector,
+					}
+
+					count, _, err := devStore.RemoveConflictPausedAnnotation(ctx, orgId, listParams)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(count).To(Equal(int64(0)))
+				})
+
+				It("should return zero count when matching devices have no conflictPaused annotation", func() {
+					// Select device-4 which matches but has no conflictPaused annotation
+					labelSelector, err := selector.NewLabelSelector(fmt.Sprintf("env-%s=staging,tier-%s=web", testId, testId))
+					Expect(err).ToNot(HaveOccurred())
+
+					// First remove annotation from device-1 using bulk method to leave only device-4 matching
+					device1Selector, err := selector.NewLabelSelector(fmt.Sprintf("env-%s=staging,tier-%s=web", testId, testId))
+					Expect(err).ToNot(HaveOccurred())
+
+					// Create a more specific selector that only matches device-1
+					device1FieldSelector, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.name": testDevices[0].name})
+					Expect(err).ToNot(HaveOccurred())
+
+					device1ListParams := store.ListParams{
+						LabelSelector: device1Selector,
+						FieldSelector: device1FieldSelector,
+					}
+					_, _, err = devStore.RemoveConflictPausedAnnotation(ctx, orgId, device1ListParams)
+					Expect(err).ToNot(HaveOccurred())
+
+					listParams = store.ListParams{
+						LabelSelector: labelSelector,
+					}
+
+					count, _, err := devStore.RemoveConflictPausedAnnotation(ctx, orgId, listParams)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(count).To(Equal(int64(0))) // device-4 matches but has no annotation
+				})
+
+				It("should handle complex label selectors with multiple conditions", func() {
+					// Select devices with env=staging AND tier!=api (should match device-1 and device-4)
+					labelSelector, err := selector.NewLabelSelector(fmt.Sprintf("env-%s=staging,tier-%s!=api", testId, testId))
+					Expect(err).ToNot(HaveOccurred())
+
+					listParams = store.ListParams{
+						LabelSelector: labelSelector,
+					}
+
+					count, _, err := devStore.RemoveConflictPausedAnnotation(ctx, orgId, listParams)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(count).To(Equal(int64(1))) // Only device-1 has both matching labels AND annotation
+
+					// Verify device-1 annotation removed
+					dev1, err := devStore.Get(ctx, orgId, testDevices[0].name)
+					Expect(err).ToNot(HaveOccurred())
+					_, hasAnnotation := (*dev1.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+					Expect(hasAnnotation).To(BeFalse())
+
+					// Verify device-2 still has annotation (doesn't match tier!=api)
+					dev2, err := devStore.Get(ctx, orgId, testDevices[1].name)
+					Expect(err).ToNot(HaveOccurred())
+					_, hasAnnotation = (*dev2.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+					Expect(hasAnnotation).To(BeTrue())
+				})
+
+				It("should increment resource version for updated devices", func() {
+					// Get initial versions for devices that will be updated
+					dev1, err := devStore.Get(ctx, orgId, testDevices[0].name)
+					Expect(err).ToNot(HaveOccurred())
+					initialVersion1 := *dev1.Metadata.ResourceVersion
+
+					dev2, err := devStore.Get(ctx, orgId, testDevices[1].name)
+					Expect(err).ToNot(HaveOccurred())
+					initialVersion2 := *dev2.Metadata.ResourceVersion
+
+					// Resume devices with env=staging
+					labelSelector, err := selector.NewLabelSelector(fmt.Sprintf("env-%s=staging", testId))
+					Expect(err).ToNot(HaveOccurred())
+
+					listParams = store.ListParams{
+						LabelSelector: labelSelector,
+					}
+
+					count, _, err := devStore.RemoveConflictPausedAnnotation(ctx, orgId, listParams)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(count).To(Equal(int64(2)))
+
+					// Verify resource versions incremented for updated devices
+					dev1, err = devStore.Get(ctx, orgId, testDevices[0].name)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(*dev1.Metadata.ResourceVersion).ToNot(Equal(initialVersion1))
+
+					dev2, err = devStore.Get(ctx, orgId, testDevices[1].name)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(*dev2.Metadata.ResourceVersion).ToNot(Equal(initialVersion2))
+
+					// Verify devices not updated have unchanged versions
+					dev3, err := devStore.Get(ctx, orgId, testDevices[2].name)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(*dev3.Metadata.ResourceVersion).To(Equal("2")) // Should be version after annotation was added
+
+					dev4, err := devStore.Get(ctx, orgId, testDevices[3].name)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(*dev4.Metadata.ResourceVersion).To(Equal("1")) // Should be initial version (no annotation was added)
+				})
+
+				It("should handle empty label selector (match all devices)", func() {
+					// Empty label selector should match all devices
+					labelSelector, err := selector.NewLabelSelector("")
+					Expect(err).ToNot(HaveOccurred())
+
+					listParams = store.ListParams{
+						LabelSelector: labelSelector,
+					}
+
+					count, _, err := devStore.RemoveConflictPausedAnnotation(ctx, orgId, listParams)
+					Expect(err).ToNot(HaveOccurred())
+					// Should match all devices with conflictPaused annotation (4 out of 5 test devices)
+					// Since we're using unique devices per test, we know exactly how many should match
+					Expect(count).To(Equal(int64(4))) // The 4 test devices with annotations
+				})
+			})
+		})
+
 		It("GetRendered", func() {
 			testutil.CreateTestDevice(ctx, storeInst.Device(), orgId, "dev", nil, nil, nil)
 
@@ -1098,6 +1317,131 @@ var _ = Describe("DeviceStore create", func() {
 			for _, result := range results {
 				Expect(result.OrgID).To(Equal(orgId.String()))
 			}
+		})
+
+		It("PrepareDevicesAfterRestore sets annotation, clears lastSeen, and sets status", func() {
+			// Create a fresh test device to avoid resource version conflicts
+			testDeviceName := "restore-test-device"
+			testDevice := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(testDeviceName),
+					Annotations: &map[string]string{
+						"existing-annotation": "existing-value",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: time.Now(),
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+						Info:   lo.ToPtr("Device is online"),
+					},
+					Conditions:   []api.Condition{},
+					Applications: []api.DeviceApplicationStatus{},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusUnknown,
+					},
+					Config: api.DeviceConfigStatus{
+						RenderedVersion: "test-version",
+					},
+					Integrity: api.DeviceIntegrityStatus{
+						Status: api.DeviceIntegrityStatusUnknown,
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusUnknown,
+						Disk:   api.DeviceResourceStatusUnknown,
+						Memory: api.DeviceResourceStatusUnknown,
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUnknown,
+					},
+					Lifecycle: api.DeviceLifecycleStatus{
+						Status: api.DeviceLifecycleStatusUnknown,
+					},
+				},
+			}
+
+			// Create the test device (using fromAPI: false to preserve annotations for testing)
+			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, testDevice, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(createdDevice).ToNot(BeNil())
+			Expect(created).To(BeTrue())
+
+			// Verify initial state
+			Expect(createdDevice.Status.LastSeen.IsZero()).To(BeFalse())
+			Expect(createdDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Execute: Run PrepareDevicesAfterRestore
+			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devicesUpdated).To(BeNumerically(">=", int64(1))) // Should update at least our test device
+
+			// Verify: Check that the test device has been updated correctly
+			device, err := devStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Check that restoration annotation was added
+			Expect(device.Metadata.Annotations).ToNot(BeNil())
+			annotations := *device.Metadata.Annotations
+			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(Equal("true"))
+
+			// Check that existing annotation was preserved
+			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
+
+			// Check that lastSeen was cleared (should be zero time)
+			Expect(device.Status).ToNot(BeNil())
+			Expect(device.Status.LastSeen.IsZero()).To(BeTrue())
+
+			// Check that status summary was set to waiting for connection
+			Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
+			Expect(device.Status.Summary.Info).ToNot(BeNil())
+			Expect(*device.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+
+			// Check that other status fields were preserved
+			Expect(device.Status.Config.RenderedVersion).To(Equal("test-version"))
+		})
+
+		It("PrepareDevicesAfterRestore handles devices with no existing status", func() {
+			// Create a device with no status
+			deviceName := "test-device-no-status"
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: nil, // No status
+			}
+
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Execute: Run PrepareDevicesAfterRestore
+			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devicesUpdated).To(BeNumerically(">=", int64(1))) // Should update at least our new device
+
+			// Verify: Check that the device was updated correctly
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Check that restoration annotation was added
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			annotations := *updatedDevice.Metadata.Annotations
+			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(Equal("true"))
+
+			// Check that status was created with proper summary
+			Expect(updatedDevice.Status).ToNot(BeNil())
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+
+			// Check that lastSeen is zero (not set)
+			Expect(updatedDevice.Status.LastSeen.IsZero()).To(BeTrue())
 		})
 	})
 })

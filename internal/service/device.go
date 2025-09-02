@@ -16,7 +16,46 @@ import (
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
+
+// PrepareDevicesAfterRestore performs post-restoration preparation tasks for devices
+func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
+	h.log.Info("Starting post-restoration device preparation")
+
+	// 1. Drop the KV store to clear all cached data
+	h.log.Info("Clearing KV store after restoration")
+	if h.kvStore != nil {
+		if err := h.kvStore.DeleteAllKeys(ctx); err != nil {
+			h.log.WithError(err).Error("Failed to clear KV store")
+			return fmt.Errorf("failed to clear KV store: %w", err)
+		}
+		h.log.Info("KV store cleared successfully")
+	} else {
+		h.log.Warn("KV store not available, skipping clear")
+	}
+
+	// 2. Set waitForDeviceToReconnectAfterRestore annotation on all devices and unset lastSeen
+	h.log.Info("Updating device annotations and clearing lastSeen timestamps")
+
+	devicesUpdated, err := h.store.Device().PrepareDevicesAfterRestore(ctx)
+	if err != nil {
+		h.log.WithError(err).Error("Failed to prepare devices after restore")
+		return fmt.Errorf("failed to prepare devices after restore: %w", err)
+	}
+
+	h.log.Infof("Post-restoration device preparation completed successfully. Updated %d devices total.", devicesUpdated)
+
+	// Emit system restored event
+	if h.eventHandler != nil {
+		event := common.GetSystemRestoredEvent(ctx, devicesUpdated)
+		if event != nil {
+			h.eventHandler.CreateEvent(ctx, event)
+			h.log.Info("System restored event created successfully")
+		}
+	}
+	return nil
+}
 
 func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
@@ -479,6 +518,46 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
 	orgId := getOrgIdFromContext(ctx)
 	return common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+}
+
+func (h *ServiceHandler) ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	h.log.Infof("ResumeDevices called with label selector: %v, field selector: %v",
+		request.LabelSelector, request.FieldSelector)
+
+	// Create list params with both label and field selectors
+	listParams, status := prepareListParams(nil, request.LabelSelector, request.FieldSelector, nil)
+	if status.Code != http.StatusOK {
+		return api.DeviceResumeResponse{}, status
+	}
+
+	// Remove conflictPaused annotation from all matching devices in a single SQL query
+	resumedCount, deviceIDs, err := h.store.Device().RemoveConflictPausedAnnotation(ctx, orgId, lo.FromPtr(listParams))
+	if err != nil {
+		var se *selector.SelectorError
+		switch {
+		case selector.AsSelectorError(err, &se):
+			return api.DeviceResumeResponse{}, api.StatusBadRequest(se.Error())
+		default:
+			return api.DeviceResumeResponse{}, api.StatusInternalServerError(fmt.Sprintf("failed to resume devices: %v", err))
+		}
+	}
+
+	h.log.Infof("Resumed %d devices: %v", resumedCount, deviceIDs)
+
+	// Emit DeviceConflictResolved events for each resumed device
+	if h.eventHandler != nil {
+		for _, deviceID := range deviceIDs {
+			event := common.GetDeviceConflictResolvedEvent(ctx, deviceID)
+			h.eventHandler.CreateEvent(ctx, event)
+		}
+		h.log.Infof("Created DeviceConflictResolved events for %d devices", len(deviceIDs))
+	}
+
+	return api.DeviceResumeResponse{
+		ResumedDevices: int(resumedCount),
+	}, api.StatusOK()
 }
 
 // callbackDeviceUpdated is the device-specific callback that handles device events
