@@ -92,34 +92,39 @@ can be run with:
 make integration-test # or run-integration-test if you have a DB/deployment ready
 ```
 
+For mocking specific interfaces please refer to the unit-test mocking section.
+
 ### Database Setup Strategies
 
 Integration tests support two database setup strategies:
 
-**Local Strategy (Default):**
+#### Local (default)
 
 ```bash
 make integration-test
 ```
 
-Each test creates an empty database and runs `store.RunMigrations()` locally using GORM automigrate.
+- Each test starts from an empty DB and runs the app’s migrations locally with GORM.
+- No external migration image is used.
 
-**Template Strategy:**
+#### Template
 
 ```bash
 FLIGHTCTL_TEST_DB_STRATEGY=template make integration-test
 ```
 
-Uses an external migration image to prepare a template database with migrations applied, then the tests clone from a pre-migrated template database. This allows testing against different migration versions.
+- A migration container prepares a **template database** with all migrations applied.
+- Tests then create their databases by **cloning from that template** (fast and consistent per test run).
 
-**Environment Variables:**
+#### Environment Variables
 
 ```bash
-FLIGHTCTL_TEST_DB_STRATEGY=local|template                   # Default: local
-MIGRATION_IMAGE=localhost/flightctl-db-setup:vx.y.z         # For template strategy (pinned version)
+FLIGHTCTL_TEST_DB_STRATEGY=local|template   # Default: local
+MIGRATION_IMAGE=<repo/name:tag|@digest>     # Optional; template strategy only
 ```
 
-For mocking specific interfaces please refer to the unit-test mocking section.
+- If `MIGRATION_IMAGE` **is set**, it must exist locally; otherwise the run fails.
+- If `MIGRATION_IMAGE` **is not set**, a fresh `flightctl-db-setup:latest` image is built from the current source and used.
 
 ### Note on coverage testing
 
