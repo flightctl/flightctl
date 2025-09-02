@@ -64,7 +64,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 }
 
 func (p *imageProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
-	policy := v1alpha1.PullIfNotPresent
+	policy := v1alpha1.PullAlways
 	var targets []dependency.OCIPullTarget
 	targets = append(targets, dependency.OCIPullTarget{
 		Type:       dependency.OCITypeImage,

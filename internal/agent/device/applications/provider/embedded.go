@@ -60,7 +60,7 @@ func (p *embeddedProvider) OCITargets(pullSecret *client.PullSecret) ([]dependen
 				targets = append(targets, dependency.OCIPullTarget{
 					Type:       dependency.OCITypeImage,
 					Reference:  svc.Image,
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1alpha1.PullAlways,
 					PullSecret: pullSecret,
 				})
 			}

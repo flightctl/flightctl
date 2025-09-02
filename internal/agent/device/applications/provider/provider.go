@@ -340,7 +340,7 @@ func extractVolumeTargets(vols *[]v1alpha1.ApplicationVolume, pullSecret *client
 			return nil, fmt.Errorf("getting image volume spec: %w", err)
 		}
 
-		policy := v1alpha1.PullIfNotPresent
+		policy := v1alpha1.PullAlways
 		if spec.Image.PullPolicy != nil {
 			policy = *spec.Image.PullPolicy
 		}

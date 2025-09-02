@@ -71,11 +71,11 @@ func (p *inlineProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency
 	for _, svc := range spec.Services {
 		if svc.Image != "" {
 			targets = append(targets, dependency.OCIPullTarget{
-				Type:       dependency.OCITypeImage,
-				Reference:  svc.Image,
-				PullPolicy: v1alpha1.PullIfNotPresent,
-				PullSecret: pullSecret,
-			})
+			Type:       dependency.OCITypeImage,
+			Reference:  service.Image,
+			PullPolicy: v1alpha1.PullAlways,
+			PullSecret: pullSecret,
+		})
 		}
 	}
 
