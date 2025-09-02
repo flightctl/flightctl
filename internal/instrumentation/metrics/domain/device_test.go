@@ -69,6 +69,10 @@ func (m *MockStore) Close() error {
 	return nil
 }
 
+func (m *MockStore) CheckHealth(context.Context) error {
+	return nil
+}
+
 // MockDevice implements store.Device for testing
 type MockDevice struct {
 	results []store.CountByOrgAndStatusResult
@@ -149,6 +153,9 @@ func (m *MockDevice) ListDevicesByServiceCondition(ctx context.Context, orgId uu
 func (m *MockDevice) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {}
 func (m *MockDevice) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
 	return 0, nil
+}
+func (m *MockDevice) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {
+	return 0, nil, nil
 }
 
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {

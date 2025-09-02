@@ -75,6 +75,10 @@ func (t *testProvider) Wait() {
 	t.wg.Wait()
 }
 
+func (t *testProvider) CheckHealth(_ context.Context) error {
+	return nil
+}
+
 func (t *testProvider) Publish(_ context.Context, b []byte) error {
 	t.queue <- b
 	return nil

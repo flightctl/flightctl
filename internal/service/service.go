@@ -33,6 +33,8 @@ type Service interface {
 	GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status)
 	PatchDevice(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status)
 	DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status)
+
+	ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status)
 	UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status
 	UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status
 	SetDeviceServiceConditions(ctx context.Context, name string, conditions []api.Condition) api.Status
