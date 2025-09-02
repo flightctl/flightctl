@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -17,11 +18,11 @@ func PrepareDBForUnitTests(ctx context.Context, log *logrus.Logger) (Store, *con
 	defer span.End()
 
 	cfg := config.NewDefault()
-	dbTemp, err := InitDB(cfg, log)
+	dbTemp, sqlDb, err := InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
-	defer CloseDB(dbTemp)
+	defer CloseDB(sqlDb)
 
 	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 	log.Infof("DB name: %s", randomDBName)
@@ -31,12 +32,12 @@ func PrepareDBForUnitTests(ctx context.Context, log *logrus.Logger) (Store, *con
 	}
 
 	cfg.Database.Name = randomDBName
-	db, err := InitDB(cfg, log)
+	db, sqlDb, err := InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
 
-	store := NewStore(db, log.WithField("pkg", "store"))
+	store := NewStore(db, sqlDb, log.WithField("pkg", "store"))
 	if err := store.RunMigrations(ctx); err != nil {
 		log.Fatalf("running migrations: %v", err)
 	}
@@ -49,21 +50,17 @@ func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, s
 		log.Fatalf("closing data store: %v", err)
 	}
 	cfg.Database.Name = "flightctl"
-	db, err := InitDB(cfg, logrus.New())
+	db, sqlDb, err := InitDB(cfg, logrus.New())
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
-	defer CloseDB(db)
+	defer CloseDB(sqlDb)
 	db = db.WithContext(ctx).Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
 	if db.Error != nil {
 		log.Fatalf("dropping database: %v", db.Error)
 	}
 }
 
-func CloseDB(db *gorm.DB) {
-	sqlDB, err := db.DB()
-	if err != nil {
-		return
-	}
-	_ = sqlDB.Close()
+func CloseDB(sqlDb *sql.DB) {
+	_ = sqlDb.Close()
 }

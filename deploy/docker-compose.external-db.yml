@@ -1,0 +1,73 @@
+# Docker Compose override file for external PostgreSQL database
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.external-db.yml up
+#
+# Before using this override:
+# 1. Set these environment variables:
+#    - EXTERNAL_DB_HOST=your-external-db-hostname
+#    - EXTERNAL_DB_PORT=5432 (or your port)
+#    - EXTERNAL_DB_NAME=flightctl (or your database name)
+#    - EXTERNAL_DB_USER=flightctl_app
+#    - EXTERNAL_DB_PASSWORD=your-app-password
+#    - EXTERNAL_DB_MIGRATION_USER=flightctl_migrator
+#    - EXTERNAL_DB_MIGRATION_PASSWORD=your-migration-password
+#    - EXTERNAL_DB_ADMIN_USER=admin (or your admin user)
+#    - EXTERNAL_DB_ADMIN_PASSWORD=your-admin-password
+
+version: '3.8'
+
+services:
+  # Remove the internal database service
+  flightctl-db:
+    deploy:
+      replicas: 0
+    # Optionally, you can comment out the entire service definition
+
+  # Update API service to use external database
+  flightctl-api:
+    environment:
+      - DB_HOST=${EXTERNAL_DB_HOST}
+      - DB_PORT=${EXTERNAL_DB_PORT:-5432}
+      - DB_NAME=${EXTERNAL_DB_NAME:-flightctl}
+      - DB_USER=${EXTERNAL_DB_USER:-flightctl_app}
+      - DB_PASSWORD=${EXTERNAL_DB_PASSWORD}
+    depends_on:
+      - flightctl-kv  # Remove flightctl-db dependency
+
+  # Update Worker service to use external database
+  flightctl-worker:
+    environment:
+      - DB_HOST=${EXTERNAL_DB_HOST}
+      - DB_PORT=${EXTERNAL_DB_PORT:-5432}
+      - DB_NAME=${EXTERNAL_DB_NAME:-flightctl}
+      - DB_USER=${EXTERNAL_DB_USER:-flightctl_app}
+      - DB_PASSWORD=${EXTERNAL_DB_PASSWORD}
+    depends_on:
+      - flightctl-kv  # Remove flightctl-db dependency
+
+  # Update Periodic service to use external database
+  flightctl-periodic:
+    environment:
+      - DB_HOST=${EXTERNAL_DB_HOST}
+      - DB_PORT=${EXTERNAL_DB_PORT:-5432}
+      - DB_NAME=${EXTERNAL_DB_NAME:-flightctl}
+      - DB_USER=${EXTERNAL_DB_USER:-flightctl_app}
+      - DB_PASSWORD=${EXTERNAL_DB_PASSWORD}
+    depends_on:
+      - flightctl-kv  # Remove flightctl-db dependency
+
+  # Database migration service (runs once to set up schema)
+  flightctl-db-migrate:
+    image: quay.io/flightctl/flightctl-db-setup:latest
+    environment:
+      - DB_HOST=${EXTERNAL_DB_HOST}
+      - DB_PORT=${EXTERNAL_DB_PORT:-5432}
+      - DB_NAME=${EXTERNAL_DB_NAME:-flightctl}
+      - DB_MIGRATION_USER=${EXTERNAL_DB_MIGRATION_USER:-flightctl_migrator}
+      - DB_MIGRATION_PASSWORD=${EXTERNAL_DB_MIGRATION_PASSWORD}
+      - DB_ADMIN_USER=${EXTERNAL_DB_ADMIN_USER:-admin}
+      - DB_ADMIN_PASSWORD=${EXTERNAL_DB_ADMIN_PASSWORD}
+      - DB_APP_USER=${EXTERNAL_DB_USER:-flightctl_app}
+      - DB_APP_PASSWORD=${EXTERNAL_DB_PASSWORD}
+    command: /usr/local/bin/flightctl-db-migrate
+    depends_on: []  # No dependencies - external DB should already be running
+    restart: "no"

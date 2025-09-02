@@ -25,11 +25,15 @@ spec:
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.dbSetup.image.pullPolicy }}
         env:
         - name: DB_HOST
+          {{- if eq .Values.db.external "enabled" }}
+          value: {{ required "db.hostname is required when db.external is enabled" .Values.db.hostname | quote }}
+          {{- else }}
           value: "flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local"
+          {{- end }}
         - name: DB_PORT
-          value: "5432"
+          value: {{ .Values.db.port | quote }}
         - name: DB_NAME
-          value: "flightctl"
+          value: {{ default "flightctl" .Values.db.name | quote }}
         - name: DB_ADMIN_USER
           valueFrom:
             secretKeyRef:

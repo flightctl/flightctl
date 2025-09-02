@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -14,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"gorm.io/plugin/opentelemetry/tracing"
@@ -22,31 +22,34 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
+func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, *sql.DB, error) {
 	return initDBWithUser(cfg, log, cfg.Database.User, cfg.Database.Password)
 }
 
-func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
+func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, *sql.DB, error) {
 	return initDBWithUser(cfg, log, cfg.Database.MigrationUser, cfg.Database.MigrationPassword)
 }
 
-func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password config.SecureString) (*gorm.DB, error) {
+func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password config.SecureString) (*gorm.DB, *sql.DB, error) {
 	var dia gorm.Dialector
 
-	if cfg.Database.Type == "pgsql" {
-		dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
-			cfg.Database.Hostname,
-			user,
-			password.Value(),
-			cfg.Database.Port,
-		)
-		if cfg.Database.Name != "" {
-			dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
-		}
-		dia = postgres.Open(dsn)
-	} else {
-		dia = sqlite.Open(cfg.Database.Name)
+	if cfg.Database.Type != "pgsql" {
+		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", cfg.Database.Type)
+		klog.Fatal(errString)
+		return nil, nil, errors.New(errString)
 	}
+	// TODO gshilin: default sslmode=verify-ca sslrootcert=/path/to/ca.crt - SSL required + verify server certificate against CA
+	// sslmode, sslcert, sslkey, sslrootcert
+	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
+		cfg.Database.Hostname,
+		user,
+		password.Value(),
+		cfg.Database.Port,
+	)
+	if cfg.Database.Name != "" {
+		dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
+	}
+	dia = postgres.Open(dsn)
 
 	newLogger := logger.New(
 		log,
@@ -62,7 +65,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger, TranslateError: true})
 	if err != nil {
 		klog.Fatalf("failed to connect database: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	// TODO: Make exposing DB metrics optional
@@ -75,30 +78,28 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	if err != nil {
 		klog.Fatalf("Failed to register prometheus exporter: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	sqlDB, err := newDB.DB()
 	if err != nil {
 		klog.Fatalf("failed to configure connections: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 
-	if cfg.Database.Type == "pgsql" {
-		var minorVersion string
-		if result := newDB.Raw("SELECT version()").Scan(&minorVersion); result.Error != nil {
-			klog.Infoln(result.Error.Error())
-			return nil, result.Error
-		}
-
-		klog.Infof("PostgreSQL information: '%s'", minorVersion)
+	var minorVersion string
+	if result := newDB.Raw("SELECT version()").Scan(&minorVersion); result.Error != nil {
+		klog.Infoln(result.Error.Error())
+		return nil, nil, result.Error
 	}
 
-	if err := newDB.Use(NewTraceContextEnforcer()); err != nil {
+	klog.Infof("PostgreSQL information: '%s'", minorVersion)
+
+	if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
 		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	traceOpts := []tracing.Option{
@@ -109,12 +110,12 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		traceOpts = append(traceOpts, tracing.WithoutQueryVariables())
 	}
 
-	if err := newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
+	if err = newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
 		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
-	return newDB, nil
+	return newDB, sqlDB, nil
 }
 
 type bypassSpanCheckKey struct{}
