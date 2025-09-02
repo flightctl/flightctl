@@ -87,11 +87,44 @@ a server and an agent together, building any necessary crypto material,
 providing a test database and a mock directory for the agent to interact with.
 
 can be run with:
+
 ```bash
 make integration-test # or run-integration-test if you have a DB/deployment ready
 ```
 
 For mocking specific interfaces please refer to the unit-test mocking section.
+
+### Database Setup Strategies
+
+Integration tests support two database setup strategies:
+
+#### Local (default)
+
+```bash
+make integration-test
+```
+
+- Each test starts from an empty DB and runs the app’s migrations locally with GORM.
+- No external migration image is used.
+
+#### Template
+
+```bash
+FLIGHTCTL_TEST_DB_STRATEGY=template make integration-test
+```
+
+- A migration container prepares a **template database** with all migrations applied.
+- Tests then create their databases by **cloning from that template** (fast and consistent per test run).
+
+#### Environment Variables
+
+```bash
+FLIGHTCTL_TEST_DB_STRATEGY=local|template   # Default: local
+MIGRATION_IMAGE=<repo/name:tag|@digest>     # Optional; template strategy only
+```
+
+- If `MIGRATION_IMAGE` **is set**, it must exist; otherwise the run fails.
+- If `MIGRATION_IMAGE` **is not set**, a fresh `flightctl-db-setup:latest` image is built from the current source and used.
 
 ### Note on coverage testing
 
@@ -145,15 +178,16 @@ make e2e-test GO_E2E_DIRS=test/e2e/cli
 
 or, if we ran e2e-test before and all the necessary artifacts and deployments are
 in place, we could speed up furter by using the `run-e2e-test` target.
-```
+
+```bash
 make run-e2e-test GO_E2E_DIRS=test/e2e/cli
 ```
 
 You can also filter by providing the GINKGO_FOCUS environment variable, which
 will filter the tests by the provided string.
-````
+```
 make e2e-test GINKGO_FOCUS="should create a new project"
-````
+```
 
 Additionally, you can filter tests using Ginkgo labels with the GINKGO_LABEL_FILTER
 environment variable. When running locally with make, all tests run by default (no label filtering).
