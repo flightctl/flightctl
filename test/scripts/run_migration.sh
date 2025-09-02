@@ -7,44 +7,36 @@ set -euo pipefail
 # Optionally creates a template database for tests
 
 # Configuration variables with defaults
-DB_NAME=${DB_NAME:-flightctl}
 MIGRATION_IMAGE=${MIGRATION_IMAGE:-localhost/flightctl-db-setup:latest}
-CONFIG_FILE=${CONFIG_FILE:-}
 CREATE_TEMPLATE=${CREATE_TEMPLATE:-false}
 TEMPLATE_DB_NAME=${TEMPLATE_DB_NAME:-flightctl_tmpl}
+
 DB_CONTAINER=${DB_CONTAINER:-flightctl-db}
-TEST_USER=${TEST_USER:-flightctl_app}
 
-# Check required environment variables
-if [[ -z "$DB_USER" || -z "$DB_PASSWORD" || -z "$DB_MIGRATION_USER" || -z "$DB_MIGRATION_PASSWORD" ]]; then
-    echo "Error: Required environment variables not set:"
-    echo "  DB_USER, DB_PASSWORD, DB_MIGRATION_USER, DB_MIGRATION_PASSWORD"
-    exit 1
-fi
+DB_NAME=${DB_NAME:-flightctl}
+DB_HOST=${DB_HOST:-localhost}
+DB_PORT=${DB_PORT:-5432}
 
-if [[ -z "$CONFIG_FILE" ]]; then
-    echo "Error: CONFIG_FILE must be specified"
-    exit 1
-fi
-
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "Error: Config file not found: $CONFIG_FILE"
-    exit 1
-fi
+APP_USER=${DB_APP_USER:-flightctl_app}
+DB_ADMIN_USER=${DB_ADMIN_USER:-admin}
+DB_ADMIN_PASSWORD=${FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD:-adminpass}
+DB_MIGRATION_USER=${DB_MIGRATION_USER:-flightctl_migrator}
+DB_MIGRATION_PASSWORD=${FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD:-adminpass}
 
 echo "Running database migration with image: $MIGRATION_IMAGE"
 echo "Target database: $DB_NAME"
 
-
-sudo -E podman run --rm --network host \
-    -e DB_USER="$DB_USER" \
-    -e DB_PASSWORD="$DB_PASSWORD" \
+podman run --rm --network host \
+    --pull=missing \
+    -e DB_HOST="$DB_HOST" \
+    -e DB_PORT="$DB_PORT" \
+    -e DB_NAME="$DB_NAME" \
+    -e DB_ADMIN_USER="$DB_ADMIN_USER" \
+    -e DB_ADMIN_PASSWORD="$DB_ADMIN_PASSWORD" \
     -e DB_MIGRATION_USER="$DB_MIGRATION_USER" \
     -e DB_MIGRATION_PASSWORD="$DB_MIGRATION_PASSWORD" \
-    -v "$CONFIG_FILE:/root/.flightctl/config.yaml:ro,z" \
-    --pull=missing \
     "$MIGRATION_IMAGE" \
-    /usr/local/bin/flightctl-db-migrate
+    /app/deploy/scripts/migration-setup.sh
 
 # Create template database if requested
 if [[ "$CREATE_TEMPLATE" == "true" ]]; then
@@ -54,7 +46,7 @@ if [[ "$CREATE_TEMPLATE" == "true" ]]; then
     # Function to execute SQL command via container
     execute_sql() {
         local sql_command="$1"
-        sudo podman exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -c "$sql_command"
+        podman exec "$DB_CONTAINER" psql -U "$DB_ADMIN_USER" -d postgres -c "$sql_command"
     }
     
     # Drop existing template database if it exists
@@ -65,9 +57,10 @@ if [[ "$CREATE_TEMPLATE" == "true" ]]; then
     echo "Creating template database from $DB_NAME..."
     execute_sql "CREATE DATABASE $TEMPLATE_DB_NAME TEMPLATE $DB_NAME;"
     
-    # Grant ownership to test user
-    echo "Granting ownership to $TEST_USER..."
-    execute_sql "ALTER DATABASE $TEMPLATE_DB_NAME OWNER TO $TEST_USER;"
+    # Grant ownership to application user
+    echo "Granting ownership to $APP_USER..."
+    execute_sql "ALTER DATABASE $TEMPLATE_DB_NAME OWNER TO $APP_USER;"
     
     echo "Template database $TEMPLATE_DB_NAME created successfully!"
 fi
+

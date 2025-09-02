@@ -48,62 +48,66 @@ unit-test:
 run-integration-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
 
-# Ensure db-setup image exists; build if needed
-ensure-db-setup-image:
-	@if [ -n "$(MIGRATION_IMAGE)" ]; then \
-		echo "Using provided migration image: $(MIGRATION_IMAGE)"; \
-	else \
-		echo "Building flightctl-db-setup image from current code..."; \
-		sudo $(MAKE) flightctl-db-setup-container; \
-	fi
 
 integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_USER_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD=adminpass
 integration-test: export FLIGHTCTL_TEST_DB_STRATEGY?=local
+
 integration-test:
-	@set -e; \
-	echo "Using $(FLIGHTCTL_TEST_DB_STRATEGY) database strategy..."; \
-	$(MAKE) deploy-db deploy-kv deploy-alertmanager; \
-	echo "Waiting for database to be ready..."; \
-	timeout --foreground 60s bash -c ' \
-		while ! sudo podman exec flightctl-db psql -U admin -d postgres -c "SELECT 1" >/dev/null 2>&1; do \
-			echo "Waiting for database to be ready..."; \
-			sleep 2; \
-		done \
-	'; \
-	# Retry ALTER USER up to 3 times against the postgres meta-database to decouple from application DB readiness. 
-	for i in 1 2 3; do \
-		sudo podman exec flightctl-db psql -U admin -d postgres -c "ALTER USER flightctl_app CREATEDB;" && break; \
-		echo "ALTER USER attempt $$i failed, retrying..."; \
-		sleep 2; \
-		[ $$i -eq 3 ] && echo "ALTER USER command failed after 3 attempts" && exit 1; \
-	done; \
-	if [ "$(FLIGHTCTL_TEST_DB_STRATEGY)" = "template" ]; then \
-		echo "Template strategy: running migration image and creating template database..."; \
-		$(MAKE) ensure-db-setup-image; \
-		mkdir -p $(ROOT_DIR)/bin; \
-		CONFIG_FILE="$(ROOT_DIR)/bin/migration-config.yaml"; \
-		printf "database:\n  hostname: localhost\n  type: pgsql\n  port: 5432\n  name: flightctl\n" > $$CONFIG_FILE; \
-		MIGRATION_IMAGE="$${MIGRATION_IMAGE:-flightctl-db-setup:$(SOURCE_GIT_TAG)}"; \
-		if [ -z "$$MIGRATION_IMAGE" ] || echo "$$MIGRATION_IMAGE" | grep -q ':latest$$' || ! echo "$$MIGRATION_IMAGE" | grep -q ':' ; then \
-			echo "Error: MIGRATION_IMAGE must be set and pinned (no :latest or missing tag): $$MIGRATION_IMAGE"; exit 1; \
-		fi; \
-		echo "Using MIGRATION_IMAGE: $$MIGRATION_IMAGE"; \
-		CONFIG_FILE="$$CONFIG_FILE" \
-		CREATE_TEMPLATE=true \
-		DB_USER=flightctl_migrator \
-		DB_PASSWORD=$$FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD \
-		DB_MIGRATION_USER=flightctl_migrator \
-		DB_MIGRATION_PASSWORD=$$FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD \
-		MIGRATION_IMAGE="$$MIGRATION_IMAGE" \
-		test/scripts/run_migration.sh; \
-	else \
-		echo "Local strategy: skipping migration image - tests will run local migrations..."; \
-	fi; \
-	trap '$(MAKE) -k kill-alertmanager kill-kv kill-db' EXIT; \
-	$(MAKE) run-integration-test
+	@bash -euo pipefail -c '\
+	  trap "set +e; $(MAKE) -k kill-alertmanager kill-kv kill-db || true" EXIT; \
+	  echo "Using $(FLIGHTCTL_TEST_DB_STRATEGY) database strategy..."; \
+	  $(MAKE) deploy-db deploy-kv deploy-alertmanager; \
+	  $(MAKE) _wait_for_db; \
+	  sudo podman exec flightctl-db psql -U admin -d postgres -c "ALTER USER flightctl_app CREATEDB;"; \
+	  if [[ "$(FLIGHTCTL_TEST_DB_STRATEGY)" == "template" ]]; then \
+	    $(MAKE) _run_template_migration; \
+	  else \
+	    echo "Local strategy: skipping migration image — tests will run local migrations..."; \
+	  fi; \
+	  echo "##################################################"; \
+	  echo "Running integration tests: $(FLIGHTCTL_TEST_DB_STRATEGY)"; \
+	  echo "##################################################"; \
+	  $(MAKE) run-integration-test \
+	'
+
+_wait_for_db:
+	@echo "Waiting for database to be ready..."
+	@timeout --foreground 60s bash -euo pipefail -c '\
+	  while ! sudo podman exec flightctl-db psql -U admin -d postgres -c "SELECT 1" >/dev/null 2>&1; do \
+	    echo "  ...still waiting"; \
+	    sleep 2; \
+	  done' || { echo "ERROR: Database did not become ready within 60s"; exit 1; }
+
+_run_template_migration:
+	@MIGRATION_IMAGE="$(MIGRATION_IMAGE)" bash -euo pipefail -c '\
+	  echo "Template strategy: resolving migration image..."; \
+	  if [ -n "$$MIGRATION_IMAGE" ]; then \
+	    echo "##################################################"; \
+	    echo "Using provided migration image: $$MIGRATION_IMAGE"; \
+	    echo "##################################################"; \
+	    if ! sudo podman image exists "$$MIGRATION_IMAGE"; then \
+	      echo "Error: provided migration image not found: $$MIGRATION_IMAGE" >&2; exit 1; \
+	    fi; \
+	    img="$$MIGRATION_IMAGE"; \
+	  else \
+	    echo "##################################################"; \
+	    echo "No MIGRATION_IMAGE provided; building a fresh one ..."; \
+	    echo "##################################################"; \
+	    $(MAKE) --no-print-directory -B flightctl-db-setup-container; \
+	    img="flightctl-db-setup:latest"; \
+	    if ! sudo podman image exists "$$img"; then \
+	      echo "Error: build did not produce $$img" >&2; exit 1; \
+	    fi; \
+	  fi; \
+	  echo "##################################################"; \
+	  echo "Running database migration & template creation using: $$img"; \
+	  echo "##################################################"; \
+	  sudo env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
+	    test/scripts/run_migration.sh \
+	'
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
@@ -171,4 +175,4 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
-.PHONY: unit-test prepare-integration-test integration-test run-integration-test ensure-db-setup-image view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm
+.PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image
