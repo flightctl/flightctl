@@ -123,7 +123,7 @@ FLIGHTCTL_TEST_DB_STRATEGY=local|template   # Default: local
 MIGRATION_IMAGE=<repo/name:tag|@digest>     # Optional; template strategy only
 ```
 
-- If `MIGRATION_IMAGE` **is set**, it must exist locally; otherwise the run fails.
+- If `MIGRATION_IMAGE` **is set**, it must exist; otherwise the run fails.
 - If `MIGRATION_IMAGE` **is not set**, a fresh `flightctl-db-setup:latest` image is built from the current source and used.
 
 ### Note on coverage testing

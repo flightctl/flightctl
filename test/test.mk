@@ -89,7 +89,10 @@ _run_template_migration:
 	    echo "Using provided migration image: $$MIGRATION_IMAGE"; \
 	    echo "##################################################"; \
 	    if ! sudo podman image exists "$$MIGRATION_IMAGE"; then \
-	      echo "Error: provided migration image not found: $$MIGRATION_IMAGE" >&2; exit 1; \
+	      echo "Image not found locally; attempting to pull..."; \
+	      if ! sudo podman pull "$$MIGRATION_IMAGE"; then \
+	        echo "Error: failed to pull $$MIGRATION_IMAGE" >&2; exit 1; \
+	      fi; \
 	    fi; \
 	    img="$$MIGRATION_IMAGE"; \
 	  else \
