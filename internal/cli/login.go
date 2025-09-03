@@ -21,13 +21,6 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const (
-	tlsUnknownAuthority = "certificate signed by unknown authority"
-	tlsExpiredCert      = "certificate has expired"
-	tlsSelfSigned       = "certificate is self-signed"
-	tlsHostnameMismatch = "certificate is valid for"
-)
-
 type TLSErrorType int
 
 const (
@@ -96,8 +89,10 @@ func classifyTLSError(err error) TLSErrorInfo {
 		}
 	}
 
-	// Fallback: no structured TLS match; return generic
-	return TLSErrorInfo{Type: TLSErrorGeneric, Cause: "certificate verification failed", RawError: errStr}
+	if strings.Contains(errStr, "x509:") || strings.Contains(errStr, "tls:") {
+		return TLSErrorInfo{Type: TLSErrorGeneric, Cause: "certificate verification failed", RawError: errStr}
+	}
+	return TLSErrorInfo{Type: TLSErrorUnknown, RawError: errStr}
 }
 
 // formatTLSErrorForGeneral formats TLS errors for general API endpoints
@@ -109,6 +104,10 @@ func formatTLSErrorForGeneral(errorInfo TLSErrorInfo) string {
 		"     WARNING: Skipping certificate verification makes your HTTPS connection insecure and could expose your credentials and data to interception."
 
 	switch errorInfo.Type {
+	case TLSErrorUnknown:
+		// Not a TLS error we can classify; surface the original error
+		return errorInfo.RawError
+
 	case TLSErrorUnknownAuthority, TLSErrorSelfSigned:
 		return cause + "\n" +
 			"Options (choose one):\n" +
@@ -458,53 +457,50 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1alpha1.AuthConfig,
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
 	resp, err := c.AuthConfigWithResponse(ctx)
-  if err != nil {
-  // Enhanced error handling for network issues
-    errMsg := err.Error()
-   	if strings.Contains(errMsg, "connection refused") {
-   		// Add URL validation suggestions
-   		validationErr := o.validateURLFormat(o.clientConfig.Service.Server)
-   		if validationErr != nil {
-   			return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. %s", o.clientConfig.Service.Server, validationErr.Error())
-   		}
-   		return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. Please verify the URL and try again", o.clientConfig.Service.Server)
-   	}
-   	if strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "dns") {
-   		// Add URL validation suggestions
-   		validationErr := o.validateURLFormat(o.clientConfig.Service.Server)
-   		if validationErr != nil {
-   			return nil, fmt.Errorf("cannot resolve hostname for %s. %s", o.clientConfig.Service.Server, validationErr.Error())
-   		}
-   		return nil, fmt.Errorf("cannot resolve hostname for %s. Please check the URL and ensure the hostname is correct", o.clientConfig.Service.Server)
-   	}
-   	if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline exceeded") {
-   		return nil, fmt.Errorf("connection to %s timed out. Please check your network connection and try again", o.clientConfig.Service.Server)
-   	}
+	if err != nil {
+		// Enhanced error handling for network issues
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "connection refused") {
+			// Add URL validation suggestions
+			validationErr := o.validateURLFormat(o.clientConfig.Service.Server)
+			if validationErr != nil {
+				return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. %s", o.clientConfig.Service.Server, validationErr.Error())
+			}
+			return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. Please verify the URL and try again", o.clientConfig.Service.Server)
+		}
+		if strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "dns") {
+			// Add URL validation suggestions
+			validationErr := o.validateURLFormat(o.clientConfig.Service.Server)
+			if validationErr != nil {
+				return nil, fmt.Errorf("cannot resolve hostname for %s. %s", o.clientConfig.Service.Server, validationErr.Error())
+			}
+			return nil, fmt.Errorf("cannot resolve hostname for %s. Please check the URL and ensure the hostname is correct", o.clientConfig.Service.Server)
+		}
+		if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline exceeded") {
+			return nil, fmt.Errorf("connection to %s timed out. Please check your network connection and try again", o.clientConfig.Service.Server)
+		}
 
-   	// Translate TLS connection errors with user-friendly messages and optionally prompt
-   	errorInfo := classifyTLSError(err)
-   	if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
-   		if o.promptUseInsecureForGeneral(errorInfo) {
-   			o.enableInsecure()
-   			// retry once
-   			httpClient, herr := client.NewHTTPClientFromConfig(o.clientConfig)
-   			if herr == nil {
-   				c, herr = apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
-   				if herr == nil {
-   					resp, err = c.AuthConfigWithResponse(ctx)
-   					if err == nil && resp != nil {
-   						return parseAuthConfigResponse(resp)
-   					}
-   				}
-   			}
-   		}
-   	}
+		// Translate TLS connection errors with user-friendly messages and optionally prompt
+		errorInfo := classifyTLSError(err)
+		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
+			if o.promptUseInsecureForGeneral(errorInfo) {
+				o.enableInsecure()
+				// retry once
+				httpClient, herr := client.NewHTTPClientFromConfig(o.clientConfig)
+				if herr == nil {
+					c, herr = apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
+					if herr == nil {
+						resp, err = c.AuthConfigWithResponse(ctx)
+					}
+				}
+			}
+		}
 
-   	if err != nil {
-   		friendlyErr := getUserFriendlyTLSError(err)
-   		return nil, fmt.Errorf("failed to get auth info:\n%s", friendlyErr)
-   	}
-  }
+		if err != nil {
+			friendlyErr := getUserFriendlyTLSError(err)
+			return nil, fmt.Errorf("failed to get auth info:\n%s", friendlyErr)
+		}
+	}
 
 	respCode := resp.StatusCode()
 
@@ -545,6 +541,9 @@ func (o *LoginOptions) getClientConfig(apiUrl string) (*client.Config, error) {
 // getUserFriendlyTLSError translates cryptic TLS errors into actionable messages
 func getUserFriendlyTLSError(err error) string {
 	errorInfo := classifyTLSError(err)
+	if errorInfo.Type == TLSErrorUnknown {
+		return err.Error()
+	}
 	return formatTLSErrorForGeneral(errorInfo)
 }
 
