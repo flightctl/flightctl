@@ -79,6 +79,14 @@ type svcConfig struct {
 	AlertPollingInterval   util.Duration    `json:"alertPollingInterval,omitempty"`
 	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
 	TPMCAPaths             []string         `json:"tpmCAPaths,omitempty"`
+	HealthChecks           *healthChecks    `json:"healthChecks,omitempty"`
+}
+
+type healthChecks struct {
+	Enabled          bool          `json:"enabled,omitempty"`
+	ReadinessPath    string        `json:"readinessPath,omitempty"`
+	LivenessPath     string        `json:"livenessPath,omitempty"`
+	ReadinessTimeout util.Duration `json:"readinessTimeout,omitempty"`
 }
 
 type kvConfig struct {
@@ -240,6 +248,12 @@ func NewDefault(opts ...ConfigOption) *Config {
 			HttpMaxRequestSize:     50 * 1024 * 1024,                  // 50MB
 			EventRetentionPeriod:   util.Duration(7 * 24 * time.Hour), // 1 week
 			AlertPollingInterval:   util.Duration(1 * time.Minute),
+			HealthChecks: &healthChecks{
+				Enabled:          true,
+				ReadinessPath:    "/readyz",
+				LivenessPath:     "/healthz",
+				ReadinessTimeout: util.Duration(2 * time.Second),
+			},
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
 		KV: &kvConfig{
@@ -425,6 +439,28 @@ func Validate(cfg *Config) error {
 			if _, ok := allowedGitOpsIgnoreResourceUpdates[path]; !ok {
 				return fmt.Errorf("invalid ignoreResourceUpdates value: %s", path)
 			}
+		}
+	}
+
+	if cfg.Service != nil && cfg.Service.HealthChecks != nil && cfg.Service.HealthChecks.Enabled {
+		hc := cfg.Service.HealthChecks
+		if strings.TrimSpace(hc.ReadinessPath) == "" {
+			return fmt.Errorf("readinessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.ReadinessPath, "/") {
+			return fmt.Errorf("readinessPath must start with '/'")
+		}
+		if strings.TrimSpace(hc.LivenessPath) == "" {
+			return fmt.Errorf("livenessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.LivenessPath, "/") {
+			return fmt.Errorf("livenessPath must start with '/'")
+		}
+		if hc.ReadinessTimeout <= 0 {
+			return fmt.Errorf("readinessTimeout must be greater than 0")
+		}
+		if hc.ReadinessPath == hc.LivenessPath {
+			return fmt.Errorf("readinessPath and livenessPath must not be identical")
 		}
 	}
 	return nil

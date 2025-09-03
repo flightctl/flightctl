@@ -160,7 +160,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			By("Check that in the device logs the hooks were triggered")
 			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
-				WithArguments("").
+				WithArguments("", "").
 				Should(
 					SatisfyAll(
 						ContainSubstring("this is a test message from afterupdating hook"),
@@ -216,7 +216,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			DeferCleanup(func() {
 				if CurrentSpecReport().Failed() {
 					// Debug info for first file check failure
-					logs, err := harness.ReadPrimaryVMAgentLogs("")
+					logs, err := harness.ReadPrimaryVMAgentLogs("", "")
 					if err == nil {
 						lines := strings.Split(logs, "\n")
 						GinkgoWriter.Printf("=== FIRST FILE CHECK DEBUG (total %d lines) ===\n", len(lines))
@@ -249,7 +249,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			})
 
 			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
-				WithArguments("").
+				WithArguments("", "").
 				Should(
 					SatisfyAll(
 						ContainSubstring(templateHookDirectory),
@@ -282,7 +282,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			DeferCleanup(func() {
 				if CurrentSpecReport().Failed() {
 					// Print full logs chunked to stdout to avoid Gomega size limits
-					logs, err := harness.ReadPrimaryVMAgentLogs("")
+					logs, err := harness.ReadPrimaryVMAgentLogs("", "")
 					if err == nil {
 						lines := strings.Split(logs, "\n")
 						GinkgoWriter.Printf("=== SECOND FILE CHECK DEBUG (total %d lines) ===\n", len(lines))
@@ -328,7 +328,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			})
 
 			Eventually(harness.ReadPrimaryVMAgentLogs, "30s", POLLING).
-				WithArguments("").
+				WithArguments("", "").
 				Should(
 					SatisfyAll(
 						ContainSubstring(firstFileUpdatedContents),

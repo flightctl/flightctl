@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -329,4 +330,13 @@ func WithOrganizationID(ctx context.Context, orgID uuid.UUID) context.Context {
 func GetOrgIdFromContext(ctx context.Context) (uuid.UUID, bool) {
 	orgID, ok := ctx.Value(consts.OrganizationIDCtxKey).(uuid.UUID)
 	return orgID, ok
+}
+
+// GetHostname returns the system hostname, or "unknown" if it cannot be determined
+func GetHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return hostname
 }

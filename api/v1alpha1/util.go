@@ -457,6 +457,7 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonDeviceMultipleOwnersDetected:    {},
 	EventReasonDeviceUpdateFailed:              {},
 	EventReasonInternalTaskFailed:              {},
+	EventReasonInternalTaskPermanentlyFailed:   {},
 	EventReasonResourceSyncInaccessible:        {},
 	EventReasonResourceSyncParsingFailed:       {},
 	EventReasonResourceSyncSyncFailed:          {},

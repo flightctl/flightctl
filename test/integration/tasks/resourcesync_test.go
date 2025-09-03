@@ -53,7 +53,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		resourceSync = tasks.NewResourceSync(serviceHandler, log, nil)
 
 		// Set up mock expectations for the publisher
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	})
 
 	AfterEach(func() {

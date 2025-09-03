@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -256,7 +257,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(func() string {
 				GinkgoWriter.Printf("Checking console output for rollback logs\n")
-				logs, err := harness.ReadPrimaryVMAgentLogs("")
+				logs, err := harness.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
 				Expect(err).NotTo(HaveOccurred())
 				return logs
 			}).

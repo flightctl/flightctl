@@ -142,7 +142,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := worker_client.QueuePublisher(s.queuesProvider)
+	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return err
 	}
@@ -227,6 +227,16 @@ func (s *Server) Run(ctx context.Context) error {
 		// Create a custom handler that excludes the auth validate endpoint
 		customHandler := &customTransportHandler{h}
 		server.HandlerFromMux(customHandler, r)
+	})
+
+	// health endpoints: bypass OpenAPI + auth, but keep global safety middlewares
+	router.Group(func(r chi.Router) {
+		if s.cfg != nil && s.cfg.Service != nil && s.cfg.Service.HealthChecks != nil && s.cfg.Service.HealthChecks.Enabled {
+			hc := s.cfg.Service.HealthChecks
+			r.Method(http.MethodGet, hc.ReadinessPath,
+				ReadyzHandler(time.Duration(hc.ReadinessTimeout), s.store, s.queuesProvider))
+			r.Method(http.MethodGet, hc.LivenessPath, HealthzHandler())
+		}
 	})
 
 	// Register auth validate endpoint with stricter rate limiting (outside main API group)

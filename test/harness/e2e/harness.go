@@ -174,13 +174,13 @@ func kubernetesClient() (kubernetes.Interface, error) {
 }
 
 // ReadPrimaryVMAgentLogs reads flightctl-agent journalctl logs from the primary VM
-func (h *Harness) ReadPrimaryVMAgentLogs(since string) (string, error) {
+func (h *Harness) ReadPrimaryVMAgentLogs(since string, unit string) (string, error) {
 	if h.VM == nil {
 		return "", fmt.Errorf("VM is not initialized")
 	}
 	logs, err := h.VM.JournalLogs(vm.JournalOpts{
-		Unit:  "flightctl-agent",
 		Since: since,
+		Unit:  unit,
 	})
 
 	return logs, err
@@ -238,7 +238,7 @@ func (h *Harness) Cleanup(printConsole bool) {
 			fmt.Println("============ systemctl status flightctl-agent ============")
 			fmt.Println(stdout.String())
 			fmt.Println("=============== logs for flightctl-agent =================")
-			fmt.Println(h.ReadPrimaryVMAgentLogs(""))
+			fmt.Println(h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE))
 			if printConsole {
 				fmt.Println("======================= VM Console =======================")
 				fmt.Println(h.VM.GetConsoleOutput())

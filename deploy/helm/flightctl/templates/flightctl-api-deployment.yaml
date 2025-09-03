@@ -65,6 +65,29 @@ spec:
               name: db-prom-target
               protocol: TCP
 
+          {{- if .Values.api.probes.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.api.probes.readinessPath }}
+              port: service-api
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.api.probes.livenessPath }}
+              port: service-api
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+            successThreshold: 1
+          {{- end }}
+
           volumeMounts:
             - mountPath: /root/.flightctl/
               name: flightctl-api-certs

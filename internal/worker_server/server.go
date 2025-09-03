@@ -44,7 +44,7 @@ func New(
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := worker_client.QueuePublisher(s.queuesProvider)
+	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create worker queue publisher")
 		return err

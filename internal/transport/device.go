@@ -108,3 +108,15 @@ func (h *TransportHandler) DecommissionDevice(w http.ResponseWriter, r *http.Req
 	body, status := h.serviceHandler.DecommissionDevice(r.Context(), name, decom)
 	SetResponse(w, body, status)
 }
+
+// (POST /api/v1/deviceactions/resume)
+func (h *TransportHandler) ResumeDevices(w http.ResponseWriter, r *http.Request) {
+	var request api.DeviceResumeRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		SetParseFailureResponse(w, err)
+		return
+	}
+
+	response, status := h.serviceHandler.ResumeDevices(r.Context(), request)
+	SetResponse(w, response, status)
+}

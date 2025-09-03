@@ -61,8 +61,8 @@ build_single_image() {
     # Use GitHub Actions cache when GITHUB_ACTIONS=true, otherwise no caching
     if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
         REGISTRY="${REGISTRY:-localhost}"
-        REGISTRY_OWNER="${REGISTRY_OWNER:-flightctl}"
-        CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER}/flightctl-device")
+        REGISTRY_OWNER_TESTS="${REGISTRY_OWNER_TESTS:-flightctl-tests}"
+        CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER_TESTS}/flightctl-device")
     else
         CACHE_FLAGS=()
     fi

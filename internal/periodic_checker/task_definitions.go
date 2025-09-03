@@ -11,11 +11,16 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
+
+// QueueMaintenanceInterval is the interval for queue maintenance tasks
+// It's set to 2x EventProcessingTimeout to ensure timely processing of timed out messages
+const QueueMaintenanceInterval = 2 * tasks.EventProcessingTimeout
 
 type PeriodicTaskType string
 
@@ -26,19 +31,22 @@ const (
 	PeriodicTaskTypeRolloutDeviceSelection PeriodicTaskType = "rollout-device-selection"
 	PeriodicTaskTypeDisruptionBudget       PeriodicTaskType = "disruption-budget"
 	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
+	PeriodicTaskTypeQueueMaintenance       PeriodicTaskType = "queue-maintenance"
 )
 
 type PeriodicTaskMetadata struct {
-	Interval time.Duration
+	Interval   time.Duration
+	SystemWide bool // If true, task runs once for the entire system, not per organization
 }
 
 var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
-	PeriodicTaskTypeRepositoryTester:       {Interval: 2 * time.Minute},
-	PeriodicTaskTypeResourceSync:           {Interval: 2 * time.Minute},
-	PeriodicTaskTypeDeviceDisconnected:     {Interval: tasks.DeviceDisconnectedPollingInterval},
-	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval},
-	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval},
-	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval},
+	PeriodicTaskTypeRepositoryTester:       {Interval: 2 * time.Minute, SystemWide: false},
+	PeriodicTaskTypeResourceSync:           {Interval: 2 * time.Minute, SystemWide: false},
+	PeriodicTaskTypeDeviceDisconnected:     {Interval: tasks.DeviceDisconnectedPollingInterval, SystemWide: false},
+	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
+	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
+	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: false},
+	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
 }
 
 type PeriodicTaskReference struct {
@@ -130,7 +138,26 @@ func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 	eventCleanup.Poll(taskCtx)
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config) map[PeriodicTaskType]PeriodicTaskExecutor {
+type QueueMaintenanceExecutor struct {
+	log            logrus.FieldLogger
+	serviceHandler service.Service
+	queuesProvider queues.Provider
+}
+
+func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeQueueMaintenance, orgID)
+
+	// Create and execute the queue maintenance task
+	// Note: Queue maintenance is system-wide, orgID is only used for context/tracing
+	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider)
+
+	// For system-wide tasks, we don't need to pass orgID to the task itself
+	if err := task.Execute(taskCtx); err != nil {
+		e.log.WithError(err).Error("Queue maintenance task failed")
+	}
+}
+
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider) map[PeriodicTaskType]PeriodicTaskExecutor {
 	return map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
@@ -157,6 +184,11 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			log:                  log.WithField("pkg", "event-cleanup"),
 			serviceHandler:       serviceHandler,
 			eventRetentionPeriod: cfg.Service.EventRetentionPeriod,
+		},
+		PeriodicTaskTypeQueueMaintenance: &QueueMaintenanceExecutor{
+			log:            log.WithField("pkg", "queue-maintenance"),
+			serviceHandler: serviceHandler,
+			queuesProvider: queuesProvider,
 		},
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/login"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -199,7 +200,7 @@ var _ = Describe("CLI - device console", func() {
 
 		GinkgoWriter.Printf("Waiting for image pull activity\n")
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
+			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(ContainSubstring("Pulling image"))
 
 		GinkgoWriter.Printf("Simulating network disruption for %s\n", disruptionTime)
@@ -236,12 +237,12 @@ var _ = Describe("CLI - device console", func() {
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
+			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(ContainSubstring("Pulling image"))
 
 		GinkgoWriter.Printf("Waiting for image pull failure. It will take a while...\n")
 		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
+			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(And(
 				ContainSubstring("Error"),
 				Or(

@@ -14,9 +14,11 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,11 +49,15 @@ func (s *Server) Run(ctx context.Context) error {
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	defer cancel()
 
-	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	processID := fmt.Sprintf("periodic-%s-%s", util.GetHostname(), uuid.New().String())
+	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, processID, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		return err
 	}
-	defer queuesProvider.Stop()
+	defer func() {
+		queuesProvider.Stop()
+		queuesProvider.Wait()
+	}()
 
 	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
@@ -59,7 +65,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer kvStore.Close()
 
-	queuePublisher, err := worker_client.QueuePublisher(queuesProvider)
+	queuePublisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
 	if err != nil {
 		return err
 	}
@@ -69,7 +75,7 @@ func (s *Server) Run(ctx context.Context) error {
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
