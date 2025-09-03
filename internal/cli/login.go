@@ -275,42 +275,26 @@ func (o *LoginOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *LoginOptions) Run(ctx context.Context, args []string) error {
-	var (
-		authCAFile string
-		err        error
-	)
-
-	// Get auth config with timeout-aware context
-	o.authConfig, err = o.getAuthConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get auth info: %w", err)
+// ensureClientID sets a default ClientId when not provided based on auth type and flags
+func (o *LoginOptions) ensureClientID() {
+	if o.ClientId != "" {
+		return
 	}
-	if o.authConfig == nil {
-		// auth disabled
-		fmt.Println("Auth is disabled")
-		if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
-			return fmt.Errorf("persisting client config: %w", err)
+	switch o.authConfig.AuthType {
+	case common.AuthTypeK8s:
+		if o.Username != "" {
+			o.ClientId = "openshift-challenging-client"
+		} else {
+			o.ClientId = "openshift-cli-client"
 		}
-		return nil
+	case common.AuthTypeOIDC:
+		o.ClientId = "flightctl"
 	}
+}
 
-	// Set up ClientId if not provided
-	if o.ClientId == "" {
-		switch o.authConfig.AuthType {
-		case common.AuthTypeK8s:
-			if o.Username != "" {
-				o.ClientId = "openshift-challenging-client"
-			} else {
-				o.ClientId = "openshift-cli-client"
-			}
-		case common.AuthTypeOIDC:
-			o.ClientId = "flightctl"
-		}
-	}
-
-	// Create auth provider
-	o.authProvider, err = client.CreateAuthProvider(client.AuthInfo{
+// initAuthProvider creates and assigns the auth provider from current config
+func (o *LoginOptions) initAuthProvider() error {
+	provider, err := client.CreateAuthProvider(client.AuthInfo{
 		AuthProvider: &client.AuthProviderConfig{
 			Name: o.authConfig.AuthType,
 			Config: map[string]string{
@@ -324,25 +308,12 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating auth provider: %w", err)
 	}
+	o.authProvider = provider
+	return nil
+}
 
-	// Validate auth provider
-	validateArgs := login.ValidateArgs{
-		ApiUrl:      o.clientConfig.Service.Server,
-		ClientId:    o.ClientId,
-		AccessToken: o.AccessToken,
-		Username:    o.Username,
-		Password:    o.Password,
-		Web:         o.Web,
-	}
-	if err := o.authProvider.Validate(validateArgs); err != nil {
-		return err
-	}
-
-	if o.AccessToken == "" && o.authConfig.AuthURL == "" {
-		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
-		return fmt.Errorf("must provide --token")
-	}
-
+// setAuthProviderInClientConfig writes the provider info into the client config
+func (o *LoginOptions) setAuthProviderInClientConfig() {
 	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
 		Name: o.authConfig.AuthType,
 		Config: map[string]string{
@@ -350,54 +321,65 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			client.AuthClientIdKey: o.ClientId,
 		},
 	}
+}
 
-	token := o.AccessToken
-	if token == "" {
-		authInfo, err := o.authProvider.Auth(o.Web, o.Username, o.Password)
-		if err != nil {
-			// Check if this is an OAuth certificate issue
-			if o.authConfig != nil && o.authConfig.AuthURL != "" {
-				errorInfo := classifyTLSError(err)
-				if errorInfo.Type != TLSErrorUnknown {
-					// Offer interactive prompt to proceed insecurely
-					if o.shouldOfferInsecurePrompt() && o.promptUseInsecureForOAuth(errorInfo) {
-						// enable insecure and recreate provider, then retry once
-						o.enableInsecure()
-						if err := o.recreateAuthProvider(); err != nil {
-							return fmt.Errorf("OAuth authentication failed\n%s", formatTLSErrorForOAuth(errorInfo))
-						}
-						authInfo, err = o.authProvider.Auth(o.Web, o.Username, o.Password)
+// fetchToken retrieves an access token, handling OAuth TLS prompts and retries as needed
+func (o *LoginOptions) fetchToken() (string, error) {
+	if o.AccessToken != "" {
+		return o.AccessToken, nil
+	}
+
+	authInfo, err := o.authProvider.Auth(o.Web, o.Username, o.Password)
+	if err != nil {
+		// Check if this is an OAuth certificate issue
+		if o.authConfig != nil && o.authConfig.AuthURL != "" {
+			errorInfo := classifyTLSError(err)
+			if errorInfo.Type != TLSErrorUnknown {
+				// Offer interactive prompt to proceed insecurely
+				if o.shouldOfferInsecurePrompt() && o.promptUseInsecureForOAuth(errorInfo) {
+					// enable insecure and recreate provider, then retry once
+					o.enableInsecure()
+					if err := o.recreateAuthProvider(); err != nil {
+						return "", fmt.Errorf("OAuth authentication failed\n%s", formatTLSErrorForOAuth(errorInfo))
 					}
-					if err != nil {
-						oauthErrMsg := formatTLSErrorForOAuth(errorInfo)
-						return fmt.Errorf("OAuth authentication failed\n%s", oauthErrMsg)
-					}
-				} else {
-					return err
+					authInfo, err = o.authProvider.Auth(o.Web, o.Username, o.Password)
+				}
+				if err != nil {
+					oauthErrMsg := formatTLSErrorForOAuth(errorInfo)
+					return "", fmt.Errorf("OAuth authentication failed\n%s", oauthErrMsg)
 				}
 			} else {
-				return err
+				return "", err
 			}
+		} else {
+			return "", err
 		}
-		token = authInfo.AccessToken
-		o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthRefreshTokenKey] = authInfo.RefreshToken
-		if authInfo.ExpiresIn != nil {
-			o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthAccessTokenExpiryKey] = time.Unix(time.Now().Unix()+*authInfo.ExpiresIn, 0).Format(time.RFC3339Nano)
-		}
+	}
+
+	token := authInfo.AccessToken
+	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthRefreshTokenKey] = authInfo.RefreshToken
+	if authInfo.ExpiresIn != nil {
+		o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthAccessTokenExpiryKey] = time.Unix(time.Now().Unix()+*authInfo.ExpiresIn, 0).Format(time.RFC3339Nano)
 	}
 	if token == "" {
-		return fmt.Errorf("failed to retrieve auth token")
+		return "", fmt.Errorf("failed to retrieve auth token")
 	}
-	o.clientConfig.AuthInfo.Token = token
+	return token, nil
+}
 
-	if o.AuthCAFile != "" {
-		authCAFile, err = filepath.Abs(o.AuthCAFile)
-		if err != nil {
-			return fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
-		}
+func (o *LoginOptions) getAbsAuthCAFile() (string, error) {
+	if o.AuthCAFile == "" {
+		return "", nil
 	}
-	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthCAFileKey] = authCAFile
+	authCAFile, err := filepath.Abs(o.AuthCAFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to get the absolute path of %s: %w", o.AuthCAFile, err)
+	}
+	return authCAFile, nil
+}
 
+// validateTokenWithServer validates the token with the server, handling TLS prompts and a single retry
+func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) error {
 	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
@@ -425,9 +407,77 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
 		return err
 	}
+	return nil
+}
 
-	err = o.clientConfig.Persist(o.ConfigFilePath)
+func (o *LoginOptions) Run(ctx context.Context, args []string) error {
+	var (
+		authCAFile string
+		err        error
+	)
+
+	// Get auth config with timeout-aware context
+	o.authConfig, err = o.getAuthConfig(ctx)
 	if err != nil {
+		return fmt.Errorf("failed to get auth info: %w", err)
+	}
+	if o.authConfig == nil {
+		// auth disabled
+		fmt.Println("Auth is disabled")
+		if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
+			return fmt.Errorf("persisting client config: %w", err)
+		}
+		return nil
+	}
+
+	// Set up ClientId if not provided
+	o.ensureClientID()
+
+	// Create auth provider
+	if err := o.initAuthProvider(); err != nil {
+		return err
+	}
+
+	// Validate auth provider
+	validateArgs := login.ValidateArgs{
+		ApiUrl:      o.clientConfig.Service.Server,
+		ClientId:    o.ClientId,
+		AccessToken: o.AccessToken,
+		Username:    o.Username,
+		Password:    o.Password,
+		Web:         o.Web,
+	}
+	if err := o.authProvider.Validate(validateArgs); err != nil {
+		return err
+	}
+
+	if o.AccessToken == "" && o.authConfig.AuthURL == "" {
+		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
+		return fmt.Errorf("must provide --token")
+	}
+
+	o.setAuthProviderInClientConfig()
+
+	// Retrieve token (or use provided)
+	token, err := o.fetchToken()
+	if err != nil {
+		return err
+	}
+	o.clientConfig.AuthInfo.Token = token
+
+	// Resolve auth CA file path if provided
+	authCAFile, err = o.getAbsAuthCAFile()
+	if err != nil {
+		return err
+	}
+	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthCAFileKey] = authCAFile
+
+	// Validate token with API server (handles TLS prompt/retry)
+	if err := o.validateTokenWithServer(ctx, token); err != nil {
+		return err
+	}
+
+	if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
 		return fmt.Errorf("persisting client config: %w", err)
 	}
 
