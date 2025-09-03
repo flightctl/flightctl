@@ -83,7 +83,7 @@ var _ = Describe("RepoTester", func() {
 		stores, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl := gomock.NewController(GinkgoT())
 		publisher := queues.NewMockPublisher(ctrl)
-		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		workerClient := worker_client.NewWorkerClient(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())

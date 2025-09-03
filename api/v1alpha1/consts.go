@@ -88,8 +88,9 @@ const (
 	OrganizationKind       = "Organization"
 	OrganizationListKind   = "OrganizationList"
 
-	SystemKind        = "System"
-	SystemComponentDB = "database"
+	SystemKind           = "System"
+	SystemComponentDB    = "database"
+	SystemComponentQueue = "queue"
 )
 
 type UpdateState string
