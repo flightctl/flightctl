@@ -343,7 +343,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		mockWorkerClient = worker_client.NewMockWorkerClient(ctrl)
 		publisher := queues.NewMockPublisher(ctrl)
-		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{})

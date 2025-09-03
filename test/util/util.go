@@ -56,11 +56,11 @@ func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	}
 }
 
-func (t *testProvider) NewPublisher(_ string) (queues.Publisher, error) {
+func (t *testProvider) NewPublisher(_ context.Context, _ string) (queues.Publisher, error) {
 	return t, nil
 }
 
-func (t *testProvider) NewConsumer(_ string) (queues.Consumer, error) {
+func (t *testProvider) NewConsumer(_ context.Context, _ string) (queues.Consumer, error) {
 	return t, nil
 }
 
@@ -79,7 +79,7 @@ func (t *testProvider) CheckHealth(_ context.Context) error {
 	return nil
 }
 
-func (t *testProvider) Publish(_ context.Context, b []byte) error {
+func (t *testProvider) Publish(_ context.Context, b []byte, timestamp int64) error {
 	t.queue <- b
 	return nil
 }
@@ -100,13 +100,28 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 				if !ok {
 					return
 				}
-				if err := handler(ctx, b, log); err != nil {
+				if err := handler(ctx, b, "test-entry-id", t, log); err != nil {
 					log.WithError(err).Errorf("handling message: %s", string(b))
 				}
 			}
 		}
 	}()
 	return nil
+}
+
+func (t *testProvider) Complete(ctx context.Context, entryID string, body []byte, err error) error {
+	// For test provider, this is a no-op since we don't track in-flight messages
+	return nil
+}
+
+func (t *testProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
+	// For test provider, this is a no-op since we don't track in-flight messages
+	return 0, nil
+}
+
+func (t *testProvider) RetryFailedMessages(ctx context.Context, queueName string, config queues.RetryConfig, handler func(entryID string, body []byte, retryCount int) error) (int, error) {
+	// For test provider, this is a no-op since we don't track failed messages
+	return 0, nil
 }
 
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
