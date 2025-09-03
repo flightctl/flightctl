@@ -167,32 +167,56 @@ bin/.flightctl-db-setup-container: bin Containerfile.db-setup deploy/scripts/set
 
 bin/.flightctl-worker-container: bin Containerfile.worker go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.worker $(GO_CACHE) -t flightctl-worker:latest
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.worker $(GO_CACHE) -t flightctl-worker:latest
 	touch bin/.flightctl-worker-container
 
 bin/.flightctl-periodic-container: bin Containerfile.periodic go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.periodic $(GO_CACHE) -t flightctl-periodic:latest
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.periodic $(GO_CACHE) -t flightctl-periodic:latest
 	touch bin/.flightctl-periodic-container
 
 bin/.flightctl-alert-exporter-container: bin Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.alert-exporter $(GO_CACHE) -t flightctl-alert-exporter:latest
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.alert-exporter $(GO_CACHE) -t flightctl-alert-exporter:latest
 	touch bin/.flightctl-alert-exporter-container
 
 bin/.flightctl-alertmanager-proxy-container: bin Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.alertmanager-proxy $(GO_CACHE) -t flightctl-alertmanager-proxy:latest
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.alertmanager-proxy $(GO_CACHE) -t flightctl-alertmanager-proxy:latest
 	touch bin/.flightctl-alertmanager-proxy-container
 
 bin/.flightctl-multiarch-cli-container: bin Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.cli-artifacts $(GO_CACHE) -t flightctl-cli-artifacts:latest
 	touch bin/.flightctl-multiarch-cli-container
 
 bin/.flightctl-userinfo-proxy-container: bin Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
 	mkdir -p $${HOME}/go/flightctl-go-cache/.cache
-	podman build -f Containerfile.userinfo-proxy $(GO_CACHE) -t flightctl-userinfo-proxy:latest
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.userinfo-proxy $(GO_CACHE) -t flightctl-userinfo-proxy:latest
 	touch bin/.flightctl-userinfo-proxy-container
 
 flightctl-base-container: bin/.flightctl-base-container
