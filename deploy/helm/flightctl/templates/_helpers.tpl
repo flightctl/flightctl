@@ -93,12 +93,16 @@
   {{- end }}
 {{- end }}
 
+{{- define "flightctl.getInternalCliArtifactsUrl" }}
+  {{- print "http://flightctl-cli-artifacts:8090"}}
+{{- end }}
+
 {{- define "flightctl.getCliArtifactsUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
   {{- if eq $exposeMethod "nodePort" }}
-    {{- printf "http://flightctl-cli-artifacts:8090" }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.cliArtifacts }}
   {{- else if eq $exposeMethod "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80))}}
       {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }}
