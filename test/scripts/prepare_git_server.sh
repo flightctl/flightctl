@@ -6,8 +6,8 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 # Use GitHub Actions cache when GITHUB_ACTIONS=true, otherwise no caching
 if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
     REGISTRY="${REGISTRY:-localhost}"
-    REGISTRY_OWNER="${REGISTRY_OWNER:-flightctl}"
-    CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER}/git-server")
+    REGISTRY_OWNER_TESTS="${REGISTRY_OWNER_TESTS:-flightctl-tests}"
+    CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER_TESTS}/git-server")
 else
     CACHE_FLAGS=()
 fi

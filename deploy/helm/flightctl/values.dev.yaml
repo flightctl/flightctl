@@ -32,6 +32,11 @@ api:
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+  # Health probes configuration
+  probes:
+    enabled: true
+    readinessPath: /readyz
+    livenessPath: /healthz
 cliArtifacts:
   enabled: true
   image:

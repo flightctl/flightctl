@@ -102,6 +102,16 @@ func (r *redisProvider) Wait() {
 	r.wg.Wait()
 }
 
+func (r *redisProvider) CheckHealth(ctx context.Context) error {
+	if r.client == nil {
+		return errors.New("redis client not initialized")
+	}
+	if err := r.client.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("redis ping: %w", err)
+	}
+	return nil
+}
+
 type redisQueue struct {
 	client *redis.Client
 	name   string

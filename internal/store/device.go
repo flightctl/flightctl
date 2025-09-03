@@ -15,6 +15,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // DeviceStatusType represents the type of device status to query
@@ -61,6 +62,8 @@ type Device interface {
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
+	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -595,7 +598,12 @@ func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, na
 
 	// Changing the console annotation requires bumping the renderedVersion annotation
 	if existingConsoleAnnotation != newConsoleAnnotation {
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
+		var deviceStatus *api.DeviceStatus
+		if existingRecord.Status != nil {
+			deviceStatus = &existingRecord.Status.Data
+		}
+
+		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
 		if err != nil {
 			return false, err
 		}
@@ -632,7 +640,12 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
+	var deviceStatus *api.DeviceStatus
+	if existingRecord.Status != nil {
+		deviceStatus = &existingRecord.Status.Data
+	}
+
+	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
 	if err != nil {
 		return false, err
 	}
@@ -919,4 +932,83 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 		return nil, ErrorFromGormError(err)
 	}
 	return results, nil
+}
+
+// PrepareDevicesAfterRestore sets the waitingForConnectionAfterRestore annotation
+// on all devices, clears their lastSeen timestamps, and sets status summary using efficient SQL
+func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
+	db := s.getDB(ctx)
+
+	// Use raw SQL for efficient bulk update that preserves existing annotations
+	// and properly handles the status JSON structure using || operator for merging
+	sql := `
+		UPDATE devices 
+		SET 
+			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
+			status = CASE 
+				WHEN status IS NOT NULL THEN 
+					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+				ELSE 
+					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+			END,
+			resource_version = COALESCE(resource_version, 0) + 1
+		WHERE deleted_at IS NULL 
+			AND (status->'lifecycle'->>'status') != 'Decommissioned'
+			AND (annotations->>$1) IS DISTINCT FROM 'true'
+	`
+
+	result := db.Exec(sql,
+		api.DeviceAnnotationAwaitingReconnect,
+		api.DeviceSummaryStatusAwaitingReconnect,
+		"Device is waiting for connection after restore",
+	)
+
+	if result.Error != nil {
+		return 0, ErrorFromGormError(result.Error)
+	}
+
+	return result.RowsAffected, nil
+}
+
+// RemoveConflictPausedAnnotation removes the conflictPaused annotation from all devices matching the selector
+// Returns the count of affected devices and their IDs
+func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error) {
+	var affectedRows int64
+	var deviceIDs []string
+
+	err := retryUpdate(func() (bool, error) {
+		// Use RETURNING clause to get the names of actually updated devices
+		var updatedDevices []model.Device
+
+		query, err := ListQuery(&updatedDevices).BuildNoOrder(ctx, s.getDB(ctx), orgId, listParams)
+		if err != nil {
+			return false, err
+		}
+
+		// Only update devices that actually have the conflictPaused annotation
+		query = query.Where("annotations ? ?", gorm.Expr("?"), api.DeviceAnnotationConflictPaused)
+
+		result := query.
+			Clauses(clause.Returning{}).
+			Updates(map[string]any{
+				"annotations":      gorm.Expr("annotations - ?", api.DeviceAnnotationConflictPaused),
+				"resource_version": gorm.Expr("resource_version + 1"),
+			})
+
+		affectedRows = result.RowsAffected
+		err = ErrorFromGormError(result.Error)
+		if err != nil {
+			return strings.Contains(err.Error(), "deadlock"), err
+		}
+
+		// Extract device names from the returned devices
+		deviceIDs = make([]string, len(updatedDevices))
+		for i, device := range updatedDevices {
+			deviceIDs[i] = device.Name
+		}
+
+		return false, nil
+	})
+
+	return affectedRows, deviceIDs, err
 }
