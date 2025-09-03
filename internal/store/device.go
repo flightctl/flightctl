@@ -512,7 +512,7 @@ func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listPa
 
 	args := lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(s) }))
 	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown'"), gorm.Expr("connected"))
-	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> ?, '')",
+	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> annotations ->> ?",
 		api.DeviceAnnotationRenderedVersion), gorm.Expr("busy_connected"))
 
 	query.Select(strings.Join(selectList, ","), args...)
