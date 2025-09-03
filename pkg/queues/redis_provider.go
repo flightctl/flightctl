@@ -225,7 +225,7 @@ func (r *redisProvider) ProcessTimedOutMessages(ctx context.Context, queueName s
 	return queue.ProcessTimedOutMessages(ctx, timeout, handler)
 }
 
-func (r *redisProvider) RetryFailedMessages(ctx context.Context, queueName string, config RetryConfig) (int, error) {
+func (r *redisProvider) RetryFailedMessages(ctx context.Context, queueName string, config RetryConfig, handler func(entryID string, body []byte, retryCount int) error) (int, error) {
 	// Find existing queue or create a temporary one
 	queue := r.findExistingQueue(queueName)
 
@@ -236,7 +236,7 @@ func (r *redisProvider) RetryFailedMessages(ctx context.Context, queueName strin
 			return 0, err
 		}
 	}
-	return queue.RetryFailedMessages(ctx, config)
+	return queue.RetryFailedMessages(ctx, config, handler)
 }
 
 type redisQueue struct {
@@ -552,7 +552,8 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 		// Use Redis server time to avoid drift
 		redisTime, err := r.client.Time(ctx).Result()
 		if err != nil {
-			return fmt.Errorf("failed to get Redis time: %w", err)
+			r.log.WithError(err).Warn("failed to get Redis time; falling back to local clock for backoff scheduling")
+			redisTime = time.Now()
 		}
 		retryTimestamp := redisTime.Add(backoffDelay).UnixMicro()
 		// Create new failed member with updated retry count
@@ -692,7 +693,11 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 		newRetryCount := currentRetryCount + 1
 		failedMember := r.formatFailedMember(pendingMsg.ID, body, newRetryCount)
 		backoff := calculateBackoff(newRetryCount, r.retryConfig)
-		redisTime, _ := r.client.Time(ctx).Result()
+		redisTime, tErr := r.client.Time(ctx).Result()
+		if tErr != nil {
+			r.log.WithError(tErr).Warn("failed to get Redis time; falling back to local clock for backoff scheduling")
+			redisTime = time.Now()
+		}
 		_, err = r.client.ZAdd(ctx, failedKey, redis.Z{
 			Score:  float64(redisTime.Add(backoff).UnixMicro()),
 			Member: failedMember,
@@ -722,7 +727,7 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 
 // RetryFailedMessages processes failed messages that are ready for retry
 // and moves them back to the stream for processing with exponential backoff
-func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig) (int, error) {
+func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig, handler func(entryID string, body []byte, retryCount int) error) (int, error) {
 	if r.closed.Load() {
 		return 0, errors.New("queue is closed")
 	}
@@ -733,7 +738,8 @@ func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig
 	// Get failed messages that are ready for retry (score <= current time)
 	redisTime, err := r.client.Time(ctx).Result()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get Redis time: %w", err)
+		r.log.WithError(err).Warn("failed to get Redis time; falling back to local clock for backoff scheduling")
+		redisTime = time.Now()
 	}
 
 	// Fetch entries due for retry, including their original scores
@@ -771,6 +777,31 @@ func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig
 				Warn("invalid failed message format, skipping")
 			continue
 		}
+
+		// Check if we've exceeded max retries
+		if retryCount >= config.MaxRetries {
+			r.log.WithField("entryID", entryID).
+				WithField("processID", processID).
+				WithField("retryCount", retryCount).
+				Warn("message exceeded max retries, removing from failed set")
+
+			// Call the provided handler before processing
+			if handler != nil {
+				if err := handler(entryID, body, retryCount); err != nil {
+					r.log.WithField("entryID", entryID).WithField("processID", r.processID).WithError(err).Warn("handler failed for permanently failed message, continuing")
+					// Continue processing other messages even if handler fails
+				}
+			}
+
+			// Remove from failed messages set (permanent failure)
+			_, err = r.client.ZRem(ctx, failedKey, failedMember).Result()
+			if err != nil {
+				r.log.WithField("entryID", entryID).WithError(err).
+					Error("failed to remove permanently failed message from failed set")
+			}
+			continue
+		}
+
 		// Claim this member so no other worker retries it
 		rem, remErr := r.client.ZRem(ctx, failedKey, failedMember).Result()
 		if remErr != nil {

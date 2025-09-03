@@ -70,6 +70,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("initializing kv store: %v", err)
 	}
+	defer kvStore.Close()
 
 	publisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
 	if err != nil {

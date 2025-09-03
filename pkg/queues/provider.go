@@ -11,7 +11,7 @@ type Provider interface {
 	NewConsumer(ctx context.Context, queueName string) (Consumer, error)
 	NewPublisher(ctx context.Context, queueName string) (Publisher, error)
 	ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error)
-	RetryFailedMessages(ctx context.Context, queueName string, config RetryConfig) (int, error)
+	RetryFailedMessages(ctx context.Context, queueName string, config RetryConfig, handler func(entryID string, body []byte, retryCount int) error) (int, error)
 	Stop()
 	Wait()
 	// CheckHealth verifies the provider is operational (e.g. Redis PING)

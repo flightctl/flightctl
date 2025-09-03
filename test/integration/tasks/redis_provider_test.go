@@ -474,6 +474,9 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				MaxRetries:   3,
 				MaxDelay:     500 * time.Millisecond,
 				JitterFactor: 0.0,
+			}, func(entryID string, body []byte, retryCount int) error {
+				// Test handler for permanently failed messages
+				return nil
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -572,7 +575,10 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				JitterFactor: 0.1,
 			}
 
-			retryCount, err := provider.RetryFailedMessages(ctx, queueName, config)
+			retryCount, err := provider.RetryFailedMessages(ctx, queueName, config, func(entryID string, body []byte, retryCount int) error {
+				// Test handler for permanently failed messages
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(retryCount).To(BeNumerically(">=", 0)) // May or may not have retryable messages
 
@@ -650,7 +656,10 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				JitterFactor: 0.1,
 			}
 
-			retryCount, err := provider.RetryFailedMessages(ctx, queueName, config)
+			retryCount, err := provider.RetryFailedMessages(ctx, queueName, config, func(entryID string, body []byte, retryCount int) error {
+				// Test handler for permanently failed messages
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(retryCount).To(BeNumerically(">=", 0))
 

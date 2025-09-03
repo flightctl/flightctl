@@ -119,7 +119,7 @@ func (t *testProvider) ProcessTimedOutMessages(ctx context.Context, queueName st
 	return 0, nil
 }
 
-func (t *testProvider) RetryFailedMessages(ctx context.Context, queueName string, config queues.RetryConfig) (int, error) {
+func (t *testProvider) RetryFailedMessages(ctx context.Context, queueName string, config queues.RetryConfig, handler func(entryID string, body []byte, retryCount int) error) (int, error) {
 	// For test provider, this is a no-op since we don't track failed messages
 	return 0, nil
 }

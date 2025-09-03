@@ -100,18 +100,18 @@ func (mr *MockProviderMockRecorder) ProcessTimedOutMessages(ctx, queueName, time
 }
 
 // RetryFailedMessages mocks base method.
-func (m *MockProvider) RetryFailedMessages(ctx context.Context, queueName string, config RetryConfig) (int, error) {
+func (m *MockProvider) RetryFailedMessages(ctx context.Context, queueName string, config RetryConfig, handler func(string, []byte, int) error) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RetryFailedMessages", ctx, queueName, config)
+	ret := m.ctrl.Call(m, "RetryFailedMessages", ctx, queueName, config, handler)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // RetryFailedMessages indicates an expected call of RetryFailedMessages.
-func (mr *MockProviderMockRecorder) RetryFailedMessages(ctx, queueName, config any) *gomock.Call {
+func (mr *MockProviderMockRecorder) RetryFailedMessages(ctx, queueName, config, handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryFailedMessages", reflect.TypeOf((*MockProvider)(nil).RetryFailedMessages), ctx, queueName, config)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryFailedMessages", reflect.TypeOf((*MockProvider)(nil).RetryFailedMessages), ctx, queueName, config, handler)
 }
 
 // Stop mocks base method.

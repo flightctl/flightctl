@@ -52,7 +52,56 @@ func (t *QueueMaintenanceTask) Execute(ctx context.Context) error {
 	// Retry failed messages using the provider's retry config
 	// We need to get the retry config from the provider to pass it here
 	// For now, we'll use a reasonable default that matches the provider's config
-	retryCount, err := t.queuesProvider.RetryFailedMessages(ctx, consts.TaskQueue, queues.DefaultRetryConfig())
+	retryCount, err := t.queuesProvider.RetryFailedMessages(ctx, consts.TaskQueue, queues.DefaultRetryConfig(), func(entryID string, body []byte, retryCount int) error {
+		log.WithField("entryID", entryID).WithField("retryCount", retryCount).Debug("Processing permanently failed message")
+
+		// Try to extract the original event from the message body
+		var originalEvent api.Event
+		var eventWithOrgId worker_client.EventWithOrgId
+
+		// Parse the body as JSON to extract the original event
+		if err := json.Unmarshal(body, &eventWithOrgId); err == nil {
+			// Successfully parsed the original event
+			originalEvent = eventWithOrgId.Event
+
+			// Ensure event is emitted under the correct organization
+			orgCtx := util.WithOrganizationID(ctx, eventWithOrgId.OrgId)
+
+			resourceKind := api.ResourceKind(api.SystemKind)
+			resourceName := api.SystemComponentQueue
+			errorMessage := fmt.Sprintf("Message processing permanently failed after %d retry attempts", retryCount)
+			message := fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, originalEvent.Reason, errorMessage)
+			event := api.GetBaseEvent(orgCtx,
+				resourceKind,
+				resourceName,
+				api.EventReasonInternalTaskPermanentlyFailed,
+				message,
+				nil)
+
+			details := api.EventDetails{}
+			if detailsErr := details.FromInternalTaskPermanentlyFailedDetails(api.InternalTaskPermanentlyFailedDetails{
+				ErrorMessage:  errorMessage,
+				RetryCount:    retryCount,
+				OriginalEvent: originalEvent,
+			}); detailsErr == nil {
+				event.Details = &details
+			}
+
+			// Emit the event
+			t.serviceHandler.CreateEvent(orgCtx, event)
+
+			log.WithField("entryID", entryID).
+				WithField("resourceKind", resourceKind).
+				WithField("resourceName", resourceName).
+				WithField("retryCount", retryCount).
+				Info("Emitted InternalTaskPermanentlyFailedEvent for permanently failed message")
+		} else {
+			// Failed to parse the original event, just log an error
+			log.WithField("entryID", entryID).WithError(err).Error("Failed to parse original event from message body, skipping event emission for permanently failed message")
+		}
+
+		return nil
+	})
 	if err != nil {
 		log.WithError(err).Error("Failed to retry failed messages")
 	} else if retryCount > 0 {
