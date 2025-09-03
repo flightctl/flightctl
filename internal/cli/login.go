@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -51,73 +53,87 @@ func classifyTLSError(err error) TLSErrorInfo {
 
 	errStr := err.Error()
 
-	switch {
-	case strings.Contains(errStr, tlsUnknownAuthority):
-		return TLSErrorInfo{
-			Type:     TLSErrorUnknownAuthority,
-			Cause:    "certificate not trusted",
-			RawError: errStr,
-		}
-	case strings.Contains(errStr, tlsExpiredCert):
-		return TLSErrorInfo{
-			Type:     TLSErrorExpired,
-			Cause:    "certificate has expired",
-			RawError: errStr,
-		}
-	case strings.Contains(errStr, tlsSelfSigned):
-		return TLSErrorInfo{
-			Type:     TLSErrorSelfSigned,
-			Cause:    "certificate is self-signed",
-			RawError: errStr,
-		}
-	case strings.Contains(errStr, tlsHostnameMismatch) && strings.Contains(errStr, "not "):
+	var hostErr x509.HostnameError
+	if errors.As(err, &hostErr) {
 		return TLSErrorInfo{
 			Type:     TLSErrorHostnameMismatch,
 			Cause:    "certificate hostname mismatch",
 			RawError: errStr,
 		}
-	default:
+	}
+
+	var uaErr x509.UnknownAuthorityError
+	if errors.As(err, &uaErr) {
+		// Distinguish self-signed vs generally untrusted
+		if uaErr.Cert != nil {
+			sigErr := uaErr.Cert.CheckSignatureFrom(uaErr.Cert)
+			if sigErr == nil {
+				return TLSErrorInfo{
+					Type:     TLSErrorSelfSigned,
+					Cause:    "certificate is self-signed",
+					RawError: errStr,
+				}
+			}
+		}
 		return TLSErrorInfo{
-			Type:     TLSErrorGeneric,
-			Cause:    "certificate verification failed",
+			Type:     TLSErrorUnknownAuthority,
+			Cause:    "certificate not trusted",
 			RawError: errStr,
 		}
 	}
+
+	var invErr x509.CertificateInvalidError
+	if errors.As(err, &invErr) {
+		switch invErr.Reason {
+		case x509.Expired:
+			return TLSErrorInfo{
+				Type:     TLSErrorExpired,
+				Cause:    "certificate has expired",
+				RawError: errStr,
+			}
+		default:
+			// Fall through to generic handling below
+		}
+	}
+
+	// Fallback: no structured TLS match; return generic
+	return TLSErrorInfo{Type: TLSErrorGeneric, Cause: "certificate verification failed", RawError: errStr}
 }
 
 // formatTLSErrorForGeneral formats TLS errors for general API endpoints
 func formatTLSErrorForGeneral(errorInfo TLSErrorInfo) string {
 	cause := fmt.Sprintf("Cause: %s", errorInfo.Cause)
 
+	examplesCA := "     flightctl login <API_URL> <login options> --certificate-authority=/path/to/ca.crt"
+	examplesInsecure := "     flightctl login <API_URL> <login options> --insecure-skip-tls-verify\n" +
+		"     WARNING: Skipping certificate verification makes your HTTPS connection insecure and could expose your credentials and data to interception."
+
 	switch errorInfo.Type {
-	case TLSErrorUnknownAuthority:
+	case TLSErrorUnknownAuthority, TLSErrorSelfSigned:
 		return cause + "\n" +
-			"To resolve this issue, you can:\n" +
-			"  1. --certificate-authority=<path>   (provide the CA certificate file)\n" +
-			"  2. --insecure-skip-tls-verify       (skip certificate verification)"
+			"Options (choose one):\n" +
+			"  1. Provide a trusted CA certificate (recommended)\n" + examplesCA + "\n" +
+			"  2. Skip certificate verification (not recommended)\n" + examplesInsecure
 
 	case TLSErrorExpired:
 		return cause + "\n" +
-			"To resolve this issue, you can:\n" +
-			"  1. Contact your administrator to renew the certificate\n" +
-			"  2. --insecure-skip-tls-verify       (skip certificate verification)"
-
-	case TLSErrorSelfSigned:
-		return cause + "\n" +
-			"To resolve this issue, you can:\n" +
-			"  1. --insecure-skip-tls-verify       (skip certificate verification)\n" +
-			"  2. --certificate-authority=<path>   (provide the certificate as CA)"
+			"Options (choose one):\n" +
+			"  1. Contact your administrator to renew the certificate (recommended)\n" +
+			"     After renewal, re-run your login command.\n" +
+			"  2. Skip certificate verification (not recommended)\n" + examplesInsecure
 
 	case TLSErrorHostnameMismatch:
 		return cause + "\n" +
-			"To resolve this issue, you can:\n" +
-			"  1. Check if the URL is correct\n" +
-			"  2. --insecure-skip-tls-verify       (skip certificate verification)"
+			"Options (choose one):\n" +
+			"  1. Use the correct hostname or update the server certificate to include this host (recommended)\n" +
+			"     Then re-run your login command.\n" +
+			"  2. Skip certificate verification (not recommended)\n" + examplesInsecure
 
 	default:
 		return fmt.Sprintf("Cause: %s (%s)\n", errorInfo.Cause, errorInfo.RawError) +
-			"To resolve this issue, you can:\n" +
-			"  1. --insecure-skip-tls-verify       (skip certificate verification)"
+			"Options (choose one):\n" +
+			"  1. Provide a trusted CA certificate (recommended)\n" + examplesCA + "\n" +
+			"  2. Skip certificate verification (not recommended)\n" + examplesInsecure
 	}
 }
 
@@ -125,10 +141,14 @@ func formatTLSErrorForGeneral(errorInfo TLSErrorInfo) string {
 func formatTLSErrorForOAuth(errorInfo TLSErrorInfo) string {
 	cause := fmt.Sprintf("Cause: %s", errorInfo.Cause)
 
+	examplesCA := "\n     flightctl login <API_URL> <login options> --auth-certificate-authority=/path/to/auth-ca.crt"
+	examplesInsecure := "\n     flightctl login <API_URL> <login options> --insecure-skip-tls-verify\n" +
+		"     WARNING: Skipping certificate verification makes your HTTPS connection insecure and could expose your credentials and data to interception."
+
 	return cause + "\n" +
-		"To resolve this issue, you can:\n" +
-		"  1. --auth-certificate-authority=<path>   (provide OAuth CA certificate file)\n" +
-		"  2. --insecure-skip-tls-verify           (skip certificate verification)"
+		"Options (choose one):\n" +
+		"  1. Provide OAuth server CA certificate (recommended)\n" + examplesCA + "\n" +
+		"  2. Skip certificate verification (not recommended)\n" + examplesInsecure
 }
 
 type LoginOptions struct {
@@ -340,11 +360,25 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			if o.authConfig != nil && o.authConfig.AuthURL != "" {
 				errorInfo := classifyTLSError(err)
 				if errorInfo.Type != TLSErrorUnknown {
-					oauthErrMsg := formatTLSErrorForOAuth(errorInfo)
-					return fmt.Errorf("OAuth authentication failed\n%s", oauthErrMsg)
+					// Offer interactive prompt to proceed insecurely
+					if o.shouldOfferInsecurePrompt() && o.promptUseInsecureForOAuth(errorInfo) {
+						// enable insecure and recreate provider, then retry once
+						o.enableInsecure()
+						if err := o.recreateAuthProvider(); err != nil {
+							return fmt.Errorf("OAuth authentication failed\n%s", formatTLSErrorForOAuth(errorInfo))
+						}
+						authInfo, err = o.authProvider.Auth(o.Web, o.Username, o.Password)
+					}
+					if err != nil {
+						oauthErrMsg := formatTLSErrorForOAuth(errorInfo)
+						return fmt.Errorf("OAuth authentication failed\n%s", oauthErrMsg)
+					}
+				} else {
+					return err
 				}
+			} else {
+				return err
 			}
-			return err
 		}
 		token = authInfo.AccessToken
 		o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthRefreshTokenKey] = authInfo.RefreshToken
@@ -373,9 +407,21 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	headerVal := "Bearer " + token
 	res, err := c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
 	if err != nil {
-		// Translate TLS errors during token validation
-		friendlyErr := getUserFriendlyTLSError(err)
-		return fmt.Errorf("validating token:\n%s", friendlyErr)
+		// Translate TLS errors during token validation and offer interactive prompt
+		errorInfo := classifyTLSError(err)
+		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
+			if o.promptUseInsecureForGeneral(errorInfo) {
+				o.enableInsecure()
+				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
+				if cerr == nil {
+					res, err = c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
+				}
+			}
+		}
+		if err != nil {
+			friendlyErr := getUserFriendlyTLSError(err)
+			return fmt.Errorf("validating token:\n%s", friendlyErr)
+		}
 	}
 	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
 		return err
@@ -391,11 +437,22 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 }
 
 func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
+	// First attempt
 	httpClient, err := client.NewHTTPClientFromConfig(o.clientConfig)
 	if err != nil {
-		// Translate TLS configuration errors
-		friendlyErr := getUserFriendlyTLSError(err)
-		return nil, fmt.Errorf("failed to create http client:\n%s", friendlyErr)
+		// Translate TLS configuration errors and optionally prompt to proceed insecurely
+		errorInfo := classifyTLSError(err)
+		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
+			if o.promptUseInsecureForGeneral(errorInfo) {
+				o.enableInsecure()
+				// rebuild client with insecure
+				httpClient, err = client.NewHTTPClientFromConfig(o.clientConfig)
+			}
+		}
+		if err != nil {
+			friendlyErr := getUserFriendlyTLSError(err)
+			return nil, fmt.Errorf("failed to create http client:\n%s", friendlyErr)
+		}
 	}
 	c, err := apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
 	if err != nil {
@@ -403,9 +460,25 @@ func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 	}
 	resp, err := c.AuthConfigWithResponse(context.Background())
 	if err != nil {
-		// Translate TLS connection errors with user-friendly messages
-		friendlyErr := getUserFriendlyTLSError(err)
-		return nil, fmt.Errorf("failed to get auth info:\n%s", friendlyErr)
+		// Translate TLS connection errors with user-friendly messages and optionally prompt
+		errorInfo := classifyTLSError(err)
+		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
+			if o.promptUseInsecureForGeneral(errorInfo) {
+				o.enableInsecure()
+				// retry once
+				httpClient, herr := client.NewHTTPClientFromConfig(o.clientConfig)
+				if herr == nil {
+					c, herr = apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
+					if herr == nil {
+						resp, err = c.AuthConfigWithResponse(context.Background())
+					}
+				}
+			}
+		}
+		if err != nil {
+			friendlyErr := getUserFriendlyTLSError(err)
+			return nil, fmt.Errorf("failed to get auth info:\n%s", friendlyErr)
+		}
 	}
 
 	respCode := resp.StatusCode()
@@ -448,4 +521,70 @@ func (o *LoginOptions) getClientConfig(apiUrl string) (*client.Config, error) {
 func getUserFriendlyTLSError(err error) string {
 	errorInfo := classifyTLSError(err)
 	return formatTLSErrorForGeneral(errorInfo)
+}
+
+// shouldOfferInsecurePrompt returns true if we should attempt to prompt the user to proceed insecurely
+func (o *LoginOptions) shouldOfferInsecurePrompt() bool {
+	// Only prompt if stdin and stdout are TTYs and no token-only non-interactive mode was requested
+	return isTerminal(os.Stdin.Fd()) && isTerminal(os.Stdout.Fd())
+}
+
+// isTerminal checks whether the given file descriptor is a terminal without external deps
+func isTerminal(fd uintptr) bool {
+	fi, err := os.Stdin.Stat()
+	if fd == os.Stdout.Fd() {
+		fi, err = os.Stdout.Stat()
+	}
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// enableInsecure flips the config to insecure and updates related fields
+func (o *LoginOptions) enableInsecure() {
+	o.InsecureSkipVerify = true
+	o.clientConfig.Service.InsecureSkipVerify = true
+}
+
+// recreateAuthProvider rebuilds the auth provider with the current insecurity setting
+func (o *LoginOptions) recreateAuthProvider() error {
+	provider, err := client.CreateAuthProvider(client.AuthInfo{
+		AuthProvider: &client.AuthProviderConfig{
+			Name: o.authConfig.AuthType,
+			Config: map[string]string{
+				client.AuthUrlKey:      o.authConfig.AuthURL,
+				client.AuthCAFileKey:   o.AuthCAFile,
+				client.AuthClientIdKey: o.ClientId,
+			},
+		},
+		OrganizationsEnabled: o.authConfig.AuthOrganizationsConfig.Enabled,
+	}, o.InsecureSkipVerify)
+	if err != nil {
+		return err
+	}
+	o.authProvider = provider
+	return nil
+}
+
+// promptUseInsecureForGeneral shows an oc-like warning and asks for confirmation for general API connections
+func (o *LoginOptions) promptUseInsecureForGeneral(errorInfo TLSErrorInfo) bool {
+	fmt.Println("The server's certificate could not be verified (" + errorInfo.Cause + ").")
+	fmt.Println("You can bypass the certificate check, but any data you send to the server could be intercepted by others.")
+	fmt.Print("Use insecure connections? (y/N): ")
+	var resp string
+	_, _ = fmt.Scanln(&resp)
+	resp = strings.TrimSpace(strings.ToLower(resp))
+	return resp == "y" || resp == "yes"
+}
+
+// promptUseInsecureForOAuth shows a warning specific to OAuth endpoints
+func (o *LoginOptions) promptUseInsecureForOAuth(errorInfo TLSErrorInfo) bool {
+	fmt.Println("The authentication server's certificate could not be verified (" + errorInfo.Cause + ").")
+	fmt.Println("You can bypass the certificate check, but any data you send to the server could be intercepted by others.")
+	fmt.Print("Use insecure connections for authentication? (y/N): ")
+	var resp string
+	_, _ = fmt.Scanln(&resp)
+	resp = strings.TrimSpace(strings.ToLower(resp))
+	return resp == "y" || resp == "yes"
 }
