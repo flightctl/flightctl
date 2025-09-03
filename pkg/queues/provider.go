@@ -2,10 +2,14 @@ package queues
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
+
+// ErrCheckpointMissing indicates that the checkpoint key is missing from Redis
+var ErrCheckpointMissing = errors.New("checkpoint key missing from Redis")
 
 type Provider interface {
 	NewConsumer(ctx context.Context, queueName string) (Consumer, error)
@@ -16,6 +20,14 @@ type Provider interface {
 	Wait()
 	// CheckHealth verifies the provider is operational (e.g. Redis PING)
 	CheckHealth(ctx context.Context) error
+	// GetLatestProcessedTimestamp returns the latest timestamp that can be safely checkpointed
+	// Returns the earliest in-flight task timestamp, or zero time if no in-flight tasks
+	GetLatestProcessedTimestamp(ctx context.Context) (time.Time, error)
+	// AdvanceCheckpointAndCleanup atomically advances the checkpoint by scanning in-flight tasks
+	// and cleans up completed tasks before the checkpoint timestamp
+	AdvanceCheckpointAndCleanup(ctx context.Context) error
+	// SetCheckpointTimestamp sets the checkpoint to a specific timestamp (for recovery)
+	SetCheckpointTimestamp(ctx context.Context, timestamp time.Time) error
 }
 
 type ConsumeHandler func(ctx context.Context, payload []byte, entryID string, consumer Consumer, log logrus.FieldLogger) error

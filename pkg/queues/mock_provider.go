@@ -40,6 +40,20 @@ func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
 	return m.recorder
 }
 
+// AdvanceCheckpointAndCleanup mocks base method.
+func (m *MockProvider) AdvanceCheckpointAndCleanup(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdvanceCheckpointAndCleanup", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AdvanceCheckpointAndCleanup indicates an expected call of AdvanceCheckpointAndCleanup.
+func (mr *MockProviderMockRecorder) AdvanceCheckpointAndCleanup(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdvanceCheckpointAndCleanup", reflect.TypeOf((*MockProvider)(nil).AdvanceCheckpointAndCleanup), ctx)
+}
+
 // CheckHealth mocks base method.
 func (m *MockProvider) CheckHealth(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -52,6 +66,21 @@ func (m *MockProvider) CheckHealth(ctx context.Context) error {
 func (mr *MockProviderMockRecorder) CheckHealth(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckHealth", reflect.TypeOf((*MockProvider)(nil).CheckHealth), ctx)
+}
+
+// GetLatestProcessedTimestamp mocks base method.
+func (m *MockProvider) GetLatestProcessedTimestamp(ctx context.Context) (time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestProcessedTimestamp", ctx)
+	ret0, _ := ret[0].(time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestProcessedTimestamp indicates an expected call of GetLatestProcessedTimestamp.
+func (mr *MockProviderMockRecorder) GetLatestProcessedTimestamp(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestProcessedTimestamp", reflect.TypeOf((*MockProvider)(nil).GetLatestProcessedTimestamp), ctx)
 }
 
 // NewConsumer mocks base method.
@@ -112,6 +141,20 @@ func (m *MockProvider) RetryFailedMessages(ctx context.Context, queueName string
 func (mr *MockProviderMockRecorder) RetryFailedMessages(ctx, queueName, config, handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryFailedMessages", reflect.TypeOf((*MockProvider)(nil).RetryFailedMessages), ctx, queueName, config, handler)
+}
+
+// SetCheckpointTimestamp mocks base method.
+func (m *MockProvider) SetCheckpointTimestamp(ctx context.Context, timestamp time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetCheckpointTimestamp", ctx, timestamp)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetCheckpointTimestamp indicates an expected call of SetCheckpointTimestamp.
+func (mr *MockProviderMockRecorder) SetCheckpointTimestamp(ctx, timestamp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCheckpointTimestamp", reflect.TypeOf((*MockProvider)(nil).SetCheckpointTimestamp), ctx, timestamp)
 }
 
 // Stop mocks base method.
