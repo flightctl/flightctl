@@ -218,5 +218,12 @@ dbSetup:
     timeout: 60
     # Default sleep interval between connection attempts
     sleep: 2
+  migration:
+    backoffLimit: 3
+    activeDeadlineSeconds: 600
+    dryRun:
+      preUpgrade:
+        enabled: true
+        hookWeight: "-10"
 telemetryGateway:
   enabled: false
