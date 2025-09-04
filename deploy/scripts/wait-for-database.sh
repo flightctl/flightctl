@@ -128,12 +128,13 @@ while [[ $(date +%s) -lt $end_time ]]; do
     fi
     
     if [ $connection_result -eq 0 ]; then
-        echo "✓ Database is ready and accepting connections!"
+        echo "SUCCESS: Database is ready and accepting connections!"
         echo "Total wait time: ${elapsed_time} seconds"
         exit 0
     else
         echo "Connection failed: $error_output"
         echo "Database not ready, waiting ${SLEEP_INTERVAL} seconds..."
+	echo ""
     fi
     
     sleep "${SLEEP_INTERVAL}"
@@ -143,8 +144,7 @@ done
 final_time=$(date +%s)
 total_elapsed=$((final_time - start_time))
 echo ""
-echo "✗ ERROR: Database failed to become ready within ${TIMEOUT_SECONDS} seconds" >&2
+echo "ERROR: Database failed to become ready within ${TIMEOUT_SECONDS} seconds" >&2
 echo "Total elapsed time: ${total_elapsed} seconds" >&2
-echo "Connection string: postgresql://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}" >&2
 echo "Last error: $error_output" >&2
 exit 1
