@@ -93,6 +93,10 @@
   {{- end }}
 {{- end }}
 
+{{- define "flightctl.getInternalCliArtifactsUrl" }}
+  {{- print "http://flightctl-cli-artifacts:8090"}}
+{{- end }}
+
 {{- define "flightctl.getCliArtifactsUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
