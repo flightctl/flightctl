@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/sirupsen/logrus"
 )
@@ -42,6 +43,11 @@ var defaultActions = map[string]action{
 }
 
 var apiVersionPattern = regexp.MustCompile(`^v[1-9]+$`)
+
+// stringToAction converts a string to an action type
+func stringToAction(s string) action {
+	return action(s)
+}
 
 func CreateAuthNMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -82,26 +88,38 @@ func CreateAuthZMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handl
 				resource string
 				action   action
 			)
-			if r.URL.Path == "/api/version" {
-				resource = "version"
-				var ok bool
-				if action, ok = defaultActions[r.Method]; !ok {
-					action = actionNil
-				}
-			} else {
-				parts := strings.Split(r.URL.Path, "/")
-				// /, /api, /api/v{api-version} and /api/v{api-version}/auth don't require permissions
-				matchesAPIVPath := false
-				if len(parts) == 3 {
-					matchesAPIVPath = apiVersionPattern.MatchString(parts[2])
-				}
-				if len(parts) < 3 || matchesAPIVPath || (len(parts) >= 4 && parts[3] == "auth") {
-					next.ServeHTTP(w, r)
-					return
-				}
 
-				parts = parts[3:]
-				resource, action = extractResourceAndAction(parts, r.Method)
+			// First, try to get metadata from the API metadata registry using existing Chi context
+			if metadata, found := server.GetEndpointMetadata(r); found {
+				if metadata.Resource != "" && metadata.Action != "" {
+					resource = metadata.Resource
+					action = stringToAction(metadata.Action)
+				}
+			}
+
+			// Fallback to existing logic if no metadata found
+			if resource == "" || action == actionNil {
+				if r.URL.Path == "/api/version" {
+					resource = "version"
+					var ok bool
+					if action, ok = defaultActions[r.Method]; !ok {
+						action = actionNil
+					}
+				} else {
+					parts := strings.Split(r.URL.Path, "/")
+					// /, /api, /api/v{api-version} and /api/v{api-version}/auth don't require permissions
+					matchesAPIVPath := false
+					if len(parts) == 3 {
+						matchesAPIVPath = apiVersionPattern.MatchString(parts[2])
+					}
+					if len(parts) < 3 || matchesAPIVPath || (len(parts) >= 4 && parts[3] == "auth") {
+						next.ServeHTTP(w, r)
+						return
+					}
+
+					parts = parts[3:]
+					resource, action = extractResourceAndAction(parts, r.Method)
+				}
 			}
 
 			if resource == resourceNil || action == actionNil {
