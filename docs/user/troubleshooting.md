@@ -120,7 +120,7 @@ flightctl console device/${device_name} -- podman system df
     flightctl console device/${device_name} -- ping -c 3 registry.example.com
     ```
 
-See also: [Non-Blocking Image Prefetch Management](non-blocking-prefetch.md) for detailed download behavior and troubleshooting.
+See also: [Managing Devices](managing-devices.md#monitoring-device-resources) for information about download management and resource monitoring.
 
 ### Resource Alerts Not Resolving
 
