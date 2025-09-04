@@ -1531,6 +1531,9 @@ paths:
         - deviceactions
       description: Resume devices based on label selector and/or field selector.
       operationId: resumeDevices
+      x-rbac:
+        resource: devices/resume
+        action: update
       requestBody:
         content:
           application/json:
