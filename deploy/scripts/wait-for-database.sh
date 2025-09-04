@@ -5,7 +5,7 @@ set -euo pipefail
 # Uses DB_* env vars and optional flags: --timeout, --sleep, --connection-timeout.
 
 # Initialize defaults
-TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-180}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-60}"
 SLEEP_INTERVAL="${SLEEP_INTERVAL:-2}"
 CONNECTION_TIMEOUT="${CONNECTION_TIMEOUT:-3}"
 

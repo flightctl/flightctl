@@ -78,7 +78,7 @@ spec:
 
           # Execute the SQL file
           echo "Running database user setup SQL..."
-          PGPASSWORD="$DB_ADMIN_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -f "$SQL_FILE"
+          PGPASSWORD="$DB_ADMIN_PASSWORD" psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -f "$SQL_FILE"
 
           # Clean up temporary file
           rm -f "$SQL_FILE"
