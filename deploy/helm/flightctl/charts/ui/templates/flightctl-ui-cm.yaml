@@ -6,7 +6,7 @@ metadata:
 data:
   FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
   {{- if .Values.cliArtifacts.enabled }}
-  FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getCliArtifactsUrl" . }}
+  FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getInternalCliArtifactsUrl" . }}
   {{- end }}
   {{- if .Values.alerts.enabled }}
   FLIGHTCTL_ALERTMANAGER_PROXY: {{ include "flightctl.getAlertManagerProxyUrl" . }}
