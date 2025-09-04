@@ -409,10 +409,11 @@ echo "Flightctl Observability Stack uninstalled."
         export GOPROXY='https://proxy.golang.org,direct'
     fi
 
-    SOURCE_GIT_TAG=$(echo %{version} | tr '~' '-') \
-    SOURCE_GIT_TREE_STATE=clean \
-    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'[-~]g' '{print $2}') \
-    SOURCE_GIT_TAG_NO_V=%{version} \
+    # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
+    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(printf "v%s" "%{version}")}" \
+    SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
+    SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | awk -F'[-~]g' '{print $2}' 2>/dev/null || echo unknown)}" \
+    SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
     %if 0%{?rhel} == 9
         %make_build build-cli build-agent
     %else
