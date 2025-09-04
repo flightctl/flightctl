@@ -20,16 +20,17 @@ spec:
       restartPolicy: OnFailure
       serviceAccountName: flightctl-db-migration
       initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "admin" "timeout" 120 "sleep" 2) | nindent 6 }}
       - name: setup-database-users
         image: "{{ .Values.dbSetup.image.image }}:{{ .Values.dbSetup.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.dbSetup.image.pullPolicy }}
         env:
         - name: DB_HOST
-          value: "flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local"
+          value: "{{ include "flightctl.dbHostname" . }}"
         - name: DB_PORT
-          value: "5432"
+          value: "{{ (default 5432 $.Values.db.port) }}"
         - name: DB_NAME
-          value: "flightctl"
+          value: "{{ (default "flightctl" $.Values.db.name) }}"
         - name: DB_ADMIN_USER
           valueFrom:
             secretKeyRef:
@@ -66,17 +67,6 @@ spec:
         - |
           set -eo pipefail
 
-          # Wait for database to be ready
-          echo "Waiting for database to be ready..."
-          for i in {1..60}; do
-            if PGPASSWORD="$DB_ADMIN_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -c "SELECT 1" >/dev/null 2>&1; then
-              break
-            fi
-            echo "Database not ready, waiting..."
-            sleep 5
-          done
-          [[ $i == 60 ]] && { echo "Database unreachable after 5 min"; exit 1; }
-
           echo "Database is ready. Setting up users..."
 
           # Create temporary SQL file with environment variable substitution
@@ -88,7 +78,7 @@ spec:
 
           # Execute the SQL file
           echo "Running database user setup SQL..."
-          PGPASSWORD="$DB_ADMIN_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -f "$SQL_FILE"
+          PGPASSWORD="$DB_ADMIN_PASSWORD" psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -f "$SQL_FILE"
 
           # Clean up temporary file
           rm -f "$SQL_FILE"
@@ -159,10 +149,10 @@ spec:
           # Grant permissions on all existing tables to the application user
           echo "Granting permissions on existing tables to application user..."
           # Need to get admin credentials from init container environment
-          DB_HOST="flightctl-db.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local"
+          DB_HOST="{{ include "flightctl.dbHostname" . }}"
           # Get admin credentials from the same secrets used by init container
           export PGPASSWORD="$DB_ADMIN_PASSWORD"
-          psql -h "$DB_HOST" -p 5432 -U "$DB_ADMIN_USER" -d "flightctl" -c "SELECT grant_app_permissions_on_existing_tables();"
+          psql -h "$DB_HOST" -p {{ (default 5432 $.Values.db.port) }} -U "$DB_ADMIN_USER" -d "{{ (default "flightctl" $.Values.db.name) }}" -c "SELECT grant_app_permissions_on_existing_tables();"
           echo "Permission granting completed successfully!"
         volumeMounts:
         - mountPath: /root/.flightctl/
