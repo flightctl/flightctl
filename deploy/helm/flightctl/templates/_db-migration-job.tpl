@@ -28,7 +28,7 @@ metadata:
     helm.sh/hook: {{ join "," $hooks }}
     {{- end }}
     helm.sh/hook-weight: "{{ $hookWeight }}"
-    helm.sh/hook-delete-policy: {{ $deletePolicy }}
+    helm.sh/hook-delete-policy: "{{ $deletePolicy }}"
 spec:
   backoffLimit: {{ $ctx.Values.dbSetup.migration.backoffLimit | default 3 | int }}
   activeDeadlineSeconds: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | default 600 | int }}
