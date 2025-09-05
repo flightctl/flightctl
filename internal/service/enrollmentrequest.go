@@ -401,8 +401,8 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 
 		approvedBy := "unknown"
-		if identity != nil && len(identity.Username) > 0 {
-			approvedBy = identity.Username
+		if identity != nil && len(identity.GetUsername()) > 0 {
+			approvedBy = identity.GetUsername()
 		}
 
 		approvalStatus := api.EnrollmentRequestApprovalStatus{

@@ -15,14 +15,16 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/org/providers"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
-// mockOrgLookup mocks OrgLookup's GetByID.
-type mockOrgLookup struct {
+type mockOrgStore struct {
 	t       *testing.T
 	wantID  uuid.UUID
 	respOrg *model.Organization
@@ -30,12 +32,20 @@ type mockOrgLookup struct {
 	called  bool
 }
 
-func (m *mockOrgLookup) GetByID(_ context.Context, id uuid.UUID) (*model.Organization, error) {
+func (m *mockOrgStore) GetByID(_ context.Context, id uuid.UUID) (*model.Organization, error) {
 	if m.t != nil && m.wantID != uuid.Nil && m.wantID != id {
 		m.t.Errorf("unexpected id: got %v, want %v", id, m.wantID)
 	}
 	m.called = true
 	return m.respOrg, m.respErr
+}
+
+func (m *mockOrgStore) ListByExternalIDs(_ context.Context, ids []string) ([]*model.Organization, error) {
+	return nil, m.respErr
+}
+
+func (m *mockOrgStore) UpsertMany(_ context.Context, orgs []*model.Organization) ([]*model.Organization, error) {
+	return nil, m.respErr
 }
 
 // createCertWithOrgID returns an *x509.Certificate with the organization ID
@@ -178,14 +188,16 @@ func TestAddOrgIDToCtx(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			storeMock := &mockOrgLookup{t: t}
+			storeMock := &mockOrgStore{t: t}
 			if tc.storeResp.org != nil || tc.storeResp.err != nil {
 				storeMock.respOrg = tc.storeResp.org
 				storeMock.respErr = tc.storeResp.err
 				storeMock.wantID = validID
 			}
 
-			resolver := org.NewResolver(storeMock, 5*time.Minute)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			resolver := resolvers.NewExternalResolver(ctx, storeMock, 5*time.Minute, &providers.ClaimsProvider{}, logrus.New())
 			mw := AddOrgIDToCtx(resolver, tc.extractor)
 
 			var (

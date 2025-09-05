@@ -5,12 +5,21 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/store/model"
 )
 
 var organizationApiVersion = fmt.Sprintf("%s/%s", api.APIGroup, api.OrganizationAPIVersion)
 
 func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
-	orgs, err := h.store.Organization().List(ctx)
+	var orgs []*model.Organization
+	var err error
+	if IsInternalRequest(ctx) {
+		orgs, err = h.listAllOrganizations(ctx)
+	} else {
+		orgs, err = h.listUserOrganizations(ctx)
+	}
+
 	status := StoreErrorToApiStatus(err, false, api.OrganizationKind, nil)
 	if err != nil {
 		return nil, status
@@ -36,4 +45,27 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.Organizati
 		Kind:       api.OrganizationListKind,
 		Metadata:   api.ListMeta{},
 	}, status
+}
+
+func (h *ServiceHandler) listAllOrganizations(ctx context.Context) ([]*model.Organization, error) {
+	orgs, err := h.store.Organization().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return orgs, nil
+}
+
+func (h *ServiceHandler) listUserOrganizations(ctx context.Context) ([]*model.Organization, error) {
+	identity, err := common.GetIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	orgs, err := h.orgResolver.GetUserOrganizations(ctx, identity)
+	if err != nil {
+		return nil, err
+	}
+
+	return orgs, nil
 }

@@ -14,6 +14,8 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
@@ -28,7 +30,7 @@ const (
 type AuthNMiddleware interface {
 	GetAuthToken(r *http.Request) (string, error)
 	ValidateToken(ctx context.Context, token string) error
-	GetIdentity(ctx context.Context, token string) (*common.Identity, error)
+	GetIdentity(ctx context.Context, token string) (common.Identity, error)
 	GetAuthConfig() common.AuthConfig
 }
 
@@ -107,11 +109,11 @@ func getOrgConfig(cfg *config.Config) *common.AuthOrganizationsConfig {
 	}
 }
 
-func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
+func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) error {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
 	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
-	authZ = NilAuth{}
+	authZ = authz.NewJWTAuthZ(orgResolver)
 	var err error
 	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
 	if err != nil {
@@ -129,7 +131,7 @@ func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	return nil
 }
 
-func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
+func InitAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) error {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
 		log.Warnln("Auth disabled")
@@ -143,7 +145,7 @@ func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
 			err = initK8sAuth(cfg, log)
 		} else if cfg.Auth.OIDC != nil {
 			configuredAuthType = AuthTypeOIDC
-			err = initOIDCAuth(cfg, log)
+			err = initOIDCAuth(cfg, log, orgResolver)
 		} else if cfg.Auth.AAP != nil {
 			configuredAuthType = AuthTypeAAP
 			err = initAAPAuth(cfg, log)
@@ -168,7 +170,7 @@ type K8sToK8sAuth struct {
 }
 
 func (o K8sToK8sAuth) CheckPermission(ctx context.Context, resource string, op string) (bool, error) {
-	k8sTokenVal := ctx.Value(common.TokenCtxKey)
+	k8sTokenVal := ctx.Value(consts.TokenCtxKey)
 	if k8sTokenVal == nil {
 		return false, nil
 	}
