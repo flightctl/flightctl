@@ -3,15 +3,20 @@ package e2e
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) (*apiclient.GetDeviceResponse, error) {
@@ -656,4 +661,180 @@ func (h *Harness) ResetAgent() error {
 		return fmt.Errorf("failed to send SIGHUP to agent: %w", err)
 	}
 	return nil
+}
+
+// SetAgentConfig configures the agent by writing the configuration file.
+// This method should be called before starting the agent.
+func (h *Harness) SetAgentConfig(cfg *agentcfg.Config) error {
+	// Marshal the config to YAML
+	configBytes, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal agent config: %w", err)
+	}
+
+	// Write the config to the VM (using correct agent config filename)
+	stdout, err := h.VM.RunSSH([]string{
+		"sudo", "mkdir", "-p", "/etc/flightctl",
+		"&&",
+		"echo", fmt.Sprintf("'%s'", string(configBytes)),
+		"|",
+		"sudo", "tee", "/etc/flightctl/config.yaml",
+	}, nil)
+	if err != nil {
+		logrus.Errorf("Failed to write agent config: %v, stdout: %s", err, stdout)
+		return fmt.Errorf("failed to write agent config: %w", err)
+	}
+
+	return nil
+}
+
+// WaitForTPMInitialization waits for TPM hardware to be ready in the VM.
+// This should be called after VM setup but before agent configuration.
+func (h *Harness) WaitForTPMInitialization() error {
+	logrus.Info("Waiting for TPM hardware initialization...")
+	time.Sleep(20 * time.Second)
+	return nil
+}
+
+// VerifyTPMFunctionality checks that TPM device is accessible and functional.
+func (h *Harness) VerifyTPMFunctionality() error {
+	// Check TPM device presence
+	stdout, err := h.VM.RunSSH([]string{"ls", "-la", "/dev/tpm*"}, nil)
+	if err != nil {
+		return fmt.Errorf("TPM device not found: %w", err)
+	}
+	if !strings.Contains(stdout.String(), "/dev/tpm0") {
+		return fmt.Errorf("TPM device /dev/tpm0 not available")
+	}
+
+	// Test TPM functionality
+	_, err = h.VM.RunSSH([]string{"sudo", "tpm2_startup", "-c"}, nil)
+	if err != nil {
+		return fmt.Errorf("TPM startup failed: %w", err)
+	}
+
+	_, err = h.VM.RunSSH([]string{"sudo", "tpm2_getrandom", "8"}, nil)
+	if err != nil {
+		return fmt.Errorf("TPM getrandom test failed: %w", err)
+	}
+
+	logrus.Info("TPM functionality verified successfully")
+	return nil
+}
+
+// EnableTPMForDevice configures the agent to use TPM for device identity.
+// This reads existing agent config, updates TPM settings, and writes it back.
+func (h *Harness) EnableTPMForDevice() error {
+	// Get existing agent config or create default
+	stdout, err := h.VM.RunSSH([]string{"cat", "/etc/flightctl/config.yaml"}, nil)
+	var agentConfig *agentcfg.Config
+
+	if err == nil && stdout.Len() > 0 {
+		// Parse existing config
+		agentConfig = &agentcfg.Config{}
+		err = yaml.Unmarshal(stdout.Bytes(), agentConfig)
+		if err != nil {
+			logrus.Warnf("Failed to parse existing config, using default: %v", err)
+			agentConfig = &agentcfg.Config{}
+		}
+	} else {
+		// No existing config, create new
+		agentConfig = &agentcfg.Config{}
+	}
+
+	// Configure TPM settings
+	agentConfig.TPM = agentcfg.TPM{
+		Enabled:         true,
+		DevicePath:      "/dev/tpm0",
+		StorageFilePath: filepath.Join(agentcfg.DefaultDataDir, agentcfg.DefaultTPMKeyFile),
+		AuthEnabled:     true,
+	}
+
+	// Write the updated config
+	err = h.SetAgentConfig(agentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to set TPM agent config: %w", err)
+	}
+
+	logrus.Info("TPM configuration enabled for device")
+	return nil
+}
+
+// SetupDeviceWithTPM prepares a device VM with TPM functionality enabled.
+// This handles the complete TPM setup process in the correct order.
+func (h *Harness) SetupDeviceWithTPM(workerID int) error {
+	// 1. Setup VM from pool (includes agent start)
+	err := h.SetupVMFromPoolAndStartAgent(workerID)
+	if err != nil {
+		return fmt.Errorf("failed to setup VM: %w", err)
+	}
+
+	// 2. Stop agent immediately to configure TPM first
+	_, err = h.VM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to stop agent: %w", err)
+	}
+
+	// 3. Wait for TPM hardware initialization
+	err = h.WaitForTPMInitialization()
+	if err != nil {
+		return fmt.Errorf("TPM initialization failed: %w", err)
+	}
+
+	// 4. Verify TPM is functional
+	err = h.VerifyTPMFunctionality()
+	if err != nil {
+		return fmt.Errorf("TPM verification failed: %w", err)
+	}
+
+	// 5. Configure agent for TPM
+	err = h.EnableTPMForDevice()
+	if err != nil {
+		return fmt.Errorf("TPM configuration failed: %w", err)
+	}
+
+	// 6. Start agent with TPM configuration
+	_, err = h.VM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start agent with TPM: %w", err)
+	}
+
+	// 7. Brief wait for agent to initialize with TPM
+	time.Sleep(10 * time.Second)
+
+	logrus.Info("Device TPM setup completed successfully")
+	return nil
+}
+
+// WaitForDeviceOnlineStatus waits for a device to come online and report status after enrollment.
+// Returns the device ID and device object.
+func (h *Harness) WaitForDeviceOnlineStatus(enrollmentID string) (string, *v1alpha1.Device, error) {
+	var device *v1alpha1.Device
+
+	// Wait for the device to report status
+	Eventually(func() error {
+		resp, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
+		if err != nil {
+			return err
+		}
+		if resp == nil || resp.JSON200 == nil {
+			return fmt.Errorf("device not found")
+		}
+		device = resp.JSON200
+
+		// Verify device is online and healthy
+		if device.Status == nil {
+			return fmt.Errorf("device status is nil")
+		}
+		if device.Status.Summary.Status != v1alpha1.DeviceSummaryStatusOnline {
+			return fmt.Errorf("device not online: status=%q", device.Status.Summary.Status)
+		}
+		if device.Status.Summary.Info == nil || *device.Status.Summary.Info != service.DeviceStatusInfoHealthy {
+			return fmt.Errorf("device summary not healthy: info=%v", device.Status.Summary.Info)
+		}
+
+		return nil
+	}, TIMEOUT, POLLING).ShouldNot(HaveOccurred())
+
+	return enrollmentID, device, nil
 }
