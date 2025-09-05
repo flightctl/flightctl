@@ -108,8 +108,8 @@ _run_template_migration:
 	  echo "##################################################"; \
 	  echo "Running database migration & template creation using: $$img"; \
 	  echo "##################################################"; \
-	  sudo env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
-	    test/scripts/run_migration.sh \
+	    sudo -E env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
+    test/scripts/run_migration.sh \
 	'
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem

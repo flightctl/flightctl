@@ -46,7 +46,20 @@ if [[ "$CREATE_TEMPLATE" == "true" ]]; then
     # Function to execute SQL command via container
     execute_sql() {
         local sql_command="$1"
-        podman exec "$DB_CONTAINER" psql -U "$DB_ADMIN_USER" -d postgres -c "$sql_command"
+        local output
+        local exit_code
+        
+        output=$(podman exec "$DB_CONTAINER" psql -U "$DB_ADMIN_USER" -d postgres -c "$sql_command" 2>&1)
+        exit_code=$?
+        
+        if [[ $exit_code -ne 0 ]]; then
+            echo "ERROR: SQL command failed with exit code $exit_code" >&2
+            echo "SQL command: $sql_command" >&2
+            echo "Output: $output" >&2
+            exit 1
+        fi
+        
+        echo "$output"
     }
     
     # Drop existing template database if it exists
