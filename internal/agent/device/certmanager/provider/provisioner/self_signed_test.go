@@ -44,6 +44,7 @@ func TestSelfSignedProvisioner_GeneratesCertAndKey(t *testing.T) {
 	}
 	if cert == nil {
 		t.Fatalf("expected certificate, got nil")
+		return // help staticcheck see we don't continue
 	}
 	if len(keyPEM) == 0 {
 		t.Fatalf("expected keyPEM, got empty")

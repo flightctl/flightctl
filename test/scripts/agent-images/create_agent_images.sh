@@ -8,7 +8,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/../functions
 
 REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST="base v2 v3 v4 v5 v6 v8 v9"
+IMAGE_LIST="base v2 v3 v4 v5 v6 v8 v9 v10"
 
 if is_acm_installed; then
     IMAGE_LIST="${IMAGE_LIST} v7"

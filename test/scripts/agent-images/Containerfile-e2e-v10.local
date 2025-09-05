@@ -1,0 +1,43 @@
+# empty base image
+FROM localhost:5000/flightctl-device:base
+
+ARG OTEL_VERSION=0.130.1
+ARG TARGETARCH=amd64
+ARG TARGETOS=linux
+
+# 1. Download and install the OTEL Collector binary with SHA verification
+RUN curl -L "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol_${OTEL_VERSION}_${TARGETOS}_${TARGETARCH}.tar.gz" -o otel.tar.gz \
+    && tar -zxf otel.tar.gz \
+    && mv otelcol /usr/local/bin/otelcol \
+    && chmod +x /usr/local/bin/otelcol \
+    && rm otel.tar.gz
+
+# 2. Copy the collector configuration file
+COPY otel-collector-config.yaml /etc/otelcol/config.yaml
+
+# 3. Copy the systemd service file and enable the service
+COPY otel-collector.service /etc/systemd/system/otel-collector.service
+RUN systemctl enable otel-collector
+# 4. make flightctl-agent request a certificate for this
+RUN cat <<'EOF' >> /etc/flightctl/config.yaml
+certificates:
+  - name: otel
+    provisioner:
+      type: csr
+      config:
+        signer: "flightctl.io/device-svc-client"
+        common-name: "otel-${DEVICE_ID}"
+        key-usage:
+          - clientAuth
+          - CA:false
+        expiration-seconds: 604800  # Example: 7 days (7 * 24 * 3600)
+    storage:
+      type: filesystem
+      config:
+        cert-path: "/etc/otel-collector/certs/otel-collector.crt"
+        key-path: "/etc/otel-collector/certs/otel-collector.key"
+        permissions: 384  # 0600 in decimal
+    #renewal-threshold: 72h
+EOF
+# set the working directory to /
+WORKDIR /

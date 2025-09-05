@@ -1,0 +1,30 @@
+# FlightCtl OpenTelemetry Collector Configuration
+# This file is mounted into the container at /root/.flightctl/config.yaml
+
+service:
+  logLevel: info
+
+otelCollector:
+  otlp:
+    endpoint: "0.0.0.0:4317"
+    tls:
+      certFile: "/etc/otel-collector/certs/server.crt"
+      keyFile: "/etc/otel-collector/certs/server.key"
+      clientCAFile: "/etc/otel-collector/certs/ca.crt"
+    auth:
+      authenticator: "deviceauth"
+  
+  prometheus:
+    endpoint: "0.0.0.0:9464"
+  
+  extensions:
+    deviceauth:
+  
+  processors:
+    deviceattrs: {}
+
+  pipelines:
+    metrics:
+      receivers: ["otlp"]
+      processors: ["deviceattrs"]
+      exporters: ["prometheus"] 
