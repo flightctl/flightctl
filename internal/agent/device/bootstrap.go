@@ -42,6 +42,7 @@ type Bootstrap struct {
 	managementServiceConfig   *baseclient.Config
 	managementClient          client.Management
 	managementMetricsCallback client.RPCMetricsCallback
+	deviceNotFoundCallback    client.DeviceNotFoundCallback
 	identityProvider          identity.Provider
 
 	log *log.PrefixLogger
@@ -59,6 +60,7 @@ func NewBootstrap(
 	managementServiceConfig *baseclient.Config,
 	systemInfoManager systeminfo.Manager,
 	managementMetricsCallback client.RPCMetricsCallback,
+	deviceNotFoundCallback client.DeviceNotFoundCallback,
 	podmanClient *client.Podman,
 	identityProvider identity.Provider,
 	log *log.PrefixLogger,
@@ -75,6 +77,7 @@ func NewBootstrap(
 		managementServiceConfig:   managementServiceConfig,
 		systemInfoManager:         systemInfoManager,
 		managementMetricsCallback: managementMetricsCallback,
+		deviceNotFoundCallback:    deviceNotFoundCallback,
 		podmanClient:              podmanClient,
 		identityProvider:          identityProvider,
 		log:                       log,
@@ -284,7 +287,7 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 
 func (b *Bootstrap) setManagementClient() error {
 	var err error
-	b.managementClient, err = b.identityProvider.CreateManagementClient(b.managementServiceConfig, b.managementMetricsCallback)
+	b.managementClient, err = b.identityProvider.CreateManagementClient(b.managementServiceConfig, b.managementMetricsCallback, b.deviceNotFoundCallback)
 	if err != nil {
 		return fmt.Errorf("create management client: %w", err)
 	}
