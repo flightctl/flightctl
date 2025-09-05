@@ -74,7 +74,7 @@ var _ = Describe("FleetRollout", func() {
 		fleetName = "myfleet"
 		ctrl = gomock.NewController(GinkgoT())
 		mockPublisher = queues.NewMockPublisher(ctrl)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		workerClient = worker_client.NewWorkerClient(mockPublisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())

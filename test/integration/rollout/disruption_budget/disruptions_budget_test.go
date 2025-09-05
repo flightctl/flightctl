@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -49,6 +48,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		ctrl             *gomock.Controller
 		mockWorkerClient *worker_client.MockWorkerClient
 		tvName           string
+		capturedEvents   []api.Event
 	)
 
 	disruptionBudget := func(maxUnavailable, minAvailable *int, groupBy *[]string) *api.DisruptionBudget {
@@ -123,6 +123,75 @@ var _ = Describe("Rollout disruption budget test", func() {
 		}
 	}
 
+	// Helper function to capture events and verify their details
+	captureAndVerifyEvents := func(expectedCount int, expectedReason api.EventReason, expectedKind api.ResourceKind) {
+		capturedEvents = make([]api.Event, 0, expectedCount)
+
+		// Set up the mock to capture events
+		mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, orgId interface{}, event *api.Event) error {
+				if event != nil {
+					capturedEvents = append(capturedEvents, *event)
+				}
+				return nil
+			}).Times(expectedCount)
+	}
+
+	// Helper function to verify event details
+	verifyEventDetails := func(expectedReason api.EventReason, expectedKind api.ResourceKind) {
+		Expect(len(capturedEvents)).To(BeNumerically(">", 0))
+
+		// Log summary of captured events
+		log.Infof("Verifying %d captured events", len(capturedEvents))
+
+		for i, event := range capturedEvents {
+			// Verify event reason
+			Expect(event.Reason).To(Equal(expectedReason), "Event %d reason should match expected value", i)
+
+			// Verify event kind
+			Expect(event.InvolvedObject.Kind).To(Equal(string(expectedKind)), "Event %d kind should match expected value", i)
+
+			// Verify event has a device name (since these are device-related events)
+			Expect(event.InvolvedObject.Name).ToNot(BeEmpty(), "Event %d should have a device name", i)
+
+			// Verify device identity format (should be like "mydevice-1", "mydevice-2", etc.)
+			Expect(event.InvolvedObject.Name).To(MatchRegexp(`^mydevice-\d+$`), "Event %d device name should match expected format 'mydevice-<number>'", i)
+
+			// Verify event details contain fleet information by parsing the details
+			if event.Details != nil {
+				details, err := event.Details.AsFleetRolloutDeviceSelectedDetails()
+				if err == nil {
+					Expect(details.FleetName).To(Equal("myfleet"), "Event %d fleet name should match expected value", i)
+					Expect(details.TemplateVersion).ToNot(BeEmpty(), "Event %d template version should not be empty", i)
+
+					// Log the parsed details for debugging
+					log.Infof("Event %d details - Fleet: %s, TemplateVersion: %s", i, details.FleetName, details.TemplateVersion)
+				} else {
+					// If we can't parse the details, at least verify the message contains fleet info
+					Expect(event.Message).To(ContainSubstring("myfleet"), "Event %d message should contain fleet name", i)
+				}
+			}
+
+			// Log detailed event information for debugging
+			log.Infof("Event %d verified - Device: %s, Kind: %s, Reason: %s",
+				i, event.InvolvedObject.Name, event.InvolvedObject.Kind, event.Reason)
+		}
+
+		// Additional verification: ensure we have unique device names (no duplicate events for same device)
+		deviceNames := make(map[string]bool)
+		for _, event := range capturedEvents {
+			deviceNames[event.InvolvedObject.Name] = true
+		}
+		Expect(len(deviceNames)).To(Equal(len(capturedEvents)), "All events should be for different devices (no duplicates)")
+
+		// Log the unique device names for verification
+		uniqueDevices := make([]string, 0, len(deviceNames))
+		for deviceName := range deviceNames {
+			uniqueDevices = append(uniqueDevices, deviceName)
+		}
+		log.Infof("Event verification completed successfully for %d unique devices: %v", len(deviceNames), uniqueDevices)
+	}
+
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		ctx = util.WithOrganizationID(ctx, store.NullOrgId)
@@ -130,11 +199,10 @@ var _ = Describe("Rollout disruption budget test", func() {
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
 		mockWorkerClient = worker_client.NewMockWorkerClient(ctrl)
-		publisher := queues.NewMockPublisher(ctrl)
-		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{})
+		capturedEvents = make([]api.Event, 0)
 	})
 	AfterEach(func() {
 		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
@@ -180,9 +248,10 @@ var _ = Describe("Rollout disruption budget test", func() {
 		})
 		It("One fleet - one device with matching fleet - non matching disruption budget", func() {
 			initTest(nil, 1, true, false)
-			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any())
+			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
 			reconciler.Reconcile(ctx)
+			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - one device no matching fleet", func() {
 			initTest(nil, 1, true, true)
@@ -192,29 +261,33 @@ var _ = Describe("Rollout disruption budget test", func() {
 		It("One fleet - one device with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 1, true, false)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
-			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any())
+			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler.Reconcile(ctx)
+			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - two devices with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 2, true, false)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
-			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any())
+			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler.Reconcile(ctx)
+			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 6, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 1})
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
 
-			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
+			captureAndVerifyEvents(3, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler.Reconcile(ctx)
+			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels - without unavailable", func() {
 			initTest(disruptionBudget(nil, lo.ToPtr(1), lo.ToPtr([]string{"label-1", "label-2"})), 9, true, false)
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 3})
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
-			mockWorkerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(6)
+			captureAndVerifyEvents(6, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler.Reconcile(ctx)
+			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 	})
 })

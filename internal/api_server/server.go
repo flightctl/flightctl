@@ -142,7 +142,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := worker_client.QueuePublisher(s.queuesProvider)
+	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return err
 	}

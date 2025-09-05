@@ -6,8 +6,11 @@ on:
       - main
 
 env:
-  QUAY_ORG: quay.io/flightctl
+  QUAY_TESTS_ORG: quay.io/flightctl-tests
   QUAY: quay.io
+  REGISTRY: quay.io
+  REGISTRY_OWNER: flightctl
+  REGISTRY_OWNER_TESTS: flightctl-tests
   # Enable BuildKit for cache mounts
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
@@ -84,8 +87,8 @@ jobs:
         uses: redhat-actions/podman-login@v1
         with:
           registry: ${{ env.QUAY }}
-          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
-          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}
 
       - name: Push to Quay.io
         id: push
@@ -93,6 +96,6 @@ jobs:
         with:
           image: ${{ matrix.image.name }}
           tags: cache
-          registry: ${{ env.QUAY_ORG }}
-          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
-          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+          registry: ${{ env.QUAY_TESTS_ORG }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}

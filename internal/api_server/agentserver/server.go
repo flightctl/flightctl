@@ -80,7 +80,7 @@ func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
 func (s *AgentServer) Run(ctx context.Context) error {
 	s.log.Println("Initializing Agent-side API server")
 
-	publisher, err := worker_client.QueuePublisher(s.queuesProvider)
+	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return err
 	}

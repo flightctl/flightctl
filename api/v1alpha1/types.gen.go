@@ -196,6 +196,7 @@ const (
 	EventReasonFleetRolloutStarted             EventReason = "FleetRolloutStarted"
 	EventReasonFleetValid                      EventReason = "FleetValid"
 	EventReasonInternalTaskFailed              EventReason = "InternalTaskFailed"
+	EventReasonInternalTaskPermanentlyFailed   EventReason = "InternalTaskPermanentlyFailed"
 	EventReasonReferencedRepositoryUpdated     EventReason = "ReferencedRepositoryUpdated"
 	EventReasonRepositoryAccessible            EventReason = "RepositoryAccessible"
 	EventReasonRepositoryInaccessible          EventReason = "RepositoryInaccessible"
@@ -274,6 +275,11 @@ const (
 // Defines values for InternalTaskFailedDetailsDetailType.
 const (
 	InternalTaskFailed InternalTaskFailedDetailsDetailType = "InternalTaskFailed"
+)
+
+// Defines values for InternalTaskPermanentlyFailedDetailsDetailType.
+const (
+	InternalTaskPermanentlyFailed InternalTaskPermanentlyFailedDetailsDetailType = "InternalTaskPermanentlyFailed"
 )
 
 // Defines values for MatchExpressionOperator.
@@ -1576,6 +1582,24 @@ type InternalTaskFailedDetails struct {
 
 // InternalTaskFailedDetailsDetailType The type of detail for discriminator purposes.
 type InternalTaskFailedDetailsDetailType string
+
+// InternalTaskPermanentlyFailedDetails defines model for InternalTaskPermanentlyFailedDetails.
+type InternalTaskPermanentlyFailedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType InternalTaskPermanentlyFailedDetailsDetailType `json:"detailType"`
+
+	// ErrorMessage The error message describing the permanent failure.
+	ErrorMessage string `json:"errorMessage"`
+
+	// OriginalEvent Event represents a single event that occurred in the system.
+	OriginalEvent Event `json:"originalEvent"`
+
+	// RetryCount Number of times the task was retried before being marked as permanently failed.
+	RetryCount int `json:"retryCount"`
+}
+
+// InternalTaskPermanentlyFailedDetailsDetailType The type of detail for discriminator purposes.
+type InternalTaskPermanentlyFailedDetailsDetailType string
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
@@ -3096,6 +3120,34 @@ func (t *EventDetails) MergeInternalTaskFailedDetails(v InternalTaskFailedDetail
 	return err
 }
 
+// AsInternalTaskPermanentlyFailedDetails returns the union data inside the EventDetails as a InternalTaskPermanentlyFailedDetails
+func (t EventDetails) AsInternalTaskPermanentlyFailedDetails() (InternalTaskPermanentlyFailedDetails, error) {
+	var body InternalTaskPermanentlyFailedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInternalTaskPermanentlyFailedDetails overwrites any union data inside the EventDetails as the provided InternalTaskPermanentlyFailedDetails
+func (t *EventDetails) FromInternalTaskPermanentlyFailedDetails(v InternalTaskPermanentlyFailedDetails) error {
+	v.DetailType = "InternalTaskPermanentlyFailed"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInternalTaskPermanentlyFailedDetails performs a merge with any union data inside the EventDetails, using the provided InternalTaskPermanentlyFailedDetails
+func (t *EventDetails) MergeInternalTaskPermanentlyFailedDetails(v InternalTaskPermanentlyFailedDetails) error {
+	v.DetailType = "InternalTaskPermanentlyFailed"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 // AsResourceSyncCompletedDetails returns the union data inside the EventDetails as a ResourceSyncCompletedDetails
 func (t EventDetails) AsResourceSyncCompletedDetails() (ResourceSyncCompletedDetails, error) {
 	var body ResourceSyncCompletedDetails
@@ -3354,6 +3406,8 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 		return t.AsFleetRolloutStartedDetails()
 	case "InternalTaskFailed":
 		return t.AsInternalTaskFailedDetails()
+	case "InternalTaskPermanentlyFailed":
+		return t.AsInternalTaskPermanentlyFailedDetails()
 	case "ReferencedRepositoryUpdated":
 		return t.AsReferencedRepositoryUpdatedDetails()
 	case "ResourceSyncCompleted":

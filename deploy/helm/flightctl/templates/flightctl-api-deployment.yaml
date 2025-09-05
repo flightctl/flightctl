@@ -19,6 +19,8 @@ spec:
         flightctl.service: flightctl-api
     spec:
       serviceAccountName: flightctl-api
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app" "timeout" 60 "sleep" 1) | nindent 6 }}
       containers:
         - name: flightctl-api
           image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}

@@ -60,7 +60,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.ctrl = gomock.NewController(GinkgoT())
 	s.mockPublisher = queues.NewMockPublisher(s.ctrl)
 	s.workerClient = worker_client.NewWorkerClient(s.mockPublisher, s.Log)
-	s.mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+	s.mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, "localhost", 6379, "adminpass")
 	Expect(err).ToNot(HaveOccurred())

@@ -22,10 +22,19 @@ import (
 )
 
 func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
-	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {
+	return func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+		// Add timeout for the entire event processing
+		ctx, cancel := context.WithTimeout(ctx, EventProcessingTimeout)
+		defer cancel()
+
 		var eventWithOrgId worker_client.EventWithOrgId
 		if err := json.Unmarshal(payload, &eventWithOrgId); err != nil {
 			log.WithError(err).Error("failed to unmarshal consume payload")
+			// ensure the message is completed with error to avoid being stuck pending
+			ackCtx := context.WithoutCancel(ctx)
+			if ackErr := consumer.Complete(ackCtx, entryID, payload, err); ackErr != nil {
+				log.WithError(ackErr).Errorf("failed to complete message %s after unmarshal error", entryID)
+			}
 			return err
 		}
 
@@ -74,12 +83,22 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 
 		// Emit InternalTaskFailedEvent for any unhandled task failures
 		// This serves as a safety net while preserving specific error handling within tasks
+		var returnErr error
 		if len(errorMessages) > 0 {
 			errorMessage := fmt.Sprintf("%d tasks failed during reconciliation: %s", len(errorMessages), strings.Join(errorMessages, ", "))
 			log.WithError(errors.New(errorMessage)).Error("tasks failed during reconciliation")
-			emitInternalTaskFailedEvent(ctx, errorMessage, eventWithOrgId.Event, serviceHandler)
+			// ensure emission even if processing ctx timed out
+			EmitInternalTaskFailedEvent(context.WithoutCancel(ctx), errorMessage, eventWithOrgId.Event, serviceHandler)
+			returnErr = errors.New(errorMessage)
 		}
-		return nil
+
+		// Complete the message processing (either successfully or after emitting failure event)
+		if err := consumer.Complete(context.WithoutCancel(ctx), entryID, payload, returnErr); err != nil {
+			log.WithError(err).Errorf("failed to complete message %s", entryID)
+			return err
+		}
+
+		return returnErr
 	}
 }
 
@@ -90,35 +109,14 @@ func appendErrorMessage(errorMessages []string, taskName string, err error) []st
 	return errorMessages
 }
 
-func emitInternalTaskFailedEvent(ctx context.Context, errorMessage string, originalEvent api.Event, serviceHandler service.Service) {
-	resourceKind := api.ResourceKind(originalEvent.InvolvedObject.Kind)
-	resourceName := originalEvent.InvolvedObject.Name
-	reason := originalEvent.Reason
-	message := fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, reason, errorMessage)
-	event := api.GetBaseEvent(ctx,
-		resourceKind,
-		resourceName,
-		api.EventReasonInternalTaskFailed,
-		message,
-		nil)
-
-	details := api.EventDetails{}
-	if detailsErr := details.FromInternalTaskFailedDetails(api.InternalTaskFailedDetails{
-		ErrorMessage:  errorMessage,
-		RetryCount:    nil,
-		OriginalEvent: originalEvent,
-	}); detailsErr == nil {
-		event.Details = &details
-	}
-
-	// Emit the event
-	serviceHandler.CreateEvent(ctx, event)
-}
-
 func shouldRolloutFleet(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
 	// If a devices's owner or labels were updated return true
 	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.DeviceKind {
 		return hasUpdatedFields(event.Details, log, api.Owner, api.Labels)
+	}
+
+	if event.Reason == api.EventReasonFleetRolloutBatchDispatched && event.InvolvedObject.Kind == api.FleetKind {
+		return true
 	}
 
 	// If a device was created, return true
@@ -188,13 +186,18 @@ func shouldValidateFleet(ctx context.Context, event api.Event, log logrus.FieldL
 }
 
 func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
-	// If a repository that the device is associated with was updated, return true
-	if event.Reason == api.EventReasonReferencedRepositoryUpdated && event.InvolvedObject.Kind == api.DeviceKind {
+	if event.InvolvedObject.Kind != api.DeviceKind {
+		return false
+	}
+
+	if lo.Contains([]api.EventReason{api.EventReasonReferencedRepositoryUpdated,
+		api.EventReasonResourceCreated,
+		api.EventReasonFleetRolloutDeviceSelected}, event.Reason) {
 		return true
 	}
 
 	// If a device spec was updated and it doesn't have the delayDeviceRender annotation equal to "true", return true
-	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.DeviceKind {
+	if event.Reason == api.EventReasonResourceUpdated {
 		if !hasUpdatedFields(event.Details, log, api.Spec) {
 			return false
 		}
@@ -206,11 +209,6 @@ func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLo
 				return false
 			}
 		}
-		return true
-	}
-
-	// If a device was created, return true
-	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.DeviceKind {
 		return true
 	}
 
@@ -258,7 +256,7 @@ func LaunchConsumers(ctx context.Context,
 	kvStore kvstore.KVStore,
 	numConsumers, threadsPerConsumer int) error {
 	for i := 0; i != numConsumers; i++ {
-		consumer, err := queuesProvider.NewConsumer(consts.TaskQueue)
+		consumer, err := queuesProvider.NewConsumer(ctx, consts.TaskQueue)
 		if err != nil {
 			return err
 		}
