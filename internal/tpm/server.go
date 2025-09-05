@@ -812,9 +812,8 @@ func convertEKPublicKeyToTPMTPublic(publicKey crypto.PublicKey) (*tpm2.TPMTPubli
 
 // convertEKECDSAPublicKey converts an ECDSA public key to TPM format
 func convertEKECDSAPublicKey(key *ecdsa.PublicKey) (*tpm2.TPMTPublic, error) {
-	// we currently only check the well known indexes of RSA2048 and ECC P256.
-	// We could support more, but we'd need to ensure that the Template's match up and
-	// only the P256 template is currently defined
+	// Currently only RSA2048 and ECC P256 EK Certs are supported. Should support for more ECC curves be added, this will
+	// need to change.
 	switch key.Curve.Params().Name {
 	case "P-256":
 	default:
@@ -838,8 +837,10 @@ func convertEKECDSAPublicKey(key *ecdsa.PublicKey) (*tpm2.TPMTPublic, error) {
 
 // convertEKRSAPublicKey converts an RSA public key to TPM format
 func convertEKRSAPublicKey(key *rsa.PublicKey) (*tpm2.TPMTPublic, error) {
-	if key.Size() < 256 { // 2048 bits minimum
-		return nil, fmt.Errorf("RSA key too small: %d bits (minimum 2048)", key.Size()*8)
+	// Currently only RSA2048 and ECC P256 EK Certs are supported. Should support for more RSA Key sizes be added,
+	// this will need to change
+	if key.Size() != 256 {
+		return nil, fmt.Errorf("unsupported RSA key size: %d bits", key.Size()*8)
 	}
 
 	tpmPublic := tpm2.RSAEKTemplate

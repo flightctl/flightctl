@@ -1023,7 +1023,7 @@ func generateEKCertWithRealPublicKey(tmpPublic *tpm2.TPM2BPublic) ([]byte, error
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyAgreement,
+		KeyUsage:              x509.KeyUsageKeyEncipherment,
 		BasicConstraintsValid: true,
 	}
 
@@ -1095,7 +1095,7 @@ func generateEKCertWithRealECCPublicKey(tpmPublic *tpm2.TPM2BPublic) ([]byte, er
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment,
+		KeyUsage:              x509.KeyUsageKeyAgreement,
 		BasicConstraintsValid: true,
 	}
 

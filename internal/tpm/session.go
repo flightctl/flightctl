@@ -440,9 +440,9 @@ func (s *tpmSession) Close() error {
 	return nil
 }
 
-// checkEKCertExists checks if an EK certificate exists at the given NVRAM index
+// isEKCertPresent checks if an EK certificate exists at the given NVRAM index
 // without reading the actual certificate data
-func (s *tpmSession) checkEKCertExists(nvIndex uint32) bool {
+func (s *tpmSession) isEKCertPresent(nvIndex uint32) bool {
 	readPublicCmd := tpm2.NVReadPublic{
 		NVIndex: tpm2.TPMHandle(nvIndex),
 	}
@@ -463,13 +463,11 @@ func (s *tpmSession) checkEKCertExists(nvIndex uint32) bool {
 // detectEKAlgorithm determines the EK algorithm based on which certificate
 // exists in NVRAM, prioritizing RSA first
 func (s *tpmSession) detectEKAlgorithm() (KeyAlgorithm, error) {
-	// Try RSA first (maintaining current priority)
-	if s.checkEKCertExists(client.EKCertNVIndexRSA) {
+	if s.isEKCertPresent(client.EKCertNVIndexRSA) {
 		return RSA, nil
 	}
 
-	// Try ECC second
-	if s.checkEKCertExists(client.EKCertNVIndexECC) {
+	if s.isEKCertPresent(client.EKCertNVIndexECC) {
 		return ECDSA, nil
 	}
 
