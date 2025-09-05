@@ -29,6 +29,7 @@ Welcome to the Flight Control user documentation.
   * [Managing Applications](managing-devices.md#managing-applications)
   * [Using Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks)
   * [Monitoring Device Resources](managing-devices.md#monitoring-device-resources)
+  * [Managing Devices](managing-devices.md#monitoring-device-resources) - Information about download management and resource monitoring
   * [Accessing Devices Remotely](managing-devices.md#accessing-devices-remotely)
   * [Scheduling Updates and Downloads](managing-devices.md#scheduling-updates-and-downloads)
 * **[Alerts and Monitoring](alerts.md)** - How to monitor device health and manage alerts.

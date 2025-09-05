@@ -11,6 +11,7 @@ API
 APIs
 apiVersion
 arm64
+backoff
 base64
 boolean
 bootable
@@ -30,12 +31,15 @@ CSR
 darwin
 DeviceTemplate
 df
+durations
 e.g.
 ECDSA
+emea
 EnrollmentRequest
 EnrollmentRequests
 env
 EPEL
+expressions
 FIDO
 filesystem
 FIPS
@@ -46,15 +50,18 @@ frontend
 GitLab
 GitOps
 greenboot
+guru
 hostname
 hostnames
 HTTPS
 i.e.
 infos
+instability
 IP
 JSON-encoded
 JWT
 Keycloak
+killer
 Klusterlet
 Kubernetes
 kustomize
@@ -69,9 +76,11 @@ MicroShift
 mTLS
 namespace
 NAT
+oci
 OCI
 OCI-compliant
 OIDC
+OOM
 onboard
 onboarding
 OpenShift
@@ -83,6 +92,8 @@ pluggable
 Podman
 PostgreSQL
 pre-update
+prefetch
+prefetching
 qcow2
 QEMU
 Quadlet
@@ -91,6 +102,7 @@ quay.io
 RBAC
 read-only
 resource-unintensive
+retryable
 ResourceSync
 ResourceSyncs
 RFE
@@ -123,6 +135,7 @@ transactionally
 UI
 unenroll
 UTF-8
+validate
 versioned
 versioning
 virtualization
@@ -136,11 +149,19 @@ webhooks
 workflows
 X.509
 YAML
+yq
 openshift
+agent
+configuring
+configuring-agent
+defaults
+filesystems
+md
+reachability
 acm
 namespaces
 USB
-quay.io.
+quay.io
 API_URL
 madrid
 paris
@@ -192,6 +213,7 @@ resourceVersion
 emea
 hw-generation
 hw-model
+hw-model=jetson
 jetson
 orin
  - docs/user/getting-started.md
@@ -207,9 +229,16 @@ PVs
 k8s
  - docs/user/managing-devices.md
 AlertRules
+autonomous-forklift
 base32-encoded
+device-type
+factory-berlin
+hw-generation=orin
+hw-model=jetson
 ClusterRole
 ClusterRoleBinding
+Role
+RoleBinding
 ContentEncoding
 EnvVars
 FilePath
@@ -334,3 +363,8 @@ TN1330
 - docs/user/metrics.md
 sloMax
 SLO
+- docs/user/troubleshooting.md
+WaitingForResources
+30s
+256M
+
