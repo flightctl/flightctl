@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -869,7 +870,7 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			defer sim.Close()
 
 			// Set up fake RSA endorsement key certificate in the simulator
-			err = setupFakeEKCertificate(sim)
+			err = setupFakeRSAEKCertificate(sim)
 			require.NoError(err)
 
 			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
@@ -1022,7 +1023,7 @@ func generateEKCertWithRealPublicKey(tmpPublic *tpm2.TPM2BPublic) ([]byte, error
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment,
+		KeyUsage:              x509.KeyUsageKeyAgreement,
 		BasicConstraintsValid: true,
 	}
 
@@ -1034,6 +1035,78 @@ func generateEKCertWithRealPublicKey(tmpPublic *tpm2.TPM2BPublic) ([]byte, error
 
 	// Create self-signed certificate using the actual EK public key
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, rsaPublicKey, tempPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return certDER, nil
+}
+
+// generateEKCertWithRealECCPublicKey creates a certificate using the actual TPM ECC EK public key
+func generateEKCertWithRealECCPublicKey(tpmPublic *tpm2.TPM2BPublic) ([]byte, error) {
+	// Get the TPM public key contents
+	publicContents, err := tpmPublic.Contents()
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract the ECC public key
+	eccUnique, err := publicContents.Unique.ECC()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get curve information from the parameters
+	eccParams, err := publicContents.Parameters.ECCDetail()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to Go elliptic curve
+	var curve elliptic.Curve
+	switch eccParams.CurveID {
+	case tpm2.TPMECCNistP256:
+		curve = elliptic.P256()
+	case tpm2.TPMECCNistP384:
+		curve = elliptic.P384()
+	case tpm2.TPMECCNistP521:
+		curve = elliptic.P521()
+	default:
+		return nil, fmt.Errorf("unsupported ECC curve: %v", eccParams.CurveID)
+	}
+
+	// Create Go ECDSA public key from TPM data
+	x := new(big.Int).SetBytes(eccUnique.X.Buffer)
+	y := new(big.Int).SetBytes(eccUnique.Y.Buffer)
+
+	ecdsaPublicKey := &ecdsa.PublicKey{
+		Curve: curve,
+		X:     x,
+		Y:     y,
+	}
+
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"FlightCTL Test EK"},
+			Country:      []string{"US"},
+			Locality:     []string{"Test"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment,
+		BasicConstraintsValid: true,
+	}
+
+	// Generate a temporary private key for signing the certificate
+	tempPrivateKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create self-signed certificate using the actual EK public key
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, ecdsaPublicKey, tempPrivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1097,8 +1170,8 @@ func writeEKCertToTPM(conn io.ReadWriter, index tpm2.TPMHandle, certDER []byte) 
 	return err
 }
 
-// setupFakeEKCertificate sets up a fake RSA endorsement key certificate in the TPM simulator
-func setupFakeEKCertificate(conn io.ReadWriter) error {
+// setupFakeRSAEKCertificate sets up a fake RSA endorsement key certificate in the TPM simulator
+func setupFakeRSAEKCertificate(conn io.ReadWriter) error {
 	// First, create the RSA endorsement key in the TPM
 	createEKCmd := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.AuthHandle{
@@ -1138,6 +1211,49 @@ func setupFakeEKCertificate(conn io.ReadWriter) error {
 	}
 
 	return writeEKCertToTPM(conn, tpm2.TPMHandle(client.EKCertNVIndexRSA), certDER)
+}
+
+// setupFakeECCEKCertificate sets up a fake ECDSA endorsement key certificate in the TPM simulator
+func setupFakeECCEKCertificate(conn io.ReadWriter) error {
+	// First, create the ECDSA endorsement key in the TPM
+	createEKCmd := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHEndorsement,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2B(tpm2.ECCEKTemplate),
+	}
+
+	createResp, err := createEKCmd.Execute(transport.FromReadWriter(conn))
+	if err != nil {
+		return err
+	}
+
+	// Ensure the EK handle is always flushed to prevent resource leaks
+	defer func() {
+		flushCmd := tpm2.FlushContext{
+			FlushHandle: createResp.ObjectHandle,
+		}
+		_, _ = flushCmd.Execute(transport.FromReadWriter(conn)) // Ignore errors during cleanup
+	}()
+
+	// Get the public key from the created EK
+	readPublicCmd := tpm2.ReadPublic{
+		ObjectHandle: createResp.ObjectHandle,
+	}
+
+	publicResp, err := readPublicCmd.Execute(transport.FromReadWriter(conn))
+	if err != nil {
+		return err
+	}
+
+	// Generate a certificate using the actual EK public key
+	certDER, err := generateEKCertWithRealECCPublicKey(&publicResp.OutPublic)
+	if err != nil {
+		return err
+	}
+
+	return writeEKCertToTPM(conn, tpm2.TPMHandle(client.EKCertNVIndexECC), certDER)
 }
 
 // performClientOperations performs a standard set of client operations and returns the public key
@@ -1202,6 +1318,138 @@ func performClientOperations(t *testing.T, c *Client, ctx context.Context, testS
 	require.NotEqual(signature1, signature2)
 
 	return public
+}
+
+func TestSessionGenerateChallenge(t *testing.T) {
+	testCases := []struct {
+		name           string
+		setupEKCert    func(sim io.ReadWriter) error
+		expectedEKType string
+	}{
+		{
+			name:        "ECC EK Certificate",
+			setupEKCert: setupFakeECCEKCertificate,
+		},
+		{
+			name:        "RSA EK Certificate",
+			setupEKCert: setupFakeRSAEKCertificate,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			sim, err := simulator.Get()
+			require.NoError(err)
+			defer sim.Close()
+
+			err = tc.setupEKCert(sim)
+			require.NoError(err)
+
+			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+
+			c, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
+				TPM: agent_config.TPM{
+					Enabled:         true,
+					DevicePath:      agent_config.DefaultTPMDevicePath,
+					StorageFilePath: agent_config.DefaultTPMKeyFile,
+					AuthEnabled:     false,
+				},
+			}, "test-model", "test-serial")
+
+			require.NoError(err)
+
+			// we need extra memory in the sim and aren't using the LDevID for this test.
+			s, ok := c.session.(*tpmSession)
+			require.True(ok, "Not a tpm session")
+			err = s.flushHandle(s.handles[LDevID])
+			require.NoError(err)
+
+			tpmSecret := []byte("hello_world")
+
+			// Generate a challenge with TPM usage
+			credentialBlob, encryptedSecret, err := c.session.GenerateChallenge(tpmSecret)
+			require.NoError(err)
+			require.NotEmpty(credentialBlob)
+			require.NotEmpty(encryptedSecret)
+
+			// Solve the challenge using TPM
+			actualSecret, err := c.session.SolveChallenge(credentialBlob, encryptedSecret)
+			require.NoError(err)
+			require.NotEmpty(actualSecret)
+
+			require.Equal(tpmSecret, actualSecret, "Decrypted secret should match the original secret")
+		})
+	}
+}
+
+func TestCreateCredential(t *testing.T) {
+	testCases := []struct {
+		name        string
+		setupEKCert func(sim io.ReadWriter) error
+	}{
+		{
+			name:        "ECC EK Certificate",
+			setupEKCert: setupFakeECCEKCertificate,
+		},
+		{
+			name:        "RSA EK Certificate",
+			setupEKCert: setupFakeRSAEKCertificate,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			sim, err := simulator.Get()
+			require.NoError(err)
+			defer sim.Close()
+
+			err = tc.setupEKCert(sim)
+			require.NoError(err)
+
+			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+
+			c, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
+				TPM: agent_config.TPM{
+					Enabled:         true,
+					DevicePath:      agent_config.DefaultTPMDevicePath,
+					StorageFilePath: agent_config.DefaultTPMKeyFile,
+					AuthEnabled:     false,
+				},
+			}, "test-model", "test-serial")
+			require.NoError(err)
+
+			// Generate a credential challenge using only the CSR that is available server side
+			csr, err := c.MakeCSR("test-name", make([]byte, 32))
+			require.NoError(err)
+			parsed, err := ParseTCGCSR(csr)
+			require.NoError(err)
+
+			// we need extra memory in the sim and aren't using the LDevID after we generate the CSR
+			s, ok := c.session.(*tpmSession)
+			require.True(ok, "Not a tpm session")
+			err = s.flushHandle(s.handles[LDevID])
+			require.NoError(err)
+
+			challenge, err := CreateCredentialChallenge(parsed.CSRContents.Payload.EkCert, parsed.CSRContents.Payload.AttestPub)
+			require.NoError(err)
+			require.NotNil(challenge)
+			require.NotEmpty(challenge.CredentialBlob)
+			require.NotEmpty(challenge.EncryptedSecret)
+			require.NotEmpty(challenge.ExpectedSecret)
+			require.Equal(32, len(challenge.ExpectedSecret)) // Should be 32 bytes
+
+			actualSecret, err := c.session.SolveChallenge(challenge.CredentialBlob, challenge.EncryptedSecret)
+			require.NoError(err)
+			require.NotEmpty(actualSecret)
+
+			// Verify the secrets match
+			require.Equal(challenge.ExpectedSecret, actualSecret, "Decrypted secret should match the original secret")
+		})
+	}
 }
 
 // closes the session in a way that doesn't close the underlying connection so that it can be reused

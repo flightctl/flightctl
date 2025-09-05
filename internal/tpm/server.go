@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -727,4 +728,127 @@ func NormalizeEnrollmentCSR(csrString string) ([]byte, bool, error) {
 	}
 
 	return tpmData.StandardCSR, true, nil
+}
+
+// CredentialChallenge contains the components of a TPM credential challenge
+type CredentialChallenge struct {
+	CredentialBlob  []byte
+	EncryptedSecret []byte
+	ExpectedSecret  []byte
+}
+
+// CreateCredentialChallenge generates a challenge credential that can be solved using TPM2_ActivateCredential.
+// It takes an EK certificate and any TPM public key as byte arrays and returns a CredentialChallenge
+// containing the credential blob, encrypted secret, and expected secret for verification. No calls to a TPM are made.
+func CreateCredentialChallenge(ekCertBytes []byte, publicKeyBytes []byte) (*CredentialChallenge, error) {
+	if len(ekCertBytes) == 0 {
+		return nil, fmt.Errorf("EK certificate is empty")
+	}
+	if len(publicKeyBytes) == 0 {
+		return nil, fmt.Errorf("public key is empty")
+	}
+
+	// Convert the EK Cert into a format that can be used to create a credential
+	ekCert, err := x509.ParseCertificate(ekCertBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parsing EK certificate: %w", err)
+	}
+
+	ekPublicKey, err := convertEKPublicKeyToTPMTPublic(ekCert.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("converting EK public key: %w", err)
+	}
+
+	encapsulationKey, err := tpm2.ImportEncapsulationKey(ekPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("creating encapsulation key: %w", err)
+	}
+
+	// convert the public key bytes into a name
+	publicKey, err := tpm2.Unmarshal[tpm2.TPM2BPublic](publicKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshalling public key: %w", err)
+	}
+
+	publicKeyContents, err := publicKey.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("public key contents: %w", err)
+	}
+
+	publicKeyName, err := computeTPMName(publicKeyContents)
+	if err != nil {
+		return nil, fmt.Errorf("computing public key name: %w", err)
+	}
+
+	// Generate random secret
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, fmt.Errorf("generating random secret: %w", err)
+	}
+
+	idObject, encSecret, err := tpm2.CreateCredential(rand.Reader, encapsulationKey, publicKeyName, secret)
+	if err != nil {
+		return nil, fmt.Errorf("creating credential: %w", err)
+	}
+
+	return &CredentialChallenge{
+		CredentialBlob:  idObject,
+		EncryptedSecret: encSecret,
+		ExpectedSecret:  secret,
+	}, nil
+}
+
+// convertEKPublicKeyToTPMTPublic converts the public key of an EK to TPM format
+func convertEKPublicKeyToTPMTPublic(publicKey crypto.PublicKey) (*tpm2.TPMTPublic, error) {
+	switch key := publicKey.(type) {
+	case *ecdsa.PublicKey:
+		return convertEKECDSAPublicKey(key)
+	case *rsa.PublicKey:
+		return convertEKRSAPublicKey(key)
+	default:
+		return nil, fmt.Errorf("unsupported public key type: %T", publicKey)
+	}
+}
+
+// convertEKECDSAPublicKey converts an ECDSA public key to TPM format
+func convertEKECDSAPublicKey(key *ecdsa.PublicKey) (*tpm2.TPMTPublic, error) {
+	// we currently only check the well known indexes of RSA2048 and ECC P256.
+	// We could support more, but we'd need to ensure that the Template's match up and
+	// only the P256 template is currently defined
+	switch key.Curve.Params().Name {
+	case "P-256":
+	default:
+		return nil, fmt.Errorf("unsupported ECDSA curve: %s", key.Curve.Params().Name)
+	}
+
+	tpmPublic := tpm2.ECCEKTemplate
+
+	// put actual key data into the unique portion
+	tpmPublic.Unique = tpm2.NewTPMUPublicID(
+		tpm2.TPMAlgECC,
+		&tpm2.TPMSECCPoint{
+			// 32 as defined by the P256. Should more curves be supported this will change
+			X: tpm2.TPM2BECCParameter{Buffer: key.X.FillBytes(make([]byte, 32))},
+			Y: tpm2.TPM2BECCParameter{Buffer: key.Y.FillBytes(make([]byte, 32))},
+		},
+	)
+
+	return &tpmPublic, nil
+}
+
+// convertEKRSAPublicKey converts an RSA public key to TPM format
+func convertEKRSAPublicKey(key *rsa.PublicKey) (*tpm2.TPMTPublic, error) {
+	if key.Size() < 256 { // 2048 bits minimum
+		return nil, fmt.Errorf("RSA key too small: %d bits (minimum 2048)", key.Size()*8)
+	}
+
+	tpmPublic := tpm2.RSAEKTemplate
+
+	// Only replace the Unique field with the actual public key data
+	tpmPublic.Unique = tpm2.NewTPMUPublicID(
+		tpm2.TPMAlgRSA,
+		&tpm2.TPM2BPublicKeyRSA{Buffer: key.N.Bytes()},
+	)
+
+	return &tpmPublic, nil
 }

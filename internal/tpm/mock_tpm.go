@@ -236,6 +236,22 @@ func (mr *MockSessionMockRecorder) FlushAllTransientHandles() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlushAllTransientHandles", reflect.TypeOf((*MockSession)(nil).FlushAllTransientHandles))
 }
 
+// GenerateChallenge mocks base method.
+func (m *MockSession) GenerateChallenge(secret []byte) ([]byte, []byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GenerateChallenge", secret)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].([]byte)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GenerateChallenge indicates an expected call of GenerateChallenge.
+func (mr *MockSessionMockRecorder) GenerateChallenge(secret any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateChallenge", reflect.TypeOf((*MockSession)(nil).GenerateChallenge), secret)
+}
+
 // GetEndorsementKeyCert mocks base method.
 func (m *MockSession) GetEndorsementKeyCert() ([]byte, error) {
 	m.ctrl.T.Helper()
@@ -309,4 +325,19 @@ func (m *MockSession) Sign(keyType KeyType, digest []byte) ([]byte, error) {
 func (mr *MockSessionMockRecorder) Sign(keyType, digest any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sign", reflect.TypeOf((*MockSession)(nil).Sign), keyType, digest)
+}
+
+// SolveChallenge mocks base method.
+func (m *MockSession) SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SolveChallenge", credentialBlob, encryptedSecret)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SolveChallenge indicates an expected call of SolveChallenge.
+func (mr *MockSessionMockRecorder) SolveChallenge(credentialBlob, encryptedSecret any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SolveChallenge", reflect.TypeOf((*MockSession)(nil).SolveChallenge), credentialBlob, encryptedSecret)
 }
