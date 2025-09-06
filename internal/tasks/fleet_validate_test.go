@@ -82,6 +82,9 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			// Mock UpdateFleetAnnotations to succeed
 			mockService.EXPECT().UpdateFleetAnnotations(gomock.Any(), fleetName, gomock.Any(), gomock.Any()).Return(api.Status{Code: http.StatusOK})
 
+			// Mock UpdateToOutOfDateByOwner to succeed
+			mockService.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any()).Return(nil)
+
 			// Mock UpdateFleetConditions to succeed
 			mockService.EXPECT().UpdateFleetConditions(gomock.Any(), fleetName, gomock.Any()).Return(api.Status{Code: http.StatusOK})
 

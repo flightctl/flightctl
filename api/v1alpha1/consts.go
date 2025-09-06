@@ -159,3 +159,8 @@ const (
 	// System-level resource name for events
 	FlightCtlSystemResourceName = "flightctl-system"
 )
+
+const (
+	DeviceOutOfDateText          = "Device has not been updated to the latest device spec"
+	DeviceOutOfSyncWithFleetText = "Device has not yet been scheduled for update to the fleet's latest spec."
+)

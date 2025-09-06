@@ -24,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -295,10 +296,21 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	}
 	tlsConfig.ServerName = tlsServerName
 
+	// Configure transport for HTTP/2 support
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		// Enable HTTP/2
+		ForceAttemptHTTP2: true,
+	}
+
+	// Configure HTTP/2
+	err = http2.ConfigureTransport(transport)
+	if err != nil {
+		return nil, fmt.Errorf("NewHTTPClientFromConfig: configuring HTTP/2 transport: %w", err)
+	}
+
 	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
+		Transport: transport,
 	}
 
 	for _, opt := range config.HTTPOptions {

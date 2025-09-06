@@ -22,7 +22,7 @@ import (
 )
 
 func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
-	return func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+	return func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 		// Add timeout for the entire event processing
 		ctx, cancel := context.WithTimeout(ctx, EventProcessingTimeout)
 		defer cancel()
@@ -256,7 +256,7 @@ func LaunchConsumers(ctx context.Context,
 	kvStore kvstore.KVStore,
 	numConsumers, threadsPerConsumer int) error {
 	for i := 0; i != numConsumers; i++ {
-		consumer, err := queuesProvider.NewConsumer(ctx, consts.TaskQueue)
+		consumer, err := queuesProvider.NewQueueConsumer(ctx, consts.TaskQueue)
 		if err != nil {
 			return err
 		}
