@@ -184,7 +184,7 @@ func TestResumeOptions_runSingleResume(t *testing.T) {
 			httpStatus:   http.StatusOK,
 			responseBody: `{"resumedDevices": 0}`,
 			expectError:  false,
-			expectOutput: "Resume request for device \"missing-device\" completed",
+			expectOutput: "failed resuming device missing-device, device doesnt exists or already resumed",
 		},
 		{
 			name:          "server error",
