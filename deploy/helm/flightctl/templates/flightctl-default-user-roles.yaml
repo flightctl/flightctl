@@ -63,6 +63,13 @@ rules:
     resources:
       - repositories
       - fleets/templateversions
+  # Device lifecycle actions (granular subresource approach)
+  - verbs:
+      - '*'  # All verbs on resume subresource
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices/resume
 
 
 ---
