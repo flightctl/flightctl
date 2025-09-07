@@ -440,35 +440,74 @@ func (s *tpmSession) Close() error {
 	return nil
 }
 
+// isEKCertPresent checks if an EK certificate exists at the given NVRAM index
+// without reading the actual certificate data
+func (s *tpmSession) isEKCertPresent(nvIndex uint32) bool {
+	readPublicCmd := tpm2.NVReadPublic{
+		NVIndex: tpm2.TPMHandle(nvIndex),
+	}
+
+	publicResp, err := readPublicCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return false // Index doesn't exist or not accessible
+	}
+
+	nvPublic, err := publicResp.NVPublic.Contents()
+	if err != nil {
+		return false
+	}
+
+	return nvPublic.DataSize > 0 // Has actual data
+}
+
+// detectEKAlgorithm determines the EK algorithm based on which certificate
+// exists in NVRAM, prioritizing RSA first
+func (s *tpmSession) detectEKAlgorithm() (KeyAlgorithm, error) {
+	if s.isEKCertPresent(client.EKCertNVIndexRSA) {
+		return RSA, nil
+	}
+
+	if s.isEKCertPresent(client.EKCertNVIndexECC) {
+		return ECDSA, nil
+	}
+
+	return "", fmt.Errorf("no EK certificate found in NVRAM")
+}
+
 // endorsementKeyCert reads endorsement key certificate from TPM NVRAM using direct commands
 func (s *tpmSession) endorsementKeyCert() ([]byte, error) {
 	if s.conn == nil {
 		return nil, fmt.Errorf("cannot read endorsement key certificate: no connection available")
 	}
 
-	// Try reading certificates from standard NVRAM indexes
-	// First try RSA, then ECC
-	var errs []error
-
-	// Try RSA EK certificate
-	certData, err := s.readEKCertFromNVRAM(client.EKCertNVIndexRSA)
+	// Detect which EK certificate type is available
+	ekAlgo, err := s.detectEKAlgorithm()
 	if err != nil {
-		errs = append(errs, fmt.Errorf("reading RSA EK certificate from NVRAM: %w", err))
-	} else if len(certData) > 0 {
-		s.log.Debugf("Successfully read RSA EK certificate: %d bytes", len(certData))
-		return certData, nil
+		return nil, fmt.Errorf("no endorsement key certificate found: %w", err)
 	}
 
-	// Try ECC EK certificate
-	certData, err = s.readEKCertFromNVRAM(client.EKCertNVIndexECC)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("reading ECC EK certificate from NVRAM: %w", err))
-	} else if len(certData) > 0 {
-		s.log.Debugf("Successfully read ECC EK certificate: %d bytes", len(certData))
-		return certData, nil
+	// Read the certificate from the appropriate index
+	var nvIndex uint32
+	switch ekAlgo {
+	case RSA:
+		nvIndex = client.EKCertNVIndexRSA
+	case ECDSA:
+		nvIndex = client.EKCertNVIndexECC
+	default:
+		return nil, fmt.Errorf("unsupported EK algorithm: %s", ekAlgo)
 	}
 
-	return nil, fmt.Errorf("no endorsement key certificate found: %w", errors.Join(errs...))
+	certData, err := s.readEKCertFromNVRAM(nvIndex)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s EK certificate from NVRAM: %w", ekAlgo, err)
+	}
+
+	if len(certData) == 0 {
+		return nil, fmt.Errorf("endorsement key certificate is empty")
+	}
+
+	s.log.Debugf("Successfully read %s EK certificate: %d bytes", ekAlgo, len(certData))
+	return certData, nil
 }
 
 // readEKCertFromNVRAM reads a certificate from the specified NVRAM index using Owner hierarchy
@@ -847,4 +886,134 @@ func (s *tpmSession) updateStorageHierarchyPassword(currentPassword, newPassword
 	}
 
 	return nil
+}
+
+// ekPolicy implements the policy callback for Endorsement Key authorization
+// This authorizes the use of EK by executing PolicySecret with the Endorsement hierarchy
+func ekPolicy(t transport.TPM, handle tpm2.TPMISHPolicy, nonceTPM tpm2.TPM2BNonce) error {
+	cmd := tpm2.PolicySecret{
+		AuthHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHEndorsement,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		PolicySession: handle,
+		NonceTPM:      nonceTPM,
+	}
+	_, err := cmd.Execute(t)
+	return err
+}
+
+func (s *tpmSession) GenerateChallenge(secret []byte) ([]byte, []byte, error) {
+	ekAlgo, err := s.detectEKAlgorithm()
+	if err != nil {
+		return nil, nil, fmt.Errorf("detecting EK algorithm: %w", err)
+	}
+
+	var template tpm2.TPMTPublic
+	switch ekAlgo {
+	case ECDSA:
+		template = tpm2.ECCEKTemplate
+	case RSA:
+		template = tpm2.RSAEKTemplate
+	default:
+		return nil, nil, fmt.Errorf("unsupported key algorithm for EK: %s", ekAlgo)
+	}
+
+	cmd := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      tpm2.New2B(template),
+	}
+
+	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating EK primary: %w", err)
+	}
+
+	ekHandle := &tpm2.NamedHandle{
+		Handle: resp.ObjectHandle,
+		Name:   resp.Name,
+	}
+	defer func() { _ = s.flushHandle(ekHandle) }()
+
+	lakHandle, err := s.LoadKey(LAK)
+	if err != nil {
+		return nil, nil, fmt.Errorf("loading LAK: %w", err)
+	}
+
+	makeCred := tpm2.MakeCredential{
+		Handle:     ekHandle.Handle,
+		Credential: tpm2.TPM2BDigest{Buffer: secret},
+		ObjectName: lakHandle.Name,
+	}
+	makeResp, err := makeCred.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return nil, nil, fmt.Errorf("TPM2_MakeCredential failed: %w", err)
+	}
+
+	return makeResp.CredentialBlob.Buffer, makeResp.Secret.Buffer, nil
+}
+
+// SolveChallenge uses TPM2_ActivateCredential to decrypt a credential challenge using the LAK as the ActivateHandle
+func (s *tpmSession) SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error) {
+	if len(credentialBlob) == 0 {
+		return nil, fmt.Errorf("credential blob is empty")
+	}
+	if len(encryptedSecret) == 0 {
+		return nil, fmt.Errorf("encrypted secret is empty")
+	}
+
+	ekAlgo, err := s.detectEKAlgorithm()
+	if err != nil {
+		return nil, fmt.Errorf("detecting EK algorithm: %w", err)
+	}
+
+	var template tpm2.TPMTPublic
+	switch ekAlgo {
+	case ECDSA:
+		template = tpm2.ECCEKTemplate
+	case RSA:
+		template = tpm2.RSAEKTemplate
+	default:
+		return nil, fmt.Errorf("unsupported key algorithm for EK: %s", ekAlgo)
+	}
+
+	cmd := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      tpm2.New2B(template),
+	}
+
+	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return nil, fmt.Errorf("creating EK primary: %w", err)
+	}
+
+	ekHandle := &tpm2.NamedHandle{
+		Handle: resp.ObjectHandle,
+		Name:   resp.Name,
+	}
+	defer func() { _ = s.flushHandle(ekHandle) }()
+
+	lakHandle, err := s.LoadKey(LAK)
+	if err != nil {
+		return nil, fmt.Errorf("loading LAK: %w", err)
+	}
+
+	activate := tpm2.ActivateCredential{
+		ActivateHandle: *lakHandle,
+		KeyHandle: tpm2.AuthHandle{
+			Handle: ekHandle.Handle,
+			Name:   ekHandle.Name,
+			// Activating with the EK requires usage of a policy. This policy is derived from go-tpm
+			Auth: tpm2.Policy(tpm2.TPMAlgSHA256, 16, ekPolicy),
+		},
+		CredentialBlob: tpm2.TPM2BIDObject{Buffer: credentialBlob},
+		Secret:         tpm2.TPM2BEncryptedSecret{Buffer: encryptedSecret},
+	}
+
+	activateResp, err := activate.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return nil, fmt.Errorf("TPM2_ActivateCredential failed: %w", err)
+	}
+
+	return activateResp.CertInfo.Buffer, nil
 }

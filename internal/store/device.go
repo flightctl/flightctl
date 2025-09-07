@@ -920,7 +920,7 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 	if groupByFleet {
 		selectList = append(selectList, "owner as fleet")
 	}
-	groupList := []string{"org_id", "status"}
+	groupList := []string{"org_id", statusField}
 	if groupByFleet {
 		groupList = append(groupList, "owner")
 	}
