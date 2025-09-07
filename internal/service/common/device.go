@@ -119,6 +119,25 @@ func resourcesDisk(disk api.DeviceResourceStatusType, resourceErrors *[]string, 
 
 func updateServerSideDeviceStatus(device *api.Device) bool {
 	lastDeviceStatus := device.Status.Summary.Status
+
+	// Check for special annotations first - these take precedence over ALL other status checks
+	annotations := lo.FromPtr(device.Metadata.Annotations)
+
+	// AwaitingReconnect annotation takes highest precedence - overrides everything
+	if annotations[api.DeviceAnnotationAwaitingReconnect] == "true" {
+		device.Status.Summary.Status = api.DeviceSummaryStatusAwaitingReconnect
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoAwaitingReconnect)
+		return device.Status.Summary.Status != lastDeviceStatus
+	}
+
+	// ConflictPaused annotation takes second highest precedence
+	if annotations[api.DeviceAnnotationConflictPaused] == "true" {
+		device.Status.Summary.Status = api.DeviceSummaryStatusConflictPaused
+		device.Status.Summary.Info = lo.ToPtr(getConflictPausedInfo(device, annotations))
+		return device.Status.Summary.Status != lastDeviceStatus
+	}
+
+	// Standard status checks follow normal priority order
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.Summary.Status = api.DeviceSummaryStatusUnknown
 		device.Status.Summary.Info = lo.ToPtr(fmt.Sprintf("Device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
@@ -136,7 +155,6 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	resourcesMemory(device.Status.Resources.Memory, &resourceErrors, &resourceDegradations)
 	resourcesDisk(device.Status.Resources.Disk, &resourceErrors, &resourceDegradations)
 
-	annotations := lo.FromPtr(device.Metadata.Annotations)
 	switch {
 	case len(resourceErrors) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusError
@@ -144,12 +162,6 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	case len(resourceDegradations) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
 		device.Status.Summary.Info = lo.ToPtr(strings.Join(resourceDegradations, ", "))
-	case annotations[api.DeviceAnnotationAwaitingReconnect] == "true":
-		device.Status.Summary.Status = api.DeviceSummaryStatusAwaitingReconnect
-		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoAwaitingReconnect)
-	case annotations[api.DeviceAnnotationConflictPaused] == "true":
-		device.Status.Summary.Status = api.DeviceSummaryStatusConflictPaused
-		device.Status.Summary.Info = lo.ToPtr(getConflictPausedInfo(device, annotations))
 	default:
 		device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoHealthy)
