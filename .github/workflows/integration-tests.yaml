@@ -54,7 +54,7 @@ jobs:
 
           echo "MIGRATION_IMAGE=flightctl-db-setup:${COMMIT_SHA}" >> "$GITHUB_ENV"
 
-      - name: Running integration tests in template mode (current)
+      - name: Running integration tests
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           make integration-test VERBOSE=true
@@ -67,15 +67,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: flightctl/flightctl
+          #TODO: checkout previously released version after 0.10 release
           ref: ${{ github.event.pull_request.base.ref }}
-          fetch-depth: 0
-
-      - name: Checkout baseline branch (default)
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name != 'pull_request' }}
-        uses: actions/checkout@v4
-        with:
-          repository: flightctl/flightctl
-          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: Print checkout info (baseline)

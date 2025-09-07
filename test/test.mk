@@ -108,7 +108,7 @@ _run_template_migration:
 	  echo "##################################################"; \
 	  echo "Running database migration & template creation using: $$img"; \
 	  echo "##################################################"; \
-	    sudo -E env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
+	  sudo -E env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
     test/scripts/run_migration.sh \
 	'
 
