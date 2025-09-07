@@ -37,7 +37,7 @@ global:
   baseDomainTls:
     cert: ""
     key: ""
-  storageClassName: ""
+  storageClassName: "standard"
   imagePullSecretName: ""
   apiUrl: "" # alternative to global.auth.k8s.externalOpenShiftApiUrl used by multiclusterhub operator
   auth:
