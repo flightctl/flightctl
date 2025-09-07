@@ -68,10 +68,10 @@ var (
 	}
 )
 
-func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, st store.Store, log logrus.FieldLogger) bool {
+func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, st store.Store, log logrus.FieldLogger) (bool, bool) {
 
 	if device == nil {
-		return false
+		return false, false
 	}
 	if device.Status == nil {
 		device.Status = lo.ToPtr(api.NewDeviceStatus())
@@ -87,7 +87,9 @@ func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.D
 
 	lifecycleStatusChanged := updateServerSideLifecycleStatus(device)
 
-	return deviceStatusChanged || updatedStatusChanged || applicationStatusChanged || lifecycleStatusChanged || deviceAnnotationsChanged
+	anyStatusChanged := deviceStatusChanged || updatedStatusChanged || applicationStatusChanged || lifecycleStatusChanged || deviceAnnotationsChanged
+
+	return anyStatusChanged, deviceAnnotationsChanged
 }
 
 func resourcesCpu(cpu api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string) {
