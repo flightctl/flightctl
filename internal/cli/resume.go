@@ -164,7 +164,11 @@ func (o *ResumeOptions) runSingleResume(ctx context.Context, c *apiclient.Client
 	if response.HTTPResponse != nil {
 		switch response.HTTPResponse.StatusCode {
 		case http.StatusOK:
-			fmt.Printf("Resume request for %s \"%s\" completed\n", DeviceKind, name)
+			if response.JSON200.ResumedDevices == 1 {
+				fmt.Printf("Resume request for %s \"%s\" completed\n", DeviceKind, name)
+			} else {
+				fmt.Printf("failed resuming device %s, device doesnt exists or already resumed\n", name)
+			}
 		case http.StatusBadRequest:
 			return fmt.Errorf("invalid request for device %s", name)
 		default:
