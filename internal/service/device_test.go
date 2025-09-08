@@ -363,6 +363,59 @@ func TestDeviceNonExistingResource(t *testing.T) {
 	require.Equal(api.StatusResourceNotFound("Device", "bar"), retStatus)
 }
 
+func TestDeviceReplaceStatusLastSeen(t *testing.T) {
+	require := require.New(t)
+
+	// Create test service handler
+	ts := &TestStore{}
+	serviceHandler := &ServiceHandler{
+		eventHandler: NewEventHandler(ts, &DummyWorkerClient{}, logrus.New()),
+		store:        ts,
+		workerClient: &DummyWorkerClient{},
+		log:          logrus.New(),
+	}
+
+	// Create a device first
+	deviceName := "test-device"
+	originalDevice := &api.Device{
+		ApiVersion: "v1",
+		Kind:       "Device",
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr(deviceName),
+		},
+		Status: &api.DeviceStatus{
+			LastSeen: time.Time{}, // Zero time initially
+		},
+	}
+
+	ctx := context.Background()
+	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, originalDevice, nil)
+	require.NoError(err)
+
+	// Test different contexts
+	agentCtx := context.Background()                                                           // Agent request (should update LastSeen)
+	userCtx := context.Background()                                                            // User request (should NOT update LastSeen)
+	internalCtx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true) // Internal (should NOT update)
+
+	// Test 1: Agent request should update LastSeen
+	deviceUpdate := *originalDevice
+	result, status := serviceHandler.ReplaceDeviceStatus(agentCtx, deviceName, deviceUpdate)
+	require.Equal(int32(200), status.Code)
+	require.False(result.Status.LastSeen.IsZero()) // Should be updated
+
+	// Test 2: User request should NOT update LastSeen (THIS WILL FAIL - showing the bug)
+	deviceUpdate.Status.LastSeen = time.Time{} // Reset to zero
+	result, status = serviceHandler.ReplaceDeviceStatus(userCtx, deviceName, deviceUpdate)
+	require.Equal(int32(200), status.Code)
+	require.True(result.Status.LastSeen.IsZero()) // Should remain zero (will FAIL)
+
+	// Test 3: Internal request should NOT update LastSeen
+	deviceUpdate.Status.LastSeen = time.Time{} // Reset to zero
+	result, status = serviceHandler.ReplaceDeviceStatus(internalCtx, deviceName, deviceUpdate)
+	require.Equal(int32(200), status.Code)
+	require.True(result.Status.LastSeen.IsZero()) // Should remain zero
+}
+
 func TestDeviceDisconnected(t *testing.T) {
 	require := require.New(t)
 
