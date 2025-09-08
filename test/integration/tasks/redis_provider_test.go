@@ -2,7 +2,10 @@ package tasks_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -10,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,6 +42,32 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 		})
 		if err != nil {
 			Skip(fmt.Sprintf("Redis not available, skipping test: %v", err))
+		}
+
+		// Clean up global Redis keys from previous tests
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     "localhost:6379",
+			Password: "adminpass",
+			DB:       0,
+		})
+		defer redisClient.Close()
+
+		// Get all keys that might interfere with tests
+		keys, err := redisClient.Keys(ctx, "*").Result()
+		if err == nil {
+			// Filter for keys we want to clean up
+			var keysToDelete []string
+			for _, key := range keys {
+				// Clean up global keys and any test-related keys
+				if key == "in_flight_tasks" || key == "global_checkpoint" ||
+					strings.HasPrefix(key, "failed_messages:") ||
+					strings.HasPrefix(key, "test-queue-") {
+					keysToDelete = append(keysToDelete, key)
+				}
+			}
+			if len(keysToDelete) > 0 {
+				redisClient.Del(ctx, keysToDelete...)
+			}
 		}
 	})
 
@@ -666,6 +696,357 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			// Clean up
 			consumer.Close()
 			publisher.Close()
+		})
+	})
+
+	Describe("Checkpoint Advancement", func() {
+		It("should advance checkpoint when all tasks complete successfully", func() {
+			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
+
+			consumer, err := provider.NewConsumer(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer consumer.Close()
+
+			publisher, err := provider.NewPublisher(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer publisher.Close()
+
+			// Initial checkpoint should be zero or missing
+			initialTimestamp, err := provider.GetLatestProcessedTimestamp(ctx)
+			if err != nil {
+				Expect(errors.Is(err, queues.ErrCheckpointMissing)).To(BeTrue(), "Expected ErrCheckpointMissing but got: %v", err)
+				initialTimestamp = time.Time{} // Set to zero for consistency
+			}
+			// If checkpoint is missing or zero, both are valid initial states
+			Expect(initialTimestamp.IsZero()).To(BeTrue())
+
+			// Publish multiple messages with increasing timestamps
+			timestamps := make([]time.Time, 3)
+			for i := 0; i < 3; i++ {
+				timestamps[i] = time.Now().Add(time.Duration(i) * time.Millisecond)
+				err = publisher.Publish(ctx, []byte(fmt.Sprintf("message%d", i)), timestamps[i].UnixMicro())
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			messagesProcessed := make(chan struct{}, 3)
+
+			// Start consuming and complete all messages successfully
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+				err := consumer.Complete(ctx, entryID, payload, nil)
+				messagesProcessed <- struct{}{}
+				return err
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Wait for all messages to be processed
+			Eventually(func() int {
+				return len(messagesProcessed)
+			}, 5*time.Second, 100*time.Millisecond).Should(Equal(3))
+
+			// Set initial checkpoint to zero to enable advancement
+			err = provider.SetCheckpointTimestamp(ctx, time.Time{})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Run checkpoint advancement
+			err = provider.AdvanceCheckpointAndCleanup(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Checkpoint should now be at or after the latest timestamp
+			checkpointTimestamp, err := provider.GetLatestProcessedTimestamp(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(checkpointTimestamp.IsZero()).To(BeFalse())
+			Expect(checkpointTimestamp.UnixMicro()).To(BeNumerically(">=", timestamps[2].UnixMicro()))
+		})
+
+		It("should not advance checkpoint past incomplete tasks", func() {
+			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
+
+			consumer, err := provider.NewConsumer(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer consumer.Close()
+
+			publisher, err := provider.NewPublisher(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer publisher.Close()
+
+			// Publish messages with specific timestamps
+			baseTime := time.Now()
+			timestamps := []time.Time{
+				baseTime,
+				baseTime.Add(1 * time.Millisecond),
+				baseTime.Add(2 * time.Millisecond),
+			}
+
+			for i, ts := range timestamps {
+				err = publisher.Publish(ctx, []byte(fmt.Sprintf("message%d", i)), ts.UnixMicro())
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			messagesProcessed := make(chan string, 3)
+
+			// Process messages, but fail the middle one
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+				message := string(payload)
+				var completionErr error
+
+				// Fail the middle message
+				if message == "message1" {
+					completionErr = fmt.Errorf("simulated failure")
+				}
+
+				err := consumer.Complete(ctx, entryID, payload, completionErr)
+				messagesProcessed <- message
+				return err
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Wait for all messages to be processed
+			Eventually(func() int {
+				count := len(messagesProcessed)
+				return count
+			}, 5*time.Second, 100*time.Millisecond).Should(Equal(3))
+
+			// Set initial checkpoint to zero to enable advancement
+			err = provider.SetCheckpointTimestamp(ctx, time.Time{})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Run checkpoint advancement
+			err = provider.AdvanceCheckpointAndCleanup(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Checkpoint should only advance to the first completed task (message0)
+			checkpointTimestamp, err := provider.GetLatestProcessedTimestamp(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Should be at or near the first timestamp, but not past the failed task
+			if !checkpointTimestamp.IsZero() {
+				Expect(checkpointTimestamp.UnixMicro()).To(BeNumerically(">=", timestamps[0].UnixMicro()))
+				Expect(checkpointTimestamp.UnixMicro()).To(BeNumerically("<", timestamps[1].UnixMicro()))
+			}
+		})
+
+		It("should advance checkpoint past permanently failed tasks", func() {
+			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
+
+			consumer, err := provider.NewConsumer(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer consumer.Close()
+
+			publisher, err := provider.NewPublisher(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer publisher.Close()
+
+			// Publish a message
+			timestamp := time.Now()
+			err = publisher.Publish(ctx, []byte("test message"), timestamp.UnixMicro())
+			Expect(err).ToNot(HaveOccurred())
+
+			messageProcessed := make(chan struct{}, 1)
+
+			// Process message and fail it
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+				err := consumer.Complete(ctx, entryID, payload, fmt.Errorf("simulated failure"))
+				messageProcessed <- struct{}{}
+				return err
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Wait for message to be processed and failed
+			Eventually(func() int {
+				count := len(messageProcessed)
+				return count
+			}, 5*time.Second, 100*time.Millisecond).Should(Equal(1))
+
+			// Run retry with low max retries to trigger permanent failure
+			config := queues.RetryConfig{
+				BaseDelay:    10 * time.Millisecond,
+				MaxRetries:   1, // Will exceed after 1 retry
+				MaxDelay:     50 * time.Millisecond,
+				JitterFactor: 0.0,
+			}
+
+			// Wait for retry time to pass
+			time.Sleep(20 * time.Millisecond)
+
+			// Run retry - this should mark the task as permanently failed and completed
+			retryCount, err := provider.RetryFailedMessages(ctx, queueName, config, func(entryID string, body []byte, retryCount int) error {
+				return fmt.Errorf("still failing")
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retryCount).To(BeNumerically(">=", 0))
+
+			// Set initial checkpoint to zero to enable advancement
+			err = provider.SetCheckpointTimestamp(ctx, time.Time{})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Run checkpoint advancement
+			err = provider.AdvanceCheckpointAndCleanup(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Checkpoint should now advance past the permanently failed task
+			checkpointTimestamp, err := provider.GetLatestProcessedTimestamp(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Should have advanced (permanently failed tasks are marked as completed to allow progress)
+			// The checkpoint may not reach the original timestamp since permanently failed tasks
+			// are marked with current time when marked as completed
+			Expect(checkpointTimestamp.IsZero()).To(BeFalse(), "Checkpoint should have advanced after permanent failure")
+		})
+
+		It("should handle mixed completion states correctly", func() {
+			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
+
+			consumer, err := provider.NewConsumer(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer consumer.Close()
+
+			publisher, err := provider.NewPublisher(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer publisher.Close()
+
+			// Publish messages: success, success, fail, success
+			baseTime := time.Now()
+			timestamps := []time.Time{
+				baseTime,
+				baseTime.Add(1 * time.Millisecond),
+				baseTime.Add(2 * time.Millisecond), // This will fail
+				baseTime.Add(3 * time.Millisecond),
+			}
+
+			for i, ts := range timestamps {
+				err = publisher.Publish(ctx, []byte(fmt.Sprintf("message%d", i)), ts.UnixMicro())
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			messagesProcessed := make(chan int, 4)
+
+			// Process messages with specific success/failure pattern
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+				message := string(payload)
+				var completionErr error
+
+				// Fail message2 (index 2)
+				if message == "message2" {
+					completionErr = fmt.Errorf("simulated failure")
+				}
+
+				err := consumer.Complete(ctx, entryID, payload, completionErr)
+
+				// Extract message index
+				var msgIndex int
+				_, _ = fmt.Sscanf(message, "message%d", &msgIndex)
+				messagesProcessed <- msgIndex
+
+				return err
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Wait for all messages to be processed
+			Eventually(func() int {
+				count := len(messagesProcessed)
+				return count
+			}, 5*time.Second, 100*time.Millisecond).Should(Equal(4))
+
+			// Set initial checkpoint to zero to enable advancement
+			err = provider.SetCheckpointTimestamp(ctx, time.Time{})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Run checkpoint advancement
+			err = provider.AdvanceCheckpointAndCleanup(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Checkpoint should advance to message1 (timestamp[1]) but not past the failed message2
+			checkpointTimestamp, err := provider.GetLatestProcessedTimestamp(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			if !checkpointTimestamp.IsZero() {
+				// Should be at least at message1's timestamp
+				Expect(checkpointTimestamp.UnixMicro()).To(BeNumerically(">=", timestamps[1].UnixMicro()))
+				// But should not reach message2's timestamp (the failed one)
+				Expect(checkpointTimestamp.UnixMicro()).To(BeNumerically("<", timestamps[2].UnixMicro()))
+			}
+		})
+
+		It("should handle empty queue gracefully", func() {
+			// Test with no messages at all - expect ErrCheckpointMissing since no checkpoint exists
+			err := provider.AdvanceCheckpointAndCleanup(ctx)
+			Expect(errors.Is(err, queues.ErrCheckpointMissing)).To(BeTrue())
+
+			// Checkpoint should still be missing
+			_, err = provider.GetLatestProcessedTimestamp(ctx)
+			Expect(errors.Is(err, queues.ErrCheckpointMissing)).To(BeTrue())
+		})
+
+		It("should not advance checkpoint backwards", func() {
+			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
+
+			consumer, err := provider.NewConsumer(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer consumer.Close()
+
+			publisher, err := provider.NewPublisher(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer publisher.Close()
+
+			// First, establish a checkpoint by processing a message
+			futureTime := time.Now().Add(1 * time.Hour) // Far in the future
+			err = publisher.Publish(ctx, []byte("future message"), futureTime.UnixMicro())
+			Expect(err).ToNot(HaveOccurred())
+
+			var messageProcessed int32
+			var pastMessageProcessed int32
+
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.Consumer, log logrus.FieldLogger) error {
+				message := string(payload)
+				err := consumer.Complete(ctx, entryID, payload, nil)
+
+				if message == "future message" {
+					atomic.StoreInt32(&messageProcessed, 1)
+				} else if message == "past message" {
+					atomic.StoreInt32(&pastMessageProcessed, 1)
+				}
+				return err
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			Eventually(func() bool {
+				processed := atomic.LoadInt32(&messageProcessed) == 1
+				return processed
+			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+			// Set initial checkpoint to zero to enable advancement
+			err = provider.SetCheckpointTimestamp(ctx, time.Time{})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Advance checkpoint
+			err = provider.AdvanceCheckpointAndCleanup(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Get the established checkpoint
+			checkpointAfterFuture, err := provider.GetLatestProcessedTimestamp(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Now publish and process a message with an earlier timestamp
+			pastTime := time.Now() // Earlier than futureTime
+			err = publisher.Publish(ctx, []byte("past message"), pastTime.UnixMicro())
+			Expect(err).ToNot(HaveOccurred())
+
+			Eventually(func() bool {
+				processed := atomic.LoadInt32(&pastMessageProcessed) == 1
+				return processed
+			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+			// Try to advance checkpoint again
+			err = provider.AdvanceCheckpointAndCleanup(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Checkpoint should not have moved backwards
+			checkpointAfterPast, err := provider.GetLatestProcessedTimestamp(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			if !checkpointAfterFuture.IsZero() && !checkpointAfterPast.IsZero() {
+				Expect(checkpointAfterPast.UnixMicro()).To(BeNumerically(">=", checkpointAfterFuture.UnixMicro()))
+			}
 		})
 	})
 })

@@ -11,6 +11,11 @@ const (
 	// Tasks
 	TaskQueue = "task-queue"
 
+	// Checkpoints
+	CheckpointConsumerEventProcessor = "event_processor"
+	CheckpointConsumerTaskQueue      = "task_queue"
+	CheckpointKeyGlobal              = "global_checkpoint"
+
 	// Ctx
 	InternalRequestCtxKey      ctxKey = "internal-request"
 	DelayDeviceRenderCtxKey    ctxKey = "delay-device-render"
