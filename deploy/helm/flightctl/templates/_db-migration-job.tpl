@@ -26,12 +26,12 @@ metadata:
   annotations:
     {{- if gt (len $hooks) 0 }}
     helm.sh/hook: {{ join "," $hooks }}
-    {{- end }}
     helm.sh/hook-weight: "{{ $hookWeight }}"
     helm.sh/hook-delete-policy: "{{ $deletePolicy }}"
+    {{- end }}
 spec:
-  backoffLimit: {{ $ctx.Values.dbSetup.migration.backoffLimit | default 3 | int }}
-  activeDeadlineSeconds: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | default 600 | int }}
+  backoffLimit: {{ $ctx.Values.dbSetup.migration.backoffLimit | int }}
+  activeDeadlineSeconds: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | int }}
   template:
     metadata:
       labels:
@@ -44,15 +44,15 @@ spec:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" $ctx "userType" "admin" "timeout" 120 "sleep" 2) | nindent 6 }}
       {{- if not $isDryRun }}
       - name: setup-database-users
-        image: "{{ $ctx.Values.dbSetup.image.image }}:{{ $ctx.Values.dbSetup.image.tag | default $ctx.Chart.AppVersion }}"
+        image: "{{ $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
         imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.dbSetup.image.pullPolicy }}
         env:
         - name: DB_HOST
           value: "{{ include "flightctl.dbHostname" $ctx }}"
         - name: DB_PORT
-          value: "{{ (default 5432 $ctx.Values.db.port) }}"
+          value: "{{ $ctx.Values.db.port }}"
         - name: DB_NAME
-          value: "{{ (default "flightctl" $ctx.Values.db.name) }}"
+          value: "{{ $ctx.Values.db.name }}"
         - name: DB_ADMIN_USER
           valueFrom:
             secretKeyRef:
@@ -109,7 +109,7 @@ spec:
       {{- end }}
       containers:
       - name: run-migrations
-        image: "{{ $ctx.Values.dbSetup.image.image }}:{{ $ctx.Values.dbSetup.image.tag | default $ctx.Chart.AppVersion }}"
+        image: "{{ $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
         imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.dbSetup.image.pullPolicy }}
         env:
         - name: HOME
@@ -176,7 +176,7 @@ spec:
           DB_HOST="{{ include "flightctl.dbHostname" $ctx }}"
           # Get admin credentials from the same secrets used by init container
           export PGPASSWORD="$DB_ADMIN_PASSWORD"
-          psql -h "$DB_HOST" -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_ADMIN_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "SELECT grant_app_permissions_on_existing_tables();"
+          psql -h "$DB_HOST" -p {{ $ctx.Values.db.port }} -U "$DB_ADMIN_USER" -d "{{ $ctx.Values.db.name }}" -c "SELECT grant_app_permissions_on_existing_tables();"
           echo "Permission granting completed successfully!"
           {{- end }}
         volumeMounts:

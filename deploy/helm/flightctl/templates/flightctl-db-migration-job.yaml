@@ -7,10 +7,10 @@
 {{- $dryRun := default (dict) $migration.dryRun -}}
 {{- $preUpgrade := default (dict) $dryRun.preUpgrade -}}
 
-{{- $dryRunEnabled := default true  $preUpgrade.enabled -}}
-{{- $dryRunHookWeight := default "-10" $preUpgrade.hookWeight -}}
-{{- $backoffLimit := default 3     $migration.backoffLimit -}}
-{{- $activeDeadlineSeconds := default 600   $migration.activeDeadlineSeconds -}}
+{{- $dryRunEnabled := $preUpgrade.enabled -}}
+{{- $dryRunHookWeight := $preUpgrade.hookWeight -}}
+{{- $backoffLimit := $migration.backoffLimit -}}
+{{- $activeDeadlineSeconds := $migration.activeDeadlineSeconds -}}
 
 {{- if $dryRunEnabled }}
 {{- include "flightctl.dbMigrationJob" (dict
@@ -24,11 +24,20 @@
 ---
 {{- end }}
 
+{{- if .Release.IsUpgrade }}
 {{- include "flightctl.dbMigrationJob" (dict
   "context" $root
   "name" $baseName
-  "hooks" (list "post-install" "pre-upgrade")
+  "hooks" (list "pre-upgrade")
   "hookWeight" "10"
   "hookDeletePolicy" "before-hook-creation,hook-succeeded"
   "isDryRun" false
 ) }}
+{{- else if .Release.IsInstall }}
+{{- include "flightctl.dbMigrationJob" (dict
+  "context" $root
+  "name" $baseName
+  "hooks" (list)
+  "isDryRun" false
+) }}
+{{- end }}

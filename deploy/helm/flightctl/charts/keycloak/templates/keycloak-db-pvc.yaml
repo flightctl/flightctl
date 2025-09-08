@@ -17,6 +17,8 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  storageClassName: {{ .Values.global.storageClassName }}
+  {{- with .Values.global.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
   volumeMode: Filesystem
 {{ end }}

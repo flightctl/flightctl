@@ -82,8 +82,8 @@ spec:
           paas.redhat.com/appcode: {{ .Values.global.appCode }}
         {{- end }}
       spec:
-        {{- if .Values.global.storageClassName }}
-        storageClassName: {{ .Values.global.storageClassName }}
+        {{- with .Values.global.storageClassName }}
+        storageClassName: {{ . }}
         {{- end }}
         accessModes:
           - ReadWriteOnce

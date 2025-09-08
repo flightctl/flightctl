@@ -9,9 +9,9 @@ data:
   config.yaml: |-
     database:
         hostname: {{ include "flightctl.dbHostname" . }}
-        type: {{ (default "pgsql" $.Values.db.type) | quote }}
-        port: {{ (default 5432 $.Values.db.port) }}
-        name: {{ (default "flightctl" $.Values.db.name) }}
+        type: {{ $.Values.db.type | quote }}
+        port: {{ $.Values.db.port }}
+        name: {{ $.Values.db.name }}
     service: {}
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local

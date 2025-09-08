@@ -28,7 +28,7 @@ spec:
       containers:
         - env:
             - name: POSTGRESQL_DATABASE
-              value: {{ (default "flightctl" $.Values.db.name) }}
+              value: {{ $.Values.db.name }}
             - name: POSTGRESQL_MASTER_PASSWORD
               valueFrom:
                 secretKeyRef:

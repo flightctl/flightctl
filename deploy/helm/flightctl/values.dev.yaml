@@ -8,7 +8,7 @@ global:
     endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
     insecure: true
   internalNamespace: flightctl-internal
-  storageClassName: standard
+  # storageClassName: standard
   exposeServicesMethod: "nodePort"
   nodePorts:
     api: 3443
