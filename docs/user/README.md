@@ -51,6 +51,7 @@ Welcome to the Flight Control user documentation.
 * [Installing the Flight Control CLI](install-cli.md)
 * Using the Flight Control CLI
 * [Configuring the Flight Control Agent](configuring-agent.md)
+* [Restore Operations](restore.md)
 * [Troubleshooting](troubleshooting.md)
 
 **References** - Useful references.
