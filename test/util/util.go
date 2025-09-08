@@ -124,6 +124,21 @@ func (t *testProvider) RetryFailedMessages(ctx context.Context, queueName string
 	return 0, nil
 }
 
+func (t *testProvider) GetLatestProcessedTimestamp(ctx context.Context) (time.Time, error) {
+	// For test provider, return zero time since we don't track checkpoints
+	return time.Time{}, nil
+}
+
+func (t *testProvider) AdvanceCheckpointAndCleanup(ctx context.Context) error {
+	// For test provider, this is a no-op since we don't track checkpoints
+	return nil
+}
+
+func (t *testProvider) SetCheckpointTimestamp(ctx context.Context, timestamp time.Time) error {
+	// For test provider, this is a no-op since we don't track checkpoints
+	return nil
+}
+
 // NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
 func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
 	// create a listener using the next available port

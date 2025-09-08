@@ -1,10 +1,10 @@
 package queues
 
 /*
-Redis Provider Implementation - Native Stream Consumer Groups
+Redis Provider Implementation - Stream Consumer Groups with Checkpoint Tracking
 
 This provider implements a reliable message queue system using Redis Streams with native
-consumer groups for automatic acknowledgment and pending message tracking.
+consumer groups and atomic checkpoint advancement for event replay safety.
 
 Data Structures:
 1. Redis Stream: <queue_name>
@@ -17,32 +17,56 @@ Data Structures:
    - Messages are deleted immediately after processing
 
 3. Failed Messages Sorted Set: failed_messages:<queue_name>
-   - Member: <entryID>|base64(<body>)|<processID>|<retryCount>
+   - Member: <streamName>|<entryID>|base64(<body>)|<processID>|<retryCount>
    - Score: retry timestamp (when message should be retried)
    - Stores failed messages with exponential backoff retry scheduling
    - Sorted by retry timestamp for efficient retry processing
    - processID included for audit purposes
    - retryCount tracks number of retry attempts for exponential backoff
    - body is base64 encoded to handle any characters including pipe characters
+   - streamName qualification ensures consistency with in-flight tracking
+
+4. In-Flight Tasks Sorted Set: in_flight_tasks
+   - Member: <stream_name>|<redis_entry_id> or <stream_name>|<redis_entry_id>:completed
+   - Score: message timestamp (microseconds)
+   - Tracks task completion status for safe checkpoint advancement
+   - Tasks marked with ":completed" suffix when successfully processed
+   - Failed tasks remain unmarked to act as checkpoint barriers
+   - Completed tasks cleaned up atomically when checkpoint advances past them
+   - Stream name qualification prevents ID collisions across different streams
+
+5. Global Checkpoint: global_checkpoint
+   - Key stores latest safe checkpoint timestamp (RFC3339Nano format)
+   - Updated atomically with task cleanup via Lua script
+   - Represents latest timestamp where all prior tasks are completed
 
 Message Flow:
 1. Message published to Redis stream with tracing context and timestamp
 2. Consumer reads message using XREADGROUP
-3. Handler processes message
-4. Message completed:
-   - If failed: added to failed messages sorted set
+3. Add message to in_flight_tasks set when processing starts
+4. Handler processes message
+5. Message completed:
+   - If successful: mark task as completed with ":completed" suffix
+   - If failed: task remains unmarked (acts as checkpoint barrier)
+   - If permanently failed (max retries): mark as completed to allow progress
    - Always: XDEL to remove from stream
+
+Checkpoint Advancement:
+- Lua script atomically scans in-flight tasks to find safe checkpoint timestamp
+- Checkpoint advances to latest completed task before any incomplete task
+- Completed tasks before checkpoint are cleaned up in same atomic operation
+- Failed tasks prevent checkpoint advancement until resolved or permanently failed
 
 Crash Recovery:
 - Pending messages automatically tracked by Redis consumer groups
 - Failed messages preserved in sorted set for retry
-- Process ID ensures worker isolation
+- In-flight task tracking survives worker crashes
+- Checkpoint safety prevents data loss during Redis failures
 
 Performance Characteristics:
-- O(1) for message deletion
-- O(1) for pending message detection via XPENDING
-- Native Redis Streams consumer group functionality
-- No custom in-flight tracking needed
+- O(1) for message completion marking (single ZADD operation)
+- O(N) checkpoint advancement where N = in-flight tasks (typically small)
+- Atomic checkpoint operations prevent race conditions
 - Exponential backoff with jitter prevents thundering herd during outages
 - Configurable retry limits and backoff parameters
 */
@@ -51,6 +75,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -71,6 +96,13 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+)
+
+// Redis key constants
+const (
+	redisKeyInFlightTasks        = "in_flight_tasks"
+	redisKeyGlobalCheckpoint     = "global_checkpoint"
+	redisKeyFailedMessagesPrefix = "failed_messages"
 )
 
 type redisProvider struct {
@@ -211,6 +243,164 @@ func (r *redisProvider) CheckHealth(ctx context.Context) error {
 	return nil
 }
 
+func (r *redisProvider) GetLatestProcessedTimestamp(ctx context.Context) (time.Time, error) {
+	// Get the current checkpoint timestamp from Redis
+	checkpointStr, err := r.client.Get(ctx, redisKeyGlobalCheckpoint).Result()
+	if err == redis.Nil {
+		// Checkpoint key is missing from Redis
+		return time.Time{}, ErrCheckpointMissing
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get checkpoint: %w", err)
+	}
+
+	// Parse the checkpoint timestamp - try integer first, then float (for scientific notation), then RFC3339Nano
+	if microseconds, err := strconv.ParseInt(checkpointStr, 10, 64); err == nil {
+		// Stored as integer microseconds (best precision)
+		return time.UnixMicro(microseconds), nil
+	}
+	if microsecondsFloat, err := strconv.ParseFloat(checkpointStr, 64); err == nil {
+		// Stored as microseconds in scientific notation
+		// Use math.Round to avoid precision loss when converting float64 to int64
+		return time.UnixMicro(int64(math.Round(microsecondsFloat))), nil
+	}
+
+	// Try RFC3339Nano format
+	timestamp, err := time.Parse(time.RFC3339Nano, checkpointStr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse checkpoint timestamp: %w", err)
+	}
+
+	return timestamp, nil
+}
+
+func (r *redisProvider) AdvanceCheckpointAndCleanup(ctx context.Context) error {
+	// Lua script to find safe checkpoint timestamp and update atomically
+	luaScript := `
+		local checkpointKey = KEYS[1]
+		local inFlightKey = KEYS[2]
+
+		-- Check if checkpoint key exists, exit if missing
+		if redis.call('EXISTS', checkpointKey) == 0 then
+			return {-1, 0, "checkpoint key missing"}
+		end
+
+		-- Get current checkpoint
+		local currentCheckpoint = redis.call('GET', checkpointKey)
+
+		-- Get all in-flight tasks in timestamp order
+		local allTasks = redis.call('ZRANGE', inFlightKey, 0, -1, 'WITHSCORES')
+
+		-- If no tasks at all, nothing to checkpoint
+		if #allTasks == 0 then
+			return {0, 0, "no in-flight tasks found"}
+		end
+
+		-- Find the first incomplete task
+		local safeTimestampNum = nil
+		local completedCount = 0
+		local incompleteCount = 0
+		local firstIncomplete = nil
+
+		for i = 1, #allTasks, 2 do
+			local member = allTasks[i]
+			local score = tonumber(allTasks[i+1])
+
+			-- If task is completed, we can checkpoint at this timestamp
+			if string.sub(member, -10) == ":completed" then
+				safeTimestampNum = score
+				completedCount = completedCount + 1
+			else
+				-- Hit incomplete task, stop here
+				incompleteCount = incompleteCount + 1
+				if not firstIncomplete then
+					firstIncomplete = member
+				end
+				break
+			end
+		end
+
+		-- If no safe timestamp found, nothing to checkpoint
+		if not safeTimestampNum then
+			return {0, 0, "no completed tasks found"}
+		end
+
+		-- Check if new timestamp is actually newer than current checkpoint
+		if currentCheckpoint then
+			local currentCheckpointNum = tonumber(currentCheckpoint)
+			if currentCheckpointNum and safeTimestampNum <= currentCheckpointNum then
+				return {0, 0, "timestamp not newer than current checkpoint"}
+			end
+		end
+
+		-- Update checkpoint (format as integer to preserve precision)
+		redis.call('SET', checkpointKey, string.format("%.0f", safeTimestampNum))
+
+		-- Clean up completed tasks before the new checkpoint
+		local safeTimestampMicros = safeTimestampNum
+		local completedTasks = redis.call('ZRANGEBYSCORE', inFlightKey, '-inf', safeTimestampMicros)
+
+		local cleanedCount = 0
+		for i, member in ipairs(completedTasks) do
+			-- Only remove if it's a completed task (has ":completed" suffix)
+			if string.sub(member, -10) == ":completed" then
+				redis.call('ZREM', inFlightKey, member)
+				cleanedCount = cleanedCount + 1
+			end
+		end
+
+		return {1, cleanedCount, string.format("%.0f", safeTimestampNum)} -- 1 = updated, cleanedCount, new timestamp
+	`
+
+	// Execute the Lua script
+	result, err := r.client.Eval(ctx, luaScript, []string{redisKeyGlobalCheckpoint, redisKeyInFlightTasks}).Result()
+	if err != nil {
+		return fmt.Errorf("failed to execute checkpoint advancement script: %w", err)
+	}
+
+	// Parse result
+	resultSlice, ok := result.([]interface{})
+	if !ok || len(resultSlice) != 3 {
+		return fmt.Errorf("unexpected script result format: %v", result)
+	}
+
+	updated := resultSlice[0].(int64)
+	cleanedCount := resultSlice[1].(int64)
+	message := resultSlice[2].(string)
+
+	if updated == -1 {
+		// Checkpoint key is missing
+		return ErrCheckpointMissing
+	} else if updated == 1 {
+		r.log.WithField("newCheckpoint", message).
+			WithField("cleanedTasks", cleanedCount).
+			Info("Advanced checkpoint and cleaned up completed tasks")
+	} else {
+		r.log.WithField("reason", message).
+			Debug("Checkpoint not advanced")
+	}
+
+	return nil
+}
+
+func (r *redisProvider) SetCheckpointTimestamp(ctx context.Context, timestamp time.Time) error {
+	// Store timestamp as integer microseconds for precision
+	var timestampStr string
+	if timestamp.IsZero() {
+		timestampStr = "0"
+	} else {
+		timestampStr = strconv.FormatInt(timestamp.UnixMicro(), 10)
+	}
+
+	err := r.client.Set(ctx, redisKeyGlobalCheckpoint, timestampStr, 0).Err()
+	if err != nil {
+		return fmt.Errorf("failed to set checkpoint timestamp: %w", err)
+	}
+
+	r.log.WithField("timestamp", timestamp.Format(time.RFC3339Nano)).Debug("Set checkpoint timestamp in Redis")
+	return nil
+}
+
 func (r *redisProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
 	// Find existing queue or create a temporary one
 	queue := r.findExistingQueue(queueName)
@@ -295,36 +485,44 @@ func calculateBackoff(retryCount int, config RetryConfig) time.Duration {
 }
 
 // formatFailedMember formats a failed member with retry count.
-// Format: "entryID|base64(body)|processID|retryCount"
+// Format: "<streamName>|<entryID>|base64(body)|processID|retryCount"
 // Input: entryID (string), body (bytes), retryCount (int)
 // Returns: formatted string
 func (r *redisQueue) formatFailedMember(entryID string, body []byte, retryCount int) string {
 	// Base64 encode the body to handle any characters including pipe characters
 	encodedBody := base64.StdEncoding.EncodeToString(body)
-	return fmt.Sprintf("%s|%s|%s|%d", entryID, encodedBody, r.processID, retryCount)
+	// Qualify entryID with stream name for consistency with in-flight tracking
+	qualifiedEntryID := fmt.Sprintf("%s|%s", r.name, entryID)
+	return fmt.Sprintf("%s|%s|%s|%d", qualifiedEntryID, encodedBody, r.processID, retryCount)
 }
 
 // parseFailedMember parses a failed member with retry count.
-// Format: "entryID|base64(body)|processID|retryCount"
-// Returns: entryID (string), body (bytes), processID (string), retryCount (int), error
-func (r *redisQueue) parseFailedMember(failedMember string) (string, []byte, string, int, error) {
-	parts := strings.SplitN(failedMember, "|", 4)
-	if len(parts) != 4 {
-		return "", nil, "", 0, fmt.Errorf("invalid failed member format: %s", failedMember)
+// Format: "<streamName>|<entryID>|base64(body)|processID|retryCount"
+// Returns: streamName (string), entryID (string), body (bytes), processID (string), retryCount (int), error
+func (r *redisQueue) parseFailedMember(failedMember string) (string, string, []byte, string, int, error) {
+	parts := strings.SplitN(failedMember, "|", 5)
+	if len(parts) != 5 {
+		return "", "", nil, "", 0, fmt.Errorf("invalid failed member format: %s", failedMember)
 	}
 
-	retryCount, err := strconv.Atoi(parts[3])
+	retryCount, err := strconv.Atoi(parts[4])
 	if err != nil {
-		return "", nil, "", 0, fmt.Errorf("invalid retry count in failed member: %s", failedMember)
+		return "", "", nil, "", 0, fmt.Errorf("invalid retry count in failed member: %s", failedMember)
 	}
 
 	// Decode the base64 body
-	decodedBody, err := base64.StdEncoding.DecodeString(parts[1])
+	decodedBody, err := base64.StdEncoding.DecodeString(parts[2])
 	if err != nil {
-		return "", nil, "", 0, fmt.Errorf("failed to decode base64 body in failed member: %s", failedMember)
+		return "", "", nil, "", 0, fmt.Errorf("failed to decode base64 body in failed member: %s", failedMember)
 	}
 
-	return parts[0], decodedBody, parts[2], retryCount, nil // entryID, body, processID, retryCount
+	// Extract the stream name and original entryID
+	// parts[0] = streamName, parts[1] = entryID
+	streamName := parts[0]
+	entryID := parts[1]
+	processID := parts[3]
+
+	return streamName, entryID, decodedBody, processID, retryCount, nil // streamName, entryID, body, processID, retryCount
 }
 
 func (r *redisQueue) Publish(ctx context.Context, payload []byte, timestamp int64) error {
@@ -385,20 +583,35 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 	defer parentSpan.End()
 
 	// Use XREADGROUP to read messages from consumer group
-	msgs, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
-		Group:    r.groupName,
-		Consumer: r.consumerName,
-		Streams:  []string{r.name, ">"},
-		Count:    1,
-		Block:    5 * time.Second,
-	}).Result()
-	if err == redis.Nil {
-		return nil // idle
-	}
-	if err != nil {
-		parentSpan.RecordError(err)
-		parentSpan.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("failed to read from stream: %w", err)
+	// Retry on NOGROUP error to handle race condition where consumer group isn't ready yet
+	var msgs []redis.XStream
+	var err error
+	maxRetries := 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		msgs, err = r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+			Group:    r.groupName,
+			Consumer: r.consumerName,
+			Streams:  []string{r.name, ">"},
+			Count:    1,
+			Block:    5 * time.Second,
+		}).Result()
+
+		if err == redis.Nil {
+			return nil // idle
+		}
+		if err != nil {
+			// Check if this is a NOGROUP error (consumer group doesn't exist yet)
+			if strings.Contains(err.Error(), "NOGROUP") && attempt < maxRetries-1 {
+				r.log.WithError(err).WithField("attempt", attempt+1).Debug("consumer group not ready, retrying")
+				// Wait a bit before retrying to allow group creation to propagate
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			parentSpan.RecordError(err)
+			parentSpan.SetStatus(codes.Error, err.Error())
+			return fmt.Errorf("failed to read from stream: %w", err)
+		}
+		break // Success, exit retry loop
 	}
 	if len(msgs) == 0 {
 		return nil
@@ -496,12 +709,21 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 				continue
 			}
 
+			// Add to in-flight tasks before processing using message timestamp
+			timestamp := entry.Values["timestamp"]
+			originalEntryID := entry.Values["originalEntryID"]
+			if err := r.addToInFlightTasks(receivedCtx, entry.ID, timestamp, originalEntryID); err != nil {
+				r.log.WithError(err).WithField("entryID", entry.ID).Debug("failed to add to in-flight tasks, continuing processing")
+			}
+
 			// Run handler and collect error if occurs
 			if err := handler(receivedCtx, body, entry.ID, r, log); err != nil {
 				handlerSpan.RecordError(err)
 				handlerSpan.SetStatus(codes.Error, err.Error())
 				handlerErrs = append(handlerErrs, fmt.Errorf("handler error on ID %s: %w", entry.ID, err))
 			}
+
+			// Note: in-flight task removal happens in Complete() method after message acknowledgment
 
 			// Note: We don't delete the message here anymore. The message will be deleted
 			// when Complete() is called, or it will remain pending for timeout processing.
@@ -525,7 +747,7 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 	}
 	// If processing failed, we need to add the message to the failed messages set
 	if processingErr != nil {
-		failedKey := fmt.Sprintf("failed_messages:%s", r.name)
+		failedKey := fmt.Sprintf("%s:%s", redisKeyFailedMessagesPrefix, r.name)
 		// Best-effort read of current retry count; default to 0 on error/miss
 		currentRetryCount := 0
 		if msgs, xrErr := r.client.XRange(ctx, r.name, entryID, entryID).Result(); xrErr == nil && len(msgs) > 0 {
@@ -573,6 +795,32 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 			WithField("backoffDelay", backoffDelay).
 			Info("message processing failed, added to failed set with exponential backoff")
 	}
+	// Get originalEntryID and timestamp from message before deletion for in-flight cleanup
+	var trackingEntryID string = entryID // Default to current entry ID
+	var messageTimestamp float64
+	if msgs, xrErr := r.client.XRange(ctx, r.name, entryID, entryID).Result(); xrErr == nil && len(msgs) > 0 {
+		if originalID, ok := msgs[0].Values["originalEntryID"]; ok {
+			if origIDStr, ok := originalID.(string); ok && origIDStr != "" {
+				trackingEntryID = origIDStr
+			}
+		}
+		// Extract timestamp from message for completion tracking
+		if timestamp, ok := msgs[0].Values["timestamp"]; ok {
+			switch v := timestamp.(type) {
+			case string:
+				if ts, parseErr := strconv.ParseInt(v, 10, 64); parseErr == nil {
+					messageTimestamp = float64(ts)
+				}
+			case int64:
+				messageTimestamp = float64(v)
+			case int:
+				messageTimestamp = float64(v)
+			default:
+				r.log.WithField("entryID", entryID).WithField("timestampType", fmt.Sprintf("%T", v)).Debug("unexpected timestamp type in message")
+			}
+		}
+	}
+
 	// Ack first, then delete the message entry
 	if err := r.client.XAck(ctx, r.name, r.groupName, entryID).Err(); err != nil {
 		return fmt.Errorf("failed to ack message ID %s after completion: %w", entryID, err)
@@ -580,7 +828,98 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 	if _, err := r.client.XDel(ctx, r.name, entryID).Result(); err != nil {
 		return fmt.Errorf("failed to delete message ID %s after completion: %w", entryID, err)
 	}
+
+	// Mark task completion based on processing result
+	if processingErr == nil {
+		// Successful completion - mark as completed for checkpoint tracking
+		r.markInFlightTaskComplete(ctx, trackingEntryID, messageTimestamp)
+	}
+	// Note: Failed tasks remain in in_flight_tasks as incomplete (no ":completed" suffix)
+	// This ensures they act as barriers preventing checkpoint advancement past their timestamp
+
 	return nil
+}
+
+// addToInFlightTasks adds a message to the in-flight tasks tracking set
+func (r *redisQueue) addToInFlightTasks(ctx context.Context, entryID string, timestamp interface{}, originalEntryID interface{}) error {
+	// Extract timestamp from message (should be microseconds)
+	var score float64
+	switch v := timestamp.(type) {
+	case int64:
+		score = float64(v)
+	case int:
+		score = float64(v)
+	case string:
+		if ts, err := strconv.ParseInt(v, 10, 64); err == nil {
+			score = float64(ts)
+		} else {
+			return fmt.Errorf("invalid timestamp format: %s", v)
+		}
+	default:
+		return fmt.Errorf("unsupported timestamp type: %T", v)
+	}
+
+	// Use original entry ID if this is a retry, otherwise use current entry ID
+	memberID := entryID
+	if originalEntryID != nil {
+		if origID, ok := originalEntryID.(string); ok && origID != "" {
+			memberID = origID
+		}
+	}
+
+	// Qualify the member ID with stream name to avoid collisions across streams
+	qualifiedMemberID := fmt.Sprintf("%s|%s", r.name, memberID)
+
+	// Add to in-flight tasks sorted set
+	err := r.client.ZAdd(ctx, redisKeyInFlightTasks, redis.Z{
+		Score:  score,
+		Member: qualifiedMemberID,
+	}).Err()
+
+	return err
+}
+
+// markInFlightTaskComplete marks a task as completed by modifying its member ID in-place
+func (r *redisQueue) markInFlightTaskComplete(ctx context.Context, entryID string, timestamp float64) {
+	if entryID == "" {
+		return
+	}
+
+	// Qualify the entry ID with stream name to match the qualified member ID used in addToInFlightTasks
+	qualifiedEntryID := fmt.Sprintf("%s|%s", r.name, entryID)
+	r.markInFlightTaskCompleteWithQualifiedID(ctx, qualifiedEntryID, timestamp)
+}
+
+// markInFlightTaskCompleteWithQualifiedID marks a task as completed using a pre-qualified entry ID
+func (r *redisQueue) markInFlightTaskCompleteWithQualifiedID(ctx context.Context, qualifiedEntryID string, timestamp float64) {
+	if qualifiedEntryID == "" {
+		return
+	}
+
+	r.log.WithField("qualifiedEntryID", qualifiedEntryID).WithField("timestamp", timestamp).Debug("marking in-flight task as completed")
+
+	// Use Lua script to atomically remove original entry and add completed entry
+	luaScript := `
+		local key = KEYS[1]
+		local entryID = ARGV[1]
+		local timestamp = tonumber(ARGV[2])
+
+		-- Remove the original entry
+		redis.call('ZREM', key, entryID)
+
+		-- Add the completed entry
+		redis.call('ZADD', key, timestamp, entryID .. ':completed')
+
+		return 1
+	`
+
+	err := r.client.Eval(ctx, luaScript, []string{redisKeyInFlightTasks}, qualifiedEntryID, timestamp).Err()
+
+	if err != nil {
+		r.log.WithError(err).WithField("qualifiedEntryID", qualifiedEntryID).Debug("failed to mark in-flight task as completed")
+	} else {
+		r.log.WithField("qualifiedEntryID", qualifiedEntryID).Debug("successfully marked in-flight task as completed")
+	}
 }
 
 func (r *redisQueue) Close() {
@@ -764,7 +1103,7 @@ func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig
 			continue
 		}
 		// Parse the stored entry
-		entryID, body, processID, retryCount, err := r.parseFailedMember(failedMember)
+		streamName, entryID, body, processID, retryCount, err := r.parseFailedMember(failedMember)
 		if err != nil {
 			// Truncate preview to avoid logging huge payloads
 			preview := failedMember
@@ -799,6 +1138,13 @@ func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig
 				r.log.WithField("entryID", entryID).WithError(err).
 					Error("failed to remove permanently failed message from failed set")
 			}
+
+			// Mark task as completed in in-flight tracking so checkpoint can advance past it
+			// Use current time as timestamp since we're permanently failing this task
+			// Use qualified entry ID with original stream name for in-flight tracking
+			qualifiedEntryID := fmt.Sprintf("%s|%s", streamName, entryID)
+			r.markInFlightTaskCompleteWithQualifiedID(ctx, qualifiedEntryID, float64(time.Now().UnixMicro()))
+
 			continue
 		}
 
@@ -815,33 +1161,36 @@ func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig
 			// Already claimed by another worker
 			continue
 		}
-		// Re-publish to the stream using Redis server time
+		// Re-publish to the original stream using Redis server time
 		values := map[string]interface{}{
-			"body":       body,
-			"timestamp":  redisTime.UnixMicro(),
-			"retry":      "true",
-			"retryCount": retryCount,
+			"body":            body,
+			"timestamp":       redisTime.UnixMicro(),
+			"retry":           "true",
+			"retryCount":      retryCount,
+			"originalEntryID": entryID, // Preserve original entry ID for in-flight tracking
 		}
 		newEntryID, err := r.client.XAdd(ctx, &redis.XAddArgs{
-			Stream: r.name,
+			Stream: streamName, // Retry to the original stream where the message failed
 			Values: values,
 		}).Result()
 		if err != nil {
 			// Restore the failed member with its original score on error
 			_, _ = r.client.ZAdd(ctx, failedKey, redis.Z{Score: z.Score, Member: failedMember}).Result()
 			r.log.
+				WithField("originalStream", streamName).
 				WithField("entryID", entryID).
 				WithField("processID", processID).
 				WithError(err).
-				Error("failed to add retry message to stream; restored to failed set")
+				Error("failed to add retry message to original stream; restored to failed set")
 			continue
 		}
 		r.log.
+			WithField("originalStream", streamName).
 			WithField("originalEntryID", entryID).
 			WithField("newEntryID", newEntryID).
 			WithField("processID", processID).
 			WithField("retryCount", retryCount).
-			Info("retried failed message")
+			Info("retried failed message to original stream")
 		retriedCount++
 	}
 
